@@ -16,3 +16,5 @@ kittui-core = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
+ratatui = { workspace = true }
+ratakittui = { path = "../ratakittui", version = "0.1.0" }

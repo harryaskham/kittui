@@ -449,6 +449,8 @@ dependencies = [
  "clap",
  "kittui",
  "kittui-core",
+ "ratakittui",
+ "ratatui",
  "serde_json",
 ]
 

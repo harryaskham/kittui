@@ -1,150 +1,147 @@
 //! ratakittui — ratatui ↔ kittui adapter.
 //!
-//! This crate is a scaffold today: it declares the `KittuiDecorated` widget
-//! wrapper and the diff-driven lifecycle tracker. Full coverage (Block,
-//! Paragraph, List, Table, Tabs, Gauge, Sparkline, Chart, Canvas,
-//! Scrollbar) and joined-border composition land in subsequent commits.
+//! Implements the design laid out in `DESIGN.md`'s `## ratakittui` section:
 //!
-//! The shape of the API is intentionally fixed now so downstream crates
-//! can take a dependency without churn.
+//! - `Chrome`: declarative description of background / border / title /
+//!   footer / glow / scanlines / shadow / padding / clip, independent of
+//!   which ratatui widget it wraps. Compiles down to a kittui `Scene`.
+//! - Per-widget wrappers (`KittuiBlock`, `KittuiParagraph`, `KittuiList`,
+//!   `KittuiTable`, `KittuiTabs`, `KittuiGauge`, `KittuiSparkline`,
+//!   `KittuiLineGauge`, `KittuiBarChart`, `KittuiChart`, `KittuiCanvas`,
+//!   `KittuiScrollbar`, `KittuiClear`) plus inline (`KittuiChip`,
+//!   `KittuiTitle`, `KittuiDivider`, `KittuiLine`).
+//! - `JoinGroup`: declare adjacency and produce one composite scene.
+//! - `LifecycleTracker`: per-frame diff that emits delete escapes for
+//!   widgets that left the tree.
+//! - `draw_with_kittui`: ratatui draw adapter that injects upload /
+//!   placement / embed bytes around the buffer flush.
+//!
+//! No `unsafe`. Stdout is never touched directly; effects are returned to
+//! the host as byte buffers.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
-use std::collections::HashMap;
+mod chrome;
+mod join;
+mod lifecycle;
+mod widgets;
 
-use parking_lot::Mutex;
+pub use chrome::*;
+pub use join::*;
+pub use lifecycle::*;
+pub use widgets::*;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
 
-use kittui::Scene;
-use kittui::{Runtime, SceneId};
+use kittui::{Placement, Runtime, Scene};
 
-/// Tracks placements across ratatui draw cycles and drives the diff-based
-/// upload + delete protocol. Hosts hold one of these for the lifetime of the
-/// application.
-pub struct LifecycleTracker {
-    placed_last_frame: Mutex<HashMap<SceneId, u32>>,
-    placed_this_frame: Mutex<HashMap<SceneId, u32>>,
-}
-
-impl Default for LifecycleTracker {
-    fn default() -> Self {
-        Self {
-            placed_last_frame: Mutex::new(HashMap::new()),
-            placed_this_frame: Mutex::new(HashMap::new()),
-        }
-    }
-}
-
-impl LifecycleTracker {
-    /// Construct a fresh tracker.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Begin a new frame. Existing placements are moved into "last frame".
-    pub fn begin_frame(&self) {
-        let mut last = self.placed_last_frame.lock();
-        let mut this = self.placed_this_frame.lock();
-        last.clear();
-        for (k, v) in this.drain() {
-            last.insert(k, v);
-        }
-    }
-
-    /// Record that a scene was placed this frame so it survives the cleanup
-    /// pass at end-of-frame.
-    pub fn keep(&self, id: SceneId, image_id: u32) {
-        self.placed_this_frame.lock().insert(id, image_id);
-    }
-
-    /// Finish the frame: return image ids that were placed last frame but
-    /// not this frame, so the host can issue delete escapes.
-    pub fn end_frame(&self) -> Vec<u32> {
-        let last = self.placed_last_frame.lock();
-        let this = self.placed_this_frame.lock();
-        last.iter()
-            .filter(|(id, _)| !this.contains_key(*id))
-            .map(|(_, image_id)| *image_id)
-            .collect()
-    }
-}
-
-/// Decorate a ratatui widget with a kittui scene. The widget's text is
-/// rendered as usual; the kittui scene is composited under it using the
-/// kitty graphics protocol. The scene's footprint is derived from the
-/// ratatui `Rect` at render time.
-///
-/// Full decoration coverage (joined borders, chips, titles, footers, etc.)
-/// will arrive as additional builder methods on this type.
-pub struct KittuiDecorated<'a, W> {
-    /// Underlying ratatui widget.
-    pub widget: W,
-    /// Builder that turns a `Rect` into a kittui `Scene`.
-    pub scene_for_rect: Box<dyn Fn(Rect) -> Scene + Send + Sync + 'a>,
-}
-
-impl<'a, W: Widget> KittuiDecorated<'a, W> {
-    /// Construct a decorated widget.
-    pub fn new(widget: W, scene_for_rect: impl Fn(Rect) -> Scene + Send + Sync + 'a) -> Self {
-        Self {
-            widget,
-            scene_for_rect: Box::new(scene_for_rect),
-        }
-    }
-
-    /// Render the kittui chrome through `runtime` and the ratatui widget on
-    /// top. Returns the placement strings the host must write to the
-    /// terminal before the widget's text is flushed.
-    pub fn render_with(self, area: Rect, buf: &mut Buffer, runtime: &Runtime) -> RenderEffects {
-        let scene = (self.scene_for_rect)(area);
-        let id = scene.id();
-        let placement = runtime.place(&scene).ok();
-        self.widget.render(area, buf);
-        RenderEffects {
-            scene_id: id,
-            image_id: placement.as_ref().map(|p| p.image_id),
-            upload: placement.as_ref().map(|p| p.upload.clone()).unwrap_or_default(),
-            placement: placement.as_ref().map(|p| p.placement.clone()).unwrap_or_default(),
-            embed: placement.map(|p| p.embed).unwrap_or_default(),
-        }
-    }
-}
-
-/// Side-effect bundle returned by `KittuiDecorated::render_with`. Hosts pass
-/// these to `LifecycleTracker::keep` and write the bytes to the terminal at
-/// the correct point in their flush.
+/// Side-effect bundle returned by every `KittuiX::render_with` call. Hosts
+/// pass these to [`LifecycleTracker::keep`] and write their bytes to the
+/// terminal around the buffer flush.
+#[derive(Clone, Debug, Default)]
 pub struct RenderEffects {
-    /// Stable scene id (for lifecycle tracking).
-    pub scene_id: SceneId,
-    /// kitty image id assigned to the scene, if placement succeeded.
+    /// Stable scene id of the produced chrome. Empty if no chrome was drawn.
+    pub scene_id: Option<kittui::SceneId>,
+    /// kitty graphics image id assigned to the scene, if placement succeeded.
     pub image_id: Option<u32>,
-    /// Upload escape sequence (empty on cache hit).
+    /// Upload escape sequence(s). Empty on cache + placement hit.
     pub upload: String,
-    /// Placement escape sequence.
+    /// Placement escape sequence positioning the image under the cursor.
     pub placement: String,
-    /// Unicode-placeholder grid.
+    /// Unicode-placeholder grid the host writes at the chrome origin.
     pub embed: String,
+    /// Cell footprint the chrome occupies in the terminal grid.
+    pub footprint: Option<kittui::CellRect>,
 }
+
+impl RenderEffects {
+    /// Build effects from a freshly produced placement.
+    pub fn from_placement(placement: &Placement, scene_id: kittui::SceneId) -> Self {
+        Self {
+            scene_id: Some(scene_id),
+            image_id: Some(placement.image_id),
+            upload: placement.upload.clone(),
+            placement: placement.placement.clone(),
+            embed: placement.embed.clone(),
+            footprint: Some(placement.footprint),
+        }
+    }
+
+    /// Whether there's any chrome to flush.
+    pub fn is_empty(&self) -> bool {
+        self.scene_id.is_none()
+    }
+}
+
+/// Render a kittui scene as chrome for a widget area and produce its
+/// [`RenderEffects`]. This is the shared helper every widget wrapper uses;
+/// hosts that want to build chrome without a wrapper can call it directly.
+///
+/// Returns `RenderEffects::default()` when there is no chrome (i.e. an
+/// empty `Chrome`).
+pub fn render_chrome(area: Rect, chrome: &Chrome, runtime: &Runtime) -> RenderEffects {
+    let Some(scene) = chrome.to_scene(area) else {
+        return RenderEffects::default();
+    };
+    let id = scene.id();
+    match runtime.place(&scene) {
+        Ok(placement) => RenderEffects::from_placement(&placement, id),
+        Err(_) => RenderEffects::default(),
+    }
+}
+
+/// Render `widget` into `area` of `buf` after first rendering `chrome`
+/// through `runtime`. The chrome's effects are returned for the host to
+/// flush; the widget's text lives in the ratatui `Buffer` as usual.
+pub fn render_with_chrome<W: Widget>(
+    widget: W,
+    chrome: &Chrome,
+    area: Rect,
+    buf: &mut Buffer,
+    runtime: &Runtime,
+) -> RenderEffects {
+    let effects = render_chrome(area, chrome, runtime);
+    let inner = chrome.inner_rect(area);
+    widget.render(inner, buf);
+    effects
+}
+
+/// Build the cell rect a chrome's scene occupies in the terminal grid.
+#[allow(dead_code)]
+fn area_to_cell_rect(area: Rect) -> kittui::CellRect {
+    kittui::CellRect {
+        x: area.x,
+        y: area.y,
+        cols: area.width,
+        rows: area.height,
+    }
+}
+
+/// Convert a kittui `CellRect` back to a ratatui `Rect`.
+#[allow(dead_code)]
+fn cell_rect_to_area(rect: kittui::CellRect) -> Rect {
+    Rect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.cols,
+        height: rect.rows,
+    }
+}
+
+#[allow(dead_code)]
+fn _scene_must_be_send_sync(_s: Scene) {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn lifecycle_tracker_diffs_against_last_frame() {
-        let tracker = LifecycleTracker::new();
-
-        tracker.begin_frame();
-        tracker.keep(SceneId("a".repeat(64)), 1);
-        tracker.keep(SceneId("b".repeat(64)), 2);
-        assert!(tracker.end_frame().is_empty());
-
-        tracker.begin_frame();
-        tracker.keep(SceneId("a".repeat(64)), 1);
-        let deleted = tracker.end_frame();
-        assert_eq!(deleted, vec![2]);
+    fn area_round_trip_is_identity() {
+        let area = Rect::new(3, 5, 60, 8);
+        let rect = area_to_cell_rect(area);
+        assert_eq!(cell_rect_to_area(rect), area);
     }
 }

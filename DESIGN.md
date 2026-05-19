@@ -173,15 +173,175 @@ repo; CI rejects unannounced changes.
 
 ## ratakittui
 
-A separate crate covering full decoration of ratatui primitives. Every widget
-that has chrome (border, background, title, footer, scrollbar, chip-style
-inline text) gets a `KittuiDecorated<W>` wrapper. Joined borders and shared
-backgrounds are computed at scene-composition time via `Composite` + `Mask`
-nodes so the underlying renderer stays primitive.
+`ratakittui` is a separate crate that wires kittui into ratatui's draw cycle
+with two responsibilities and nothing else: **decoration** (turn any
+ratatui-renderable into a kittui-chromed equivalent) and **lifecycle**
+(upload-once, place-while-visible, delete-when-gone, driven by a per-frame
+diff).
 
-Lifecycle is integrated with `ratatui::Terminal::draw`: kittui placements
-participate in the draw cycle, are uploaded only when ids change, and are
-deleted when their widgets leave the tree.
+The crate's design rule mirrors the library's: ratakittui owns the
+ratatui-specific glue and the chrome composition strategy. The actual paint
+shapes still live in `kittui-core`. ratakittui never invents a new node
+type; it only composes existing ones.
+
+### Decoration model
+
+ratakittui's primary user-facing type is a builder, `Chrome`, that describes
+the graphical envelope around a ratatui widget independently of which
+widget it is. Any combination is valid; unset fields are no-ops.
+
+```rust
+pub struct Chrome {
+    pub background: Option<Background>,   // solid / linear / radial / image
+    pub border:     Option<Border>,       // style, width, color, corner radii, alignment, join policy
+    pub title:      Option<Strip>,        // top strip with gradient/chip text
+    pub footer:     Option<Strip>,        // bottom strip
+    pub glow:       Option<Glow>,         // radial accent, optional pulse animation
+    pub scanlines:  Option<Scanlines>,    // alpha + period
+    pub shadow:     Option<Shadow>,       // drop shadow under chrome
+    pub padding:    Padding,              // cells reserved between chrome and inner widget
+    pub clip:       ClipPolicy,           // strict / overflow / overdraw, default strict
+}
+```
+
+`Chrome` produces a kittui `Scene` from a ratatui `Rect`. The chrome is
+drawn first; the ratatui widget renders on top into the inner `Rect`
+(post-padding). Chrome and inner content never share cells — the chrome
+reserves edge cells via padding so the widget never paints over its own
+border.
+
+### Coverage matrix (v1)
+
+ratakittui covers every ratatui primitive that has chrome or styled inline
+text. Each entry is a thin `KittuiX` wrapper that takes the underlying
+ratatui type and a `Chrome` (or a smaller per-widget config that compiles
+to a Chrome). The wrappers do not subclass ratatui types; they implement
+`Widget` so they slot into existing `Frame::render_widget` calls.
+
+| ratatui type      | ratakittui wrapper           | kittui chrome surface                                    |
+|-------------------|------------------------------|----------------------------------------------------------|
+| `Block`           | `KittuiBlock`                | full Chrome (background, border, title, footer, glow)    |
+| `Paragraph`       | `KittuiParagraph`            | Chrome around the paragraph viewport                     |
+| `List`            | `KittuiList`                 | Chrome + per-row selection chips + alternating row tint  |
+| `Table`           | `KittuiTable`                | Chrome + per-column dividers + selection-row glow        |
+| `Tabs`            | `KittuiTabs`                 | Chrome + per-tab chip + active-tab underline gradient    |
+| `Gauge`           | `KittuiGauge`                | Chrome + filled bar gradient + glow at the fill front    |
+| `Sparkline`       | `KittuiSparkline`            | Chrome + line glow accent under the spark                |
+| `LineGauge`       | `KittuiLineGauge`            | Chrome + gradient line + chip endcap                     |
+| `BarChart`        | `KittuiBarChart`             | Chrome + per-bar gradient + baseline glow                |
+| `Chart`           | `KittuiChart`                | Chrome + axis glow + grid tinting                        |
+| `Canvas`          | `KittuiCanvas`               | Chrome around an arbitrary user canvas                   |
+| `Scrollbar`       | `KittuiScrollbar`            | Chrome + gradient track + chip-style thumb               |
+| `Clear`           | `KittuiClear`                | Chrome-only: render a tinted clear panel                 |
+| inline text spans | `KittuiChip`, `KittuiTitle`, | Standalone single-line text elements with chrome         |
+|                   | `KittuiDivider`, `KittuiLine`|                                                          |
+
+`KittuiChip`, `KittuiTitle`, `KittuiDivider`, `KittuiLine` are inline-only
+widgets (height 1) so callers can mount them in `Layout`-laid grids without
+any containing block.
+
+### Joined borders and shared backgrounds
+
+ratakittui supports declaring that two or more widgets share chrome. A
+`JoinGroup` collects adjacent `Chrome` instances; on resolution it walks
+the group, computes the union background and the merged stroke geometry,
+and emits a single composite `Scene` per group. The constituent widgets
+still render their inner content independently. Joined borders are
+implemented at the scene level using existing kittui primitives:
+
+- The union background becomes one or more `Rect` / `Gradient` layers under
+  every joined cell.
+- The merged stroke becomes a `Composite { Normal, [strokes…] }` whose
+  shared edges are subtracted via a `Mask` derived from the neighbour's
+  rect. The result is a continuous border that crosses widget boundaries
+  without overdraw.
+- Corner radii at internal junctions are zeroed so neighbours meet flush;
+  outer corners keep the requested radius.
+
+A `JoinGroup` is just data. ratakittui ships a `join!` macro for ergonomics
+but nothing about it leaks past the scene boundary.
+
+### Lifecycle
+
+ratakittui owns a `LifecycleTracker` that is held by the host across draw
+cycles. The per-frame protocol is fixed:
+
+1. `tracker.begin_frame()` — moves last frame's placements into a "prev" map.
+2. For each `KittuiX::render`, ratakittui:
+   - builds the scene from the `Chrome` + `Rect`,
+   - calls `runtime.place(&scene)`,
+   - calls `tracker.keep(scene_id, image_id, footprint)` so the placement
+     survives the cleanup pass,
+   - writes the placement's `upload + placement + embed` strings into the
+     ratatui buffer's `extra_payload` channel (or a side queue the host
+     flushes after the buffer flush — see Integration below).
+3. `tracker.end_frame()` returns the set of `(image_id)` that were placed
+   last frame but not this frame; the host emits `kittui::Runtime::unplace`
+   escapes for each. No re-upload ever happens between cycles when the
+   scene id hasn't changed; only the cheap placement escape is re-emitted
+   when the footprint moves.
+
+This cycle is what enforces the project's hard performance contract:
+
+- *Static frame:* cache hit on every scene → zero rasterization, zero base64
+  encoding, zero kitty upload bytes. Only placement escapes (a few dozen
+  bytes per widget) are emitted.
+- *Mutating frame:* only scenes whose id changed re-upload; the rest still
+  hit the cache.
+- *Animated scene:* uploaded once on first frame, replayed by the terminal
+  natively. ratakittui never re-uploads frames during animation; widgets
+  that need to mutate animation parameters (e.g. dynamic glow color) get a
+  new scene id and the renderer treats it as a brand-new animation.
+
+### Integration with `ratatui::Terminal::draw`
+
+There are two equally-supported integration modes; hosts pick the one that
+fits their event loop.
+
+- **`draw_with_kittui` adapter** (preferred). ratakittui provides a
+  `draw_with_kittui(&mut terminal, &runtime, &tracker, |frame| { ... })`
+  wrapper that calls `terminal.draw`, hooks the buffer flush to inject
+  kittui upload/placement escapes before each affected row's text, and runs
+  the lifecycle cleanup pass at end-of-frame. Hosts that already drive
+  ratatui this way change one function call.
+- **Manual mode**. Hosts that own their own flush can call
+  `tracker.begin_frame()`, render widgets that push effects into a queue,
+  flush the terminal as usual, then drain the queue and write its bytes,
+  then call `tracker.end_frame()` and emit deletes. ratakittui exposes the
+  queue type publicly for this case.
+
+In both modes ratakittui never touches stdout directly — it returns byte
+buffers the host writes. This is what makes the adapter safe for tmux
+passthrough hosts and for ratatui's `Terminal::with_options` configurations
+that target alt-screen buffers or files.
+
+### Inner widget interaction with chrome
+
+The inner widget is always rendered into the post-padding inner `Rect`.
+The wrappers expose a `style_from_chrome()` helper that derives a default
+ratatui `Style` (fg/bg) from the chrome palette so text contrasts the
+background without the caller wiring it manually. Hosts can override or
+ignore this.
+
+For widgets with their own borders (`Block::borders`), ratakittui asserts
+at construction time that the inner widget does *not* draw a redundant
+ratatui-side border when a kittui border is requested. This is a hard
+error, not a warning — running both produces a visibly doubled outline,
+and the JS Pi implementation hit this bug repeatedly.
+
+### What this enables
+
+- Drop-in chrome on any existing ratatui app: replace `Block` with
+  `KittuiBlock`, set a `Chrome`, get gradients/rounded corners/glow/joined
+  borders.
+- Per-cell graphical decoration for inline text: `KittuiChip`,
+  `KittuiDivider`, `KittuiLine`, `KittuiTitle` mount in any `Layout`.
+- 60 fps interactive UIs because the lifecycle tracker guarantees no
+  redundant uploads; the only per-frame cost is small placement escapes.
+- A correctness-by-construction story for caco-style apps: scene id
+  derived from inputs, cache hits trivially when inputs don't change,
+  joined borders computed once at composition time, animation amortised
+  across the entire terminal session.
 
 ## Cache
 
