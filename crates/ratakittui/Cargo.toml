@@ -1,0 +1,13 @@
+[package]
+name = "ratakittui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "ratatui adapter for kittui (decoration + lifecycle scaffold)."
+
+[dependencies]
+kittui = { workspace = true }
+kittui-core = { workspace = true }
+ratatui = { workspace = true }
+parking_lot = { workspace = true }

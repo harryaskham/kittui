@@ -1,0 +1,13 @@
+[package]
+name = "kittui-kitty"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "kitty graphics protocol encoder and placeholder builder for kittui."
+
+[dependencies]
+kittui-core = { workspace = true }
+base64 = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,11 @@
+[package]
+name = "kittui-render-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GPU renderer scaffold for kittui (wgpu, to be filled in)."
+
+[dependencies]
+kittui-core = { workspace = true }
+thiserror = { workspace = true }

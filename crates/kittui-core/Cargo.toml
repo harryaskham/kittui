@@ -1,0 +1,13 @@
+[package]
+name = "kittui-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Scene, geometry, color, hashing, and animation primitives for kittui."
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+blake3 = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "kittui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust facade for kittui: Runtime, builders, and primitive helpers."
+
+[dependencies]
+kittui-core = { workspace = true }
+kittui-render-cpu = { workspace = true }
+kittui-render-gpu = { workspace = true }
+kittui-kitty = { workspace = true }
+kittui-cache = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }

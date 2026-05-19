@@ -1,0 +1,15 @@
+[package]
+name = "kittui-render-cpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Reference CPU renderer for kittui scenes."
+
+[dependencies]
+kittui-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+flate2 = { workspace = true }
+crc32fast = { workspace = true }
+rayon = { workspace = true }
