@@ -77,6 +77,9 @@ kittui/
 
 ## Scene model
 
+The `Scene` is the only shape that crosses any boundary in kittui — Rust,
+JSON, C ABI, cache key. Everything else is plumbing.
+
 ```rust
 pub struct Scene {
     pub footprint: CellRect,       // columns × rows
@@ -86,34 +89,72 @@ pub struct Scene {
 }
 
 pub enum Node {
-    Rect      { rect: Px, fill: Paint, stroke: Option<Stroke>, corners: Corners },
-    Gradient  { rect: Px, stops: Vec<Stop>, direction: Direction },
-    Glow      { center: Px, radius_px: f32, color: Rgba, intensity: f32 },
-    Scanlines { rect: Px, alpha: u8, period_px: u8 },
-    Image     { rect: Px, src: ImageRef, fit: Fit, tint: Option<Rgba> },
-    Group     { transform: Affine2, opacity: u8, children: Vec<Node> },
+    Rect      { rect: PxRect, fill: Paint, stroke: Option<Stroke>, corners: Corners },
+    Gradient  { rect: PxRect, stops: Vec<Stop>, direction: Direction },
+    Glow      { rect: PxRect, center_x_frac, center_y_frac, radius_frac,
+                color: Rgba, intensity: f32 },
+    Scanlines { rect: PxRect, alpha: u8, period_px: u8 },
+    Image     { rect: PxRect, src: ImageRef, fit: Fit, tint: Option<Rgba> },
+    Group     { opacity: f32, children: Vec<Node> },
     Composite { mode: BlendMode, children: Vec<Node> },
     Mask      { mask: Box<Node>, child: Box<Node> },
-    Clip      { rect: Px, child: Box<Node> },
-}
-
-pub struct Animation {
-    pub frames: u16,               // ≥ 2
-    pub cycle_ms: u32,             // full loop duration
-    pub curve: PhaseCurve,         // Linear, EaseInOut, Pulse{harmonics}, Custom
-    pub loops: u32,                // 0 = forever
+    Clip      { rect: PxRect, child: Box<Node> },
 }
 ```
 
-`Scene` is `serde`-serializable. Its content hash (blake3) is the image id
-source. JSON form is the cross-language interchange between CLI, FFI and TS.
+### Identity and normalization
+
+`Scene::id()` returns a blake3 digest of the canonical-JSON encoding of the
+scene. Object keys are sorted by serde's default; floating-point fields are
+written with full precision so semantically equal scenes share an id.
+
+Before hashing, the scene goes through a deterministic *normalization* pass:
+
+- Layers with `Node::Group { opacity: 0 }` or empty `children` are dropped.
+- Adjacent `Composite { Normal, … }` children with no intervening blend
+  modes are flattened.
+- Pixel rects are snapped to subpixel precision (`f32` round-to-nearest at
+  1/64 px) to make scenes that differ by floating-point noise alone still
+  collide on cache.
+- `Stop` lists are clamped to `[0,1]` and stable-sorted by `offset`.
+- Stroke `width_px` of zero is replaced by `None`; `Paint::Solid(transparent)`
+  becomes `None` where structurally valid.
+
+Normalization happens in `kittui-core` once per scene; the renderer and the
+cache see only the post-normal form. The blake3 hash is truncated to 32 bits
+to produce the kitty image id; collisions are bounded by the content-address
+guarantee and the local registry's eviction-on-conflict pass.
+
+### Builders
+
+`kittui::scene` provides primitive builders (`background_solid`,
+`background_linear`, `rounded_rect`, `glow_layer`). The library intentionally
+does *not* ship higher-level affordances like "panel" or "chip" — those
+belong in consumer code (the CLI, the showcase, ratakittui). The library
+stays small and orthogonal.
+
+JSON is the cross-language interchange form. Every `Node` variant is
+`#[serde(tag = "kind", rename_all = "snake_case")]`. The schema is part of
+the stable surface; breaking it requires a major version bump and an
+`xtask/schema-snapshot` update.
 
 ### Animation = native kitty loop
 
-The renderer expands `Animation` into N frames at phases derived from `curve`.
-Frame i is independent; each frame is uploaded once with a frame index and the
-kitty protocol's animation table is configured (`a=a, r=...`). The terminal
-animates with no further escape traffic. We assert frame loop closure:
+`Animation` is declarative: it carries `frames`, `cycle_ms`, a `PhaseCurve`,
+and a `loops` count. The renderer expands the curve into per-frame phases
+and rasterizes each frame exactly once. The kitty layer uploads frames in
+order with `a=t, r=…` and configures playback with `a=a, i=…, s=loops, c=N`.
+After the last upload the terminal animates indefinitely with no further
+escape traffic.
+
+`PhaseCurve::closes_loop()` is invoked at scene construction; animations
+whose first and last phases don't agree are rejected at `Animation::pulse(…)`
+builder time and at FFI ingestion. `Pulse` and `Custom` curves with matching
+endpoints pass; raw `Linear` and `EaseInOut` are accepted only when wrapping
+code clamps them appropriately (typically by sampling `[0..1]` and folding
+back).
+
+The contract is:
 
 ```
 assert frame_for_phase(0.0) ≡ frame_for_phase(1.0)  (mod ε)
@@ -121,12 +162,22 @@ assert frame_for_phase(0.0) ≡ frame_for_phase(1.0)  (mod ε)
 
 so APNG-style perfect looping is mechanical.
 
+### Cell-size & HiDPI
+
+`CellSize { width_px, height_px }` is supplied by the host (via
+`TerminalInfo`) or defaulted to `8 × 16`. Scenes record their cell size at
+construction time; the cache key therefore changes when the host switches
+to a HiDPI cell metric, so HiDPI re-renders happen automatically without
+explicit invalidation. The renderer always rasterizes at the recorded
+pixel size; kitty resamples to the cell footprint.
+
 ## Public crate facade
 
 ```rust
 let runtime = kittui::Runtime::builder()
     .terminal(TerminalInfo::detect_or_default())
     .cache_dir(paths::default_cache_dir())
+    .renderer(RendererKind::Auto)
     .build()?;
 
 let scene = kittui::scene()
@@ -140,233 +191,510 @@ let scene = kittui::scene()
     .build();
 
 let placement = runtime.place(&scene)?;
-print!("{}{}", placement.upload_escape(), placement.embed_text("settling"));
+print!("{}{}{}", placement.upload, placement.placement, placement.embed);
 ```
 
-## CLI
+`Runtime::place` is the only entry point most users need. It walks the
+diagram: normalize → hash → look up cache → render-if-miss → store →
+upload-if-not-already-placed → emit placement escape → return embeddable
+text. Every step in the diagram has an early-out for cached state, so the
+expected cost of a re-place is a single hash and a small string format.
 
-```
-kittui box -x 3 -y 5 -w 100% -h 5 \
-    --fg "#72fbd6" --bg "#08111fcc" \
-    --radius 6 --border 1.5 --border-color "#00d8ff" \
-    --glow "#00d8ff:0.6" --scanlines 0.15 \
-    --label "settling"
+A `Composition` higher-level API (proposed) lets hosts declare an entire
+frame's set of scenes at once and receive a diff against the previous
+frame; ratakittui's `LifecycleTracker` already implements this pattern in
+miniature.
 
-kittui gradient -w 100% -h 1 --left "#00d8ff" --right "#b48cff" --fade
-kittui panel --tone assistant -w 60 -h 9 --animate pulse:8@800ms
-kittui image --src logo.png -w 24 -h 6 --tint "#00d8ff88"
-kittui compose scene.json
-kittui place --id 0xABCD --rows 5 --cols 60
-kittui cache info | gc | clear
-kittui probe
-```
+## kitty graphics protocol (`kittui-kitty`)
 
-All commands accept `--json` for programmatic chaining and `--cache-dir` to
-override storage.
-
-## FFI
-
-Opaque handles + JSON-blob scenes. Strings are UTF-8 with explicit lengths.
-Errors via out-param structs. Every entry point is `catch_unwind`-wrapped.
-ABI versioned via `kittui_abi_version()`; cbindgen snapshot checked into the
-repo; CI rejects unannounced changes.
-
-## ratakittui
-
-`ratakittui` is a separate crate that wires kittui into ratatui's draw cycle
-with two responsibilities and nothing else: **decoration** (turn any
-ratatui-renderable into a kittui-chromed equivalent) and **lifecycle**
-(upload-once, place-while-visible, delete-when-gone, driven by a per-frame
-diff).
-
-The crate's design rule mirrors the library's: ratakittui owns the
-ratatui-specific glue and the chrome composition strategy. The actual paint
-shapes still live in `kittui-core`. ratakittui never invents a new node
-type; it only composes existing ones.
-
-### Decoration model
-
-ratakittui's primary user-facing type is a builder, `Chrome`, that describes
-the graphical envelope around a ratatui widget independently of which
-widget it is. Any combination is valid; unset fields are no-ops.
+`kittui-kitty` is the only crate that knows about escape sequences. Its
+surface is six functions and one enum:
 
 ```rust
-pub struct Chrome {
-    pub background: Option<Background>,   // solid / linear / radial / image
-    pub border:     Option<Border>,       // style, width, color, corner radii, alignment, join policy
-    pub title:      Option<Strip>,        // top strip with gradient/chip text
-    pub footer:     Option<Strip>,        // bottom strip
-    pub glow:       Option<Glow>,         // radial accent, optional pulse animation
-    pub scanlines:  Option<Scanlines>,    // alpha + period
-    pub shadow:     Option<Shadow>,       // drop shadow under chrome
-    pub padding:    Padding,              // cells reserved between chrome and inner widget
-    pub clip:       ClipPolicy,           // strict / overflow / overdraw, default strict
+pub enum Transport {
+    Direct, TmuxPassthrough, File, Memory,
 }
+
+pub fn upload_still(image_id: u32, png: &[u8], transport: Transport) -> String;
+pub fn upload_animation(image_id: u32, frames: &[Vec<u8>],
+                        frame_delays_ms: &[u32], loops: u32,
+                        transport: Transport) -> String;
+pub fn placement_command(image_id: u32, footprint: CellRect,
+                         transport: Transport) -> String;
+pub fn placeholder_text(image_id: u32, footprint: CellRect) -> String;
+pub fn delete(image_id: u32, transport: Transport) -> String;
 ```
 
-`Chrome` produces a kittui `Scene` from a ratatui `Rect`. The chrome is
-drawn first; the ratatui widget renders on top into the inner `Rect`
-(post-padding). Chrome and inner content never share cells — the chrome
-reserves edge cells via padding so the widget never paints over its own
-border.
+### Chunking and base64
 
-### Coverage matrix (v1)
+Payloads are base64-encoded and chunked at 4 KiB to fit kitty's documented
+escape size limits. The first chunk carries action+format+id (`a=t,f=100,i=…`);
+subsequent chunks carry only the continuation marker. The terminator
+`\x1b\\` separates chunks. Every chunk goes through `wrap_transport` so
+tmux passthrough is applied uniformly.
 
-ratakittui covers every ratatui primitive that has chrome or styled inline
-text. Each entry is a thin `KittuiX` wrapper that takes the underlying
-ratatui type and a `Chrome` (or a smaller per-widget config that compiles
-to a Chrome). The wrappers do not subclass ratatui types; they implement
-`Widget` so they slot into existing `Frame::render_widget` calls.
+### Frame indexing and animation control
 
-| ratatui type      | ratakittui wrapper           | kittui chrome surface                                    |
-|-------------------|------------------------------|----------------------------------------------------------|
-| `Block`           | `KittuiBlock`                | full Chrome (background, border, title, footer, glow)    |
-| `Paragraph`       | `KittuiParagraph`            | Chrome around the paragraph viewport                     |
-| `List`            | `KittuiList`                 | Chrome + per-row selection chips + alternating row tint  |
-| `Table`           | `KittuiTable`                | Chrome + per-column dividers + selection-row glow        |
-| `Tabs`            | `KittuiTabs`                 | Chrome + per-tab chip + active-tab underline gradient    |
-| `Gauge`           | `KittuiGauge`                | Chrome + filled bar gradient + glow at the fill front    |
-| `Sparkline`       | `KittuiSparkline`            | Chrome + line glow accent under the spark                |
-| `LineGauge`       | `KittuiLineGauge`            | Chrome + gradient line + chip endcap                     |
-| `BarChart`        | `KittuiBarChart`             | Chrome + per-bar gradient + baseline glow                |
-| `Chart`           | `KittuiChart`                | Chrome + axis glow + grid tinting                        |
-| `Canvas`          | `KittuiCanvas`               | Chrome around an arbitrary user canvas                   |
-| `Scrollbar`       | `KittuiScrollbar`            | Chrome + gradient track + chip-style thumb               |
-| `Clear`           | `KittuiClear`                | Chrome-only: render a tinted clear panel                 |
-| inline text spans | `KittuiChip`, `KittuiTitle`, | Standalone single-line text elements with chrome         |
-|                   | `KittuiDivider`, `KittuiLine`|                                                          |
+Animation uploads use `r=` to index frames within an image id. Once all
+frames are uploaded, kittui emits one *animation control* escape
+(`a=a, i=…, s=loops, c=count`) and one *per-frame delay* escape
+(`a=a, i=…, r=frame, z=delay`) per frame. After this sequence the terminal
+plays the loop autonomously; no further escape traffic is required for the
+lifetime of the animation. This is the principal performance guarantee for
+animated chrome — a thousand pulsing panels cost the same as one.
 
-`KittuiChip`, `KittuiTitle`, `KittuiDivider`, `KittuiLine` are inline-only
-widgets (height 1) so callers can mount them in `Layout`-laid grids without
-any containing block.
+### Unicode placeholders
 
-### Joined borders and shared backgrounds
+Placement uses the documented `U=1` form. `placeholder_text` builds a grid
+of `\u{10EEEE}` cells with the image id encoded into the foreground
+truecolor (`\x1b[38:2:r:g:b]…\x1b[39m`). Hosts print this grid at the
+placement origin and the terminal anchors the corresponding image cell-by-cell.
 
-ratakittui supports declaring that two or more widgets share chrome. A
-`JoinGroup` collects adjacent `Chrome` instances; on resolution it walks
-the group, computes the union background and the merged stroke geometry,
-and emits a single composite `Scene` per group. The constituent widgets
-still render their inner content independently. Joined borders are
-implemented at the scene level using existing kittui primitives:
+### Transport-specific wrappers
 
-- The union background becomes one or more `Rect` / `Gradient` layers under
-  every joined cell.
-- The merged stroke becomes a `Composite { Normal, [strokes…] }` whose
-  shared edges are subtracted via a `Mask` derived from the neighbour's
-  rect. The result is a continuous border that crosses widget boundaries
-  without overdraw.
-- Corner radii at internal junctions are zeroed so neighbours meet flush;
-  outer corners keep the requested radius.
+- `Direct`: raw `\x1b_G…\x1b\\` escapes.
+- `TmuxPassthrough`: wraps each escape with `\x1bPtmux;…\x1b\\` and doubles
+  embedded `\x1b` bytes. Picked automatically when `TERM_PROGRAM=tmux` or
+  `TMUX` is set, unless the host overrides.
+- `File`: writes the PNG to a tempfile and emits `a=t,t=f,…;<path>` —
+  useful for very large images on tmux passthrough where chunked base64
+  adds overhead.
+- `Memory`: shared-memory transfer (`a=t,t=s,…;<shm key>`). The cdylib
+  build supports this on Linux/macOS via `memfd_create` / `shm_open`;
+  Windows falls back to `File`.
 
-A `JoinGroup` is just data. ratakittui ships a `join!` macro for ergonomics
-but nothing about it leaks past the scene boundary.
+### Transport probing
 
-### Lifecycle
+`TerminalInfo::detect()` inspects `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`,
+`KITTY_PUBLIC_KEY`, `TMUX`, and `WT_SESSION` to pick a transport. Hosts
+that already know (Pi, ratakittui adapters) can construct `TerminalInfo`
+directly and skip probing entirely.
 
-ratakittui owns a `LifecycleTracker` that is held by the host across draw
-cycles. The per-frame protocol is fixed:
+## Renderer architecture
 
-1. `tracker.begin_frame()` — moves last frame's placements into a "prev" map.
-2. For each `KittuiX::render`, ratakittui:
-   - builds the scene from the `Chrome` + `Rect`,
-   - calls `runtime.place(&scene)`,
-   - calls `tracker.keep(scene_id, image_id, footprint)` so the placement
-     survives the cleanup pass,
-   - writes the placement's `upload + placement + embed` strings into the
-     ratatui buffer's `extra_payload` channel (or a side queue the host
-     flushes after the buffer flush — see Integration below).
-3. `tracker.end_frame()` returns the set of `(image_id)` that were placed
-   last frame but not this frame; the host emits `kittui::Runtime::unplace`
-   escapes for each. No re-upload ever happens between cycles when the
-   scene id hasn't changed; only the cheap placement escape is re-emitted
-   when the footprint moves.
+Two backends share the surface:
 
-This cycle is what enforces the project's hard performance contract:
+```rust
+pub fn render_still(scene: &Scene) -> Result<RasterFrame, RenderError>;
+pub fn render_animation(scene: &Scene) -> Result<RasterAnimation, RenderError>;
+```
 
-- *Static frame:* cache hit on every scene → zero rasterization, zero base64
-  encoding, zero kitty upload bytes. Only placement escapes (a few dozen
-  bytes per widget) are emitted.
-- *Mutating frame:* only scenes whose id changed re-upload; the rest still
-  hit the cache.
-- *Animated scene:* uploaded once on first frame, replayed by the terminal
-  natively. ratakittui never re-uploads frames during animation; widgets
-  that need to mutate animation parameters (e.g. dynamic glow color) get a
-  new scene id and the renderer treats it as a brand-new animation.
+`RasterFrame::png` is the bytes the kitty layer uploads. `RasterAnimation`
+holds one PNG per frame, plus per-frame delays, plus loop count. Both
+backends produce 8-bit RGBA PNGs so the kitty protocol path is identical
+regardless of which backend rasterized.
 
-### Integration with `ratatui::Terminal::draw`
+### CPU renderer (`kittui-render-cpu`)
 
-There are two equally-supported integration modes; hosts pick the one that
-fits their event loop.
+The CPU renderer is the parity oracle. It is the simplest possible
+correct implementation:
 
-- **`draw_with_kittui` adapter** (preferred). ratakittui provides a
-  `draw_with_kittui(&mut terminal, &runtime, &tracker, |frame| { ... })`
-  wrapper that calls `terminal.draw`, hooks the buffer flush to inject
-  kittui upload/placement escapes before each affected row's text, and runs
-  the lifecycle cleanup pass at end-of-frame. Hosts that already drive
-  ratatui this way change one function call.
-- **Manual mode**. Hosts that own their own flush can call
-  `tracker.begin_frame()`, render widgets that push effects into a queue,
-  flush the terminal as usual, then drain the queue and write its bytes,
-  then call `tracker.end_frame()` and emit deletes. ratakittui exposes the
-  queue type publicly for this case.
+- A reusable `Pixmap` (RGBA8, row-major, top-down) is allocated once and
+  cleared between frames within an animation.
+- The scene is walked recursively; each node's pixel-space bounding rect
+  is clipped against the pixmap and scanned at one sample per pixel.
+- Rect / gradient / glow / scanline / stroke shading functions live in
+  `rasterize.rs`; each is a pure function from `(node params, sample px)`
+  to `Rgba`. No allocations in the inner loop.
+- Compositing uses straight-alpha source-over blending to match the legacy
+  pi-graphics implementation byte-for-byte where applicable.
+- Animation phase enters the renderer through a single `phase: f32`
+  argument that nodes read (currently only `Glow` modulates intensity by
+  phase; future nodes that pulse must declare which fields they sample).
 
-In both modes ratakittui never touches stdout directly — it returns byte
-buffers the host writes. This is what makes the adapter safe for tmux
-passthrough hosts and for ratatui's `Terminal::with_options` configurations
-that target alt-screen buffers or files.
+The CPU renderer is `forbid(unsafe_code)`, has zero direct OS calls, and
+runs on every supported target. It is the renderer the FFI defaults to
+because it has no shader compilation, no driver dependency, and no
+adapter-init failure mode.
 
-### Inner widget interaction with chrome
+### GPU renderer (`kittui-render-gpu`)
 
-The inner widget is always rendered into the post-padding inner `Rect`.
-The wrappers expose a `style_from_chrome()` helper that derives a default
-ratatui `Style` (fg/bg) from the chrome palette so text contrasts the
-background without the caller wiring it manually. Hosts can override or
-ignore this.
+The GPU renderer is a wgpu pipeline producing the same `RasterFrame` byte
+output as the CPU renderer. Its responsibility is **throughput** —
+animated chrome compositing at 60+ fps on a typical laptop — not
+quality, which the CPU renderer pins.
 
-For widgets with their own borders (`Block::borders`), ratakittui asserts
-at construction time that the inner widget does *not* draw a redundant
-ratatui-side border when a kittui border is requested. This is a hard
-error, not a warning — running both produces a visibly doubled outline,
-and the JS Pi implementation hit this bug repeatedly.
+Architecture:
 
-### What this enables
+- **One render pass per scene.** A single command encoder emits all node
+  draws into an offscreen RGBA8 texture sized to the scene's pixel
+  footprint. Layer order is preserved by draw order; opacity is a vertex
+  attribute.
+- **One pipeline per shape family.** Three pipelines cover the v1 node
+  set:
+  - `rounded_rect_sdf`: fills + strokes + per-corner radii via a signed
+    distance function in the fragment shader.
+  - `gradient`: linear / horizontal / vertical / diagonal / radial as a
+    single shader that switches on a uniform tag.
+  - `glow_radial`: smoothstep falloff with phase-aware intensity.
+  Scanlines reuse `gradient` with a stripe-period uniform. `Image` uses a
+  sampler-only pipeline that reads from a pre-uploaded texture atlas.
+- **Instanced draws.** Nodes that share a pipeline are batched into a
+  single instanced draw call with per-instance buffers (rect, paint
+  parameters, phase). `Composite` / `Mask` / `Clip` introduce render-pass
+  barriers only when their semantics demand them (e.g. `Mask` writes to a
+  scratch alpha-only texture and reads it back).
+- **Animation in one pass.** For animated scenes, frames are produced as
+  consecutive viewport renders into the same texture, with `phase` as a
+  uniform. Each frame is copied to a CPU-readable buffer and PNG-encoded
+  in parallel via `rayon`. No shader work happens after the first cycle —
+  the kitty side replays autonomously.
+- **Adapter selection.** `wgpu::Instance::request_adapter` is called with
+  `HighPerformance`, then `LowPower`, then `software`. The choice is
+  cached in `<cache>/probe.json` so subsequent processes skip probing.
+- **CPU/GPU parity check.** On first use the GPU renders a canonical
+  fixture and diffs it against the CPU renderer with an SSIM tolerance
+  of 0.99. Below tolerance the GPU is marked unusable for that host and
+  the facade falls back to CPU. Above tolerance the GPU remains primary.
 
-- Drop-in chrome on any existing ratatui app: replace `Block` with
-  `KittuiBlock`, set a `Chrome`, get gradients/rounded corners/glow/joined
-  borders.
-- Per-cell graphical decoration for inline text: `KittuiChip`,
-  `KittuiDivider`, `KittuiLine`, `KittuiTitle` mount in any `Layout`.
-- 60 fps interactive UIs because the lifecycle tracker guarantees no
-  redundant uploads; the only per-frame cost is small placement escapes.
-- A correctness-by-construction story for caco-style apps: scene id
-  derived from inputs, cache hits trivially when inputs don't change,
-  joined borders computed once at composition time, animation amortised
-  across the entire terminal session.
+The GPU renderer has zero `unsafe` in its own code; the only `unsafe` in
+this crate is whatever `wgpu` requires transitively. Shader code is WGSL
+checked into `crates/kittui-render-gpu/shaders/` and validated at compile
+time via `wgpu::ShaderModuleDescriptor`.
 
-## Cache
+### Renderer selection in the facade
 
-Layout:
+`Runtime::builder().renderer(RendererKind::*)`:
+
+- `Cpu`: always CPU. The reference, default for FFI.
+- `Gpu`: GPU, fall back to CPU on any error (shader compile, adapter
+  request, parity check fail). The error is logged once via `tracing` (if
+  the host enabled it) and remembered in the cache probe file.
+- `Auto`: try GPU once, fall back to CPU thereafter.
+
+Renderer choice is per-`Runtime`, not per-call. A long-lived host should
+build one runtime; a CLI invocation builds and tears down. The GPU path
+amortises the wgpu adapter init over many `place()` calls.
+
+### Image inputs
+
+`Node::Image` accepts PNG / JPEG bytes (decoded via `image` crate, behind
+the `image-decoders` feature; default on for `kittui-cli` and off for the
+slim FFI). The CPU renderer copies pixels directly; the GPU renderer
+uploads into a texture in the image atlas. `Fit` (`Contain`, `Cover`,
+`Stretch`, `None`) is implemented in both backends with a shared helper
+in `kittui-core::geom::fit_into_rect`.
+
+SVG is not in v1. When it lands (`svg` feature, `resvg`-backed) it produces
+a rasterized intermediate that is fed to either backend identically.
+
+## Cache (`kittui-cache`)
+
+Content-addressed cache rooted at a directory. Layout:
 
 ```
 <cache>/
-├── scenes/<sha[0..2]>/<sha>.png|apng|meta
-├── images/<sha>...
-└── probe.json
+├── scenes/<sha[0..2]>/<sha>.png             # still raster
+├── scenes/<sha[0..2]>/<sha>.frames/         # one PNG per animation frame
+├── scenes/<sha[0..2]>/<sha>.meta.json       # footprint, frame count, delays, image id, loops
+├── images/<sha>...                          # external image inputs (Image node sources)
+├── probe.json                               # renderer capability cache
+└── locks/<sha>.lock                         # per-key inter-process advisory lock
 ```
 
-LRU by access mtime, default budget 256 MiB. Cross-process cooperative via
-per-key lock files. Cache directory selection: builder → CLI flag → FFI call
-→ `KITTUI_CACHE_DIR` → XDG default.
+### Concurrency model
+
+Reads are lock-free (the OS guarantees atomicity for whole-file reads on
+POSIX + Windows). Writes are atomic: write to `<path>.tmp`, then `rename`.
+For multi-file writes (animation frames + meta), all temps are written
+first, then renamed in a fixed order so a partial cache is never visible.
+
+Cross-process cooperation uses per-key advisory lock files (`flock` on
+POSIX, `LockFileEx` on Windows). A writer takes an exclusive lock, checks
+whether another process already produced the entry while it waited, and
+either skips or proceeds. This makes the cache safe under concurrent
+`kittui` CLI invocations and concurrent FFI consumers in the same user
+session.
+
+### Eviction
+
+Eviction is LRU by access mtime (the most recently *read* entry is kept
+last). The default budget is 256 MiB; the value is configurable via
+`Cache::builder().budget_bytes(…)`, the `KITTUI_CACHE_BUDGET` env var, or
+the CLI `--cache-budget`. Eviction runs:
+
+- Synchronously at the end of `put_*` when the cache exceeds budget.
+- On `kittui cache gc` invocations.
+- On `Runtime::drop` if the runtime was constructed with
+  `RuntimeBuilder::gc_on_drop(true)`.
+
+Eviction never touches entries with an active advisory lock (a writer is
+in flight). It also leaves entries less than 60 seconds old, to avoid
+churn when a session is producing many short-lived scenes.
+
+### Cache directory resolution
+
+Priority order:
+
+1. `RuntimeBuilder::cache_dir(path)` — programmatic.
+2. `Cache::open(path)` — direct.
+3. CLI `--cache-dir`.
+4. FFI `kittui_set_cache_dir`.
+5. `KITTUI_CACHE_DIR` env.
+6. `XDG_CACHE_HOME/kittui` on Linux.
+7. `~/Library/Caches/kittui` on macOS.
+8. `%LOCALAPPDATA%\kittui` on Windows.
+9. `std::env::temp_dir()/kittui-cache` as last resort.
+
+### Probe cache
+
+`probe.json` records:
+
+```json
+{
+  "kittui_version": "0.1.0",
+  "gpu_adapter": "Apple M2",
+  "gpu_parity_ssim": 0.998,
+  "gpu_status": "ok" | "fallback" | "unavailable",
+  "checked_at": "2026-05-19T02:47:26Z"
+}
+```
+
+The runtime reads this on construction and uses the status field to skip
+the live parity check. The file is invalidated when `kittui_version`
+changes or when the host explicitly runs `kittui probe --force`.
+
+## CLI (`kittui-cli`)
+
+The CLI is `clap`-derived and intentionally thin — every subcommand
+constructs a `Scene` from its flags and forwards to `Runtime::place`. The
+v1 surface mirrors the affordance set the JS pi-graphics implementation
+exposes today:
+
+```
+kittui box       -x X -y Y -w W -h H --fg COLOR --bg COLOR
+                 [--radius R] [--border W] [--border-color C]
+                 [--glow COLOR[:INTENSITY]] [--scanlines ALPHA]
+                 [--shadow DX,DY,COLOR] [--label TEXT]
+                 [--animate pulse:FRAMES@CYCLE_MS[:CURVE]]
+kittui gradient  -w W -h H --left COLOR --right COLOR [--direction h|v|d] [--fade]
+kittui glow      -w W -h H --color COLOR [--intensity 0..1]
+kittui panel     --tone assistant|tool|user -w W -h H
+                 [--caption TEXT] [--animate pulse:8@800ms]
+kittui image     --src PATH -w W -h H [--fit contain|cover|stretch|none] [--tint COLOR]
+kittui compose   <scene.json>
+kittui place     --id 0xID --x X --y Y --cols C --rows R       # re-place a cached id
+kittui cache     info | gc [--budget BYTES] | clear
+kittui probe     [--force]
+kittui scene     emit                                            # print last-built JSON
+```
+
+Common flags:
+
+- `--cache-dir PATH` / `KITTUI_CACHE_DIR`.
+- `--terminal-cols N` / `--terminal-rows N` (override probing; falls back
+  to `$COLUMNS` / `$LINES`).
+- `--transport direct|tmux|file|memory`.
+- `--renderer cpu|gpu|auto`.
+- `--json` for structured output (image id, upload byte count, embed text
+  payload as a quoted string).
+- `--upload-only` / `--placement-only` / `--embed-only` for scripts that
+  buffer their own writes.
+- `--dry-run` returns the JSON that `Runtime::place` would have built,
+  without rendering or uploading.
+
+Size flags accept `N` (cells), `Npx` (pixels — divided by `cell_size`),
+and `N%` (percentage of terminal `cols` / `rows`).
+
+Color flags accept `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, named CSS
+colors via the `csscolorparser` feature, and `rgba(r,g,b,a)`.
+
+Animation curves accept `linear`, `ease-in-out`, `pulse[:harmonics]`, and
+`custom:f0,f1,…,fN-1`. The CLI validates loop closure before invoking
+the runtime.
+
+`kittui scene emit` is the integration story for shell pipelines:
+
+```sh
+kittui panel --tone assistant -w 60 -h 9 --dry-run > assistant.json
+jq '.animation.frames = 16' assistant.json | kittui compose -
+```
+
+## FFI (`kittui-ffi`)
+
+A single C ABI surface for every non-Rust consumer (TS, Python, Lua,
+shell via `dlopen`). The crate produces `cdylib` + `staticlib` + `rlib`.
+
+### ABI shape
+
+```c
+// Versioning
+uint32_t kittui_abi_version(void);                 // (major << 16) | minor
+
+// Runtime lifecycle
+typedef struct KittuiRuntime KittuiRuntime;
+KittuiRuntime* kittui_runtime_new(const char* cache_dir);
+void           kittui_runtime_free(KittuiRuntime*);
+KittuiStatus   kittui_runtime_configure(KittuiRuntime*, const char* json);
+
+// Place a scene (JSON blob)
+KittuiStatus   kittui_place_json(KittuiRuntime*,
+                                 const char* scene_json,
+                                 char** out_bytes);     // upload + placement + embed
+
+// Lower-level: render only, no upload
+KittuiStatus   kittui_render_json(KittuiRuntime*,
+                                  const char* scene_json,
+                                  uint8_t** out_png,
+                                  size_t*   out_len);
+
+// Unplace by image id
+KittuiStatus   kittui_unplace(KittuiRuntime*, uint32_t image_id,
+                              char** out_bytes);
+
+// Diagnostics
+const char*    kittui_last_error(KittuiRuntime*);
+const char*    kittui_probe_json(KittuiRuntime*);
+
+// Memory
+void           kittui_string_free(char*);
+void           kittui_bytes_free(uint8_t*, size_t);
+```
+
+`KittuiStatus` is a non-zero-on-error C enum (`Ok=0`, `NullPointer`,
+`BadScene`, `Runtime`, `Panic`). All entry points are `catch_unwind`-wrapped;
+a Rust panic returns `Panic` rather than unwinding into the foreign caller.
+
+Strings are UTF-8 with explicit lengths where applicable; the convenience
+NUL-terminated variants are also exported because they ease N-API
+bindings.
+
+### ABI versioning
+
+- `KITTUI_ABI_MAJOR` and `KITTUI_ABI_MINOR` are compile-time constants;
+  `kittui_abi_version()` returns the packed value.
+- Breaking changes bump major. Additive changes (new entry points, new
+  enum variants past the last documented one) bump minor.
+- `xtask abi-snapshot` regenerates the cbindgen header and checks the
+  diff against the committed snapshot. CI rejects unannounced changes.
+- Consumers should call `kittui_abi_version_check(MAJOR, MINOR)` at load
+  time; this is a one-liner that returns nonzero if the loaded library
+  is incompatible.
+
+### Threading
+
+`KittuiRuntime` is `Send + Sync`. Internal state uses `parking_lot::Mutex`
+for the placed-image map and `parking_lot::RwLock` for the renderer
+selection. The wgpu queue is held behind its own mutex; concurrent
+`kittui_place_json` calls serialize at the GPU layer but produce
+independent PNG outputs.
+
+Callers should use one runtime per process; spawning many runtimes is
+allowed but each carries its own cache directory open-handle set.
+
+### TypeScript bindings (`bindings/ts/`)
+
+Two paths:
+
+- **N-API (`@cosmos/kittui`, default).** A `kittui-napi` wrapper crate
+  (added later) builds with `napi-rs` and produces prebuilt binaries via
+  `prebuildify` per `(platform, arch)`. Hosts get sync + async APIs.
+- **`koffi` fallback.** A pure-JS wrapper that `dlopen`s
+  `libkittui_ffi.{so,dylib,dll}` directly. Slightly slower per call (no
+  V8 fast-path) but requires no build step. Pi plugins start here.
+
+Both paths consume the same `Scene` JSON; the TS surface is generated
+from the Rust scene types via `serde-reflection` + `quicktype` so it
+stays in sync automatically.
+
+### Future bindings
+
+The same C ABI gives Python (`ctypes` / `cffi`), Lua
+(`luajit ffi`), Ruby (`Fiddle`), and Zig (`@cImport`) zero-cost paths.
+We do not commit to packaging these in this repo; they live in their
+own places and depend on a pinned `libkittui_ffi` version.
+
+## Threading & concurrency
+
+- **`Runtime` is `Send + Sync`.** Multiple threads may call `place`
+  concurrently; the renderer pool serializes GPU access internally.
+- **Cache is process-safe.** Lock files coordinate writes across
+  concurrent CLI invocations or FFI processes.
+- **No global state.** Each runtime is independent. The only ambient
+  state is the cache directory; multiple runtimes with the same dir
+  coexist cleanly via the lock-file protocol.
+- **Async story.** kittui itself is sync — its calls are CPU-bound (the
+  GPU encode + PNG write block briefly). N-API bindings expose
+  `placeAsync` that runs `place` on a thread-pool worker; the koffi
+  binding leaves async to the caller. We do not adopt `tokio` because
+  the per-call cost doesn't justify the dependency.
+
+## Error model
+
+Three error layers, each with a single canonical type:
+
+- **`kittui_core::Error`** for scene-construction issues (color parse,
+  animation does-not-loop, invalid stop list). Caught at builder time;
+  invalid scenes never reach the renderer.
+- **`RenderError`** (per backend) for rasterization failures. The
+  facade folds these into `KittuiError::Render`.
+- **`KittuiError`** (the public type) for everything else: cache I/O,
+  protocol assembly, FFI marshaling, panic recovery.
+
+Errors are `thiserror`-derived, carry source chains, and never panic
+across the FFI boundary (`catch_unwind` is the last line of defense).
+The facade exposes `Runtime::last_error_snapshot()` for hosts that want
+to inspect the most recent error without losing it to the boundary
+crossing.
+
+## Testing & validation
+
+The library lives or dies on rasterization correctness, so testing is
+unusually rigorous for its size.
+
+- **Unit tests** in every crate. v0.1 ships 33; the GPU landing will
+  add roughly another 30 for adapter init, shader compile, parity, and
+  pool serialization.
+- **Golden snapshots** under `crates/kittui-render-cpu/tests/golden/`.
+  Each fixture is `(scene.json, expected.png)`. The CPU renderer is the
+  oracle; goldens are committed and refreshed via `xtask refresh-goldens`.
+- **CPU↔GPU parity** under `crates/kittui-render-gpu/tests/parity/`.
+  Each parity test renders the same scene through both backends and
+  asserts `SSIM(a, b) >= 0.99`. CI runs against `lavapipe` on Linux.
+- **Property tests** for the scene normalizer (`proptest`): randomly
+  generated scenes must round-trip through serde and produce a stable
+  `SceneId`.
+- **ABI snapshots.** `xtask abi-snapshot` re-runs cbindgen, diffs the
+  result, and fails CI on unexpected drift. Snapshot lives at
+  `crates/kittui-ffi/kittui.h`.
+- **Fuzzing.** `cargo fuzz` on `Scene::from_json` and on every CLI flag
+  parser. Targets live in `fuzz/`.
+- **Loop-closure assertion.** Every animation is checked at build time
+  via `PhaseCurve::closes_loop()`; the test suite confirms the
+  rejection path actually rejects.
+- **Integration smoke** (`tests/it.rs` at the workspace root, added
+  with the GPU landing): spin up a runtime, render a small scene,
+  assert the resulting bytes parse as PNG and the placement starts
+  with `\x1b_G`.
 
 ## Phasing
 
-1. `kittui-core` + `kittui-render-cpu` + `kittui-cache` + `kittui` facade +
-   `kittui-kitty` + `kittui-cli`. Achieves byte-for-byte parity with the
-   subset of pi-graphics we use today. Comes with golden tests.
-2. `kittui-ffi` + TS wrapper. Pi plugins can adopt.
-3. `kittui-render-gpu` (wgpu). Enables 60+ fps interactive ratakittui.
-4. `ratakittui` full decoration matrix.
-5. `kittui-wm` (long term).
+Numbers reflect what's already landed vs. still ahead.
+
+1. ✅ **kittui-core + kittui-render-cpu + kittui-cache + kittui facade +
+   kittui-kitty + kittui-cli.** All built, all tested, all green on
+   v0.1 head. The CPU oracle is pinned.
+2. ✅ **ratakittui full coverage.** Chrome model, widget wrapper matrix,
+   join-group composition, lifecycle tracker, `draw_with_kittui`
+   adapter, ratatui showcase example. v0.1 head.
+3. ✅ **kittui-ffi scaffold.** cdylib + staticlib + rlib, JSON-scene
+   entry point, panic-safe, `abi_version` exported. v0.1 head.
+4. ⏳ **kittui-render-gpu** (wgpu). SDF rounded-rect, gradient, glow,
+   scanline pipelines; image atlas; CPU↔GPU SSIM parity gate; probe
+   cache. Target: 60 fps for the ratatui_showcase example on M2 / RTX.
+5. ⏳ **TS bindings.** koffi wrapper shipped first (no build step), then
+   `kittui-napi` with `prebuildify` per platform. Both consume the
+   same scene JSON.
+6. ⏳ **`kittui-tmux` showcase.** Replace tmux's ASCII pane borders
+   with kittui chrome. Also serves as the diff-driven composition
+   stress test (resize/zoom/split mutate the join group). See "Future
+   ideas" below.
+7. ⏳ **`kittui-wm`** terminal window manager substrate. Same renderer
+   + cache + protocol; new host crate.
+8. ⏳ **Affordance library (optional).** A `kittui-affordances` crate
+   that captures the "panel / chip / divider / title" patterns the CLI
+   and showcase grew. Library is optional and explicit; the core
+   library never gains affordance helpers itself.
 
 This document is the source of truth. PRs that diverge from it must update it
 first.
@@ -393,3 +721,14 @@ first.
   can drop in a fragment shader and target a `Node::Shader` rect. With the
   GPU backend the cost is essentially free per draw, and the same shader
   produces a CPU fallback by compiling through naga/wgsl-to-spirv-to-cpu.
+- **`Composition` first-class type.** Hoist ratakittui's
+  `LifecycleTracker` into a library-level `Composition` so non-ratatui
+  hosts (Pi panels, kittui-wm) get the same diff-driven upload/delete
+  behavior without re-implementing the bookkeeping.
+- **Soft-keyboard / overlay surface.** A `kittui-overlay` crate that owns
+  a transient, always-on-top surface for things like command palettes,
+  notifications, IME ribbons. Reuses ratakittui chrome with a stronger
+  shadow and a higher-z placement command.
+- **Live preview daemon.** A small `kittui-watch` binary that watches a
+  scene-JSON file and re-emits the placement on change. Useful for
+  authoring chrome interactively without rebuilding a host.
