@@ -1,0 +1,21 @@
+[package]
+name = "kittui-tmux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "kittui chrome for tmux pane borders. v0.1: parser + composer; the live hook integration is a separate runtime concern."
+
+[[bin]]
+name = "kittui-tmux"
+path = "src/main.rs"
+
+[dependencies]
+kittui = { workspace = true }
+kittui-core = { workspace = true }
+ratakittui = { path = "../ratakittui", version = "0.1.0" }
+ratatui = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }

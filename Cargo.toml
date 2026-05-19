@@ -10,6 +10,9 @@ members = [
   "crates/kittui-cli",
   "crates/kittui-ffi",
   "crates/ratakittui",
+  "crates/kittui-tmux",
+  "crates/kittui-affordances",
+  "crates/kittui-wm",
 ]
 
 [workspace.package]

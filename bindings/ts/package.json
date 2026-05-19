@@ -1,0 +1,24 @@
+{
+  "name": "@kittui/koffi",
+  "version": "0.1.0",
+  "description": "Pure-JS koffi binding to libkittui_ffi.{so,dylib,dll}. Build-step-free wrapper for the kittui C ABI.",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "files": ["src", "README.md"],
+  "engines": {
+    "node": ">= 18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "koffi": "^2.10.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/harryaskham/kittui.git",
+    "directory": "bindings/ts"
+  },
+  "license": "MIT OR Apache-2.0"
+}

@@ -1,0 +1,12 @@
+[package]
+name = "kittui-affordances"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Optional higher-level affordances (panel, chip, divider, title) over kittui primitives. The core kittui crate never gains these; this crate is opt-in."
+
+[dependencies]
+kittui = { workspace = true }
+kittui-core = { workspace = true }
+ratakittui = { path = "../ratakittui", version = "0.1.0" }

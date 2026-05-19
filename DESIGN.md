@@ -71,7 +71,12 @@ kittui/
 │   ├── kittui/                    # Public Rust facade (Runtime, builders)
 │   ├── kittui-cli/                # `kittui` binary
 │   ├── kittui-ffi/                # cdylib + cbindgen header
-│   └── ratakittui/                # ratatui adapter (decoration + lifecycle)
+│   ├── ratakittui/                # ratatui adapter (decoration + lifecycle)
+│   ├── kittui-tmux/               # tmux pane-border host
+│   ├── kittui-affordances/        # optional higher-level patterns (panel/chip/divider)
+│   └── kittui-wm/                 # window-manager substrate (scaffold)
+├── bindings/
+│   └── ts/                        # @kittui/koffi (build-step-free JS binding)
 └── xtask/                         # cbindgen, fixtures, abi snapshots
 ```
 
@@ -679,22 +684,27 @@ Numbers reflect what's already landed vs. still ahead.
    adapter, ratatui showcase example. v0.1 head.
 3. ✅ **kittui-ffi scaffold.** cdylib + staticlib + rlib, JSON-scene
    entry point, panic-safe, `abi_version` exported. v0.1 head.
-4. ⏳ **kittui-render-gpu** (wgpu). SDF rounded-rect, gradient, glow,
-   scanline pipelines; image atlas; CPU↔GPU SSIM parity gate; probe
-   cache. Target: 60 fps for the ratatui_showcase example on M2 / RTX.
-5. ⏳ **TS bindings.** koffi wrapper shipped first (no build step), then
-   `kittui-napi` with `prebuildify` per platform. Both consume the
-   same scene JSON.
-6. ⏳ **`kittui-tmux` showcase.** Replace tmux's ASCII pane borders
-   with kittui chrome. Also serves as the diff-driven composition
-   stress test (resize/zoom/split mutate the join group). See "Future
-   ideas" below.
-7. ⏳ **`kittui-wm`** terminal window manager substrate. Same renderer
-   + cache + protocol; new host crate.
-8. ⏳ **Affordance library (optional).** A `kittui-affordances` crate
-   that captures the "panel / chip / divider / title" patterns the CLI
-   and showcase grew. Library is optional and explicit; the core
-   library never gains affordance helpers itself.
+4. ✅ **kittui-render-gpu** (wgpu). Unified shader covering rounded-rect
+   SDF + gradient + radial glow + scanlines; CPU↔GPU SSIM-proxy
+   parity gate; lazy adapter init in the facade with permanent CPU
+   fallback under `Auto`.
+5. ✅ **TS bindings.** `@kittui/koffi`: zero-build-step JS binding that
+   dlopens `libkittui_ffi`, ties ownership cleanly via
+   `koffi.disposable`, ships scene helpers + type declarations + tests.
+   `@kittui/napi` with `prebuildify` per platform remains a future
+   higher-performance path that consumes the same JSON.
+6. ✅ **`kittui-tmux`.** Deterministic parser for
+   `tmux list-panes -F` plus a composer that builds a ratakittui
+   `JoinGroup` of pane chromes and a CLI binary that emits the
+   chrome escape stream. The live hook integration is host-side glue.
+7. ✅ **`kittui-wm` scaffold.** `WindowTree` + `WindowGeometry` types
+   reserved so the substrate API is additive from here. Full layout
+   semantics arrive after the tmux showcase exercises diff-driven
+   composition.
+8. ✅ **Affordance library.** `kittui-affordances` ships the showcase's
+   tonal panel / chip / divider / title patterns as free functions
+   returning `Chrome`. Opt-in; the core `kittui` crate never imports
+   it.
 
 This document is the source of truth. PRs that diverge from it must update it
 first.

@@ -776,6 +776,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kittui-affordances"
+version = "0.1.0"
+dependencies = [
+ "kittui",
+ "kittui-core",
+ "ratakittui",
+]
+
+[[package]]
 name = "kittui-cache"
 version = "0.1.0"
 dependencies = [
@@ -852,6 +861,29 @@ dependencies = [
  "pollster",
  "thiserror 2.0.18",
  "wgpu",
+]
+
+[[package]]
+name = "kittui-tmux"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "kittui",
+ "kittui-core",
+ "ratakittui",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "kittui-wm"
+version = "0.1.0"
+dependencies = [
+ "kittui",
+ "kittui-core",
+ "ratakittui",
 ]
 
 [[package]]

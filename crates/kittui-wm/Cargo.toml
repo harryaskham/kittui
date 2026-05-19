@@ -1,0 +1,12 @@
+[package]
+name = "kittui-wm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Terminal window manager substrate over kittui. Long-term goal; v0.1 is a placeholder scaffold."
+
+[dependencies]
+kittui = { workspace = true }
+kittui-core = { workspace = true }
+ratakittui = { path = "../ratakittui", version = "0.1.0" }
