@@ -4,8 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "GPU renderer scaffold for kittui (wgpu, to be filled in)."
+description = "wgpu-backed GPU renderer for kittui scenes."
 
 [dependencies]
 kittui-core = { workspace = true }
+kittui-render-cpu = { workspace = true }
 thiserror = { workspace = true }
+wgpu = "24"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+flate2 = { workspace = true }

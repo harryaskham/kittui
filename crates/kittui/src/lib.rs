@@ -30,6 +30,13 @@ use parking_lot::Mutex;
 use kittui_cache::{Cache, CacheEntryMeta};
 use kittui_kitty as kitty;
 use kittui_render_cpu as cpu;
+use kittui_render_gpu as gpu;
+
+enum BackendState {
+    Cpu,
+    Gpu(gpu::GpuRenderer),
+    GpuFailed,
+}
 
 /// Errors surfaced by the facade.
 #[derive(Debug, thiserror::Error)]
@@ -64,6 +71,7 @@ pub struct Runtime {
     terminal: TerminalInfo,
     cache: Cache,
     renderer: RendererKind,
+    backend: Mutex<BackendState>,
     // Currently placed image ids → footprint, so re-place calls don't emit
     // redundant escapes. Wrapped for cheap interior mutability.
     placed: Mutex<std::collections::HashMap<u32, CellRect>>,
@@ -89,13 +97,7 @@ impl Runtime {
             let png = if self.cache.contains_still(&id) {
                 self.cache.get_still(&id)?
             } else {
-                let frame = match self.renderer {
-                    RendererKind::Cpu | RendererKind::Auto => cpu::render_still(scene)?,
-                    RendererKind::Gpu => match kittui_render_gpu::render_still(scene) {
-                        Ok(_) => cpu::render_still(scene)?, // not implemented yet
-                        Err(_) => cpu::render_still(scene)?,
-                    },
-                };
+                let frame = self.render_still_with_backend(scene)?;
                 self.cache.put_still(
                     &id,
                     &frame.png,
@@ -117,7 +119,7 @@ impl Runtime {
         } else {
             let animation = scene.animation.as_ref().expect("checked above");
             if !self.cache.contains_animation(&id, animation.frames as u32) {
-                let raster = cpu::render_animation(scene)?;
+                let raster = self.render_animation_with_backend(scene)?;
                 self.cache.put_animation(
                     &id,
                     &raster.frames,
@@ -164,6 +166,70 @@ impl Runtime {
         kitty::delete(image_id, self.terminal.transport)
     }
 
+    fn render_still_with_backend(&self, scene: &Scene) -> Result<cpu::RasterFrame, KittuiError> {
+        let try_gpu = matches!(self.renderer, RendererKind::Gpu | RendererKind::Auto);
+        if try_gpu {
+            let mut backend = self.backend.lock();
+            let gpu_ready = matches!(
+                *backend,
+                BackendState::Gpu(_) | BackendState::Cpu | BackendState::GpuFailed
+            );
+            // Initialize lazily on first attempt.
+            if matches!(*backend, BackendState::Cpu) {
+                match gpu::GpuRenderer::new() {
+                    Ok(r) => *backend = BackendState::Gpu(r),
+                    Err(_) => *backend = BackendState::GpuFailed,
+                }
+            }
+            let _ = gpu_ready;
+            if let BackendState::Gpu(renderer) = &mut *backend {
+                match renderer.render_still(scene) {
+                    Ok(frame) => return Ok(frame),
+                    Err(_) if matches!(self.renderer, RendererKind::Auto) => {
+                        // Fall back to CPU permanently for this runtime.
+                        *backend = BackendState::GpuFailed;
+                    }
+                    Err(e) => {
+                        return Err(KittuiError::Render(cpu::RenderError::UnsupportedImage(
+                            format!("gpu error: {e}"),
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(cpu::render_still(scene)?)
+    }
+
+    fn render_animation_with_backend(
+        &self,
+        scene: &Scene,
+    ) -> Result<cpu::RasterAnimation, KittuiError> {
+        let try_gpu = matches!(self.renderer, RendererKind::Gpu | RendererKind::Auto);
+        if try_gpu {
+            let mut backend = self.backend.lock();
+            if matches!(*backend, BackendState::Cpu) {
+                match gpu::GpuRenderer::new() {
+                    Ok(r) => *backend = BackendState::Gpu(r),
+                    Err(_) => *backend = BackendState::GpuFailed,
+                }
+            }
+            if let BackendState::Gpu(renderer) = &mut *backend {
+                match renderer.render_animation(scene) {
+                    Ok(anim) => return Ok(anim),
+                    Err(_) if matches!(self.renderer, RendererKind::Auto) => {
+                        *backend = BackendState::GpuFailed;
+                    }
+                    Err(e) => {
+                        return Err(KittuiError::Render(cpu::RenderError::UnsupportedImage(
+                            format!("gpu error: {e}"),
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(cpu::render_animation(scene)?)
+    }
+
     fn has_already_placed(&self, image_id: u32, footprint: CellRect) -> bool {
         matches!(self.placed.lock().get(&image_id), Some(prev) if *prev == footprint)
     }
@@ -207,10 +273,15 @@ impl RuntimeBuilder {
             self.cache_dir
                 .unwrap_or_else(kittui_cache::default_cache_dir),
         )?;
+        let initial_backend = match self.renderer {
+            RendererKind::Cpu => BackendState::Cpu,
+            RendererKind::Gpu | RendererKind::Auto => BackendState::Cpu, // lazy init
+        };
         Ok(Runtime {
             terminal: self.terminal.unwrap_or_default(),
             cache,
             renderer: self.renderer,
+            backend: Mutex::new(initial_backend),
             placed: Mutex::new(Default::default()),
         })
     }

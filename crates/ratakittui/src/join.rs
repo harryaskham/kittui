@@ -258,7 +258,6 @@ macro_rules! join {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::chrome::{Border, Chrome};
     use ratatui::layout::Rect;
 
