@@ -184,7 +184,7 @@ fn draw_node(
             u.stroke_radii_a[3] = corners.bl;
             u.stroke_radii_b[0] = corners.br;
             u.stroke_radii_b[1] = 0.0; // kind=rect
-            submit_draw(device, pipelines, view, encoder, &u);
+            submit_draw(device, pipelines, view, encoder, &u, NodeKind::Rect);
         }
         Node::Gradient {
             rect,
@@ -203,7 +203,7 @@ fn draw_node(
                 Direction::Vertical => 1.0,
                 Direction::Diagonal => 2.0,
             };
-            submit_draw(device, pipelines, view, encoder, &u);
+            submit_draw(device, pipelines, view, encoder, &u, NodeKind::Gradient);
         }
         Node::Glow {
             rect,
@@ -220,7 +220,7 @@ fn draw_node(
             u.glow = [*center_x_frac, *center_y_frac, *radius_frac, phase];
             u.stroke_radii_b[1] = 2.0; // kind=glow
             u.stroke_radii_b[3] = (*intensity).clamp(0.0, 1.0);
-            submit_draw(device, pipelines, view, encoder, &u);
+            submit_draw(device, pipelines, view, encoder, &u, NodeKind::Glow);
         }
         Node::Scanlines {
             rect,
@@ -237,7 +237,7 @@ fn draw_node(
                 0.0,
             ];
             u.stroke_radii_b[1] = 3.0; // kind=scanlines
-            submit_draw(device, pipelines, view, encoder, &u);
+            submit_draw(device, pipelines, view, encoder, &u, NodeKind::Scanlines);
         }
         Node::Image { .. } => {
             // Image support arrives with the atlas pipeline.
@@ -300,6 +300,14 @@ fn draw_node(
     }
 }
 
+#[derive(Copy, Clone)]
+enum NodeKind {
+    Rect,
+    Gradient,
+    Glow,
+    Scanlines,
+}
+
 #[allow(dead_code)]
 fn submit_draw(
     device: &GpuDevice,
@@ -307,6 +315,7 @@ fn submit_draw(
     view: &wgpu::TextureView,
     encoder: &mut wgpu::CommandEncoder,
     u: &Uniforms,
+    kind: NodeKind,
 ) {
     let buffer = device
         .device
@@ -344,7 +353,12 @@ fn submit_draw(
         timestamp_writes: None,
         occlusion_query_set: None,
     });
-    pass.set_pipeline(&pipelines.pipeline);
+    pass.set_pipeline(match kind {
+        NodeKind::Rect => &pipelines.rect_pipeline,
+        NodeKind::Gradient => &pipelines.gradient_pipeline,
+        NodeKind::Glow => &pipelines.glow_pipeline,
+        NodeKind::Scanlines => &pipelines.scanlines_pipeline,
+    });
     pass.set_bind_group(0, &bind_group, &[]);
     pass.draw(0..4, 0..1);
 }

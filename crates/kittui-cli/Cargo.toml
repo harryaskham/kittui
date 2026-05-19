@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 kittui = { workspace = true }
 kittui-core = { workspace = true }
+kittui-cache = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }

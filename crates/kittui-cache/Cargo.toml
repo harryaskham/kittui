@@ -12,3 +12,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 parking_lot = { workspace = true }
+fs2 = "0.4"

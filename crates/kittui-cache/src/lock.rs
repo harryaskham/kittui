@@ -1,0 +1,76 @@
+//! Cross-process advisory locking via `fs2::FileExt`.
+//!
+//! Each `put_*` call takes an exclusive flock on
+//! `<root>/locks/<sha>.lock` for the duration of the write. Other
+//! processes that race for the same scene id block on the same file
+//! and only one rasterization / encode happens per shared cache.
+
+use std::fs::{self, File, OpenOptions};
+use std::io;
+use std::path::Path;
+
+use fs2::FileExt;
+
+use kittui_core::scene::SceneId;
+
+use crate::CacheError;
+
+/// RAII guard. Holds the lock file open + flocked for as long as the
+/// guard lives; releases on drop.
+pub struct KeyLockGuard {
+    _file: File,
+}
+
+/// Take an exclusive lock on the scene id's lockfile. Blocks until
+/// other writers release.
+pub fn lock_key(root: &Path, id: &SceneId) -> Result<KeyLockGuard, CacheError> {
+    let dir = root.join("locks");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{}.lock", id.0));
+    let file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&path)?;
+    file.lock_exclusive().map_err(io::Error::from)?;
+    Ok(KeyLockGuard { _file: file })
+}
+
+impl Drop for KeyLockGuard {
+    fn drop(&mut self) {
+        // fs2's File::unlock is a method on FileExt; flock is released
+        // when the file descriptor is closed at drop time regardless.
+        let _ = self._file.unlock();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tempdir() -> std::path::PathBuf {
+        let pid = std::process::id();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("kittui-lock-{pid}-{nanos}"));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn lock_and_release_within_process() {
+        let root = tempdir();
+        let id = SceneId("a".repeat(64));
+        {
+            let _guard = lock_key(&root, &id).unwrap();
+            // The lockfile exists and is open while the guard is alive.
+            assert!(root.join("locks").join(format!("{}.lock", id.0)).exists());
+        }
+        // After drop, the file remains on disk (we don't unlink) but is
+        // re-lockable.
+        let _again = lock_key(&root, &id).unwrap();
+    }
+}

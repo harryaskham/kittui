@@ -72,24 +72,34 @@ impl Uniforms {
     }
 }
 
-/// Pipeline bundle. The fullscreen-triangle vertex shader is shared; the
-/// fragment shader branches on `kind` inside the uniform block.
+/// Pipeline bundle. The DESIGN promises one pipeline per shape
+/// family (rounded_rect_sdf / gradient / glow_radial); v0.5 honors
+/// that by compiling three pipelines that share the same uniform
+/// layout but have distinct fragment entry points. Scanlines are a
+/// fourth small pipeline (cheap to keep separate; lets us drop the
+/// `kind` branch out of the hot shader path).
 pub struct Pipelines {
-    /// Render pipeline targeting RGBA8 Unorm.
-    pub pipeline: wgpu::RenderPipeline,
-    /// Bind group layout for the uniform buffer.
+    /// Pipeline for `Node::Rect` (rounded rectangle SDF + stroke).
+    pub rect_pipeline: wgpu::RenderPipeline,
+    /// Pipeline for `Node::Gradient`.
+    pub gradient_pipeline: wgpu::RenderPipeline,
+    /// Pipeline for `Node::Glow`.
+    pub glow_pipeline: wgpu::RenderPipeline,
+    /// Pipeline for `Node::Scanlines`.
+    pub scanlines_pipeline: wgpu::RenderPipeline,
+    /// Shared bind group layout.
     pub bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Pipelines {
-    /// Compile shaders and build the pipeline. Panics never escape — wgpu
-    /// shader compile errors are returned as runtime validation errors,
-    /// which the device queue surfaces and the facade catches.
+    /// Compile shaders and build the four shape pipelines.
     pub fn new(device: &GpuDevice) -> Self {
-        let shader = device.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("kittui-shader"),
-            source: wgpu::ShaderSource::Wgsl(SHADER_WGSL.into()),
-        });
+        let shader = device
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("kittui-shader"),
+                source: wgpu::ShaderSource::Wgsl(SHADER_WGSL.into()),
+            });
 
         let bind_group_layout =
             device
@@ -117,39 +127,44 @@ impl Pipelines {
                     push_constant_ranges: &[],
                 });
 
-        let pipeline = device
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("kittui-pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-                cache: None,
-            });
+        let make = |label: &str, fs: &str| {
+            device
+                .device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &[],
+                        compilation_options: Default::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some(fs),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview: None,
+                    cache: None,
+                })
+        };
 
         Self {
-            pipeline,
+            rect_pipeline: make("kittui-pipeline-rect", "fs_rect"),
+            gradient_pipeline: make("kittui-pipeline-gradient", "fs_gradient"),
+            glow_pipeline: make("kittui-pipeline-glow", "fs_glow"),
+            scanlines_pipeline: make("kittui-pipeline-scanlines", "fs_scanlines"),
             bind_group_layout,
         }
     }
@@ -177,7 +192,6 @@ struct VsOut {
   @location(0) frag: vec2<f32>,
 };
 
-// Fullscreen triangle strip (4 vertices).
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
   var out: VsOut;
@@ -191,8 +205,6 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
   return out;
 }
 
-// Signed distance to a rounded rect centered at `c` with half-extents `h`
-// and per-corner radii (tl, tr, bl, br). Negative inside, positive outside.
 fn sd_rounded_rect(p: vec2<f32>, c: vec2<f32>, h: vec2<f32>,
                    tl: f32, tr: f32, bl: f32, br: f32) -> f32 {
   let q = p - c;
@@ -212,72 +224,71 @@ fn over(src: vec4<f32>, dst: vec4<f32>) -> vec4<f32> {
   return vec4<f32>(rgb, a);
 }
 
+fn rect_bounds(p: vec2<f32>) -> bool {
+  return p.x >= U.rect.x && p.x <= U.rect.x + U.rect.z
+      && p.y >= U.rect.y && p.y <= U.rect.y + U.rect.w;
+}
+
+// rounded_rect_sdf pipeline
 @fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+fn fs_rect(in: VsOut) -> @location(0) vec4<f32> {
   let p = in.frag;
-  let rx = U.rect.x;
-  let ry = U.rect.y;
-  let rw = U.rect.z;
-  let rh = U.rect.w;
-  let cx = rx + rw * 0.5;
-  let cy = ry + rh * 0.5;
-  let half = vec2<f32>(rw * 0.5, rh * 0.5);
-
-  let kind = i32(U.stroke_radii_b.y);
-
-  if (kind == 0) {
-    // Rounded rect with optional stroke.
-    let tl = U.stroke_radii_a.y;
-    let tr = U.stroke_radii_a.z;
-    let bl = U.stroke_radii_a.w;
-    let br = U.stroke_radii_b.x;
-    let sd = sd_rounded_rect(p, vec2<f32>(cx, cy), half, tl, tr, bl, br);
-    let inside = clamp(0.5 - sd, 0.0, 1.0);
-    var color = vec4<f32>(U.fill.rgb, U.fill.a * inside);
-    let sw = U.stroke_radii_a.x;
-    if (sw > 0.0 && U.stroke.a > 0.0) {
-      // Inside-aligned stroke band.
-      let band = clamp(0.5 - abs(sd + sw * 0.5) / max(sw * 0.5, 0.001), 0.0, 1.0);
-      let stroke_color = vec4<f32>(U.stroke.rgb, U.stroke.a * band);
-      color = over(stroke_color, color);
-    }
-    return color;
-  } else if (kind == 1) {
-    // Gradient.
-    if (p.x < rx || p.x > rx + rw || p.y < ry || p.y > ry + rh) {
-      return vec4<f32>(0.0);
-    }
-    let dir = i32(U.stroke_radii_b.z);
-    var t: f32 = 0.0;
-    let nx = (p.x - rx) / max(rw, 0.0001);
-    let ny = (p.y - ry) / max(rh, 0.0001);
-    if (dir == 0) { t = nx; }
-    else if (dir == 1) { t = ny; }
-    else { t = (nx + ny) * 0.5; }
-    let c = mix(U.grad_start, U.grad_end, clamp(t, 0.0, 1.0));
-    return c;
-  } else if (kind == 2) {
-    // Radial glow.
-    let cx2 = rx + rw * U.glow.x;
-    let cy2 = ry + rh * U.glow.y;
-    let r = min(rw, rh) * U.glow.z;
-    if (r <= 0.0) { return vec4<f32>(0.0); }
-    let d = distance(p, vec2<f32>(cx2, cy2));
-    if (d > r) { return vec4<f32>(0.0); }
-    let t = 1.0 - (d / r);
-    let weight = t * t * (3.0 - 2.0 * t);
-    let phase = U.glow.w;
-    let pulse = 0.5 + 0.5 * sin(phase * 6.2831853);
-    let a = U.fill.a * weight * U.stroke_radii_b.w * pulse;
-    return vec4<f32>(U.fill.rgb, clamp(a, 0.0, 1.0));
-  } else {
-    // Scanlines.
-    if (p.x < rx || p.x > rx + rw || p.y < ry || p.y > ry + rh) {
-      return vec4<f32>(0.0);
-    }
-    let period = max(U.scan.y, 1.0);
-    let on = step(0.5, fract((p.y - ry) / period) * period - (period - 1.0));
-    return vec4<f32>(0.0, 0.0, 0.0, U.scan.x * on);
+  let cx = U.rect.x + U.rect.z * 0.5;
+  let cy = U.rect.y + U.rect.w * 0.5;
+  let half = vec2<f32>(U.rect.z * 0.5, U.rect.w * 0.5);
+  let tl = U.stroke_radii_a.y;
+  let tr = U.stroke_radii_a.z;
+  let bl = U.stroke_radii_a.w;
+  let br = U.stroke_radii_b.x;
+  let sd = sd_rounded_rect(p, vec2<f32>(cx, cy), half, tl, tr, bl, br);
+  let inside = clamp(0.5 - sd, 0.0, 1.0);
+  var color = vec4<f32>(U.fill.rgb, U.fill.a * inside);
+  let sw = U.stroke_radii_a.x;
+  if (sw > 0.0 && U.stroke.a > 0.0) {
+    let band = clamp(0.5 - abs(sd + sw * 0.5) / max(sw * 0.5, 0.001), 0.0, 1.0);
+    let stroke_color = vec4<f32>(U.stroke.rgb, U.stroke.a * band);
+    color = over(stroke_color, color);
   }
+  return color;
+}
+
+// gradient pipeline (linear: horizontal / vertical / diagonal)
+@fragment
+fn fs_gradient(in: VsOut) -> @location(0) vec4<f32> {
+  if (!rect_bounds(in.frag)) { return vec4<f32>(0.0); }
+  let dir = i32(U.stroke_radii_b.z);
+  let nx = (in.frag.x - U.rect.x) / max(U.rect.z, 0.0001);
+  let ny = (in.frag.y - U.rect.y) / max(U.rect.w, 0.0001);
+  var t: f32 = 0.0;
+  if (dir == 0) { t = nx; }
+  else if (dir == 1) { t = ny; }
+  else { t = (nx + ny) * 0.5; }
+  return mix(U.grad_start, U.grad_end, clamp(t, 0.0, 1.0));
+}
+
+// glow_radial pipeline
+@fragment
+fn fs_glow(in: VsOut) -> @location(0) vec4<f32> {
+  let cx = U.rect.x + U.rect.z * U.glow.x;
+  let cy = U.rect.y + U.rect.w * U.glow.y;
+  let r = min(U.rect.z, U.rect.w) * U.glow.z;
+  if (r <= 0.0) { return vec4<f32>(0.0); }
+  let d = distance(in.frag, vec2<f32>(cx, cy));
+  if (d > r) { return vec4<f32>(0.0); }
+  let t = 1.0 - (d / r);
+  let weight = t * t * (3.0 - 2.0 * t);
+  let phase = U.glow.w;
+  let pulse = 0.5 + 0.5 * sin(phase * 6.2831853);
+  let a = U.fill.a * weight * U.stroke_radii_b.w * pulse;
+  return vec4<f32>(U.fill.rgb, clamp(a, 0.0, 1.0));
+}
+
+// scanlines pipeline
+@fragment
+fn fs_scanlines(in: VsOut) -> @location(0) vec4<f32> {
+  if (!rect_bounds(in.frag)) { return vec4<f32>(0.0); }
+  let period = max(U.scan.y, 1.0);
+  let on = step(0.5, fract((in.frag.y - U.rect.y) / period) * period - (period - 1.0));
+  return vec4<f32>(0.0, 0.0, 0.0, U.scan.x * on);
 }
 "#;

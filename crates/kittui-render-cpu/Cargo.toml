@@ -8,8 +8,11 @@ description = "Reference CPU renderer for kittui scenes."
 
 [dependencies]
 kittui-core = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 flate2 = { workspace = true }
 crc32fast = { workspace = true }
 rayon = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

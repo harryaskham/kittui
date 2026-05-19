@@ -1,0 +1,16 @@
+{
+  "footprint": { "x": 0, "y": 0, "cols": 4, "rows": 2 },
+  "cell_size": { "width_px": 8, "height_px": 16 },
+  "layers": [
+    {
+      "label": "background",
+      "root": {
+        "kind": "rect",
+        "rect": { "origin": [0.0, 0.0], "width": 32.0, "height": 32.0 },
+        "fill": { "kind": "solid", "color": [0, 216, 255, 255] },
+        "stroke": null,
+        "corners": { "tl": 0.0, "tr": 0.0, "bl": 0.0, "br": 0.0 }
+      }
+    }
+  ]
+}

@@ -54,10 +54,25 @@ enum Cmd {
     Glow(GlowArgs),
     /// Compose a scene from a JSON file.
     Compose(ComposeArgs),
-    /// Print cache info.
-    Cache,
+    /// Cache management subcommands.
+    #[command(subcommand)]
+    Cache(CacheCmd),
     /// Probe terminal capabilities.
     Probe,
+}
+
+#[derive(Subcommand)]
+enum CacheCmd {
+    /// Print cache directory + stats.
+    Info,
+    /// Force an eviction pass.
+    Gc {
+        /// Optional byte budget override for this run.
+        #[arg(long)]
+        budget: Option<u64>,
+    },
+    /// Remove every cached scene and image.
+    Clear,
 }
 
 #[derive(clap::Args)]
@@ -164,7 +179,7 @@ fn main() -> Result<()> {
         Cmd::Gradient(args) => run_gradient(&cli, &runtime, args),
         Cmd::Glow(args) => run_glow(&cli, &runtime, args),
         Cmd::Compose(args) => run_compose(&cli, &runtime, args),
-        Cmd::Cache => run_cache(&cli),
+        Cmd::Cache(sub) => run_cache(&cli, sub),
         Cmd::Probe => run_probe(&cli),
     }
 }
@@ -262,12 +277,76 @@ fn run_compose(cli: &Cli, runtime: &Runtime, args: &ComposeArgs) -> Result<()> {
     emit(cli, runtime, &scene)
 }
 
-fn run_cache(cli: &Cli) -> Result<()> {
+fn run_cache(cli: &Cli, sub: &CacheCmd) -> Result<()> {
     let dir = cli
         .cache_dir
         .clone()
         .unwrap_or_else(kittui::scene::default_cache_dir);
-    println!("{}", dir.display());
+    match sub {
+        CacheCmd::Info => {
+            let cache = kittui_cache::Cache::open(&dir)?;
+            let stats = cache.stats()?;
+            let probe = cache.read_probe()?;
+            if cli.json {
+                let payload = serde_json::json!({
+                    "root": dir.display().to_string(),
+                    "scene_bytes": stats.scene_bytes,
+                    "scene_count": stats.scene_count,
+                    "image_bytes": stats.image_bytes,
+                    "budget_bytes": cache.config().budget_bytes,
+                    "grace_secs": cache.config().grace_secs,
+                    "probe": probe,
+                });
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!("root:          {}", dir.display());
+                println!(
+                    "scenes:        {} entries, {} bytes",
+                    stats.scene_count, stats.scene_bytes
+                );
+                println!("images:        {} bytes", stats.image_bytes);
+                println!("budget:        {} bytes", cache.config().budget_bytes);
+                println!("grace:         {} seconds", cache.config().grace_secs);
+                if let Some(probe) = probe {
+                    println!(
+                        "probe:         {} (gpu={}, ssim={:?})",
+                        probe.gpu_status,
+                        probe.gpu_adapter.as_deref().unwrap_or("-"),
+                        probe.gpu_parity_ssim
+                    );
+                }
+            }
+        }
+        CacheCmd::Gc { budget } => {
+            let config = match budget {
+                Some(b) => kittui_cache::CacheConfig {
+                    budget_bytes: *b,
+                    grace_secs: kittui_cache::DEFAULT_GRACE_SECS,
+                },
+                None => kittui_cache::CacheConfig::default(),
+            };
+            let cache = kittui_cache::Cache::open_with_config(&dir, config)?;
+            let report = cache.gc()?;
+            if cli.json {
+                let payload = serde_json::json!({
+                    "removed_entries": report.removed_entries,
+                    "reclaimed_bytes": report.reclaimed_bytes,
+                    "skipped_grace": report.skipped_grace,
+                });
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!(
+                    "reclaimed {} bytes across {} entries (skipped {} within grace)",
+                    report.reclaimed_bytes, report.removed_entries, report.skipped_grace
+                );
+            }
+        }
+        CacheCmd::Clear => {
+            let cache = kittui_cache::Cache::open(&dir)?;
+            cache.clear()?;
+            println!("cleared {}", dir.display());
+        }
+    }
     Ok(())
 }
 
