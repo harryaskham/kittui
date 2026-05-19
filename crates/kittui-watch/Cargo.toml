@@ -1,0 +1,18 @@
+[package]
+name = "kittui-watch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Live preview daemon: watches a scene-JSON file and re-emits the kittui placement on change."
+
+[[bin]]
+name = "kittui-watch"
+path = "src/main.rs"
+
+[dependencies]
+kittui = { workspace = true }
+kittui-core = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }

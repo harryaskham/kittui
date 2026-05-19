@@ -242,6 +242,12 @@ fn draw_node(
         Node::Image { .. } => {
             // Image support arrives with the atlas pipeline.
         }
+        Node::Shader { .. } => {
+            // User-shader nodes need per-scene pipeline compilation +
+            // caching. v0.6 GPU backend accepts the node in the type
+            // system but draws nothing; the next revision wires the
+            // dynamic pipeline cache and lights this up.
+        }
         Node::Group {
             opacity: o,
             children,

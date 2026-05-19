@@ -1,0 +1,14 @@
+[package]
+name = "kittui-overlay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Transient overlay surfaces (command palettes, notifications, IME ribbons) over kittui."
+
+[dependencies]
+kittui = { workspace = true }
+kittui-core = { workspace = true }
+ratakittui = { path = "../ratakittui", version = "0.1.0" }
+ratatui = { workspace = true }
+parking_lot = { workspace = true }

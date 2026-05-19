@@ -15,7 +15,10 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
+pub mod composition;
 pub mod scene;
+
+pub use composition::{Composer, Composition, CompositionEntry, DiffResult};
 
 pub use kittui_core::{
     Animation, BlendMode, CellRect, CellSize, Corners, Direction, Fit, ImageRef, Layer, Node,

@@ -850,6 +850,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kittui-overlay"
+version = "0.1.0"
+dependencies = [
+ "kittui",
+ "kittui-core",
+ "parking_lot",
+ "ratakittui",
+ "ratatui",
+]
+
+[[package]]
 name = "kittui-render-cpu"
 version = "0.1.0"
 dependencies = [
@@ -888,6 +899,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "kittui-watch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "kittui",
+ "kittui-core",
+ "serde_json",
 ]
 
 [[package]]

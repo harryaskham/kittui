@@ -68,13 +68,15 @@ kittui/
 │   ├── kittui-render-gpu/         # wgpu renderer (feature: gpu, default on)
 │   ├── kittui-kitty/              # kitty graphics protocol + transports
 │   ├── kittui-cache/              # content-addressed PNG/APNG cache
-│   ├── kittui/                    # Public Rust facade (Runtime, builders)
+│   ├── kittui/                    # Public Rust facade (Runtime, builders, Composition)
 │   ├── kittui-cli/                # `kittui` binary
 │   ├── kittui-ffi/                # cdylib + cbindgen header
 │   ├── ratakittui/                # ratatui adapter (decoration + lifecycle)
 │   ├── kittui-tmux/               # tmux pane-border host
 │   ├── kittui-affordances/        # optional higher-level patterns (panel/chip/divider)
-│   └── kittui-wm/                 # window-manager substrate (scaffold)
+│   ├── kittui-wm/                 # window-manager substrate (scaffold)
+│   ├── kittui-overlay/            # transient overlay surfaces
+│   └── kittui-watch/              # live preview daemon
 ├── bindings/
 │   └── ts/                        # @kittui/koffi (build-step-free JS binding)
 └── xtask/                         # cbindgen, fixtures, abi snapshots
@@ -711,34 +713,46 @@ first.
 
 ## Future ideas
 
-- **`kittui-tmux` pane-border showcase.** A tmux plugin / hook that replaces
-  the ASCII box-drawing characters tmux paints between panes with kittui
-  unicode-placeholder graphics. The outer chrome (pane separators, status
-  line, message overlays) is then drawn by kittui with full gradients,
-  rounded corners, joined borders, glow, and per-pane tinted backgrounds —
-  effectively a graphically enhanced tmux at the outer layer. As a bonus,
-  centralizing kitty graphics state at the tmux outer layer gives us a
-  consistent place to translate pane-local kitty placements into absolute
-  terminal coordinates, fixing the relative-placement-in-tmux problem most
-  consumers hit today. This is also a good stress test of the diff-driven
-  composition path because tmux pane geometry changes whenever the user
-  splits, resizes, swaps, or zooms.
-- **`kittui-wm` window manager substrate.** Once the tmux-border showcase
-  works, the same primitives drive a from-scratch terminal window manager.
-  The renderer/cache/protocol layers are unchanged; only a new host crate is
-  added.
-- **`kittui-shader` user shaders.** Expose a stable shader interface so users
-  can drop in a fragment shader and target a `Node::Shader` rect. With the
-  GPU backend the cost is essentially free per draw, and the same shader
-  produces a CPU fallback by compiling through naga/wgsl-to-spirv-to-cpu.
-- **`Composition` first-class type.** Hoist ratakittui's
-  `LifecycleTracker` into a library-level `Composition` so non-ratatui
-  hosts (Pi panels, kittui-wm) get the same diff-driven upload/delete
-  behavior without re-implementing the bookkeeping.
-- **Soft-keyboard / overlay surface.** A `kittui-overlay` crate that owns
-  a transient, always-on-top surface for things like command palettes,
-  notifications, IME ribbons. Reuses ratakittui chrome with a stronger
-  shadow and a higher-z placement command.
-- **Live preview daemon.** A small `kittui-watch` binary that watches a
-  scene-JSON file and re-emits the placement on change. Useful for
-  authoring chrome interactively without rebuilding a host.
+Every item below now has a real artifact on `main`. The section title is
+kept ("Future ideas") because each remains an explicit area for future
+refinement — the v0.1 surface is small, but the type and the
+contract are committed.
+
+- ✅ **`kittui-tmux` pane-border showcase.** Parser for `tmux list-panes
+  -F` + join-group composer + `kittui-tmux` binary; live tmux hook
+  example under `crates/kittui-tmux/examples/install-hooks.sh` that
+  registers the binary against tmux's `client-resized` /
+  `pane-exited` / `window-layout-changed` / `window-resized` /
+  `session-window-changed` / `pane-set-active` hooks. Source the
+  script (`./install-hooks.sh | tmux source-file -`) to wire the live
+  integration.
+- ✅ **`kittui-wm` window manager substrate.** Scaffold crate landed at
+  v0.1: `WindowTree` / `WindowGeometry` / `WindowId` with z-ordered
+  layout. Full split/stack/tab semantics + per-window scene generation
+  arrive once the tmux-border showcase has exercised diff-driven
+  composition under real load.
+- ✅ **`kittui-shader` user shaders.** `Node::Shader { rect, source,
+  uniforms }` lives in `kittui-core`; serde round-trips. CPU renderer
+  returns a clear `UnsupportedImage` error explaining GPU-only status.
+  GPU renderer accepts the node in the type system; per-scene WGSL
+  pipeline compilation + caching lights up the actual draw in the
+  next revision. The CPU naga→WGSL fallback path is documented but
+  unimplemented.
+- ✅ **`Composition` first-class type.** `kittui::Composition` /
+  `CompositionEntry` / `Composer` / `DiffResult`. Diff-driven
+  upload-once + place-while-visible + delete-when-gone exposed at the
+  library level, so Pi panels / kittui-wm / kittui-tmux / FFI
+  consumers get the same protocol ratakittui's `LifecycleTracker`
+  already implements internally.
+- ✅ **Soft-keyboard / overlay surface.** `kittui-overlay` crate ships
+  `Overlay` + `default_overlay_chrome()` (heavier shadow + brighter
+  glow + pulse) and `Overlay::entry_from_chrome` so hosts build
+  transient surfaces from a `Chrome` in one call. `Overlay::render`
+  routes through a private `Composer`, so re-rendering the same
+  overlay only re-emits the placement escape; `Overlay::hide`
+  drains.
+- ✅ **Live preview daemon.** `kittui-watch` binary watches a
+  scene-JSON file by stat-polling at configurable interval and
+  re-applies a one-entry `Composition` through a `Composer`. Drains
+  on `Drop` so the terminal isn't left with an orphan image when the
+  daemon exits.

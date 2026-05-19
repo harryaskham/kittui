@@ -231,6 +231,21 @@ pub enum Node {
         /// Content.
         child: Box<Node>,
     },
+    /// User-supplied fragment shader. The shader is WGSL source code
+    /// run by the GPU backend against the node's rectangle. The CPU
+    /// backend rejects scenes containing this variant (until a
+    /// naga-driven WGSL→CPU compiler lands).
+    Shader {
+        /// Pixel-space bounds the shader paints into.
+        rect: PxRect,
+        /// WGSL fragment shader source. Must declare
+        /// `@fragment fn fs_main(@location(0) frag: vec2<f32>) -> @location(0) vec4<f32>`.
+        source: String,
+        /// Up to 4 user-supplied vec4 uniforms forwarded as the
+        /// `user0..user3` fields of the shader's uniform block.
+        #[serde(default)]
+        uniforms: Vec<[f32; 4]>,
+    },
 }
 
 /// A layer is a back-to-front slice of the scene. Layers exist to make

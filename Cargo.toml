@@ -13,6 +13,8 @@ members = [
   "crates/kittui-tmux",
   "crates/kittui-affordances",
   "crates/kittui-wm",
+  "crates/kittui-overlay",
+  "crates/kittui-watch",
 ]
 
 [workspace.package]

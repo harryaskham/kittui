@@ -84,6 +84,9 @@ fn render_node(
             Ok(())
         }
         Node::Image { src, .. } => Err(RenderError::UnsupportedImage(format!("{:?}", src_kind(src)))),
+        Node::Shader { .. } => Err(RenderError::UnsupportedImage(
+            "Node::Shader is GPU-only; CPU WGSL execution lands later".to_owned(),
+        )),
         Node::Group { opacity: o, children } => {
             let combined = (opacity * o.clamp(0.0, 1.0)).clamp(0.0, 1.0);
             for child in children {
