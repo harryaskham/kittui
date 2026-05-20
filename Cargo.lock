@@ -815,6 +815,8 @@ dependencies = [
  "kittui",
  "kittui-cache",
  "kittui-core",
+ "kittui-kitty",
+ "kittui-render-cpu",
  "ratakittui",
  "ratatui",
  "serde",

@@ -127,6 +127,11 @@ impl EffectsSink {
 }
 
 /// Combine accumulated effects + lifecycle deletes into a `DrawFlush`.
+///
+/// Per-effect placements are preceded by a cursor-position escape
+/// (`\x1b[<row>;<col>H`) computed from the effect's footprint so each
+/// image anchors at the chrome origin instead of the current cursor. This
+/// matches what a live host would do around its buffer flush.
 pub fn finalize_frame(
     sink: &EffectsSink,
     tracker: &LifecycleTracker,
@@ -136,6 +141,10 @@ pub fn finalize_frame(
     for effects in sink.drain() {
         tracker.keep(&effects);
         out.upload.push_str(&effects.upload);
+        if let Some(fp) = effects.footprint {
+            use std::fmt::Write as _;
+            let _ = write!(out.placement, "\x1b[{};{}H", fp.y + 1, fp.x + 1);
+        }
         out.placement.push_str(&effects.placement);
         out.placement.push_str(&effects.embed);
     }

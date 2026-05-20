@@ -171,6 +171,7 @@ fn header(cols: u16) -> Scene {
 fn main() -> anyhow::Result<()> {
     let runtime = Runtime::builder()
         .renderer(RendererKind::Cpu)
+        .terminal(kittui::TerminalInfo::detect())
         .build()?;
 
     let scenes: Vec<(&str, Scene)> = vec![

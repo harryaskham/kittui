@@ -50,6 +50,16 @@ impl TerminalInfo {
         }
     }
 
+    /// Detect transport from the environment. Returns `TmuxPassthrough` when
+    /// `$TMUX` is set, otherwise `Direct`. Other fields keep their defaults.
+    pub fn detect() -> Self {
+        let mut info = Self::default_kitty();
+        if std::env::var_os("TMUX").is_some() {
+            info.transport = Transport::TmuxPassthrough;
+        }
+        info
+    }
+
     /// Construct a host-supplied override. Library users that already know
     /// the terminal capabilities (because Pi or another wrapper has already
     /// probed) can build this directly and skip kittui's own probing.

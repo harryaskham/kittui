@@ -94,7 +94,9 @@ fn divider_chrome() -> Chrome {
 }
 
 fn main() -> Result<()> {
-    let runtime = Runtime::builder().build()?;
+    let runtime = Runtime::builder()
+        .terminal(kittui::TerminalInfo::detect())
+        .build()?;
     let tracker = LifecycleTracker::new();
     tracker.begin_frame();
 
@@ -188,9 +190,13 @@ fn main() -> Result<()> {
     // the ratatui buffer flush.
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
+    // Clear screen first so the alternate ratatui buffer doesn't overlap.
+    handle.write_all(b"\x1b[2J\x1b[H")?;
     handle.write_all(flush.upload.as_bytes())?;
     handle.write_all(flush.placement.as_bytes())?;
     handle.write_all(flush.deletes.as_bytes())?;
+    // Park the cursor below the last placed widget.
+    handle.write_all(b"\x1b[24;1H")?;
     writeln!(
         handle,
         "\nratakittui showcase: {} placements, {} bytes of placement, {} bytes of upload",

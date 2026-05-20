@@ -69,6 +69,8 @@ enum Cmd {
     Cache(CacheCmd),
     /// Probe terminal capabilities.
     Probe,
+    /// Walk the full kitty graphics protocol surface and emit labelled output.
+    Proof(ProofArgs),
 }
 
 #[derive(Subcommand)]
@@ -83,6 +85,16 @@ enum CacheCmd {
     },
     /// Remove every cached scene and image.
     Clear,
+}
+
+#[derive(clap::Args, Clone)]
+struct ProofArgs {
+    /// Emit the raw escape bytes to stdout in addition to the labelled report.
+    #[arg(long)]
+    emit: bool,
+    /// Restrict the matrix to a single section name (substring match).
+    #[arg(long)]
+    only: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -189,7 +201,7 @@ fn build_runtime(global: &GlobalConfig) -> Result<Runtime> {
     let terminal = TerminalInfo {
         columns: Some(global.terminal_cols.value),
         rows: Some(global.terminal_rows.value),
-        ..TerminalInfo::default()
+        ..TerminalInfo::detect()
     };
     Ok(Runtime::builder()
         .renderer(global.renderer.value.into())
@@ -250,6 +262,7 @@ fn main() -> Result<()> {
         Cmd::Compose(args) => run_compose(&global, &runtime, args),
         Cmd::Cache(sub) => run_cache(&global, &layers, sub),
         Cmd::Probe => run_probe(&global),
+        Cmd::Proof(args) => run_proof(&global, args),
     }
 }
 
@@ -436,6 +449,222 @@ fn run_probe(global: &GlobalConfig) -> Result<()> {
         "config_sources": { "global": global.source_json() },
     });
     println!("{}", serde_json::to_string_pretty(&probe)?);
+    Ok(())
+}
+
+fn run_proof(global: &GlobalConfig, args: &ProofArgs) -> Result<()> {
+    use kittui::scene::{background_solid, rounded_rect};
+    use kittui_kitty::{
+        delete, delete_placement, placement_command, placement_command_ex, placeholder_text,
+        upload_animation, upload_still, upload_still_ex, PlacementOptions, Quiet, SubcellOffset,
+        UploadMedium,
+    };
+    use kittui_core::terminal::Transport;
+
+    // Build a single small still scene and one tiny animation through the
+    // CPU renderer so the proof commands carry real PNG bytes.
+    let cell = CellSize::default();
+    let footprint = CellRect::new(0, 0, 8, 3);
+    let rect = footprint.to_pixels(cell);
+    let bg = Rgba::parse("#08111fcc")?;
+    let fg = Rgba::parse("#00d8ff")?;
+    let still_scene = Scene {
+        footprint,
+        cell_size: cell,
+        layers: vec![
+            background_solid(footprint, cell, bg),
+            rounded_rect(rect, bg, fg, 1.5, 6.0),
+        ],
+        animation: None,
+    };
+    let anim_scene = Scene {
+        footprint,
+        cell_size: cell,
+        layers: vec![
+            background_solid(footprint, cell, bg),
+            rounded_rect(rect, bg, fg, 1.5, 6.0),
+        ],
+        animation: Some(Animation {
+            frames: 3,
+            cycle_ms: 600,
+            curve: PhaseCurve::Pulse { harmonics: 0 },
+            loops: 0,
+        }),
+    };
+    let renderer = kittui_render_cpu::render_still(&still_scene)?;
+    let still_png = renderer.png;
+    let anim = kittui_render_cpu::render_animation(&anim_scene)?;
+    let frames = anim.frames;
+    let delays: Vec<u32> = anim.frame_delays_ms;
+
+    let mut sections: Vec<(String, String)> = Vec::new();
+    let mut add = |label: &str, body: String| {
+        sections.push((label.to_string(), body));
+    };
+
+    // 1) Direct transport, default quiet (q=2).
+    add(
+        "upload still + unicode placement (Direct, q=2)",
+        format!(
+            "{}{}{}",
+            upload_still(0x00112233, &still_png, Transport::Direct),
+            placement_command(0x00112233, footprint, Transport::Direct),
+            placeholder_text(0x00112233, footprint),
+        ),
+    );
+
+    // 2) Tmux passthrough transport.
+    add(
+        "upload still + unicode placement (TmuxPassthrough)",
+        format!(
+            "{}{}{}",
+            upload_still(0x00112233, &still_png, Transport::TmuxPassthrough),
+            placement_command(0x00112233, footprint, Transport::TmuxPassthrough),
+            placeholder_text(0x00112233, footprint),
+        ),
+    );
+
+    // 3) File-medium upload, plus placement.
+    let tmp = std::env::temp_dir().join("kittui-proof.png");
+    std::fs::write(&tmp, &still_png)?;
+    add(
+        "upload still via File medium",
+        format!(
+            "{}{}{}",
+            upload_still_ex(
+                0x4400aa00,
+                UploadMedium::File { path: &tmp },
+                Quiet::SuppressAll,
+                Transport::Direct,
+            ),
+            placement_command(0x4400aa00, footprint, Transport::Direct),
+            placeholder_text(0x4400aa00, footprint),
+        ),
+    );
+
+    // 4) Shared-memory medium upload (name only; terminal would shm_open).
+    add(
+        "upload still via SharedMemory medium",
+        upload_still_ex(
+            0x55005500,
+            UploadMedium::SharedMemory {
+                name: "/kittui-proof",
+            },
+            Quiet::SuppressAll,
+            Transport::Direct,
+        ),
+    );
+
+    // 5) Absolute (non-placeholder) placement.
+    let abs_opts = PlacementOptions::absolute();
+    add(
+        "absolute placement (no unicode placeholder)",
+        format!(
+            "{}{}",
+            upload_still(0x66006600, &still_png, Transport::Direct),
+            placement_command_ex(0x66006600, footprint, &abs_opts, Transport::Direct),
+        ),
+    );
+
+    // 6) Placement id + subcell offset.
+    let p_opts = PlacementOptions {
+        placement_id: Some(7),
+        offset: SubcellOffset { x_px: 4, y_px: 2 },
+        quiet: Quiet::SuppressAll,
+        unicode_placeholder: true,
+        z_index: 1,
+    };
+    add(
+        "placement with id=7, X=4, Y=2, z=1",
+        format!(
+            "{}{}{}",
+            upload_still(0x77007700, &still_png, Transport::Direct),
+            placement_command_ex(0x77007700, footprint, &p_opts, Transport::Direct),
+            placeholder_text(0x77007700, footprint),
+        ),
+    );
+
+    // 7) Animation: 3 frames, real PNG bytes.
+    add(
+        "animated upload + placement (3 frames)",
+        format!(
+            "{}{}{}",
+            upload_animation(0x88008800, &frames, &delays, 0, Transport::Direct),
+            placement_command(0x88008800, footprint, Transport::Direct),
+            placeholder_text(0x88008800, footprint),
+        ),
+    );
+
+    // 8) Delete: by image id, then by placement id.
+    add(
+        "delete image / delete placement",
+        format!(
+            "{}{}",
+            delete(0x77007700, Transport::Direct),
+            delete_placement(0x77007700, 7, Transport::Direct),
+        ),
+    );
+
+    // 9) HiDPI cell-size override: same scene at 16x32 cells.
+    let hidpi_cell = CellSize::new(16, 32);
+    let hidpi_footprint = CellRect::new(0, 0, 4, 2);
+    let hidpi_rect = hidpi_footprint.to_pixels(hidpi_cell);
+    let hidpi_scene = Scene {
+        footprint: hidpi_footprint,
+        cell_size: hidpi_cell,
+        layers: vec![
+            background_solid(hidpi_footprint, hidpi_cell, bg),
+            rounded_rect(hidpi_rect, bg, fg, 2.0, 8.0),
+        ],
+        animation: None,
+    };
+    let hidpi_png = kittui_render_cpu::render_still(&hidpi_scene)?.png;
+    add(
+        "HiDPI 16x32 cell override",
+        format!(
+            "{}{}{}",
+            upload_still(0x99009900, &hidpi_png, Transport::Direct),
+            placement_command(0x99009900, hidpi_footprint, Transport::Direct),
+            placeholder_text(0x99009900, hidpi_footprint),
+        ),
+    );
+
+    // Filtering and emission.
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    if global.json.value {
+        let payload: Vec<_> = sections
+            .iter()
+            .filter(|(label, _)| args.only.as_deref().map(|s| label.contains(s)).unwrap_or(true))
+            .map(|(label, body)| {
+                serde_json::json!({
+                    "label": label,
+                    "bytes_len": body.len(),
+                    "hex_prefix": body.as_bytes().iter().take(48).map(|b| format!("{:02x}", b)).collect::<String>(),
+                })
+            })
+            .collect();
+        writeln!(handle, "{}", serde_json::to_string_pretty(&payload)?)?;
+        return Ok(());
+    }
+    for (label, body) in &sections {
+        if let Some(filter) = args.only.as_deref() {
+            if !label.contains(filter) {
+                continue;
+            }
+        }
+        writeln!(handle, "\x1b[1m== {label} ==\x1b[0m")?;
+        if args.emit {
+            handle.write_all(body.as_bytes())?;
+            writeln!(handle)?;
+        } else {
+            // Default: print labelled hex prefix so it is safe to view in any terminal.
+            let prefix: String = body.as_bytes().iter().take(48).map(|b| format!("{:02x}", b)).collect();
+            writeln!(handle, "  bytes_len={}", body.len())?;
+            writeln!(handle, "  hex_prefix={}", prefix)?;
+        }
+    }
+    let _ = std::fs::remove_file(&tmp);
     Ok(())
 }
 

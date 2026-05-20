@@ -69,7 +69,20 @@ a flag, env var, YAML, or a built-in default.
 
 ## Status
 
-v0.1: scaffold + CPU renderer + cache + protocol + CLI + showcase + ratakittui
-lifecycle skeleton + FFI scaffold all build and test green. GPU backend, full
-ratatui decoration matrix, and the tmux border showcase land next per
-`DESIGN.md`.
+v0.2: kitty graphics protocol now spec-conformant and **proven visually**
+in Ghostty (and any other kitty-compatible terminal):
+
+- 297-entry unicode placeholder diacritic table with full `(row, col, msb)`
+  encoding (spec compliance — previously bare `U+10EEEE` cells).
+- `Quiet` `q=1`/`q=2` control to suppress terminal responses (no more
+  `Gi=…;ENOENT` lines leaking into output).
+- `UploadMedium::{Direct,File,TempFile,SharedMemory}` for `t=d/f/t/s` upload modes.
+- Animation: `a=t` then `a=f` frame appends + `a=a` control + per-frame `z=` delays.
+- `PlacementOptions` with `placement_id` (`p=`), subcell offset (`X=`/`Y=`),
+  z-index, and unicode-placeholder toggle.
+- Auto-detect `Transport::TmuxPassthrough` when running inside tmux.
+- `kittui proof` CLI walks the full protocol matrix; `cargo test`
+  grammar-pins every encoder and regression-tests the proof matrix.
+
+See [docs/protocol-conformance.md](docs/protocol-conformance.md) for the
+per-spec-section coverage table.
