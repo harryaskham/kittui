@@ -26,3 +26,8 @@ serde_json = { workspace = true }
 serde_yaml = "0.9"
 ratatui = { workspace = true }
 ratakittui = { path = "../ratakittui", version = "0.1.0" }
+libc = "0.2"
+
+[features]
+default = []
+xvfb = ["kittui-xvfb/xvfb"]

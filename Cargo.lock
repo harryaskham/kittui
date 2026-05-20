@@ -860,6 +860,7 @@ dependencies = [
  "kittui-render-cpu",
  "kittui-wm",
  "kittui-xvfb",
+ "libc",
  "ratakittui",
  "ratatui",
  "serde",
