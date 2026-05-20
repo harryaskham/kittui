@@ -21,7 +21,16 @@ libc = "0.2"
 # because no public crate exposes them.
 core-foundation = { version = "0.10", optional = true }
 core-graphics = { version = "0.24", optional = true }
+screencapturekit = { version = "0.3", optional = true }
+core-media-rs = { version = "0.3", optional = true }
+core-video-rs = { version = "0.3", optional = true }
 
 [features]
 default = []
 quartz = ["dep:core-foundation", "dep:core-graphics"]
+sck = [
+  "quartz",
+  "dep:screencapturekit",
+  "dep:core-media-rs",
+  "dep:core-video-rs",
+]

@@ -220,6 +220,55 @@ mod imp {
             false
         }
 
+        #[cfg(not(feature = "sck"))]
+        fn capture_legacy(&self, id: XWindowId) -> Result<XCapture, XError> {
+            // Pre-macOS-12.3 path. On macOS 14+ this returns a black frame;
+            // use --features sck for the supported ScreenCaptureKit path.
+            match &self.target {
+                CaptureTarget::MainDisplay | CaptureTarget::Display(_) | CaptureTarget::AllDisplays => {
+                    let display_id = match &self.target {
+                        CaptureTarget::Display(d) => *d,
+                        CaptureTarget::AllDisplays => id.0,
+                        _ => CGDisplay::main().id,
+                    };
+                    let img = CGDisplay::new(display_id).image().ok_or_else(|| {
+                        XError::Unavailable("CGDisplayCreateImage returned null".into())
+                    })?;
+                    let width = img.width() as u32;
+                    let height = img.height() as u32;
+                    let data = img.data();
+                    let row_bytes = img.bytes_per_row() as usize;
+                    let bytes = data.bytes();
+                    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+                    for y in 0..height as usize {
+                        let row = &bytes[y * row_bytes..y * row_bytes + (width as usize) * 4];
+                        for px in row.chunks_exact(4) {
+                            rgba.push(px[2]);
+                            rgba.push(px[1]);
+                            rgba.push(px[0]);
+                            rgba.push(0xff);
+                        }
+                    }
+                    Ok(XCapture { id, width, height, rgba })
+                }
+                CaptureTarget::Window(window_id) => {
+                    let infinite = CGRect {
+                        origin: CGPoint::new(f64::INFINITY, f64::INFINITY),
+                        size: core_graphics::geometry::CGSize::new(0.0, 0.0),
+                    };
+                    let image = unsafe {
+                        CGWindowListCreateImage(infinite, 0, *window_id, K_CG_WINDOW_IMAGE_BOUNDS_IGNORE_FRAMING)
+                    };
+                    let (width, height, rgba) = capture_cgimage(image).ok_or_else(|| {
+                        XError::Unavailable(format!(
+                            "CGWindowListCreateImage failed for window {window_id}"
+                        ))
+                    })?;
+                    Ok(XCapture { id, width, height, rgba })
+                }
+            }
+        }
+
         fn bounds(&self) -> (i32, i32, u32, u32) {
             match &self.target {
                 CaptureTarget::MainDisplay => {
@@ -374,63 +423,38 @@ mod imp {
         }
 
         fn capture(&self, id: XWindowId) -> Result<XCapture, XError> {
-            match &self.target {
-                CaptureTarget::MainDisplay | CaptureTarget::Display(_) | CaptureTarget::AllDisplays => {
-                    let display_id = match &self.target {
-                        CaptureTarget::Display(d) => *d,
-                        CaptureTarget::AllDisplays => id.0,
-                        _ => CGDisplay::main().id,
-                    };
-                    let img = CGDisplay::new(display_id).image().ok_or_else(|| {
-                        XError::Unavailable("CGDisplayCreateImage returned null".into())
-                    })?;
-                    let width = img.width() as u32;
-                    let height = img.height() as u32;
-                    let data = img.data();
-                    let row_bytes = img.bytes_per_row() as usize;
-                    let bytes = data.bytes();
-                    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-                    for y in 0..height as usize {
-                        let row = &bytes[y * row_bytes..y * row_bytes + (width as usize) * 4];
-                        for px in row.chunks_exact(4) {
-                            rgba.push(px[2]);
-                            rgba.push(px[1]);
-                            rgba.push(px[0]);
-                            rgba.push(0xff);
-                        }
+            // ScreenCaptureKit path: required on macOS 14+ where
+            // CGDisplayCreateImage silently returns a black frame.
+            #[cfg(feature = "sck")]
+            {
+                match &self.target {
+                    CaptureTarget::MainDisplay | CaptureTarget::Display(_) | CaptureTarget::AllDisplays => {
+                        let display_id = match &self.target {
+                            CaptureTarget::Display(d) => *d,
+                            CaptureTarget::AllDisplays => id.0,
+                            _ => CGDisplay::main().id,
+                        };
+                        return sck::capture_display(display_id).map(|(w, h, rgba)| XCapture {
+                            id,
+                            width: w,
+                            height: h,
+                            rgba,
+                        });
                     }
-                    Ok(XCapture {
-                        id,
-                        width,
-                        height,
-                        rgba,
-                    })
+                    CaptureTarget::Window(window_id) => {
+                        return sck::capture_window(*window_id).map(|(w, h, rgba)| XCapture {
+                            id,
+                            width: w,
+                            height: h,
+                            rgba,
+                        });
+                    }
                 }
-                CaptureTarget::Window(window_id) => {
-                    let infinite = CGRect {
-                        origin: CGPoint::new(f64::INFINITY, f64::INFINITY),
-                        size: core_graphics::geometry::CGSize::new(0.0, 0.0),
-                    };
-                    let image = unsafe {
-                        CGWindowListCreateImage(
-                            infinite,
-                            0,
-                            *window_id,
-                            K_CG_WINDOW_IMAGE_BOUNDS_IGNORE_FRAMING,
-                        )
-                    };
-                    let (width, height, rgba) = capture_cgimage(image).ok_or_else(|| {
-                        XError::Unavailable(format!(
-                            "CGWindowListCreateImage failed for window {window_id}"
-                        ))
-                    })?;
-                    Ok(XCapture {
-                        id,
-                        width,
-                        height,
-                        rgba,
-                    })
-                }
+            }
+
+            #[cfg(not(feature = "sck"))]
+            {
+                self.capture_legacy(id)
             }
         }
 
@@ -507,6 +531,193 @@ mod imp {
             let p = CGEventGetLocation(ev);
             CFRelease(ev);
             p
+        }
+    }
+
+    #[cfg(feature = "sck")]
+    pub(crate) mod sck {
+        //! ScreenCaptureKit capture path. Lazy-spawns one `SCStream` per
+        //! display/window target on first call, then synchronously returns
+        //! the most recent BGRA frame converted to tight RGBA.
+
+        use super::*;
+        use std::collections::HashMap;
+        use std::sync::{Mutex, OnceLock};
+        use std::time::{Duration, Instant};
+
+        use core_media_rs::cm_sample_buffer::CMSampleBuffer;
+        use core_video_rs::cv_pixel_buffer::lock::LockTrait;
+        use screencapturekit::shareable_content::SCShareableContent;
+        use screencapturekit::stream::{
+            configuration::SCStreamConfiguration, content_filter::SCContentFilter,
+            output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, SCStream,
+        };
+
+        #[derive(Clone)]
+        struct FrameSlot(std::sync::Arc<Mutex<Option<(u32, u32, Vec<u8>)>>>);
+
+        impl FrameSlot {
+            fn new() -> Self {
+                Self(std::sync::Arc::new(Mutex::new(None)))
+            }
+            fn store(&self, w: u32, h: u32, rgba: Vec<u8>) {
+                *self.0.lock().unwrap() = Some((w, h, rgba));
+            }
+            fn load(&self) -> Option<(u32, u32, Vec<u8>)> {
+                self.0.lock().unwrap().clone()
+            }
+        }
+
+        struct Capturer {
+            slot: FrameSlot,
+        }
+
+        impl SCStreamOutputTrait for Capturer {
+            fn did_output_sample_buffer(
+                &self,
+                sample: CMSampleBuffer,
+                of_type: SCStreamOutputType,
+            ) {
+                if of_type != SCStreamOutputType::Screen {
+                    return;
+                }
+                let Ok(pixel_buffer) = sample.get_pixel_buffer() else { return };
+                let w = pixel_buffer.get_width();
+                let h = pixel_buffer.get_height();
+                let row_bytes = pixel_buffer.get_bytes_per_row() as usize;
+                let Ok(guard) = pixel_buffer.lock() else { return };
+                let bytes = guard.as_slice();
+                let row_pixels = (w as usize).min(row_bytes / 4);
+                let mut rgba = Vec::with_capacity(row_pixels * (h as usize) * 4);
+                for y in 0..h as usize {
+                    let row_start = y * row_bytes;
+                    if row_start + row_pixels * 4 > bytes.len() {
+                        break;
+                    }
+                    let row = &bytes[row_start..row_start + row_pixels * 4];
+                    for px in row.chunks_exact(4) {
+                        // ScreenCaptureKit defaults to BGRA pixel format.
+                        rgba.push(px[2]);
+                        rgba.push(px[1]);
+                        rgba.push(px[0]);
+                        rgba.push(0xff);
+                    }
+                }
+                self.slot.store(row_pixels as u32, h, rgba);
+            }
+        }
+
+        struct ActiveStream {
+            _stream: SCStream,
+            slot: FrameSlot,
+        }
+
+        type StreamMap = Mutex<HashMap<u64, ActiveStream>>;
+
+        fn streams() -> &'static StreamMap {
+            static MAP: OnceLock<StreamMap> = OnceLock::new();
+            MAP.get_or_init(|| Mutex::new(HashMap::new()))
+        }
+
+        fn key_display(id: u32) -> u64 {
+            ((1u64) << 32) | (id as u64)
+        }
+        fn key_window(id: u32) -> u64 {
+            ((2u64) << 32) | (id as u64)
+        }
+
+        pub(crate) fn capture_display(display_id: u32) -> Result<(u32, u32, Vec<u8>), XError> {
+            let key = key_display(display_id);
+            ensure_display_stream(display_id, key)?;
+            wait_for_frame(key)
+        }
+
+        pub(crate) fn capture_window(window_id: u32) -> Result<(u32, u32, Vec<u8>), XError> {
+            let key = key_window(window_id);
+            ensure_window_stream(window_id, key)?;
+            wait_for_frame(key)
+        }
+
+        fn ensure_display_stream(display_id: u32, key: u64) -> Result<(), XError> {
+            let mut map = streams().lock().unwrap();
+            if map.contains_key(&key) {
+                return Ok(());
+            }
+            let content = SCShareableContent::get()
+                .map_err(|e| XError::Unavailable(format!("SCShareableContent::get: {e:?}")))?;
+            let display = content
+                .displays()
+                .into_iter()
+                .find(|d| d.display_id() == display_id)
+                .ok_or_else(|| XError::Unavailable(format!("display {display_id} not in SCShareableContent")))?;
+            let bounds = CGDisplay::new(display_id).bounds();
+            let config = SCStreamConfiguration::new()
+                .set_width(bounds.size.width as u32)
+                .map_err(|e| XError::Unavailable(format!("set_width: {e:?}")))?
+                .set_height(bounds.size.height as u32)
+                .map_err(|e| XError::Unavailable(format!("set_height: {e:?}")))?;
+            let filter = SCContentFilter::new().with_display_excluding_windows(&display, &[]);
+            let slot = FrameSlot::new();
+            let mut stream = SCStream::new(&filter, &config);
+            stream.add_output_handler(
+                Capturer { slot: slot.clone() },
+                SCStreamOutputType::Screen,
+            );
+            stream
+                .start_capture()
+                .map_err(|e| XError::Unavailable(format!("start_capture: {e:?}")))?;
+            map.insert(key, ActiveStream { _stream: stream, slot });
+            Ok(())
+        }
+
+        fn ensure_window_stream(window_id: u32, key: u64) -> Result<(), XError> {
+            let mut map = streams().lock().unwrap();
+            if map.contains_key(&key) {
+                return Ok(());
+            }
+            let content = SCShareableContent::get()
+                .map_err(|e| XError::Unavailable(format!("SCShareableContent::get: {e:?}")))?;
+            let window = content
+                .windows()
+                .into_iter()
+                .find(|w| w.window_id() == window_id)
+                .ok_or_else(|| XError::Unavailable(format!("window {window_id} not in SCShareableContent")))?;
+            let frame = window.get_frame();
+            let config = SCStreamConfiguration::new()
+                .set_width(frame.size.width as u32)
+                .map_err(|e| XError::Unavailable(format!("set_width: {e:?}")))?
+                .set_height(frame.size.height as u32)
+                .map_err(|e| XError::Unavailable(format!("set_height: {e:?}")))?;
+            let filter = SCContentFilter::new().with_desktop_independent_window(&window);
+            let slot = FrameSlot::new();
+            let mut stream = SCStream::new(&filter, &config);
+            stream.add_output_handler(
+                Capturer { slot: slot.clone() },
+                SCStreamOutputType::Screen,
+            );
+            stream
+                .start_capture()
+                .map_err(|e| XError::Unavailable(format!("start_capture: {e:?}")))?;
+            map.insert(key, ActiveStream { _stream: stream, slot });
+            Ok(())
+        }
+
+        fn wait_for_frame(key: u64) -> Result<(u32, u32, Vec<u8>), XError> {
+            // ScreenCaptureKit needs a brief settle on first capture.
+            let deadline = Instant::now() + Duration::from_millis(800);
+            loop {
+                if let Some(stream) = streams().lock().unwrap().get(&key) {
+                    if let Some(frame) = stream.slot.load() {
+                        return Ok(frame);
+                    }
+                }
+                if Instant::now() >= deadline {
+                    return Err(XError::Unavailable(
+                        "no ScreenCaptureKit frame received within 800ms".into(),
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(16));
+            }
         }
     }
 }

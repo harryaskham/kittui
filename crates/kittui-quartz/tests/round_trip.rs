@@ -27,6 +27,11 @@ mod mac {
         let cap = server.capture(id).expect("capture");
         assert!(cap.width > 0 && cap.height > 0);
         assert_eq!(cap.rgba.len(), (cap.width * cap.height * 4) as usize);
+        // Frame must not be entirely black/transparent (would indicate the
+        // legacy CGDisplayCreateImage path silently returning a black frame
+        // on macOS 14+, or a stalled SCK stream).
+        let non_zero = cap.rgba.iter().any(|&b| b != 0 && b != 0xff);
+        assert!(non_zero, "captured frame was all zero/0xff");
         // Inject events; ignore errors caused by missing Accessibility.
         let _ = server.inject_pointer(XPointerEvent::Move {
             window: id,
