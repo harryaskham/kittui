@@ -128,6 +128,10 @@ mod imp {
     /// global HID event tap.
     pub struct QuartzServer {
         target: CaptureTarget,
+        /// Optional `(max_width_px, max_height_px)` cap to downscale the
+        /// capture before it returns. Avoids encoding huge PNGs of Retina
+        /// displays when the terminal only needs a few hundred pixels.
+        max_size: Option<(u32, u32)>,
     }
 
     impl QuartzServer {
@@ -135,12 +139,26 @@ mod imp {
         pub fn spawn(_width: u32, _height: u32) -> Result<Self, XError> {
             Ok(Self {
                 target: CaptureTarget::MainDisplay,
+                max_size: None,
             })
         }
 
         /// Bind to a specific capture target.
         pub fn with_target(target: CaptureTarget) -> Self {
-            Self { target }
+            Self {
+                target,
+                max_size: None,
+            }
+        }
+
+        /// Set a maximum output size; captures will be downscaled by the
+        /// ScreenCaptureKit configuration to fit within this box. Calling
+        /// with a different value invalidates the cached SCStream so the
+        /// new size takes effect immediately.
+        pub fn set_max_size(&mut self, max_size: Option<(u32, u32)>) {
+            self.max_size = max_size;
+            #[cfg(feature = "sck")]
+            sck::invalidate_all();
         }
 
         /// Enumerate connected displays.
@@ -434,7 +452,7 @@ mod imp {
                             CaptureTarget::AllDisplays => id.0,
                             _ => CGDisplay::main().id,
                         };
-                        return sck::capture_display(display_id).map(|(w, h, rgba)| XCapture {
+                        return sck::capture_display(display_id, self.max_size).map(|(w, h, rgba)| XCapture {
                             id,
                             width: w,
                             height: h,
@@ -442,7 +460,7 @@ mod imp {
                         });
                     }
                     CaptureTarget::Window(window_id) => {
-                        return sck::capture_window(*window_id).map(|(w, h, rgba)| XCapture {
+                        return sck::capture_window(*window_id, self.max_size).map(|(w, h, rgba)| XCapture {
                             id,
                             width: w,
                             height: h,
@@ -626,19 +644,33 @@ mod imp {
             ((2u64) << 32) | (id as u64)
         }
 
-        pub(crate) fn capture_display(display_id: u32) -> Result<(u32, u32, Vec<u8>), XError> {
+        pub(crate) fn invalidate_all() {
+            streams().lock().unwrap().clear();
+        }
+
+        pub(crate) fn capture_display(
+            display_id: u32,
+            max_size: Option<(u32, u32)>,
+        ) -> Result<(u32, u32, Vec<u8>), XError> {
             let key = key_display(display_id);
-            ensure_display_stream(display_id, key)?;
+            ensure_display_stream(display_id, key, max_size)?;
             wait_for_frame(key)
         }
 
-        pub(crate) fn capture_window(window_id: u32) -> Result<(u32, u32, Vec<u8>), XError> {
+        pub(crate) fn capture_window(
+            window_id: u32,
+            max_size: Option<(u32, u32)>,
+        ) -> Result<(u32, u32, Vec<u8>), XError> {
             let key = key_window(window_id);
-            ensure_window_stream(window_id, key)?;
+            ensure_window_stream(window_id, key, max_size)?;
             wait_for_frame(key)
         }
 
-        fn ensure_display_stream(display_id: u32, key: u64) -> Result<(), XError> {
+        fn ensure_display_stream(
+            display_id: u32,
+            key: u64,
+            max_size: Option<(u32, u32)>,
+        ) -> Result<(), XError> {
             let mut map = streams().lock().unwrap();
             if map.contains_key(&key) {
                 return Ok(());
@@ -651,10 +683,15 @@ mod imp {
                 .find(|d| d.display_id() == display_id)
                 .ok_or_else(|| XError::Unavailable(format!("display {display_id} not in SCShareableContent")))?;
             let bounds = CGDisplay::new(display_id).bounds();
+            let (out_w, out_h) = clamp_to_max(
+                bounds.size.width as u32,
+                bounds.size.height as u32,
+                max_size,
+            );
             let config = SCStreamConfiguration::new()
-                .set_width(bounds.size.width as u32)
+                .set_width(out_w)
                 .map_err(|e| XError::Unavailable(format!("set_width: {e:?}")))?
-                .set_height(bounds.size.height as u32)
+                .set_height(out_h)
                 .map_err(|e| XError::Unavailable(format!("set_height: {e:?}")))?;
             let filter = SCContentFilter::new().with_display_excluding_windows(&display, &[]);
             let slot = FrameSlot::new();
@@ -670,7 +707,11 @@ mod imp {
             Ok(())
         }
 
-        fn ensure_window_stream(window_id: u32, key: u64) -> Result<(), XError> {
+        fn ensure_window_stream(
+            window_id: u32,
+            key: u64,
+            max_size: Option<(u32, u32)>,
+        ) -> Result<(), XError> {
             let mut map = streams().lock().unwrap();
             if map.contains_key(&key) {
                 return Ok(());
@@ -683,10 +724,15 @@ mod imp {
                 .find(|w| w.window_id() == window_id)
                 .ok_or_else(|| XError::Unavailable(format!("window {window_id} not in SCShareableContent")))?;
             let frame = window.get_frame();
+            let (out_w, out_h) = clamp_to_max(
+                frame.size.width as u32,
+                frame.size.height as u32,
+                max_size,
+            );
             let config = SCStreamConfiguration::new()
-                .set_width(frame.size.width as u32)
+                .set_width(out_w)
                 .map_err(|e| XError::Unavailable(format!("set_width: {e:?}")))?
-                .set_height(frame.size.height as u32)
+                .set_height(out_h)
                 .map_err(|e| XError::Unavailable(format!("set_height: {e:?}")))?;
             let filter = SCContentFilter::new().with_desktop_independent_window(&window);
             let slot = FrameSlot::new();
@@ -718,6 +764,17 @@ mod imp {
                 }
                 std::thread::sleep(Duration::from_millis(16));
             }
+        }
+
+        fn clamp_to_max(w: u32, h: u32, max: Option<(u32, u32)>) -> (u32, u32) {
+            let Some((mw, mh)) = max else { return (w, h) };
+            if w <= mw && h <= mh {
+                return (w, h);
+            }
+            let sw = mw as f64 / w as f64;
+            let sh = mh as f64 / h as f64;
+            let s = sw.min(sh);
+            ((w as f64 * s).round() as u32, (h as f64 * s).round() as u32)
         }
     }
 }

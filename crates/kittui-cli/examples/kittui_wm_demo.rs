@@ -81,8 +81,14 @@ fn main() -> Result<()> {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(800);
-        let server = kittui_quartz::QuartzServer::spawn(width, height)
+        let mut server = kittui_quartz::QuartzServer::spawn(width, height)
             .map_err(|e| anyhow::anyhow!("QuartzServer::spawn failed: {e}"))?;
+        // Downscale on the GPU side so the kittui PNG encode doesn't have to
+        // chew through 2880x1800 every frame. The terminal only needs a few
+        // hundred pixels for 80x24 cells.
+        let cap_w = (80u32) * cell.width_px as u32 * 2;
+        let cap_h = (24u32) * cell.height_px as u32 * 2;
+        server.set_max_size(Some((cap_w, cap_h)));
 
         // Probe TCC permissions before flipping the terminal into raw mode.
         // CGDisplayCreateImage requires Screen Recording; CGEventPost
@@ -180,7 +186,10 @@ fn run_loop<S: XServer>(
     compositor: &Compositor<S>,
     layout: &Layout,
 ) -> Result<()> {
+    let dbg = Debugger::open();
+    dbg.log("run_loop: enter");
     let _raw_guard = RawMode::enter()?;
+    dbg.log("raw mode + alt screen entered");
     install_signal_restore();
 
     let frame_target = Duration::from_millis(33);
@@ -193,6 +202,49 @@ fn run_loop<S: XServer>(
     loop {
         let frame_start = Instant::now();
 
+        // Drain any pending stdin BEFORE the expensive compose, so q/Esc
+        // takes effect even when a single frame is slow.
+        let mut chunk = [0u8; 512];
+        while poll_stdin(Duration::ZERO) {
+            let n = stdin.read(&mut chunk).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            input_buf.extend_from_slice(&chunk[..n]);
+        }
+        let mut quit = false;
+        while let Some((ev, consumed)) = kittui_input::parse(&input_buf) {
+            input_buf.drain(..consumed);
+            match &ev {
+                InputEvent::Char { ch: 'q', .. }
+                | InputEvent::Key { key: Key::Escape, .. } => {
+                    dbg.log("quit event received during pre-compose drain");
+                    quit = true;
+                    break;
+                }
+                InputEvent::MousePress { .. }
+                | InputEvent::MouseRelease { .. }
+                | InputEvent::MouseMove { .. } => {
+                    let _ = compositor.route_pointer(&ev);
+                }
+                InputEvent::Char { ch, .. } => {
+                    dbg.log(&format!("char event: {:?}", ch));
+                    let _ = compositor.route_key(&ev);
+                }
+                InputEvent::Key { key, .. } => {
+                    dbg.log(&format!("key event: {:?}", key));
+                    let _ = compositor.route_key(&ev);
+                }
+                _ => {}
+            }
+            if consumed == 0 {
+                break;
+            }
+        }
+        if quit {
+            return Ok(());
+        }
+
         // Drive frame. Don't bail on compose errors — surface them inside
         // the chrome footer so the user can see the cause (missing TCC
         // permission, X server gone, etc.) without leaking the terminal.
@@ -200,10 +252,32 @@ fn run_loop<S: XServer>(
             Ok(scenes) => {
                 last_error = None;
                 last_window_count = scenes.len();
+                if frame % 30 == 0 {
+                    dbg.log(&format!(
+                        "frame {frame}: {} scenes, first footprint {:?}",
+                        scenes.len(),
+                        scenes.first().map(|s| (s.footprint.x, s.footprint.y, s.footprint.cols, s.footprint.rows))
+                    ));
+                    // Sample a few pixels from the first scene's image layer
+                    // to detect 'all-zero' frames.
+                    if let Some(scene) = scenes.first() {
+                        if let Some(layer) = scene.layers.first() {
+                            if let kittui_core::node::Node::Image {
+                                src: kittui_core::node::ImageRef::Bytes { bytes },
+                                ..
+                            } = &layer.root
+                            {
+                                dbg.log(&format!(
+                                    "  image bytes len {}, first 16 bytes {:02x?}",
+                                    bytes.len(),
+                                    &bytes[..bytes.len().min(16)]
+                                ));
+                            }
+                        }
+                    }
+                }
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
-                // Park cursor + clear; avoid `\x1b[2J` every frame because it
-                // flashes — use a single home + erase-down.
                 write!(handle, "\x1b[H\x1b[J")?;
                 for scene in &scenes {
                     let p = runtime.place(scene)?;
@@ -224,19 +298,24 @@ fn run_loop<S: XServer>(
                     .unwrap_or(2);
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — q to quit",
-                    footer_row, frame, last_window_count
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — q to quit (log: {})",
+                    footer_row,
+                    frame,
+                    last_window_count,
+                    dbg.path_display()
                 )?;
                 handle.flush()?;
             }
             Err(e) => {
                 last_error = Some(e.to_string());
+                dbg.log(&format!("compose err: {}", last_error.as_deref().unwrap()));
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
                 write!(
                     handle,
-                    "\x1b[H\x1b[J\x1b[1mkittui-wm error\x1b[0m\n\n  {}\n\n  q/Esc to quit. On macOS, grant Screen Recording + Accessibility.\n",
-                    last_error.as_deref().unwrap_or("unknown")
+                    "\x1b[H\x1b[J\x1b[1mkittui-wm error\x1b[0m\n\n  {}\n\n  q/Esc to quit. On macOS, grant Screen Recording + Accessibility.\n  (log: {})\n",
+                    last_error.as_deref().unwrap_or("unknown"),
+                    dbg.path_display()
                 )?;
                 handle.flush()?;
             }
@@ -245,34 +324,82 @@ fn run_loop<S: XServer>(
         let elapsed = frame_start.elapsed();
         let remaining = frame_target.checked_sub(elapsed).unwrap_or_default();
         if remaining > Duration::ZERO {
-            let mut chunk = [0u8; 64];
+            let mut chunk = [0u8; 512];
             if poll_stdin(remaining) {
                 let n = stdin.read(&mut chunk).unwrap_or(0);
-                input_buf.extend_from_slice(&chunk[..n]);
-            }
-        }
-
-        while let Some((ev, consumed)) = kittui_input::parse(&input_buf) {
-            input_buf.drain(..consumed);
-            match &ev {
-                InputEvent::Char { ch: 'q', .. }
-                | InputEvent::Key {
-                    key: Key::Escape, ..
-                } => return Ok(()),
-                InputEvent::MousePress { .. }
-                | InputEvent::MouseRelease { .. }
-                | InputEvent::MouseMove { .. } => {
-                    let _ = compositor.route_pointer(&ev);
+                if n > 0 {
+                    dbg.log(&format!(
+                        "stdin read {n} bytes: {:02x?}",
+                        &chunk[..n.min(32)]
+                    ));
+                    input_buf.extend_from_slice(&chunk[..n]);
                 }
-                InputEvent::Char { .. } | InputEvent::Key { .. } => {
-                    let _ = compositor.route_key(&ev);
-                }
-                _ => {}
             }
+        } else {
+            dbg.log(&format!(
+                "frame {frame} budget blown: {} ms (target {} ms)",
+                elapsed.as_millis(),
+                frame_target.as_millis()
+            ));
         }
 
         frame = frame.wrapping_add(1);
     }
+}
+
+/// Append-only log for the visual demo. Stderr is invisible inside the
+/// alt screen, so we mirror everything to a file at $KITTUI_WM_LOG
+/// (default `/tmp/kittui-wm.log`).
+struct Debugger {
+    file: std::sync::Mutex<Option<std::fs::File>>,
+    path: String,
+}
+
+impl Debugger {
+    fn open() -> Self {
+        let path = std::env::var("KITTUI_WM_LOG")
+            .unwrap_or_else(|_| "/tmp/kittui-wm.log".to_string());
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .ok();
+        if let Some(mut f) = file.as_ref() {
+            use std::io::Write;
+            let _ = writeln!(
+                f,
+                "kittui-wm log {} (pid {})",
+                chrono_like_now(),
+                std::process::id()
+            );
+        }
+        Self {
+            file: std::sync::Mutex::new(file),
+            path,
+        }
+    }
+
+    fn log(&self, line: &str) {
+        if let Ok(mut guard) = self.file.lock() {
+            if let Some(f) = guard.as_mut() {
+                use std::io::Write;
+                let _ = writeln!(f, "[{}] {}", chrono_like_now(), line);
+                let _ = f.flush();
+            }
+        }
+    }
+
+    fn path_display(&self) -> &str {
+        &self.path
+    }
+}
+
+fn chrono_like_now() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}.{:03}", now.as_secs(), now.subsec_millis())
 }
 
 // --- raw mode + SGR mouse reporting guard ----------------------------------
