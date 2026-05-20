@@ -628,3 +628,337 @@ pub mod compositor {
         }
     }
 }
+
+/// Backend-multiplexed compositor: many `XServer` backends in one session.
+///
+/// Each window is identified by a globally-unique [`WindowKey`] = `(backend_index, x_window_id)`,
+/// so two backends can't collide. The compositor renders each window as a
+/// kittui scene with chrome regardless of whether it originated locally, on
+/// a remote Xvfb over SSH, on a Quartz display capture, in XQuartz, or
+/// elsewhere. Per-window mode (Floating / Tiled) and chrome theme live on
+/// the compositor; backends only have to honour the small `XServer` contract.
+pub mod multi {
+    use std::collections::HashMap;
+
+    use kittui::{CellRect, CellSize, Rgba, Scene};
+    use kittui_core::geom::PxRect;
+    use kittui_core::node::{Corners, Layer, Node};
+    use kittui_core::paint::Paint;
+    use kittui_input::{InputEvent, MouseButton};
+    use kittui_xvfb::{XButton, XError, XPointerEvent, XServer, XWindowId};
+    use parking_lot::Mutex;
+
+    /// Globally-unique window identifier across all attached backends.
+    #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+    pub struct WindowKey {
+        /// Index into the compositor's backend list.
+        pub backend: usize,
+        /// Backend-local window id.
+        pub window: XWindowId,
+    }
+
+    /// Layout mode for one window in the multiplex compositor.
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    pub enum WindowMode {
+        /// Free-floating at the backend's reported rect.
+        Floating,
+        /// Tiled into the [`Layout`]'s slot for this window.
+        Tiled,
+    }
+
+    /// Tiled-slot map keyed by `WindowKey`.
+    #[derive(Default, Clone, Debug)]
+    pub struct Layout {
+        tiled: HashMap<WindowKey, PxRect>,
+    }
+
+    impl Layout {
+        /// Empty layout (every window stays floating).
+        pub fn empty() -> Self {
+            Self::default()
+        }
+        /// Assign a tiled slot for `key`.
+        pub fn tile(&mut self, key: WindowKey, rect: PxRect) {
+            self.tiled.insert(key, rect);
+        }
+        /// Look up the tiled slot for `key`.
+        pub fn tiled_rect(&self, key: WindowKey) -> Option<PxRect> {
+            self.tiled.get(&key).copied()
+        }
+    }
+
+    /// Multi-backend compositor. Cheap to clone (interior mutability).
+    pub struct MultiCompositor {
+        backends: Vec<Box<dyn XServer + Send + Sync>>,
+        cell: CellSize,
+        modes: Mutex<HashMap<WindowKey, WindowMode>>,
+        focused: Mutex<Option<WindowKey>>,
+    }
+
+    impl MultiCompositor {
+        /// Construct a compositor with no backends attached. Use [`attach`].
+        pub fn new(cell: CellSize) -> Self {
+            Self {
+                backends: Vec::new(),
+                cell,
+                modes: Mutex::new(HashMap::new()),
+                focused: Mutex::new(None),
+            }
+        }
+
+        /// Attach a backend; returns its index.
+        pub fn attach(&mut self, server: Box<dyn XServer + Send + Sync>) -> usize {
+            self.backends.push(server);
+            self.backends.len() - 1
+        }
+
+        /// Number of attached backends.
+        pub fn backend_count(&self) -> usize {
+            self.backends.len()
+        }
+
+        /// Set a window's layout mode.
+        pub fn set_mode(&self, key: WindowKey, mode: WindowMode) {
+            self.modes.lock().insert(key, mode);
+        }
+
+        /// Build one kittui scene per visible window across all backends.
+        pub fn compose(&self, layout: &Layout) -> Result<Vec<(WindowKey, Scene)>, XError> {
+            let modes = self.modes.lock().clone();
+            let mut out = Vec::new();
+            for (i, server) in self.backends.iter().enumerate() {
+                let windows = server.windows()?;
+                for w in windows {
+                    let key = WindowKey {
+                        backend: i,
+                        window: w.id,
+                    };
+                    let mode = modes.get(&key).copied().unwrap_or(WindowMode::Floating);
+                    let target_rect = match mode {
+                        WindowMode::Floating => w.rect,
+                        WindowMode::Tiled => layout.tiled_rect(key).unwrap_or(w.rect),
+                    };
+                    let cap = server.capture(w.id)?;
+                    let cols = ((target_rect.width / self.cell.width_px as f32).ceil() as u16)
+                        .max(1);
+                    let rows = ((target_rect.height / self.cell.height_px as f32).ceil() as u16)
+                        .max(1);
+                    let footprint = CellRect::new(
+                        (target_rect.origin.0 / self.cell.width_px as f32) as u16,
+                        (target_rect.origin.1 / self.cell.height_px as f32) as u16,
+                        cols,
+                        rows,
+                    );
+                    let rect = PxRect::new(0.0, 0.0, target_rect.width, target_rect.height);
+                    let border = backend_color(i);
+                    let bg = Rgba::parse("#00000080").unwrap();
+                    let png = kittui_render_cpu::encode_png(&{
+                        let mut p = kittui_render_cpu::Pixmap::new(cap.width, cap.height);
+                        p.data_mut().copy_from_slice(&cap.rgba);
+                        p
+                    });
+                    let layers = vec![
+                        Layer::anon(Node::Image {
+                            rect,
+                            src: kittui_core::node::ImageRef::Bytes { bytes: png },
+                            fit: kittui_core::node::Fit::Stretch,
+                            tint: None,
+                        }),
+                        Layer::anon(Node::Rect {
+                            rect,
+                            fill: Paint::Solid { color: bg },
+                            stroke: Some(kittui_core::node::Stroke {
+                                align: kittui_core::node::StrokeAlign::Inside,
+                                width_px: 1.5,
+                                paint: Paint::Solid { color: border },
+                            }),
+                            corners: Corners::uniform(4.0),
+                        }),
+                    ];
+                    out.push((
+                        key,
+                        Scene {
+                            footprint,
+                            cell_size: self.cell,
+                            layers,
+                            animation: None,
+                        },
+                    ));
+                }
+            }
+            Ok(out)
+        }
+
+        /// Hit-test in cell-space, returning the topmost window across all backends.
+        pub fn hit_test(&self, col: u16, row: u16) -> Option<WindowKey> {
+            // Later backends z-stack above earlier ones; later windows within
+            // a backend z-stack above earlier ones.
+            for (i, server) in self.backends.iter().enumerate().rev() {
+                if let Ok(windows) = server.windows() {
+                    for w in windows.iter().rev() {
+                        let px = (col as f32) * self.cell.width_px as f32;
+                        let py = (row as f32) * self.cell.height_px as f32;
+                        if px >= w.rect.origin.0
+                            && px < w.rect.origin.0 + w.rect.width
+                            && py >= w.rect.origin.1
+                            && py < w.rect.origin.1 + w.rect.height
+                        {
+                            return Some(WindowKey {
+                                backend: i,
+                                window: w.id,
+                            });
+                        }
+                    }
+                }
+            }
+            None
+        }
+
+        /// Route a parsed pointer event to the topmost window's owning backend.
+        pub fn route_pointer(&self, ev: &InputEvent) -> Vec<(WindowKey, XPointerEvent)> {
+            let (col, row, button) = match ev {
+                InputEvent::MousePress { col, row, button, .. }
+                | InputEvent::MouseRelease { col, row, button, .. }
+                | InputEvent::MouseMove { col, row, button, .. } => (*col, *row, *button),
+                _ => return Vec::new(),
+            };
+            let Some(key) = self.hit_test(col, row) else {
+                return Vec::new();
+            };
+            *self.focused.lock() = Some(key);
+            let server = &self.backends[key.backend];
+            let Ok(windows) = server.windows() else {
+                return Vec::new();
+            };
+            let Some(win) = windows.iter().find(|w| w.id == key.window) else {
+                return Vec::new();
+            };
+            let local_x = ((col as f32) * self.cell.width_px as f32 - win.rect.origin.0) as i32;
+            let local_y = ((row as f32) * self.cell.height_px as f32 - win.rect.origin.1) as i32;
+            let mut routed = Vec::new();
+            let move_ev = XPointerEvent::Move {
+                window: key.window,
+                x_px: local_x,
+                y_px: local_y,
+            };
+            let _ = server.inject_pointer(move_ev);
+            routed.push((key, move_ev));
+            if let Some(xbtn) = button_to_x(button) {
+                let click_ev = match ev {
+                    InputEvent::MousePress { .. } => XPointerEvent::Press {
+                        window: key.window,
+                        button: xbtn,
+                    },
+                    InputEvent::MouseRelease { .. } => XPointerEvent::Release {
+                        window: key.window,
+                        button: xbtn,
+                    },
+                    _ => return routed,
+                };
+                let _ = server.inject_pointer(click_ev);
+                routed.push((key, click_ev));
+            }
+            routed
+        }
+
+        /// Route a key event to the focused window's owning backend.
+        pub fn route_key(&self, ev: &InputEvent) -> Option<(WindowKey, u32, bool)> {
+            let key = (*self.focused.lock())?;
+            let sym = match ev {
+                InputEvent::Char { ch, .. } => *ch as u32,
+                _ => return None,
+            };
+            let pressed = true;
+            let _ = self.backends[key.backend].inject_key(sym, pressed);
+            Some((key, sym, pressed))
+        }
+    }
+
+    fn button_to_x(b: MouseButton) -> Option<XButton> {
+        Some(match b {
+            MouseButton::Left => XButton::Left,
+            MouseButton::Middle => XButton::Middle,
+            MouseButton::Right => XButton::Right,
+            MouseButton::ScrollUp => XButton::ScrollUp,
+            MouseButton::ScrollDown => XButton::ScrollDown,
+            MouseButton::None | MouseButton::Other(_) => return None,
+        })
+    }
+
+    /// Per-backend accent colour so the user can visually tell which window
+    /// came from which source. Cyan / violet / lime / amber / rose, cycling.
+    fn backend_color(idx: usize) -> Rgba {
+        const PALETTE: &[&str] = &[
+            "#00d8ff", "#b48cff", "#c0ff5a", "#ffa44d", "#ff5e8e", "#72fbd6",
+        ];
+        Rgba::parse(PALETTE[idx % PALETTE.len()]).unwrap()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use kittui_xvfb::FakeServer;
+
+        fn server_a() -> FakeServer {
+            FakeServer::with_windows(vec![(
+                XWindowId(1),
+                PxRect::new(0.0, 0.0, 64.0, 32.0),
+                "alpha",
+                [0xff, 0x00, 0x00, 0xff],
+            )])
+        }
+        fn server_b() -> FakeServer {
+            FakeServer::with_windows(vec![(
+                XWindowId(2),
+                PxRect::new(80.0, 16.0, 64.0, 32.0),
+                "beta",
+                [0x00, 0xff, 0x00, 0xff],
+            )])
+        }
+
+        #[test]
+        fn attach_multiple_backends_and_compose() {
+            let mut comp = MultiCompositor::new(CellSize::new(8, 16));
+            let a = comp.attach(Box::new(server_a()));
+            let b = comp.attach(Box::new(server_b()));
+            assert_eq!(a, 0);
+            assert_eq!(b, 1);
+            let scenes = comp.compose(&Layout::empty()).unwrap();
+            assert_eq!(scenes.len(), 2);
+            assert_eq!(scenes[0].0.backend, 0);
+            assert_eq!(scenes[1].0.backend, 1);
+        }
+
+        #[test]
+        fn hit_test_resolves_topmost_across_backends() {
+            let mut comp = MultiCompositor::new(CellSize::new(8, 16));
+            comp.attach(Box::new(server_a()));
+            comp.attach(Box::new(server_b()));
+            // Pixel (90, 20) -> cell (11, 1) lives in server_b's window.
+            let key = comp.hit_test(11, 1).expect("hit");
+            assert_eq!(key.backend, 1);
+            assert_eq!(key.window, XWindowId(2));
+            // Pixel (10, 10) -> cell (1, 0) lives in server_a's window.
+            let key = comp.hit_test(1, 0).expect("hit");
+            assert_eq!(key.backend, 0);
+            assert_eq!(key.window, XWindowId(1));
+        }
+
+        #[test]
+        fn route_pointer_injects_into_correct_backend() {
+            let mut comp = MultiCompositor::new(CellSize::new(8, 16));
+            comp.attach(Box::new(server_a()));
+            comp.attach(Box::new(server_b()));
+            let routed = comp.route_pointer(&InputEvent::MousePress {
+                button: MouseButton::Left,
+                col: 11,
+                row: 1,
+                mods: Default::default(),
+            });
+            assert_eq!(routed.len(), 2);
+            assert_eq!(routed[0].0.backend, 1);
+            assert!(matches!(routed[0].1, XPointerEvent::Move { .. }));
+            assert!(matches!(routed[1].1, XPointerEvent::Press { .. }));
+        }
+    }
+}

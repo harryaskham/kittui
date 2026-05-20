@@ -15,6 +15,7 @@
 mod mac {
     use kittui_quartz::{QuartzServer, XButton, XPointerEvent, XServer};
 
+
     #[test]
     fn quartz_spawn_capture_inject_round_trip() {
         let server = QuartzServer::spawn(640, 480).expect("spawn");
@@ -42,5 +43,23 @@ mod mac {
         });
         let _ = server.inject_key('a' as u32, true);
         let _ = server.inject_key('a' as u32, false);
+    }
+
+    #[test]
+    fn lists_app_windows_returns_something() {
+        let wins = QuartzServer::list_app_windows();
+        // We can't assert exact count, but on a real macOS desktop session
+        // there should be at least one non-empty window descriptor.
+        eprintln!("list_app_windows() found {} windows", wins.len());
+        for w in wins.iter().take(5) {
+            eprintln!("  id={:>6} owner={:<24} title={:<32} bounds={:?}", w.id, w.owner_name, w.title, w.bounds);
+        }
+    }
+
+    #[test]
+    fn displays_returns_main() {
+        let displays = QuartzServer::displays();
+        assert!(!displays.is_empty(), "at least one display expected");
+        eprintln!("displays: {:#?}", displays);
     }
 }
