@@ -83,8 +83,51 @@ fn main() -> Result<()> {
             .unwrap_or(800);
         let server = kittui_quartz::QuartzServer::spawn(width, height)
             .map_err(|e| anyhow::anyhow!("QuartzServer::spawn failed: {e}"))?;
+
+        // Probe TCC permissions before flipping the terminal into raw mode.
+        // CGDisplayCreateImage requires Screen Recording; CGEventPost
+        // requires Accessibility for cross-app delivery. We probe both and
+        // print plain-English instructions on failure so the operator never
+        // sees a leaked terminal.
+        eprintln!("kittui-wm: probing macOS permissions...");
+        if let Err(e) = server.windows().and_then(|w| {
+            if let Some(first) = w.first() {
+                server.capture(first.id).map(|_| ())
+            } else {
+                Err(kittui_xvfb::XError::Unavailable("no displays".into()))
+            }
+        }) {
+            eprintln!(
+                "kittui-wm: capture probe failed: {e}\n\n  \
+                 macOS may have just prompted you for Screen Recording \
+                 permission. Grant it under System Settings → Privacy & \
+                 Security → Screen Recording (you may need to quit and \
+                 restart the terminal), then re-run this demo.\n"
+            );
+            return Ok(());
+        }
+        eprintln!("kittui-wm: permissions OK, entering visual loop. q/Esc to quit.");
+        std::thread::sleep(std::time::Duration::from_millis(800));
+
         let compositor = Compositor::new(server, cell);
-        let layout = Layout::all_floating();
+        // Pin the captured display to a friendly 80x24 cell footprint so
+        // the demo always fits in a reasonable terminal. The X11/Xvfb path
+        // doesn't need this because each X window is already cell-sized.
+        let mut layout = Layout::all_floating();
+        if let Ok(windows) = compositor.server().windows() {
+            if let Some(w) = windows.first() {
+                layout.tile(
+                    w.id,
+                    kittui_core::geom::PxRect::new(
+                        0.0,
+                        0.0,
+                        80.0 * cell.width_px as f32,
+                        24.0 * cell.height_px as f32,
+                    ),
+                );
+                compositor.set_mode(w.id, WindowMode::Tiled);
+            }
+        }
         return run_loop(&runtime, &compositor, &layout);
     }
 
@@ -137,51 +180,71 @@ fn run_loop<S: XServer>(
     compositor: &Compositor<S>,
     layout: &Layout,
 ) -> Result<()> {
-    // Enable raw mode + SGR mouse reporting so we can stream pointer events.
     let _raw_guard = RawMode::enter()?;
+    install_signal_restore();
 
     let frame_target = Duration::from_millis(33);
     let mut frame = 0u64;
     let mut input_buf = Vec::<u8>::with_capacity(256);
     let mut stdin = io::stdin();
+    let mut last_error: Option<String> = None;
+    let mut last_window_count = 0usize;
 
     loop {
         let frame_start = Instant::now();
 
-        // Drive frame.
-        let scenes = compositor
-            .compose_with_layout(layout)
-            .map_err(|e| anyhow::anyhow!("compose: {e}"))?;
-        let stdout = io::stdout();
-        let mut handle = stdout.lock();
-        write!(handle, "\x1b[2J\x1b[H")?;
-        for scene in &scenes {
-            let p = runtime.place(scene)?;
-            handle.write_all(p.upload.as_bytes())?;
-            write!(
-                handle,
-                "\x1b[{};{}H",
-                scene.footprint.y + 1,
-                scene.footprint.x + 1
-            )?;
-            handle.write_all(p.placement.as_bytes())?;
-            handle.write_all(p.embed.as_bytes())?;
+        // Drive frame. Don't bail on compose errors — surface them inside
+        // the chrome footer so the user can see the cause (missing TCC
+        // permission, X server gone, etc.) without leaking the terminal.
+        match compositor.compose_with_layout(layout) {
+            Ok(scenes) => {
+                last_error = None;
+                last_window_count = scenes.len();
+                let stdout = io::stdout();
+                let mut handle = stdout.lock();
+                // Park cursor + clear; avoid `\x1b[2J` every frame because it
+                // flashes — use a single home + erase-down.
+                write!(handle, "\x1b[H\x1b[J")?;
+                for scene in &scenes {
+                    let p = runtime.place(scene)?;
+                    handle.write_all(p.upload.as_bytes())?;
+                    write!(
+                        handle,
+                        "\x1b[{};{}H",
+                        scene.footprint.y + 1,
+                        scene.footprint.x + 1
+                    )?;
+                    handle.write_all(p.placement.as_bytes())?;
+                    handle.write_all(p.embed.as_bytes())?;
+                }
+                let footer_row = scenes
+                    .iter()
+                    .map(|s| s.footprint.y + s.footprint.rows + 2)
+                    .max()
+                    .unwrap_or(2);
+                write!(
+                    handle,
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — q to quit",
+                    footer_row, frame, last_window_count
+                )?;
+                handle.flush()?;
+            }
+            Err(e) => {
+                last_error = Some(e.to_string());
+                let stdout = io::stdout();
+                let mut handle = stdout.lock();
+                write!(
+                    handle,
+                    "\x1b[H\x1b[J\x1b[1mkittui-wm error\x1b[0m\n\n  {}\n\n  q/Esc to quit. On macOS, grant Screen Recording + Accessibility.\n",
+                    last_error.as_deref().unwrap_or("unknown")
+                )?;
+                handle.flush()?;
+            }
         }
-        write!(handle, "\x1b[{};1H", scenes.iter().map(|s| s.footprint.y + s.footprint.rows + 2).max().unwrap_or(2))?;
-        write!(
-            handle,
-            "kittui-wm frame {} — {} windows — q to quit",
-            frame,
-            scenes.len()
-        )?;
-        handle.flush()?;
-        drop(handle);
 
-        // Pump stdin without blocking and dispatch events.
         let elapsed = frame_start.elapsed();
         let remaining = frame_target.checked_sub(elapsed).unwrap_or_default();
         if remaining > Duration::ZERO {
-            // Best-effort non-blocking read using a short timeout via select().
             let mut chunk = [0u8; 64];
             if poll_stdin(remaining) {
                 let n = stdin.read(&mut chunk).unwrap_or(0);
@@ -218,9 +281,11 @@ struct RawMode;
 
 impl RawMode {
     fn enter() -> Result<Self> {
-        // Enable SGR mouse + motion + focus reporting.
         let mut out = io::stdout();
-        out.write_all(b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1004h\x1b[?1006h")?;
+        // Alt screen + hide cursor, then SGR mouse + motion + focus reporting.
+        out.write_all(
+            b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1004h\x1b[?1006h",
+        )?;
         out.flush()?;
         #[cfg(unix)]
         unsafe {
@@ -233,6 +298,7 @@ impl RawMode {
             raw.c_cc[VTIME] = 0;
             tcsetattr(STDIN_FILENO, TCSANOW, &raw);
             ORIG_TERM = Some(term);
+            RAW_ACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         Ok(Self)
     }
@@ -240,22 +306,54 @@ impl RawMode {
 
 impl Drop for RawMode {
     fn drop(&mut self) {
-        let mut out = io::stdout();
-        let _ = out
-            .write_all(b"\x1b[?1006l\x1b[?1004l\x1b[?1003l\x1b[?1002l\x1b[?1000l");
-        let _ = out.flush();
-        #[cfg(unix)]
-        unsafe {
-            use libc::*;
-            if let Some(t) = ORIG_TERM.take() {
-                tcsetattr(STDIN_FILENO, TCSANOW, &t);
-            }
+        restore_terminal();
+    }
+}
+
+fn restore_terminal() {
+    #[cfg(unix)]
+    {
+        use std::sync::atomic::Ordering;
+        if !RAW_ACTIVE.swap(false, Ordering::SeqCst) {
+            return;
+        }
+    }
+    let mut out = io::stdout();
+    let _ = out.write_all(
+        b"\x1b[?1006l\x1b[?1004l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l",
+    );
+    let _ = out.flush();
+    #[cfg(unix)]
+    unsafe {
+        use libc::*;
+        let orig = std::ptr::addr_of_mut!(ORIG_TERM);
+        if let Some(t) = (*orig).take() {
+            tcsetattr(STDIN_FILENO, TCSANOW, &t);
         }
     }
 }
 
+static RAW_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[cfg(unix)]
 static mut ORIG_TERM: Option<libc::termios> = None;
+
+#[cfg(unix)]
+fn install_signal_restore() {
+    use libc::*;
+    extern "C" fn handler(_sig: i32) {
+        restore_terminal();
+        std::process::exit(130);
+    }
+    unsafe {
+        for sig in [SIGINT, SIGTERM, SIGHUP, SIGQUIT] {
+            signal(sig, handler as sighandler_t);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn install_signal_restore() {}
 
 #[cfg(unix)]
 fn poll_stdin(timeout: Duration) -> bool {
