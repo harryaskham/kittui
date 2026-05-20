@@ -6,16 +6,22 @@
 //! script kittui from a shell should reach for this binary; library users
 //! wanting fine-grained control should use the Rust crate directly.
 
+mod config;
+
 use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 
+use config::{
+    BoxFlagValues, ConfigLayers, GlobalConfig, GlobalFlagValues, GlowFlagValues,
+    GradientFlagValues, RendererArg, ResolvedBoxConfig, ResolvedGlowConfig, ResolvedGradientConfig,
+};
 use kittui::{
     scene::{background_linear, background_solid, glow_layer, rounded_rect},
-    Animation, CellRect, CellSize, Direction, Layer, PhaseCurve, Rgba, RendererKind, Runtime,
-    Scene,
+    Animation, CellRect, CellSize, Direction, Layer, PhaseCurve, Rgba, Runtime, Scene,
+    TerminalInfo,
 };
 use kittui_core::node::{Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
@@ -25,15 +31,19 @@ use kittui_core::Stroke;
 #[command(name = "kittui", version, about = "kitty graphics for TUIs")]
 struct Cli {
     /// Cache directory override.
-    #[arg(long, env = "KITTUI_CACHE_DIR")]
+    #[arg(long)]
     cache_dir: Option<PathBuf>,
 
+    /// Renderer backend (`auto`, `cpu`, or `gpu`).
+    #[arg(long, value_enum)]
+    renderer: Option<RendererArg>,
+
     /// Number of columns in the host terminal (for `%` resolution).
-    #[arg(long, env = "COLUMNS")]
+    #[arg(long)]
     terminal_cols: Option<u16>,
 
     /// Number of rows in the host terminal (for `%` resolution).
-    #[arg(long, env = "LINES")]
+    #[arg(long)]
     terminal_rows: Option<u16>,
 
     /// Emit JSON describing the placement instead of raw escapes.
@@ -77,28 +87,28 @@ enum CacheCmd {
 
 #[derive(clap::Args)]
 struct BoxArgs {
-    #[arg(short, long, default_value_t = 0)]
-    x: u16,
-    #[arg(short, long, default_value_t = 0)]
-    y: u16,
+    #[arg(short, long)]
+    x: Option<u16>,
+    #[arg(short, long)]
+    y: Option<u16>,
     /// Width in cells or as a percentage (`100%`).
-    #[arg(short = 'w', long, default_value = "40")]
-    width: String,
+    #[arg(short = 'w', long)]
+    width: Option<String>,
     /// Height in cells or as a percentage (`100%`).
-    #[arg(short = 'h', long, default_value = "8")]
-    height: String,
+    #[arg(short = 'h', long)]
+    height: Option<String>,
     /// Foreground / border color.
-    #[arg(long, default_value = "#00d8ff")]
-    fg: String,
+    #[arg(long)]
+    fg: Option<String>,
     /// Background color.
-    #[arg(long, default_value = "#08111fcc")]
-    bg: String,
+    #[arg(long)]
+    bg: Option<String>,
     /// Corner radius in pixels.
-    #[arg(long, default_value_t = 6.0)]
-    radius: f32,
+    #[arg(long)]
+    radius: Option<f32>,
     /// Border width in pixels.
-    #[arg(long, default_value_t = 1.5)]
-    border: f32,
+    #[arg(long)]
+    border: Option<f32>,
     /// Animate with a pulsing glow: `frames@cycle_ms` (e.g. `8@800`).
     #[arg(long)]
     animate: Option<String>,
@@ -106,28 +116,28 @@ struct BoxArgs {
 
 #[derive(clap::Args)]
 struct GradientArgs {
-    #[arg(short = 'w', long, default_value = "100%")]
-    width: String,
-    #[arg(short = 'h', long, default_value = "1")]
-    height: String,
-    #[arg(long, default_value = "#00d8ff")]
-    left: String,
-    #[arg(long, default_value = "#b48cff")]
-    right: String,
-    #[arg(long, value_enum, default_value_t = DirectionArg::Horizontal)]
-    direction: DirectionArg,
+    #[arg(short = 'w', long)]
+    width: Option<String>,
+    #[arg(short = 'h', long)]
+    height: Option<String>,
+    #[arg(long)]
+    left: Option<String>,
+    #[arg(long)]
+    right: Option<String>,
+    #[arg(long, value_enum)]
+    direction: Option<DirectionArg>,
 }
 
 #[derive(clap::Args)]
 struct GlowArgs {
-    #[arg(short = 'w', long, default_value = "40")]
-    width: String,
-    #[arg(short = 'h', long, default_value = "8")]
-    height: String,
-    #[arg(long, default_value = "#00d8ff")]
-    color: String,
-    #[arg(long, default_value_t = 0.6)]
-    intensity: f32,
+    #[arg(short = 'w', long)]
+    width: Option<String>,
+    #[arg(short = 'h', long)]
+    height: Option<String>,
+    #[arg(long)]
+    color: Option<String>,
+    #[arg(long)]
+    intensity: Option<f32>,
 }
 
 #[derive(clap::Args)]
@@ -141,6 +151,19 @@ enum DirectionArg {
     Horizontal,
     Vertical,
     Diagonal,
+}
+
+impl DirectionArg {
+    fn parse(value: &str) -> Result<Self> {
+        match value.to_ascii_lowercase().replace('_', "-").as_str() {
+            "horizontal" => Ok(Self::Horizontal),
+            "vertical" => Ok(Self::Vertical),
+            "diagonal" => Ok(Self::Diagonal),
+            other => Err(anyhow!(
+                "invalid gradient direction {other:?}; expected horizontal, vertical, or diagonal"
+            )),
+        }
+    }
 }
 
 impl From<DirectionArg> for Direction {
@@ -162,41 +185,87 @@ fn resolve_size(input: &str, axis: u16) -> Result<u16> {
     Ok(input.parse()?)
 }
 
-fn build_runtime(cli: &Cli) -> Result<Runtime> {
-    let mut builder = Runtime::builder().renderer(RendererKind::Cpu);
-    if let Some(path) = &cli.cache_dir {
-        builder = builder.cache_dir(path.clone());
-    }
-    Ok(builder.build()?)
+fn build_runtime(global: &GlobalConfig) -> Result<Runtime> {
+    let terminal = TerminalInfo {
+        columns: Some(global.terminal_cols.value),
+        rows: Some(global.terminal_rows.value),
+        ..TerminalInfo::default()
+    };
+    Ok(Runtime::builder()
+        .renderer(global.renderer.value.into())
+        .cache_dir(global.cache_dir.value.clone())
+        .terminal(terminal)
+        .build()?)
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let runtime = build_runtime(&cli)?;
-    let Cli { cmd, .. } = &cli;
-    match cmd {
-        Cmd::Box(args) => run_box(&cli, &runtime, args),
-        Cmd::Gradient(args) => run_gradient(&cli, &runtime, args),
-        Cmd::Glow(args) => run_glow(&cli, &runtime, args),
-        Cmd::Compose(args) => run_compose(&cli, &runtime, args),
-        Cmd::Cache(sub) => run_cache(&cli, sub),
-        Cmd::Probe => run_probe(&cli),
+    let layers = ConfigLayers::load()?;
+    let global = layers.resolve_global(GlobalFlagValues {
+        cache_dir: cli.cache_dir.clone(),
+        renderer: cli.renderer,
+        terminal_cols: cli.terminal_cols,
+        terminal_rows: cli.terminal_rows,
+        json: cli.json,
+    });
+    let runtime = build_runtime(&global)?;
+    match &cli.cmd {
+        Cmd::Box(args) => {
+            let config = layers.resolve_box(BoxFlagValues {
+                x: args.x,
+                y: args.y,
+                width: args.width.clone(),
+                height: args.height.clone(),
+                fg: args.fg.clone(),
+                bg: args.bg.clone(),
+                radius: args.radius,
+                border: args.border,
+                animate: args.animate.clone(),
+            });
+            run_box(&global, &runtime, &config)
+        }
+        Cmd::Gradient(args) => {
+            let config = layers.resolve_gradient(GradientFlagValues {
+                width: args.width.clone(),
+                height: args.height.clone(),
+                left: args.left.clone(),
+                right: args.right.clone(),
+                direction: args.direction.map(|d| match d {
+                    DirectionArg::Horizontal => "horizontal".to_string(),
+                    DirectionArg::Vertical => "vertical".to_string(),
+                    DirectionArg::Diagonal => "diagonal".to_string(),
+                }),
+            });
+            run_gradient(&global, &runtime, &config)
+        }
+        Cmd::Glow(args) => {
+            let config = layers.resolve_glow(GlowFlagValues {
+                width: args.width.clone(),
+                height: args.height.clone(),
+                color: args.color.clone(),
+                intensity: args.intensity,
+            });
+            run_glow(&global, &runtime, &config)
+        }
+        Cmd::Compose(args) => run_compose(&global, &runtime, args),
+        Cmd::Cache(sub) => run_cache(&global, &layers, sub),
+        Cmd::Probe => run_probe(&global),
     }
 }
 
-fn run_box(cli: &Cli, runtime: &Runtime, args: &BoxArgs) -> Result<()> {
-    let cols = resolve_size(&args.width, cli.terminal_cols.unwrap_or(80))?;
-    let rows = resolve_size(&args.height, cli.terminal_rows.unwrap_or(24))?;
+fn run_box(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedBoxConfig) -> Result<()> {
+    let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
+    let rows = resolve_size(&args.height.value, global.terminal_rows.value)?;
     let cell = CellSize::default();
-    let footprint = CellRect::new(args.x, args.y, cols, rows);
-    let bg = Rgba::parse(&args.bg)?;
-    let fg = Rgba::parse(&args.fg)?;
+    let footprint = CellRect::new(args.x.value, args.y.value, cols, rows);
+    let bg = Rgba::parse(&args.bg.value)?;
+    let fg = Rgba::parse(&args.fg.value)?;
     let rect = footprint.to_pixels(cell);
     let mut layers = vec![
         background_solid(footprint, cell, bg),
-        rounded_rect(rect, bg, fg, args.border, args.radius),
+        rounded_rect(rect, bg, fg, args.border.value, args.radius.value),
     ];
-    let animation = if let Some(spec) = args.animate.as_deref() {
+    let animation = if let Some(spec) = args.animate.value.as_deref() {
         let (frames, cycle) = spec
             .split_once('@')
             .ok_or_else(|| anyhow!("--animate expects `frames@cycle_ms`"))?;
@@ -217,32 +286,37 @@ fn run_box(cli: &Cli, runtime: &Runtime, args: &BoxArgs) -> Result<()> {
         layers,
         animation,
     };
-    emit(cli, runtime, &scene)
+    emit(global, runtime, &scene, Some(args.source_json()))
 }
 
-fn run_gradient(cli: &Cli, runtime: &Runtime, args: &GradientArgs) -> Result<()> {
-    let cols = resolve_size(&args.width, cli.terminal_cols.unwrap_or(80))?;
-    let rows = resolve_size(&args.height, cli.terminal_rows.unwrap_or(24))?;
+fn run_gradient(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &ResolvedGradientConfig,
+) -> Result<()> {
+    let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
+    let rows = resolve_size(&args.height.value, global.terminal_rows.value)?;
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, cols, rows);
+    let direction = DirectionArg::parse(&args.direction.value)?;
     let scene = Scene {
         footprint,
         cell_size: cell,
         layers: vec![background_linear(
             footprint,
             cell,
-            args.direction.into(),
-            Rgba::parse(&args.left)?,
-            Rgba::parse(&args.right)?,
+            direction.into(),
+            Rgba::parse(&args.left.value)?,
+            Rgba::parse(&args.right.value)?,
         )],
         animation: None,
     };
-    emit(cli, runtime, &scene)
+    emit(global, runtime, &scene, Some(args.source_json()))
 }
 
-fn run_glow(cli: &Cli, runtime: &Runtime, args: &GlowArgs) -> Result<()> {
-    let cols = resolve_size(&args.width, cli.terminal_cols.unwrap_or(80))?;
-    let rows = resolve_size(&args.height, cli.terminal_rows.unwrap_or(24))?;
+fn run_glow(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedGlowConfig) -> Result<()> {
+    let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
+    let rows = resolve_size(&args.height.value, global.terminal_rows.value)?;
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, cols, rows);
     let rect = footprint.to_pixels(cell);
@@ -259,35 +333,32 @@ fn run_glow(cli: &Cli, runtime: &Runtime, args: &GlowArgs) -> Result<()> {
                     align: StrokeAlign::Inside,
                     width_px: 1.0,
                     paint: Paint::Solid {
-                        color: Rgba::parse(&args.color)?,
+                        color: Rgba::parse(&args.color.value)?,
                     },
                 }),
                 corners: Corners::uniform(6.0),
             }),
-            glow_layer(rect, Rgba::parse(&args.color)?, args.intensity),
+            glow_layer(rect, Rgba::parse(&args.color.value)?, args.intensity.value),
         ],
         animation: None,
     };
-    emit(cli, runtime, &scene)
+    emit(global, runtime, &scene, Some(args.source_json()))
 }
 
-fn run_compose(cli: &Cli, runtime: &Runtime, args: &ComposeArgs) -> Result<()> {
+fn run_compose(global: &GlobalConfig, runtime: &Runtime, args: &ComposeArgs) -> Result<()> {
     let bytes = std::fs::read(&args.path)?;
     let scene: Scene = serde_json::from_slice(&bytes)?;
-    emit(cli, runtime, &scene)
+    emit(global, runtime, &scene, None)
 }
 
-fn run_cache(cli: &Cli, sub: &CacheCmd) -> Result<()> {
-    let dir = cli
-        .cache_dir
-        .clone()
-        .unwrap_or_else(kittui::scene::default_cache_dir);
+fn run_cache(global: &GlobalConfig, layers: &ConfigLayers, sub: &CacheCmd) -> Result<()> {
+    let dir = global.cache_dir.value.clone();
     match sub {
         CacheCmd::Info => {
             let cache = kittui_cache::Cache::open(&dir)?;
             let stats = cache.stats()?;
             let probe = cache.read_probe()?;
-            if cli.json {
+            if global.json.value {
                 let payload = serde_json::json!({
                     "root": dir.display().to_string(),
                     "scene_bytes": stats.scene_bytes,
@@ -296,6 +367,7 @@ fn run_cache(cli: &Cli, sub: &CacheCmd) -> Result<()> {
                     "budget_bytes": cache.config().budget_bytes,
                     "grace_secs": cache.config().grace_secs,
                     "probe": probe,
+                    "config_sources": { "global": global.source_json() },
                 });
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
@@ -318,20 +390,25 @@ fn run_cache(cli: &Cli, sub: &CacheCmd) -> Result<()> {
             }
         }
         CacheCmd::Gc { budget } => {
-            let config = match budget {
+            let budget = layers.resolve_cache_budget(*budget);
+            let config = match budget.value {
                 Some(b) => kittui_cache::CacheConfig {
-                    budget_bytes: *b,
+                    budget_bytes: b,
                     grace_secs: kittui_cache::DEFAULT_GRACE_SECS,
                 },
                 None => kittui_cache::CacheConfig::default(),
             };
             let cache = kittui_cache::Cache::open_with_config(&dir, config)?;
             let report = cache.gc()?;
-            if cli.json {
+            if global.json.value {
                 let payload = serde_json::json!({
                     "removed_entries": report.removed_entries,
                     "reclaimed_bytes": report.reclaimed_bytes,
                     "skipped_grace": report.skipped_grace,
+                    "config_sources": {
+                        "global": global.source_json(),
+                        "cache": { "budget": budget.source },
+                    },
                 });
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
@@ -350,25 +427,35 @@ fn run_cache(cli: &Cli, sub: &CacheCmd) -> Result<()> {
     Ok(())
 }
 
-fn run_probe(_cli: &Cli) -> Result<()> {
+fn run_probe(global: &GlobalConfig) -> Result<()> {
     let probe = serde_json::json!({
         "supports_kitty": true,
         "supports_unicode_placeholders": true,
-        "renderer": "cpu",
+        "renderer": global.renderer.value.to_string(),
         "version": env!("CARGO_PKG_VERSION"),
+        "config_sources": { "global": global.source_json() },
     });
     println!("{}", serde_json::to_string_pretty(&probe)?);
     Ok(())
 }
 
-fn emit(cli: &Cli, runtime: &Runtime, scene: &Scene) -> Result<()> {
+fn emit(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    scene: &Scene,
+    command_sources: Option<serde_json::Value>,
+) -> Result<()> {
     let placement = runtime.place(scene)?;
-    if cli.json {
+    if global.json.value {
         let payload = serde_json::json!({
             "image_id": format!("0x{:08x}", placement.image_id),
             "footprint": placement.footprint,
             "upload_bytes": placement.upload.len(),
             "embed": placement.embed,
+            "config_sources": {
+                "global": global.source_json(),
+                "command": command_sources,
+            },
         });
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();

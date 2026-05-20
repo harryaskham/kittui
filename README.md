@@ -19,6 +19,40 @@ cargo run -p kittui-cli -- box -w 60 -h 8 --fg "#00d8ff" --bg "#08111fcc" --radi
 cargo run -p kittui-cli --example showcase
 ```
 
+## Configuration
+
+Every user-facing CLI option can be supplied as an explicit flag, a `KITTUI_*`
+environment variable, or a YAML default at `$XDG_CONFIG_HOME/kittui/config.yaml`
+(falling back to `~/.config/kittui/config.yaml`). Precedence is always:
+
+1. CLI flag / API override
+2. environment variable
+3. YAML default
+4. built-in default
+
+Examples:
+
+```yaml
+cache_dir: /var/tmp/kittui-cache
+renderer: cpu
+terminal_cols: 120
+terminal_rows: 40
+box:
+  width: 60
+  height: 8
+  fg: "#00d8ff"
+gradient:
+  direction: vertical
+cache:
+  budget: 104857600
+```
+
+Use variables such as `KITTUI_CACHE_DIR`, `KITTUI_RENDERER`,
+`KITTUI_BOX_WIDTH`, `KITTUI_GRADIENT_DIRECTION`, `KITTUI_GLOW_INTENSITY`, and
+`KITTUI_CACHE_BUDGET` for script-local scopes. JSON output includes a
+`config_sources` object so callers can see whether each resolved value came from
+a flag, env var, YAML, or a built-in default.
+
 ## Crates
 
 | Crate                | Purpose                                                  |
