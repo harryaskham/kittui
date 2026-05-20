@@ -26,9 +26,10 @@
 
 mod device;
 mod encode;
-mod pipelines;
+pub mod pipelines;
 
 pub use device::{GpuDevice, GpuDeviceOptions, GpuInitError, GpuPowerPreference};
+pub use pipelines::ShaderError;
 
 use kittui_core::Scene;
 use kittui_render_cpu::{encode_png, Pixmap, RasterAnimation, RasterFrame};

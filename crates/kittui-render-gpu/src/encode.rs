@@ -285,11 +285,22 @@ fn draw_node(
         Node::Image { .. } => {
             // Image support arrives with the atlas pipeline.
         }
-        Node::Shader { .. } => {
-            // User-shader nodes need per-scene pipeline compilation +
-            // caching. v0.6 GPU backend accepts the node in the type
-            // system but draws nothing; the next revision wires the
-            // dynamic pipeline cache and lights this up.
+        Node::Shader {
+            rect,
+            source,
+            uniforms,
+        } => {
+            if let Ok(pipeline) = pipelines.compile_user_shader(device, source) {
+                let mut u = Uniforms::zeroed();
+                u.viewport = [width as f32, height as f32];
+                u.rect = [rect.origin.0, rect.origin.1, rect.width, rect.height];
+                if let Some(first) = uniforms.first() {
+                    u.fill = *first;
+                }
+                submit_draw_pipeline(device, &pipeline, view, encoder, &u);
+            }
+            // Shader compile error: leave the rect untouched. Hosts that want
+            // the error must call `Pipelines::compile_user_shader` directly.
         }
         Node::Group {
             opacity: o,
@@ -450,3 +461,49 @@ fn align_up(value: u32, align: u32) -> u32 {
 
 #[allow(dead_code)]
 fn _layer_unused(_: Layer) {}
+
+fn submit_draw_pipeline(
+    device: &GpuDevice,
+    pipeline: &wgpu::RenderPipeline,
+    view: &wgpu::TextureView,
+    encoder: &mut wgpu::CommandEncoder,
+    u: &Uniforms,
+) {
+    let buffer = device
+        .device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("kittui-user-uniforms"),
+            contents: bytemuck::bytes_of(u),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+    let layout = pipeline.get_bind_group_layout(0);
+    let bind_group = device.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("kittui-user-bg"),
+        layout: &layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: &buffer,
+                offset: 0,
+                size: NonZeroU64::new(std::mem::size_of::<Uniforms>() as u64),
+            }),
+        }],
+    });
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("kittui-user-draw"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+    });
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, &bind_group, &[]);
+    pass.draw(0..4, 0..1);
+}
