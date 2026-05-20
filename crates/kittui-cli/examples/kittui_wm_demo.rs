@@ -69,7 +69,26 @@ fn main() -> Result<()> {
         .terminal(TerminalInfo::detect())
         .build()?;
 
-    #[cfg(feature = "xvfb")]
+    // Backend precedence: --features quartz wins on macOS; --features xvfb
+    // wins on Linux; otherwise the FakeServer keeps everything portable.
+    #[cfg(all(target_os = "macos", feature = "quartz"))]
+    {
+        let width: u32 = std::env::var("KITTUI_WM_WIDTH")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1280);
+        let height: u32 = std::env::var("KITTUI_WM_HEIGHT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(800);
+        let server = kittui_quartz::QuartzServer::spawn(width, height)
+            .map_err(|e| anyhow::anyhow!("QuartzServer::spawn failed: {e}"))?;
+        let compositor = Compositor::new(server, cell);
+        let layout = Layout::all_floating();
+        return run_loop(&runtime, &compositor, &layout);
+    }
+
+    #[cfg(all(not(all(target_os = "macos", feature = "quartz")), feature = "xvfb"))]
     {
         let display: u32 = std::env::var("KITTUI_WM_DISPLAY")
             .ok()
@@ -83,11 +102,13 @@ fn main() -> Result<()> {
         let session = live::LiveSession::spawn(display, Some(&app_argv))?;
         let compositor = Compositor::new(session.server, cell);
         let layout = Layout::all_floating();
-        run_loop(&runtime, &compositor, &layout)?;
-        Ok(())
+        return run_loop(&runtime, &compositor, &layout);
     }
 
-    #[cfg(not(feature = "xvfb"))]
+    #[cfg(not(any(
+        all(target_os = "macos", feature = "quartz"),
+        feature = "xvfb"
+    )))]
     {
         let server = FakeServer::with_windows(vec![
             (
@@ -107,8 +128,7 @@ fn main() -> Result<()> {
         let mut layout = Layout::all_floating();
         layout.tile(XWindowId(1), PxRect::new(8.0, 16.0, 320.0, 192.0));
         compositor.set_mode(XWindowId(1), WindowMode::Tiled);
-        run_loop(&runtime, &compositor, &layout)?;
-        Ok(())
+        return run_loop(&runtime, &compositor, &layout);
     }
 }
 

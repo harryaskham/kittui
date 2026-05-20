@@ -1,0 +1,27 @@
+[package]
+name = "kittui-quartz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "macOS Quartz/CoreGraphics backend for kittui-wm (CGVirtualDisplay + ScreenCaptureKit + CGEventPost)."
+
+[dependencies]
+kittui-core = { workspace = true }
+kittui-xvfb = { path = "../kittui-xvfb", version = "0.1.0" }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+parking_lot = { workspace = true }
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Pure-FFI bindings to the public Quartz symbols. Private symbols
+# (CGVirtualDisplayCreate*) are declared inline as extern "C" in this crate
+# because no public crate exposes them.
+core-foundation = { version = "0.10", optional = true }
+core-graphics = { version = "0.24", optional = true }
+
+[features]
+default = []
+quartz = ["dep:core-foundation", "dep:core-graphics"]

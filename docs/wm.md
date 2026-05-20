@@ -95,9 +95,53 @@ This drives the FakeServer (two solid-color windows), composes them
 floating, swaps one to a tiled rect, and simulates a left-click — printing
 the routed `XPointerEvent`s the real-Xvfb backend would inject.
 
+## Backends
+
+| backend | host | scope | feature |
+|---|---|---|---|
+| `kittui-xvfb::FakeServer` | any | deterministic in-memory; tests + portable demo | (default) |
+| `kittui-xvfb::xvfb::XvfbServer` | Linux | spawns Xvfb, captures via XCB GetImage, routes input via XTest | `--features xvfb` |
+| `kittui-quartz::QuartzServer` | macOS | captures the main display via `CGDisplayCreateImage`, posts pointer/key events via `CGEventPost` | `--features quartz` |
+
+### macOS Quartz backend notes
+
+The public macOS path is what kittui-quartz ships in v1. Private headless
+display creation (`CGVirtualDisplayCreate*`) is intentionally *not* used:
+those symbols are not exported from the public CoreGraphics TBD on Apple
+Silicon, so even `extern "C"` linkage fails at link time. Re-introducing
+them would require either a `dlsym` from a private dyld cache extract, a
+shipped private TBD copy, or DriverKit. All three are deferred to v2.
+
+First-run macOS permissions:
+
+- **Screen Recording** — needed for `CGDisplayCreateImage`. macOS will
+  prompt the first time you run the demo with `--features quartz`. Grant
+  it under *System Settings → Privacy & Security → Screen Recording*.
+- **Accessibility** — needed for `CGEventPost` to deliver synthetic
+  pointer and key events to applications other than the posting one.
+  Without it the call succeeds and the event is silently dropped. Grant
+  under *Privacy & Security → Accessibility*.
+
+### Xvfb over SSH
+
+Three working topologies:
+
+1. **Remote `kittui-wm`, local terminal.** Easiest: SSH in, `cargo run
+   ... --features xvfb`. The kitty graphics escapes travel back over the
+   SSH channel; the X traffic stays on the remote host.
+2. **Remote Xvfb, local `kittui-wm`.** `ssh -L 6099:localhost:6099
+   host` then `KITTUI_WM_DISPLAY=:99` locally. x11rb connects to the
+   forwarded TCP socket; the capture bytes ride the SSH tunnel.
+3. **Local `XvfbServer::attach(":N")`.** Attach to an already-running
+   X server inside the current SSH session.
+
 ## Roadmap to v2
 
 - Finish the XCB + MIT-SHM wiring inside `kittui-xvfb::xvfb::XvfbServer`.
+- Reintroduce private-API headless displays on macOS via `dlsym` + a
+  best-effort fallback chain.
+- Multi-window enumeration on macOS via `CGWindowListCopyWindowInfo`.
+- Full keysym → keycode mapping via Carbon `UCKeyTranslate`.
 - Add multi-Xvfb support so the WM can host independent X sessions per
   workspace.
 - Wayland passthrough via wlroots-style headless compositors.
