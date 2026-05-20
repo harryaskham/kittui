@@ -142,13 +142,13 @@ fn encode_chunked(
         let more = if end < bytes.len() { 1 } else { 0 };
         let header = if offset == 0 {
             format!(
-                ",a=t,f=100,i={id},m={more}{frame_field}",
+                "a=t,f=100,i={id},m={more}{frame_field}",
                 id = image_id,
                 more = more,
                 frame_field = frame_field
             )
         } else {
-            format!(",m={more}", more = more)
+            format!("m={more}", more = more)
         };
         let body = std::str::from_utf8(&bytes[offset..end]).unwrap_or("");
         let payload = format!("{ESC}_G{header};{body}{ESC}\\");
@@ -165,7 +165,8 @@ mod tests {
     #[test]
     fn upload_still_includes_image_id_and_base64() {
         let escapes = upload_still(0xABCD, b"hello kittui", Transport::Direct);
-        assert!(escapes.contains(",a=t,f=100,i=43981"));
+        assert!(escapes.contains("\x1b_Ga=t,f=100,i=43981"));
+        assert!(!escapes.contains("\x1b_G,"));
         assert!(escapes.contains("aGVsbG8ga2l0dHVp"));
     }
 
