@@ -1,0 +1,18 @@
+[package]
+name = "kittui-xvfb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Xvfb-backed X11 capture + input routing substrate for kittui-wm."
+
+[dependencies]
+kittui-core = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+parking_lot = { workspace = true }
+
+[features]
+default = []
+xvfb = []

@@ -1,0 +1,10 @@
+[package]
+name = "kittui-input"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Parser for kitty pointer + key reporting escapes."
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }

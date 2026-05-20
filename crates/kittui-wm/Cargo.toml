@@ -4,9 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Terminal window manager substrate over kittui. Long-term goal; v0.1 is a placeholder scaffold."
+description = "Terminal window manager over kittui. v1 hosts Xvfb-backed app windows as floating/tiling kittui chrome."
 
 [dependencies]
 kittui = { workspace = true }
 kittui-core = { workspace = true }
+kittui-kitty = { workspace = true }
+kittui-render-cpu = { workspace = true }
+kittui-input = { path = "../kittui-input", version = "0.1.0" }
+kittui-xvfb = { path = "../kittui-xvfb", version = "0.1.0" }
 ratakittui = { path = "../ratakittui", version = "0.1.0" }
+parking_lot = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }

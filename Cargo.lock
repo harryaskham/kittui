@@ -874,6 +874,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kittui-input"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "kittui-kitty"
 version = "0.1.0"
 dependencies = [
@@ -951,9 +958,27 @@ dependencies = [
 name = "kittui-wm"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "kittui",
  "kittui-core",
+ "kittui-input",
+ "kittui-kitty",
+ "kittui-render-cpu",
+ "kittui-xvfb",
+ "parking_lot",
  "ratakittui",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "kittui-xvfb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kittui-core",
+ "parking_lot",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

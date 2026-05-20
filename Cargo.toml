@@ -15,6 +15,8 @@ members = [
   "crates/kittui-wm",
   "crates/kittui-overlay",
   "crates/kittui-watch",
+  "crates/kittui-input",
+  "crates/kittui-xvfb",
 ]
 
 [workspace.package]
