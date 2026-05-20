@@ -354,6 +354,15 @@ Architecture:
   of 0.99. Below tolerance the GPU is marked unusable for that host and
   the facade falls back to CPU. Above tolerance the GPU remains primary.
 
+Current implementation note: the checked-in `kittui-render-gpu` backend is
+headless/offscreen-first and now exposes explicit adapter options plus adapter
+diagnostics. It reuses its offscreen color target and readback buffer across
+frames of the same size, which avoids hidden global state while amortising wgpu
+resource allocation. The currently unsupported GPU-only semantics are image atlas
+nodes, custom shader nodes, and true mask/clip intermediate passes; the public
+renderer reports these through `GpuRenderer::unsupported_features()` and callers
+should route those scenes through CPU fallback until the dedicated pipelines land.
+
 The GPU renderer has zero `unsafe` in its own code; the only `unsafe` in
 this crate is whatever `wgpu` requires transitively. Shader code is WGSL
 checked into `crates/kittui-render-gpu/shaders/` and validated at compile

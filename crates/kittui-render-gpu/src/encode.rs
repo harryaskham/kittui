@@ -2,7 +2,6 @@
 
 use std::num::NonZeroU64;
 
-use bytemuck;
 use wgpu::util::DeviceExt;
 
 use kittui_core::color::Rgba;
@@ -17,12 +16,72 @@ use crate::GpuRenderError;
 
 const ALIGN: u32 = 256; // wgpu copy_texture_to_buffer alignment requirement.
 
+/// Reusable offscreen render/readback resources for a single renderer.
+pub(crate) struct RenderScratch {
+    width: u32,
+    height: u32,
+    bytes_per_row: u32,
+    target: Option<wgpu::Texture>,
+    readback: Option<wgpu::Buffer>,
+}
+
+impl RenderScratch {
+    /// Create an empty scratch bundle. Resources are allocated lazily on the
+    /// first render and then reused until the scene dimensions change.
+    pub(crate) fn new() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            bytes_per_row: 0,
+            target: None,
+            readback: None,
+        }
+    }
+
+    fn ensure(&mut self, device: &GpuDevice, width: u32, height: u32) {
+        let bytes_per_row = align_up(width * 4, ALIGN);
+        if self.target.is_some()
+            && self.readback.is_some()
+            && self.width == width
+            && self.height == height
+            && self.bytes_per_row == bytes_per_row
+        {
+            return;
+        }
+
+        self.width = width;
+        self.height = height;
+        self.bytes_per_row = bytes_per_row;
+        self.target = Some(device.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("kittui-target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        }));
+        self.readback = Some(device.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("kittui-readback"),
+            size: (bytes_per_row * height) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        }));
+    }
+}
+
 /// Render `scene` at the given animation phase into `pixmap`. Each top-level
 /// layer becomes one draw call into a shared offscreen color target; after
 /// all draws complete we copy the texture back to a CPU-mapped buffer.
 pub fn render_scene(
     device: &GpuDevice,
     pipelines: &Pipelines,
+    scratch: &mut RenderScratch,
     scene: &Scene,
     phase: f32,
     pixmap: &mut Pixmap,
@@ -33,20 +92,12 @@ pub fn render_scene(
         return Ok(());
     }
 
-    let texture = device.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("kittui-target"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
+    scratch.ensure(device, width, height);
+    let texture = scratch.target.as_ref().expect("scratch target initialized");
+    let readback = scratch
+        .readback
+        .as_ref()
+        .expect("scratch readback initialized");
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     let mut encoder = device
@@ -91,23 +142,16 @@ pub fn render_scene(
     }
 
     // Copy texture → buffer for readback.
-    let bytes_per_row = align_up(width * 4, ALIGN);
-    let buffer_size = (bytes_per_row * height) as u64;
-    let readback = device.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("kittui-readback"),
-        size: buffer_size,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let bytes_per_row = scratch.bytes_per_row;
     encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
-            texture: &texture,
+            texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
         wgpu::TexelCopyBufferInfo {
-            buffer: &readback,
+            buffer: readback,
             layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),
@@ -140,8 +184,7 @@ pub fn render_scene(
         for y in 0..height as usize {
             let src_off = y * bytes_per_row as usize;
             let dst_off = y * row_bytes;
-            dst[dst_off..dst_off + row_bytes]
-                .copy_from_slice(&data[src_off..src_off + row_bytes]);
+            dst[dst_off..dst_off + row_bytes].copy_from_slice(&data[src_off..src_off + row_bytes]);
         }
     }
     readback.unmap();
@@ -330,20 +373,18 @@ fn submit_draw(
             contents: bytemuck::bytes_of(u),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-    let bind_group = device
-        .device
-        .create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("kittui-bg"),
-            layout: &pipelines.bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &buffer,
-                    offset: 0,
-                    size: NonZeroU64::new(std::mem::size_of::<Uniforms>() as u64),
-                }),
-            }],
-        });
+    let bind_group = device.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("kittui-bg"),
+        layout: &pipelines.bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: &buffer,
+                offset: 0,
+                size: NonZeroU64::new(std::mem::size_of::<Uniforms>() as u64),
+            }),
+        }],
+    });
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("kittui-draw"),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -384,7 +425,7 @@ fn paint_to_solid(paint: &Paint) -> ([f32; 4], bool) {
 }
 
 fn endpoint_stops(stops: &[kittui_core::node::Stop]) -> ([f32; 4], [f32; 4]) {
-    let first = stops.first().map(|s| s.color).unwrap_or(Rgba::default());
+    let first = stops.first().map(|s| s.color).unwrap_or_default();
     let last = stops.last().map(|s| s.color).unwrap_or(first);
     (rgba_to_vec4(first), rgba_to_vec4(last))
 }

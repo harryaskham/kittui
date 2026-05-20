@@ -28,7 +28,7 @@ mod device;
 mod encode;
 mod pipelines;
 
-pub use device::{GpuDevice, GpuInitError};
+pub use device::{GpuDevice, GpuDeviceOptions, GpuInitError, GpuPowerPreference};
 
 use kittui_core::Scene;
 use kittui_render_cpu::{encode_png, Pixmap, RasterAnimation, RasterFrame};
@@ -47,25 +47,66 @@ pub enum GpuRenderError {
     Readback(String),
 }
 
-/// Long-lived GPU renderer. Owns the wgpu adapter, queue, and pipelines.
+/// Options for constructing a long-lived [`GpuRenderer`].
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub struct GpuRendererOptions {
+    /// Adapter/device selection options.
+    pub device: GpuDeviceOptions,
+}
+
+/// Long-lived GPU renderer. Owns the wgpu adapter, queue, pipelines, and
+/// reusable offscreen/readback resources for deterministic repeated renders.
 pub struct GpuRenderer {
     device: GpuDevice,
     pipelines: pipelines::Pipelines,
+    scratch: encode::RenderScratch,
 }
 
 impl GpuRenderer {
     /// Construct a new GPU renderer. May block briefly on adapter init.
     pub fn new() -> Result<Self, GpuRenderError> {
-        let device = GpuDevice::new()?;
+        Self::with_options(GpuRendererOptions::default())
+    }
+
+    /// Construct a renderer with explicit adapter/device options.
+    pub fn with_options(options: GpuRendererOptions) -> Result<Self, GpuRenderError> {
+        let device = GpuDevice::new_with_options(options.device)?;
         let pipelines = pipelines::Pipelines::new(&device);
-        Ok(Self { device, pipelines })
+        let scratch = encode::RenderScratch::new();
+        Ok(Self {
+            device,
+            pipelines,
+            scratch,
+        })
+    }
+
+    /// Return adapter diagnostics for logs, probe caches, and support reports.
+    pub fn adapter_info(&self) -> &wgpu::AdapterInfo {
+        &self.device.adapter_info
+    }
+
+    /// GPU features that are accepted by the scene model but intentionally
+    /// rendered by CPU fallback until their dedicated pipelines land.
+    pub fn unsupported_features(&self) -> &'static [&'static str] {
+        &[
+            "image atlas nodes",
+            "custom shader nodes",
+            "true mask/clip intermediate passes",
+        ]
     }
 
     /// Render a still scene into an RGBA PNG. Output is byte-identical
     /// across runs for the same scene id (post-PNG-encode).
     pub fn render_still(&mut self, scene: &Scene) -> Result<RasterFrame, GpuRenderError> {
         let mut pixmap = Pixmap::new(scene.pixel_width(), scene.pixel_height());
-        encode::render_scene(&self.device, &self.pipelines, scene, 0.0, &mut pixmap)?;
+        encode::render_scene(
+            &self.device,
+            &self.pipelines,
+            &mut self.scratch,
+            scene,
+            0.0,
+            &mut pixmap,
+        )?;
         let png = encode_png(&pixmap);
         Ok(RasterFrame {
             png,
@@ -95,10 +136,19 @@ impl GpuRenderer {
         let mut pixmap = Pixmap::new(scene.pixel_width(), scene.pixel_height());
         for phase in animation.phases() {
             pixmap.clear();
-            encode::render_scene(&self.device, &self.pipelines, scene, phase, &mut pixmap)?;
+            encode::render_scene(
+                &self.device,
+                &self.pipelines,
+                &mut self.scratch,
+                scene,
+                phase,
+                &mut pixmap,
+            )?;
             frames.push(encode_png(&pixmap));
         }
-        let delays: Vec<u32> = (0..animation.frames).map(|i| animation.delay_ms(i)).collect();
+        let delays: Vec<u32> = (0..animation.frames)
+            .map(|i| animation.delay_ms(i))
+            .collect();
         Ok(RasterAnimation {
             frames,
             frame_delays_ms: delays,
