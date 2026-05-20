@@ -314,25 +314,39 @@ pub mod compositor {
 
         /// Build one kittui Scene per X window, with simple border chrome.
         pub fn compose(&self) -> Result<Vec<Scene>, kittui_xvfb::XError> {
+            self.compose_with_layout(&Layout::all_floating())
+        }
+
+        /// Build scenes using an explicit [`Layout`]. Tiled windows use the
+        /// `tiled_rect` slot in the layout; floating windows keep their
+        /// X-server-provided pixel rect.
+        pub fn compose_with_layout(
+            &self,
+            layout: &Layout,
+        ) -> Result<Vec<Scene>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
+            let modes = self.modes.lock().clone();
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
+                let mode = modes.get(&w.id).copied().unwrap_or(WindowMode::Floating);
+                let target_rect = match mode {
+                    WindowMode::Floating => w.rect,
+                    WindowMode::Tiled => layout.tiled_rect(w.id).unwrap_or(w.rect),
+                };
                 let cap = self.server.capture(w.id)?;
                 let footprint_cols =
-                    ((w.rect.width / self.cell.width_px as f32).ceil() as u16).max(1);
+                    ((target_rect.width / self.cell.width_px as f32).ceil() as u16).max(1);
                 let footprint_rows =
-                    ((w.rect.height / self.cell.height_px as f32).ceil() as u16).max(1);
+                    ((target_rect.height / self.cell.height_px as f32).ceil() as u16).max(1);
                 let footprint = CellRect::new(
-                    (w.rect.origin.0 / self.cell.width_px as f32) as u16,
-                    (w.rect.origin.1 / self.cell.height_px as f32) as u16,
+                    (target_rect.origin.0 / self.cell.width_px as f32) as u16,
+                    (target_rect.origin.1 / self.cell.height_px as f32) as u16,
                     footprint_cols,
                     footprint_rows,
                 );
-                let rect = PxRect::new(0.0, 0.0, w.rect.width, w.rect.height);
+                let rect = PxRect::new(0.0, 0.0, target_rect.width, target_rect.height);
                 let border = Rgba::parse("#00d8ff").unwrap();
                 let bg = Rgba::parse("#00000080").unwrap();
-                // PNG-encode the capture so it can travel through Node::Image
-                // bytes. Use the CPU encoder's helper to stay zero-dep.
                 let png = encode_rgba(&cap.rgba, cap.width, cap.height);
                 let layers = vec![
                     Layer::anon(Node::Image {
@@ -425,14 +439,38 @@ pub mod compositor {
         /// and forward to the focused window. v1 uses a minimal mapping; the
         /// full keymap lands once kittui-wm exposes a layout.
         pub fn route_key(&self, ev: &InputEvent) -> Option<(u32, bool)> {
-            let (ch, _mods, pressed) = match ev {
-                InputEvent::Char { ch, mods } => (*ch, *mods, true),
+            let sym = match ev {
+                InputEvent::Char { ch, .. } => *ch as u32,
+                InputEvent::Key { key, .. } => keysym_for(*key)?,
                 _ => return None,
             };
-            // Simple ASCII → keysym mapping for v1.
-            let sym = ch as u32;
+            let pressed = matches!(ev, InputEvent::Char { .. } | InputEvent::Key { .. });
             let _ = self.server.inject_key(sym, pressed);
             Some((sym, pressed))
+        }
+    }
+
+    /// Mapping from window id to its tiled rectangle in X-server pixels.
+    #[derive(Default, Clone, Debug)]
+    pub struct Layout {
+        tiled: HashMap<XWindowId, PxRect>,
+    }
+
+    impl Layout {
+        /// Default: no tiled windows. Everything is floating.
+        pub fn all_floating() -> Self {
+            Self::default()
+        }
+
+        /// Assign `rect` as the tiled slot for `id`. Compositor will use
+        /// this rect when the window's mode is [`WindowMode::Tiled`].
+        pub fn tile(&mut self, id: XWindowId, rect: PxRect) {
+            self.tiled.insert(id, rect);
+        }
+
+        /// Look up the tiled slot for a window, if any.
+        pub fn tiled_rect(&self, id: XWindowId) -> Option<PxRect> {
+            self.tiled.get(&id).copied()
         }
     }
 
@@ -459,6 +497,31 @@ pub mod compositor {
             MouseButton::ScrollUp => XButton::ScrollUp,
             MouseButton::ScrollDown => XButton::ScrollDown,
             MouseButton::None | MouseButton::Other(_) => return None,
+        })
+    }
+
+    /// Map kittui-input named keys to X11 keysyms. v1 covers the common
+    /// navigation + control keys; printable characters go through
+    /// `InputEvent::Char`.
+    fn keysym_for(k: kittui_input::Key) -> Option<u32> {
+        use kittui_input::Key;
+        Some(match k {
+            Key::Up => 0xff52,
+            Key::Down => 0xff54,
+            Key::Left => 0xff51,
+            Key::Right => 0xff53,
+            Key::Home => 0xff50,
+            Key::End => 0xff57,
+            Key::PageUp => 0xff55,
+            Key::PageDown => 0xff56,
+            Key::Insert => 0xff63,
+            Key::Delete => 0xffff,
+            Key::Tab => 0xff09,
+            Key::Backspace => 0xff08,
+            Key::Enter => 0xff0d,
+            Key::Escape => 0xff1b,
+            Key::F(n) if (1..=12).contains(&n) => 0xffbd + n as u32,
+            Key::F(_) => return None,
         })
     }
 
@@ -531,6 +594,37 @@ pub mod compositor {
                 mods: Default::default(),
             });
             assert_eq!(key, Some(('q' as u32, true)));
+        }
+
+        #[test]
+        fn route_key_maps_named_keys_to_x11_keysyms() {
+            let comp = Compositor::new(server(), CellSize::new(8, 16));
+            let up = comp.route_key(&InputEvent::Key {
+                key: kittui_input::Key::Up,
+                mods: Default::default(),
+            });
+            assert_eq!(up, Some((0xff52, true)));
+            let f7 = comp.route_key(&InputEvent::Key {
+                key: kittui_input::Key::F(7),
+                mods: Default::default(),
+            });
+            assert_eq!(f7, Some((0xffbd + 7, true)));
+        }
+
+        #[test]
+        fn tiled_windows_use_layout_rect_instead_of_x_rect() {
+            let comp = Compositor::new(server(), CellSize::new(8, 16));
+            comp.set_mode(XWindowId(1), WindowMode::Tiled);
+            let mut layout = Layout::all_floating();
+            layout.tile(XWindowId(1), PxRect::new(40.0, 0.0, 32.0, 16.0));
+            let scenes = comp.compose_with_layout(&layout).unwrap();
+            assert_eq!(scenes.len(), 2);
+            // The tiled window's footprint should originate at cell (5, 0)
+            // (40 / 8 = 5) and span 4 cols (32 / 8) by 1 row (16 / 16).
+            let tiled = &scenes[0];
+            assert_eq!(tiled.footprint.x, 5);
+            assert_eq!(tiled.footprint.cols, 4);
+            assert_eq!(tiled.footprint.rows, 1);
         }
     }
 }
