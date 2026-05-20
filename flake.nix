@@ -134,7 +134,20 @@
               rustc
               rustfmt
             ]
-            ++ lib.optionals pkgs.stdenv.isDarwin [ libiconv ];
+            ++ lib.optionals pkgs.stdenv.isDarwin [ libiconv ]
+            ++ lib.optionals pkgs.stdenv.isLinux [
+              # Real Xvfb backend for kittui-wm + kittui-xvfb proof harness.
+              xorg.xorgserver
+              xorg.xvfb
+              xorg.libxcb
+              xorg.libX11
+              xorg.libXtst
+              xorg.libXext
+              xorg.libxkbcommon
+              xorg.xeyes
+              xorg.xterm
+              xorg.xclock
+            ];
 
           RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         };

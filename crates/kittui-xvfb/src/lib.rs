@@ -200,39 +200,261 @@ impl XServer for FakeServer {
     }
 }
 
-// Real Xvfb implementation. Currently a stub that returns `Unavailable`
-// when the `xvfb` feature is on but no live Xvfb is reachable. The full
-// XCB + SHM wiring lives in a follow-up bead under the parent epic.
+// Real Xvfb implementation, behind the `xvfb` feature. Uses x11rb (pure-Rust
+// XCB) so no `unsafe` is needed in this crate. The backend spawns an Xvfb
+// child process, attaches to its display, enumerates toplevels, captures
+// window pixels via `GetImage`, and injects pointer/key events via XTest.
+/// Real Xvfb backend. Pure-Rust XCB via `x11rb`, no `unsafe`. Enabled with
+/// the `xvfb` cargo feature.
 #[cfg(feature = "xvfb")]
 pub mod xvfb {
     use super::*;
 
-    /// Placeholder Xvfb backend. Returns `Unavailable` until the XCB wiring
-    /// is finished (tracked under the kittui-wm v1 epic).
-    pub struct XvfbServer;
+    use std::process::{Child, Command, Stdio};
+    use std::thread;
+    use std::time::Duration;
+
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{
+        AtomEnum, ConnectionExt as _, GetImageReply, ImageFormat, Window as XWindow32,
+    };
+    use x11rb::protocol::xtest::ConnectionExt as XTestExt;
+    use x11rb::rust_connection::RustConnection;
+
+    /// A live Xvfb server connected via XCB. Owns the child process so it is
+    /// torn down when this struct drops.
+    pub struct XvfbServer {
+        conn: RustConnection,
+        screen_root: XWindow32,
+        _xvfb: Option<Child>,
+        display: String,
+    }
 
     impl XvfbServer {
-        /// Try to spawn (or attach to) Xvfb at the given display number.
-        pub fn spawn(_display: u32) -> Result<Self, XError> {
-            Err(XError::Unavailable(
-                "XvfbServer is stubbed: XCB+SHM wiring lands in a follow-up".into(),
-            ))
+        /// Spawn `Xvfb :<display>` and connect to it.
+        pub fn spawn(display: u32) -> Result<Self, XError> {
+            let display_str = format!(":{display}");
+            let xvfb = Command::new("Xvfb")
+                .arg(&display_str)
+                .args(["-screen", "0", "1024x768x24"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| XError::Unavailable(format!("failed to spawn Xvfb: {e}")))?;
+            // Wait for the X socket to come up.
+            let mut last_err = None;
+            for _ in 0..30 {
+                thread::sleep(Duration::from_millis(100));
+                match RustConnection::connect(Some(&display_str)) {
+                    Ok((conn, screen_num)) => {
+                        let screen = &conn.setup().roots[screen_num];
+                        let root = screen.root;
+                        return Ok(Self {
+                            conn,
+                            screen_root: root,
+                            _xvfb: Some(xvfb),
+                            display: display_str,
+                        });
+                    }
+                    Err(e) => last_err = Some(e),
+                }
+            }
+            Err(XError::Unavailable(format!(
+                "could not connect to Xvfb at {display_str}: {last_err:?}"
+            )))
+        }
+
+        /// Attach to an already-running X server on the given DISPLAY.
+        pub fn attach(display: &str) -> Result<Self, XError> {
+            let (conn, screen_num) = RustConnection::connect(Some(display))
+                .map_err(|e| XError::Unavailable(format!("connect {display}: {e}")))?;
+            let screen = &conn.setup().roots[screen_num];
+            let root = screen.root;
+            Ok(Self {
+                conn,
+                screen_root: root,
+                _xvfb: None,
+                display: display.to_string(),
+            })
+        }
+
+        /// The DISPLAY string this backend is using.
+        pub fn display(&self) -> &str {
+            &self.display
         }
     }
 
     impl XServer for XvfbServer {
         fn windows(&self) -> Result<Vec<XWindow>, XError> {
-            Err(XError::Unavailable("XvfbServer stub".into()))
+            let tree = self
+                .conn
+                .query_tree(self.screen_root)
+                .map_err(|e| XError::Unavailable(format!("query_tree: {e}")))?
+                .reply()
+                .map_err(|e| XError::Unavailable(format!("query_tree reply: {e}")))?;
+            let mut out = Vec::new();
+            for child in tree.children.iter().copied() {
+                let attrs = match self.conn.get_window_attributes(child) {
+                    Ok(c) => match c.reply() {
+                        Ok(a) => a,
+                        Err(_) => continue,
+                    },
+                    Err(_) => continue,
+                };
+                if attrs.map_state != x11rb::protocol::xproto::MapState::VIEWABLE {
+                    continue;
+                }
+                let geom = match self.conn.get_geometry(child) {
+                    Ok(c) => match c.reply() {
+                        Ok(g) => g,
+                        Err(_) => continue,
+                    },
+                    Err(_) => continue,
+                };
+                let title = read_title(&self.conn, child).unwrap_or_default();
+                out.push(XWindow {
+                    id: XWindowId(child),
+                    title,
+                    rect: PxRect::new(
+                        geom.x as f32,
+                        geom.y as f32,
+                        geom.width as f32,
+                        geom.height as f32,
+                    ),
+                });
+            }
+            Ok(out)
         }
-        fn capture(&self, _id: XWindowId) -> Result<XCapture, XError> {
-            Err(XError::Unavailable("XvfbServer stub".into()))
+
+        fn capture(&self, id: XWindowId) -> Result<XCapture, XError> {
+            let geom = self
+                .conn
+                .get_geometry(id.0)
+                .map_err(|e| XError::Unavailable(format!("get_geometry: {e}")))?
+                .reply()
+                .map_err(|e| XError::Unavailable(format!("get_geometry reply: {e}")))?;
+            let img: GetImageReply = self
+                .conn
+                .get_image(
+                    ImageFormat::Z_PIXMAP,
+                    id.0,
+                    0,
+                    0,
+                    geom.width,
+                    geom.height,
+                    !0,
+                )
+                .map_err(|e| XError::Unavailable(format!("get_image: {e}")))?
+                .reply()
+                .map_err(|e| XError::Unavailable(format!("get_image reply: {e}")))?;
+            // Xvfb returns BGRA (or BGR for 24-bit depth). Convert to RGBA.
+            let mut rgba = Vec::with_capacity((geom.width as usize) * (geom.height as usize) * 4);
+            for chunk in img.data.chunks_exact(4) {
+                rgba.push(chunk[2]);
+                rgba.push(chunk[1]);
+                rgba.push(chunk[0]);
+                rgba.push(0xff);
+            }
+            Ok(XCapture {
+                id,
+                width: geom.width as u32,
+                height: geom.height as u32,
+                rgba,
+            })
         }
-        fn inject_pointer(&self, _event: XPointerEvent) -> Result<(), XError> {
-            Err(XError::Unavailable("XvfbServer stub".into()))
+
+        fn inject_pointer(&self, event: XPointerEvent) -> Result<(), XError> {
+            match event {
+                XPointerEvent::Move { window, x_px, y_px } => {
+                    self.conn
+                        .xtest_fake_input(
+                            x11rb::protocol::xproto::MOTION_NOTIFY_EVENT,
+                            0,
+                            x11rb::CURRENT_TIME,
+                            window.0,
+                            x_px as i16,
+                            y_px as i16,
+                            0,
+                        )
+                        .map_err(|e| XError::Unavailable(format!("xtest_fake_input motion: {e}")))?;
+                }
+                XPointerEvent::Press { window, button } => {
+                    self.conn
+                        .xtest_fake_input(
+                            x11rb::protocol::xproto::BUTTON_PRESS_EVENT,
+                            xbutton_to_code(button),
+                            x11rb::CURRENT_TIME,
+                            window.0,
+                            0,
+                            0,
+                            0,
+                        )
+                        .map_err(|e| XError::Unavailable(format!("xtest_fake_input press: {e}")))?;
+                }
+                XPointerEvent::Release { window, button } => {
+                    self.conn
+                        .xtest_fake_input(
+                            x11rb::protocol::xproto::BUTTON_RELEASE_EVENT,
+                            xbutton_to_code(button),
+                            x11rb::CURRENT_TIME,
+                            window.0,
+                            0,
+                            0,
+                            0,
+                        )
+                        .map_err(|e| XError::Unavailable(format!("xtest_fake_input release: {e}")))?;
+                }
+            }
+            self.conn
+                .flush()
+                .map_err(|e| XError::Unavailable(format!("flush: {e}")))?;
+            Ok(())
         }
-        fn inject_key(&self, _sym: u32, _pressed: bool) -> Result<(), XError> {
-            Err(XError::Unavailable("XvfbServer stub".into()))
+
+        fn inject_key(&self, sym: u32, pressed: bool) -> Result<(), XError> {
+            // Best-effort: convert keysym -> keycode via the server. For
+            // characters we use the lower 8 bits as a keycode hint; correct
+            // mapping needs Xkb which lands in v2.
+            let code = (sym & 0xff) as u8;
+            let kind = if pressed {
+                x11rb::protocol::xproto::KEY_PRESS_EVENT
+            } else {
+                x11rb::protocol::xproto::KEY_RELEASE_EVENT
+            };
+            self.conn
+                .xtest_fake_input(
+                    kind,
+                    code,
+                    x11rb::CURRENT_TIME,
+                    self.screen_root,
+                    0,
+                    0,
+                    0,
+                )
+                .map_err(|e| XError::Unavailable(format!("xtest_fake_input key: {e}")))?;
+            self.conn
+                .flush()
+                .map_err(|e| XError::Unavailable(format!("flush: {e}")))?;
+            Ok(())
         }
+    }
+
+    fn xbutton_to_code(b: XButton) -> u8 {
+        match b {
+            XButton::Left => 1,
+            XButton::Middle => 2,
+            XButton::Right => 3,
+            XButton::ScrollUp => 4,
+            XButton::ScrollDown => 5,
+        }
+    }
+
+    fn read_title(conn: &RustConnection, w: XWindow32) -> Option<String> {
+        let cookie = conn
+            .get_property(false, w, AtomEnum::WM_NAME, AtomEnum::STRING, 0, 1024)
+            .ok()?;
+        let reply = cookie.reply().ok()?;
+        String::from_utf8(reply.value).ok()
     }
 }
 

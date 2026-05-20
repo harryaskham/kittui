@@ -12,7 +12,8 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 parking_lot = { workspace = true }
+x11rb = { version = "0.13", optional = true, features = ["xtest"] }
 
 [features]
 default = []
-xvfb = []
+xvfb = ["dep:x11rb"]
