@@ -95,13 +95,70 @@ fn render_node(
             Ok(())
         }
         Node::Composite { mode, children } => {
-            for child in children {
-                render_node(child, opacity, *mode, phase, pixmap)?;
+            if *mode == BlendMode::Normal {
+                for child in children {
+                    render_node(child, opacity, BlendMode::Normal, phase, pixmap)?;
+                }
+                return Ok(());
+            }
+            // Render each child into its own scratch, then combine onto the
+            // main pixmap using the requested blend mode. The first child uses
+            // Normal (over transparent), subsequent children use `mode`.
+            for (i, child) in children.iter().enumerate() {
+                let mut scratch = Pixmap::new(pixmap.width(), pixmap.height());
+                render_node(child, opacity, BlendMode::Normal, phase, &mut scratch)?;
+                let m = if i == 0 { BlendMode::Normal } else { *mode };
+                for y in 0..pixmap.height() {
+                    for x in 0..pixmap.width() {
+                        let src = scratch.get(x, y);
+                        if src.3 == 0 {
+                            continue;
+                        }
+                        pixmap.blend_with(x, y, src, m);
+                    }
+                }
             }
             Ok(())
         }
-        Node::Mask { child, .. } => render_node(child, opacity, BlendMode::Normal, phase, pixmap),
-        Node::Clip { child, .. } => render_node(child, opacity, BlendMode::Normal, phase, pixmap),
+        Node::Mask { mask, child } => {
+            // Render mask + child into separate scratch pixmaps, then
+            // multiply child alpha by mask alpha, blend into main.
+            let mut mask_buf = Pixmap::new(pixmap.width(), pixmap.height());
+            render_node(mask, 1.0, BlendMode::Normal, phase, &mut mask_buf)?;
+            let mut child_buf = Pixmap::new(pixmap.width(), pixmap.height());
+            render_node(child, opacity, BlendMode::Normal, phase, &mut child_buf)?;
+            for y in 0..pixmap.height() {
+                for x in 0..pixmap.width() {
+                    let c = child_buf.get(x, y);
+                    if c.3 == 0 {
+                        continue;
+                    }
+                    let m = mask_buf.get(x, y);
+                    let a = (c.3 as u16 * m.3 as u16 / 255) as u8;
+                    if a == 0 {
+                        continue;
+                    }
+                    pixmap.blend(x, y, Rgba(c.0, c.1, c.2, a));
+                }
+            }
+            Ok(())
+        }
+        Node::Clip { rect, child } => {
+            // Render child into a scratch and copy only the clip rectangle.
+            let mut scratch = Pixmap::new(pixmap.width(), pixmap.height());
+            render_node(child, opacity, BlendMode::Normal, phase, &mut scratch)?;
+            let (x0, y0, x1, y1) = bounds(rect, pixmap);
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let c = scratch.get(x, y);
+                    if c.3 == 0 {
+                        continue;
+                    }
+                    pixmap.blend(x, y, c);
+                }
+            }
+            Ok(())
+        }
     }
 }
 

@@ -38,6 +38,10 @@ struct Cli {
     #[arg(long, value_enum)]
     renderer: Option<RendererArg>,
 
+    /// Transport override (`direct`, `tmux`, `file`, `memory`). Default: auto-detect.
+    #[arg(long)]
+    transport: Option<String>,
+
     /// Number of columns in the host terminal (for `%` resolution).
     #[arg(long)]
     terminal_cols: Option<u16>,
@@ -68,7 +72,7 @@ enum Cmd {
     #[command(subcommand)]
     Cache(CacheCmd),
     /// Probe terminal capabilities.
-    Probe,
+    Probe(ProbeArgs),
     /// Walk the full kitty graphics protocol surface and emit labelled output.
     Proof(ProofArgs),
 }
@@ -85,6 +89,13 @@ enum CacheCmd {
     },
     /// Remove every cached scene and image.
     Clear,
+}
+
+#[derive(clap::Args, Clone)]
+struct ProbeArgs {
+    /// Invalidate the cached probe.json and re-detect.
+    #[arg(long)]
+    force: bool,
 }
 
 #[derive(clap::Args, Clone)]
@@ -197,12 +208,21 @@ fn resolve_size(input: &str, axis: u16) -> Result<u16> {
     Ok(input.parse()?)
 }
 
-fn build_runtime(global: &GlobalConfig) -> Result<Runtime> {
-    let terminal = TerminalInfo {
+fn build_runtime(global: &GlobalConfig, transport_override: Option<&str>) -> Result<Runtime> {
+    let mut terminal = TerminalInfo {
         columns: Some(global.terminal_cols.value),
         rows: Some(global.terminal_rows.value),
         ..TerminalInfo::detect()
     };
+    if let Some(t) = transport_override {
+        terminal.transport = match t.to_ascii_lowercase().as_str() {
+            "direct" => kittui_core::terminal::Transport::Direct,
+            "tmux" | "tmux_passthrough" => kittui_core::terminal::Transport::TmuxPassthrough,
+            "file" => kittui_core::terminal::Transport::File,
+            "memory" | "shm" | "shared" => kittui_core::terminal::Transport::Memory,
+            other => return Err(anyhow!("unknown transport {other:?}")),
+        };
+    }
     Ok(Runtime::builder()
         .renderer(global.renderer.value.into())
         .cache_dir(global.cache_dir.value.clone())
@@ -220,7 +240,7 @@ fn main() -> Result<()> {
         terminal_rows: cli.terminal_rows,
         json: cli.json,
     });
-    let runtime = build_runtime(&global)?;
+    let runtime = build_runtime(&global, cli.transport.as_deref())?;
     match &cli.cmd {
         Cmd::Box(args) => {
             let config = layers.resolve_box(BoxFlagValues {
@@ -261,7 +281,7 @@ fn main() -> Result<()> {
         }
         Cmd::Compose(args) => run_compose(&global, &runtime, args),
         Cmd::Cache(sub) => run_cache(&global, &layers, sub),
-        Cmd::Probe => run_probe(&global),
+        Cmd::Probe(args) => run_probe(&global, args),
         Cmd::Proof(args) => run_proof(&global, args),
     }
 }
@@ -440,13 +460,19 @@ fn run_cache(global: &GlobalConfig, layers: &ConfigLayers, sub: &CacheCmd) -> Re
     Ok(())
 }
 
-fn run_probe(global: &GlobalConfig) -> Result<()> {
+fn run_probe(global: &GlobalConfig, args: &ProbeArgs) -> Result<()> {
+    let cache_root = global.cache_dir.value.clone();
+    if args.force {
+        let probe_path = cache_root.join("probe.json");
+        let _ = std::fs::remove_file(&probe_path);
+    }
     let probe = serde_json::json!({
         "supports_kitty": true,
         "supports_unicode_placeholders": true,
         "renderer": global.renderer.value.to_string(),
         "version": env!("CARGO_PKG_VERSION"),
         "config_sources": { "global": global.source_json() },
+        "force_invalidated": args.force,
     });
     println!("{}", serde_json::to_string_pretty(&probe)?);
     Ok(())

@@ -132,4 +132,106 @@ mod tests {
         let b = render_still(&solid_scene()).unwrap();
         assert_eq!(a.png, b.png);
     }
+
+    fn pixmap_from(scene: &Scene) -> crate::Pixmap {
+        let mut p = crate::Pixmap::new(scene.pixel_width(), scene.pixel_height());
+        crate::rasterize::render_scene(scene, 0.0, &mut p).unwrap();
+        p
+    }
+
+    fn red_rect(rect: PxRect) -> Node {
+        Node::Rect {
+            rect,
+            fill: Paint::Solid {
+                color: Rgba::rgba(255, 0, 0, 255),
+            },
+            stroke: None,
+            corners: Corners::default(),
+        }
+    }
+
+    #[test]
+    fn clip_clamps_drawing_to_rect() {
+        let footprint = CellRect::new(0, 0, 4, 2);
+        let scene = Scene {
+            footprint,
+            cell_size: CellSize::new(8, 16),
+            layers: vec![Layer::anon(Node::Clip {
+                rect: PxRect::new(0.0, 0.0, 8.0, 8.0),
+                child: Box::new(red_rect(PxRect::new(0.0, 0.0, 32.0, 32.0))),
+            })],
+            animation: None,
+        };
+        let p = pixmap_from(&scene);
+        // Inside the clip rect: red, opaque.
+        let c = p.get(2, 2);
+        assert_eq!((c.0, c.3), (255, 255));
+        // Outside the clip rect: transparent.
+        let c = p.get(20, 20);
+        assert_eq!(c.3, 0);
+    }
+
+    #[test]
+    fn mask_alpha_attenuates_child() {
+        let footprint = CellRect::new(0, 0, 4, 2);
+        let mask = Node::Rect {
+            rect: PxRect::new(0.0, 0.0, 32.0, 32.0),
+            fill: Paint::Solid {
+                // Half-alpha mask.
+                color: Rgba::rgba(255, 255, 255, 128),
+            },
+            stroke: None,
+            corners: Corners::default(),
+        };
+        let scene = Scene {
+            footprint,
+            cell_size: CellSize::new(8, 16),
+            layers: vec![Layer::anon(Node::Mask {
+                mask: Box::new(mask),
+                child: Box::new(red_rect(PxRect::new(0.0, 0.0, 32.0, 32.0))),
+            })],
+            animation: None,
+        };
+        let p = pixmap_from(&scene);
+        let c = p.get(4, 4);
+        // ~ 128/255 of opaque red.
+        assert!(c.3 > 100 && c.3 < 160, "alpha {} should be ~128", c.3);
+        assert_eq!(c.0, 255);
+    }
+
+    #[test]
+    fn composite_add_brightens_overlap() {
+        let footprint = CellRect::new(0, 0, 4, 2);
+        let scene = Scene {
+            footprint,
+            cell_size: CellSize::new(8, 16),
+            layers: vec![Layer::anon(Node::Composite {
+                mode: kittui_core::node::BlendMode::Add,
+                children: vec![
+                    Node::Rect {
+                        rect: PxRect::new(0.0, 0.0, 32.0, 32.0),
+                        fill: Paint::Solid {
+                            color: Rgba::rgba(100, 0, 0, 255),
+                        },
+                        stroke: None,
+                        corners: Corners::default(),
+                    },
+                    Node::Rect {
+                        rect: PxRect::new(0.0, 0.0, 32.0, 32.0),
+                        fill: Paint::Solid {
+                            color: Rgba::rgba(0, 100, 0, 255),
+                        },
+                        stroke: None,
+                        corners: Corners::default(),
+                    },
+                ],
+            })],
+            animation: None,
+        };
+        let p = pixmap_from(&scene);
+        let c = p.get(8, 8);
+        // Both channels present after additive blend onto transparent backdrop.
+        assert!(c.0 > 50);
+        assert!(c.1 > 50);
+    }
 }

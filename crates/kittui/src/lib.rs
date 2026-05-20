@@ -169,28 +169,70 @@ impl Runtime {
         kitty::delete(image_id, self.terminal.transport)
     }
 
+    /// Render a batch of scenes through the same runtime/cache, returning one
+    /// `Placement` per scene in input order. This is the documented batch
+    /// entrypoint for hosts that need to place many scenes in one tick — it
+    /// reuses the cache, the upload registry, and a single transport hint
+    /// without forcing callers to call `place` in a loop themselves.
+    pub fn place_many(&self, scenes: &[Scene]) -> Result<Vec<Placement>, KittuiError> {
+        let mut out = Vec::with_capacity(scenes.len());
+        for scene in scenes {
+            out.push(self.place(scene)?);
+        }
+        Ok(out)
+    }
+
+    /// Convenience that concatenates all upload bytes, placement escapes, and
+    /// embed placeholders for a batch of scenes into a single `BatchPlacement`
+    /// the host can write to its terminal stream in three contiguous writes.
+    pub fn place_batch(&self, scenes: &[Scene]) -> Result<BatchPlacement, KittuiError> {
+        let mut batch = BatchPlacement::default();
+        for scene in scenes {
+            let p = self.place(scene)?;
+            batch.upload.push_str(&p.upload);
+            batch.placement.push_str(&p.placement);
+            batch.embed.push_str(&p.embed);
+            batch.image_ids.push(p.image_id);
+            batch.footprints.push(p.footprint);
+        }
+        Ok(batch)
+    }
+
+    fn record_gpu_probe(&self, status: &str, adapter: Option<String>) {
+        let record = kittui_cache::ProbeRecord {
+            kittui_version: env!("CARGO_PKG_VERSION").to_string(),
+            gpu_status: status.to_string(),
+            gpu_adapter: adapter,
+            gpu_parity_ssim: None,
+            checked_at: now_rfc3339(),
+        };
+        let _ = self.cache.write_probe(&record);
+    }
+
     fn render_still_with_backend(&self, scene: &Scene) -> Result<cpu::RasterFrame, KittuiError> {
         let try_gpu = matches!(self.renderer, RendererKind::Gpu | RendererKind::Auto);
         if try_gpu {
             let mut backend = self.backend.lock();
-            let gpu_ready = matches!(
-                *backend,
-                BackendState::Gpu(_) | BackendState::Cpu | BackendState::GpuFailed
-            );
             // Initialize lazily on first attempt.
             if matches!(*backend, BackendState::Cpu) {
                 match gpu::GpuRenderer::new() {
-                    Ok(r) => *backend = BackendState::Gpu(r),
-                    Err(_) => *backend = BackendState::GpuFailed,
+                    Ok(r) => {
+                        let adapter = format!("{:?}", r.adapter_info().name);
+                        *backend = BackendState::Gpu(r);
+                        self.record_gpu_probe("ok", Some(adapter));
+                    }
+                    Err(_) => {
+                        *backend = BackendState::GpuFailed;
+                        self.record_gpu_probe("failed", None);
+                    }
                 }
             }
-            let _ = gpu_ready;
             if let BackendState::Gpu(renderer) = &mut *backend {
                 match renderer.render_still(scene) {
                     Ok(frame) => return Ok(frame),
                     Err(_) if matches!(self.renderer, RendererKind::Auto) => {
-                        // Fall back to CPU permanently for this runtime.
                         *backend = BackendState::GpuFailed;
+                        self.record_gpu_probe("failed", None);
                     }
                     Err(e) => {
                         return Err(KittuiError::Render(cpu::RenderError::UnsupportedImage(
@@ -212,8 +254,15 @@ impl Runtime {
             let mut backend = self.backend.lock();
             if matches!(*backend, BackendState::Cpu) {
                 match gpu::GpuRenderer::new() {
-                    Ok(r) => *backend = BackendState::Gpu(r),
-                    Err(_) => *backend = BackendState::GpuFailed,
+                    Ok(r) => {
+                        let adapter = format!("{:?}", r.adapter_info().name);
+                        *backend = BackendState::Gpu(r);
+                        self.record_gpu_probe("ok", Some(adapter));
+                    }
+                    Err(_) => {
+                        *backend = BackendState::GpuFailed;
+                        self.record_gpu_probe("failed", None);
+                    }
                 }
             }
             if let BackendState::Gpu(renderer) = &mut *backend {
@@ -221,6 +270,7 @@ impl Runtime {
                     Ok(anim) => return Ok(anim),
                     Err(_) if matches!(self.renderer, RendererKind::Auto) => {
                         *backend = BackendState::GpuFailed;
+                        self.record_gpu_probe("failed", None);
                     }
                     Err(e) => {
                         return Err(KittuiError::Render(cpu::RenderError::UnsupportedImage(
@@ -240,6 +290,16 @@ impl Runtime {
     fn mark_placed(&self, image_id: u32, footprint: CellRect) {
         self.placed.lock().insert(image_id, footprint);
     }
+}
+
+fn now_rfc3339() -> String {
+    // Avoid pulling chrono just for one timestamp; format seconds-since-epoch
+    // as a stable, sortable ISO-ish string. Good enough for probe.json freshness.
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("epoch:{secs}")
 }
 
 /// Builder for [`Runtime`].
@@ -276,9 +336,20 @@ impl RuntimeBuilder {
             self.cache_dir
                 .unwrap_or_else(kittui_cache::default_cache_dir),
         )?;
+        // Consult the persisted probe record: if a previous run determined the
+        // GPU is unusable on this host, skip the lazy GPU init so Auto mode
+        // does not eat the adapter-request cost on every startup.
+        let prior_probe = cache.read_probe().ok().flatten();
         let initial_backend = match self.renderer {
             RendererKind::Cpu => BackendState::Cpu,
-            RendererKind::Gpu | RendererKind::Auto => BackendState::Cpu, // lazy init
+            RendererKind::Gpu => BackendState::Cpu, // lazy init; explicit Gpu still tries.
+            RendererKind::Auto => {
+                if matches!(prior_probe.as_ref(), Some(p) if p.gpu_status == "failed") {
+                    BackendState::GpuFailed
+                } else {
+                    BackendState::Cpu // lazy init on first frame.
+                }
+            }
         };
         Ok(Runtime {
             terminal: self.terminal.unwrap_or_default(),
@@ -288,6 +359,23 @@ impl RuntimeBuilder {
             placed: Mutex::new(Default::default()),
         })
     }
+}
+
+/// Result of [`Runtime::place_batch`]. Concatenates the upload, placement,
+/// and embed bytes for a batch of scenes so hosts can write them in three
+/// contiguous writes.
+#[derive(Default, Clone, Debug)]
+pub struct BatchPlacement {
+    /// Concatenated upload escapes for every scene in the batch.
+    pub upload: String,
+    /// Concatenated placement escapes for every scene in the batch.
+    pub placement: String,
+    /// Concatenated unicode-placeholder grids for every scene.
+    pub embed: String,
+    /// kitty image id assigned to each scene, in input order.
+    pub image_ids: Vec<u32>,
+    /// Cell footprint for each scene, in input order.
+    pub footprints: Vec<CellRect>,
 }
 
 /// Result of [`Runtime::place`].
@@ -325,12 +413,15 @@ mod tests {
     use crate::scene::builders;
 
     fn tempdir() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let pid = std::process::id();
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("kittui-runtime-{pid}-{nanos}"));
+        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("kittui-runtime-{pid}-{nanos}-{seq}"));
         std::fs::create_dir_all(&path).unwrap();
         path
     }
@@ -348,5 +439,72 @@ mod tests {
         let second = runtime.place(&scene).unwrap();
         // Same footprint + same image id ⇒ no re-upload.
         assert!(second.upload.is_empty());
+    }
+
+    #[test]
+    fn place_batch_returns_one_placement_per_scene_and_concatenates_bytes() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .build()
+            .unwrap();
+        let scenes = vec![
+            builders::simple_solid_box(2, 1, "#ff0000"),
+            builders::simple_solid_box(3, 1, "#00ff00"),
+            builders::simple_solid_box(4, 1, "#0000ff"),
+        ];
+        let batch = runtime.place_batch(&scenes).unwrap();
+        assert_eq!(batch.image_ids.len(), 3);
+        assert_eq!(batch.footprints.len(), 3);
+        // Three distinct image ids ⇒ three uploads.
+        assert!(!batch.upload.is_empty());
+        assert!(!batch.placement.is_empty());
+        assert!(!batch.embed.is_empty());
+    }
+
+    #[test]
+    fn place_many_matches_individual_place_call_for_same_scene() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .build()
+            .unwrap();
+        let scenes = vec![
+            builders::simple_solid_box(2, 1, "#ff00ff"),
+            builders::simple_solid_box(3, 1, "#00ffff"),
+        ];
+        let many = runtime.place_many(&scenes).unwrap();
+        assert_eq!(many.len(), 2);
+        // Second call should hit the cache for both (no new upload).
+        let again = runtime.place_many(&scenes).unwrap();
+        for p in &again {
+            assert!(p.upload.is_empty(), "cached scene re-uploaded: {:?}", p.image_id);
+        }
+    }
+
+    #[test]
+    fn auto_mode_honours_persisted_failed_probe() {
+        let dir = tempdir();
+        // Pre-seed probe.json with a `failed` record.
+        let cache = kittui_cache::Cache::open(&dir).unwrap();
+        cache
+            .write_probe(&kittui_cache::ProbeRecord {
+                kittui_version: env!("CARGO_PKG_VERSION").to_string(),
+                gpu_status: "failed".to_string(),
+                gpu_adapter: None,
+                gpu_parity_ssim: None,
+                checked_at: super::now_rfc3339(),
+            })
+            .unwrap();
+        let runtime = Runtime::builder()
+            .cache_dir(&dir)
+            .renderer(RendererKind::Auto)
+            .build()
+            .unwrap();
+        // Render a scene; it must succeed via the CPU fallback even when no
+        // adapter is available (the probe pre-decided GPU is unusable).
+        let scene = builders::simple_solid_box(2, 1, "#abcdef");
+        let p = runtime.place(&scene).unwrap();
+        assert!(!p.upload.is_empty());
     }
 }

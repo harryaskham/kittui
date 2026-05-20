@@ -185,12 +185,15 @@ mod tests {
     use kittui_core::geom::CellRect;
 
     fn tempdir() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let pid = std::process::id();
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("kittui-evict-{pid}-{nanos}"));
+        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("kittui-evict-{pid}-{nanos}-{seq}"));
         fs::create_dir_all(&path).unwrap();
         path
     }
