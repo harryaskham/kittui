@@ -143,6 +143,9 @@ struct ProofArgs {
     /// Restrict the matrix to a single section name (substring match).
     #[arg(long)]
     only: Option<String>,
+    /// Milliseconds to dwell on each emitted section (default: 1500).
+    #[arg(long)]
+    dwell_ms: Option<u64>,
 }
 
 #[derive(clap::Args)]
@@ -559,8 +562,8 @@ fn run_proof(global: &GlobalConfig, args: &ProofArgs) -> Result<()> {
     use kittui::scene::{background_solid, rounded_rect};
     use kittui_kitty::{
         delete, delete_placement, placement_command, placement_command_ex, placeholder_text,
-        upload_animation, upload_still, upload_still_ex, PlacementOptions, Quiet, SubcellOffset,
-        UploadMedium,
+        placeholder_text_ex, upload_animation, upload_still, upload_still_ex, PlacementOptions,
+        Quiet, SubcellOffset, UploadMedium,
     };
     use kittui_core::terminal::Transport;
 
@@ -683,7 +686,7 @@ fn run_proof(global: &GlobalConfig, args: &ProofArgs) -> Result<()> {
             "{}{}{}",
             upload_still(0x77007700, &still_png, Transport::Direct),
             placement_command_ex(0x77007700, footprint, &p_opts, Transport::Direct),
-            placeholder_text(0x77007700, footprint),
+            placeholder_text_ex(0x77007700, Some(7), footprint),
         ),
     );
 
@@ -756,13 +759,26 @@ fn run_proof(global: &GlobalConfig, args: &ProofArgs) -> Result<()> {
                 continue;
             }
         }
-        writeln!(handle, "\x1b[1m== {label} ==\x1b[0m")?;
         if args.emit {
+            // Clear screen, park cursor at top-left, print the label, then
+            // emit the upload + placement + placeholder grid so each section
+            // renders standalone instead of overlapping the previous one.
+            handle.write_all(b"\x1b[2J\x1b[H")?;
+            writeln!(handle, "\x1b[1m== {label} ==\x1b[0m")?;
             handle.write_all(body.as_bytes())?;
             writeln!(handle)?;
+            handle.flush()?;
+            std::thread::sleep(std::time::Duration::from_millis(
+                args.dwell_ms.unwrap_or(1500),
+            ));
         } else {
-            // Default: print labelled hex prefix so it is safe to view in any terminal.
-            let prefix: String = body.as_bytes().iter().take(48).map(|b| format!("{:02x}", b)).collect();
+            writeln!(handle, "\x1b[1m== {label} ==\x1b[0m")?;
+            let prefix: String = body
+                .as_bytes()
+                .iter()
+                .take(48)
+                .map(|b| format!("{:02x}", b))
+                .collect();
             writeln!(handle, "  bytes_len={}", body.len())?;
             writeln!(handle, "  hex_prefix={}", prefix)?;
         }
@@ -777,15 +793,6 @@ struct EmitMode {
     placement_only: bool,
     embed_only: bool,
     dry_run: bool,
-}
-
-fn emit(
-    global: &GlobalConfig,
-    runtime: &Runtime,
-    scene: &Scene,
-    command_sources: Option<serde_json::Value>,
-) -> Result<()> {
-    emit_with_mode(global, runtime, scene, command_sources, EmitMode::default())
 }
 
 fn emit_with_mode(

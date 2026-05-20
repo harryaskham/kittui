@@ -264,13 +264,34 @@ pub fn placement_command(image_id: u32, footprint: CellRect, transport: Transpor
 /// in the foreground color (`\x1b[38:2:r:g:b]`); the most significant byte
 /// of the image id travels in the third diacritic.
 pub fn placeholder_text(image_id: u32, footprint: CellRect) -> String {
+    placeholder_text_ex(image_id, None, footprint)
+}
+
+/// Same as [`placeholder_text`] but lets the caller specify a placement id.
+/// The placement id is encoded into the cell's underline color
+/// (`\x1b[58:2:r:g:b]`) so kitty/Ghostty can disambiguate placements that
+/// share an image id.
+pub fn placeholder_text_ex(
+    image_id: u32,
+    placement_id: Option<u32>,
+    footprint: CellRect,
+) -> String {
     let r = ((image_id >> 16) & 0xff) as u8;
     let g = ((image_id >> 8) & 0xff) as u8;
     let b = (image_id & 0xff) as u8;
     let msb = ((image_id >> 24) & 0xff) as u8;
     let mut out = String::new();
+    let underline = placement_id.map(|p| {
+        let pr = ((p >> 16) & 0xff) as u8;
+        let pg = ((p >> 8) & 0xff) as u8;
+        let pb = (p & 0xff) as u8;
+        format!("\x1b[58:2:{pr}:{pg}:{pb}m")
+    });
     for row in 0..footprint.rows {
         out.push_str(&format!("\x1b[38:2:{r}:{g}:{b}m"));
+        if let Some(u) = &underline {
+            out.push_str(u);
+        }
         for col in 0..footprint.cols {
             out.push(PLACEHOLDER_CHAR);
             out.push(diacritic_for(row as u32));
@@ -278,6 +299,9 @@ pub fn placeholder_text(image_id: u32, footprint: CellRect) -> String {
             if msb != 0 {
                 out.push(diacritic_for(msb as u32));
             }
+        }
+        if placement_id.is_some() {
+            out.push_str("\x1b[59m");
         }
         out.push_str("\x1b[39m\n");
     }
