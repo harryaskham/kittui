@@ -54,6 +54,22 @@ struct Cli {
     #[arg(long)]
     json: bool,
 
+    /// Print only the upload escape bytes.
+    #[arg(long, group = "channels")]
+    upload_only: bool,
+
+    /// Print only the placement escape bytes.
+    #[arg(long, group = "channels")]
+    placement_only: bool,
+
+    /// Print only the embed placeholder grid.
+    #[arg(long, group = "channels")]
+    embed_only: bool,
+
+    /// Build the scene + side effects but do not write any bytes.
+    #[arg(long)]
+    dry_run: bool,
+
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -68,6 +84,8 @@ enum Cmd {
     Glow(GlowArgs),
     /// Compose a scene from a JSON file.
     Compose(ComposeArgs),
+    /// Render an image from a path/bytes through Node::Image.
+    Image(ImageArgs),
     /// Cache management subcommands.
     #[command(subcommand)]
     Cache(CacheCmd),
@@ -89,6 +107,25 @@ enum CacheCmd {
     },
     /// Remove every cached scene and image.
     Clear,
+}
+
+#[derive(clap::Args, Clone)]
+struct ImageArgs {
+    /// Path to a PNG or JPEG image.
+    #[arg(long)]
+    src: PathBuf,
+    /// Width in cells.
+    #[arg(short = 'w', long, default_value_t = 20)]
+    width: u16,
+    /// Height in cells.
+    #[arg(short = 'h', long, default_value_t = 8)]
+    height: u16,
+    /// Fit mode: contain, cover, stretch, none.
+    #[arg(long, default_value = "contain")]
+    fit: String,
+    /// Optional multiplicative tint (e.g. "#ff0000").
+    #[arg(long)]
+    tint: Option<String>,
 }
 
 #[derive(clap::Args, Clone)]
@@ -241,6 +278,12 @@ fn main() -> Result<()> {
         json: cli.json,
     });
     let runtime = build_runtime(&global, cli.transport.as_deref())?;
+    let emit_mode = EmitMode {
+        upload_only: cli.upload_only,
+        placement_only: cli.placement_only,
+        embed_only: cli.embed_only,
+        dry_run: cli.dry_run,
+    };
     match &cli.cmd {
         Cmd::Box(args) => {
             let config = layers.resolve_box(BoxFlagValues {
@@ -254,7 +297,7 @@ fn main() -> Result<()> {
                 border: args.border,
                 animate: args.animate.clone(),
             });
-            run_box(&global, &runtime, &config)
+            run_box(&global, &runtime, &config, emit_mode)
         }
         Cmd::Gradient(args) => {
             let config = layers.resolve_gradient(GradientFlagValues {
@@ -268,7 +311,7 @@ fn main() -> Result<()> {
                     DirectionArg::Diagonal => "diagonal".to_string(),
                 }),
             });
-            run_gradient(&global, &runtime, &config)
+            run_gradient(&global, &runtime, &config, emit_mode)
         }
         Cmd::Glow(args) => {
             let config = layers.resolve_glow(GlowFlagValues {
@@ -277,16 +320,17 @@ fn main() -> Result<()> {
                 color: args.color.clone(),
                 intensity: args.intensity,
             });
-            run_glow(&global, &runtime, &config)
+            run_glow(&global, &runtime, &config, emit_mode)
         }
-        Cmd::Compose(args) => run_compose(&global, &runtime, args),
+        Cmd::Compose(args) => run_compose(&global, &runtime, args, emit_mode),
+        Cmd::Image(args) => run_image(&global, &runtime, args, emit_mode),
         Cmd::Cache(sub) => run_cache(&global, &layers, sub),
         Cmd::Probe(args) => run_probe(&global, args),
         Cmd::Proof(args) => run_proof(&global, args),
     }
 }
 
-fn run_box(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedBoxConfig) -> Result<()> {
+fn run_box(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedBoxConfig, mode: EmitMode) -> Result<()> {
     let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height.value, global.terminal_rows.value)?;
     let cell = CellSize::default();
@@ -319,13 +363,14 @@ fn run_box(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedBoxConfig) -
         layers,
         animation,
     };
-    emit(global, runtime, &scene, Some(args.source_json()))
+    emit_with_mode(global, runtime, &scene, Some(args.source_json()), mode)
 }
 
 fn run_gradient(
     global: &GlobalConfig,
     runtime: &Runtime,
     args: &ResolvedGradientConfig,
+    mode: EmitMode,
 ) -> Result<()> {
     let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height.value, global.terminal_rows.value)?;
@@ -344,10 +389,10 @@ fn run_gradient(
         )],
         animation: None,
     };
-    emit(global, runtime, &scene, Some(args.source_json()))
+    emit_with_mode(global, runtime, &scene, Some(args.source_json()), mode)
 }
 
-fn run_glow(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedGlowConfig) -> Result<()> {
+fn run_glow(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedGlowConfig, mode: EmitMode) -> Result<()> {
     let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height.value, global.terminal_rows.value)?;
     let cell = CellSize::default();
@@ -375,13 +420,45 @@ fn run_glow(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedGlowConfig)
         ],
         animation: None,
     };
-    emit(global, runtime, &scene, Some(args.source_json()))
+    emit_with_mode(global, runtime, &scene, Some(args.source_json()), mode)
 }
 
-fn run_compose(global: &GlobalConfig, runtime: &Runtime, args: &ComposeArgs) -> Result<()> {
+fn run_compose(global: &GlobalConfig, runtime: &Runtime, args: &ComposeArgs, mode: EmitMode) -> Result<()> {
     let bytes = std::fs::read(&args.path)?;
     let scene: Scene = serde_json::from_slice(&bytes)?;
-    emit(global, runtime, &scene, None)
+    emit_with_mode(global, runtime, &scene, None, mode)
+}
+
+fn run_image(global: &GlobalConfig, runtime: &Runtime, args: &ImageArgs, mode: EmitMode) -> Result<()> {
+    use kittui_core::node::{Fit, ImageRef};
+    let fit = match args.fit.to_ascii_lowercase().as_str() {
+        "contain" => Fit::Contain,
+        "cover" => Fit::Cover,
+        "stretch" => Fit::Stretch,
+        "none" => Fit::None,
+        other => return Err(anyhow!("invalid --fit {other:?}")),
+    };
+    let tint = match args.tint.as_deref() {
+        Some(s) => Some(Rgba::parse(s)?),
+        None => None,
+    };
+    let cell = CellSize::default();
+    let footprint = CellRect::new(0, 0, args.width, args.height);
+    let rect = footprint.to_pixels(cell);
+    let scene = Scene {
+        footprint,
+        cell_size: cell,
+        layers: vec![Layer::anon(Node::Image {
+            rect,
+            src: ImageRef::Path {
+                path: args.src.to_string_lossy().into_owned(),
+            },
+            fit,
+            tint,
+        })],
+        animation: None,
+    };
+    emit_with_mode(global, runtime, &scene, None, mode)
 }
 
 fn run_cache(global: &GlobalConfig, layers: &ConfigLayers, sub: &CacheCmd) -> Result<()> {
@@ -694,13 +771,48 @@ fn run_proof(global: &GlobalConfig, args: &ProofArgs) -> Result<()> {
     Ok(())
 }
 
+#[derive(Copy, Clone, Debug, Default)]
+struct EmitMode {
+    upload_only: bool,
+    placement_only: bool,
+    embed_only: bool,
+    dry_run: bool,
+}
+
 fn emit(
     global: &GlobalConfig,
     runtime: &Runtime,
     scene: &Scene,
     command_sources: Option<serde_json::Value>,
 ) -> Result<()> {
+    emit_with_mode(global, runtime, scene, command_sources, EmitMode::default())
+}
+
+fn emit_with_mode(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    scene: &Scene,
+    command_sources: Option<serde_json::Value>,
+    mode: EmitMode,
+) -> Result<()> {
     let placement = runtime.place(scene)?;
+    if mode.dry_run {
+        // Always JSON shape for dry-run so callers can compare.
+        let payload = serde_json::json!({
+            "dry_run": true,
+            "image_id": format!("0x{:08x}", placement.image_id),
+            "footprint": placement.footprint,
+            "upload_bytes": placement.upload.len(),
+            "placement_bytes": placement.placement.len(),
+            "embed_bytes": placement.embed.len(),
+            "config_sources": {
+                "global": global.source_json(),
+                "command": command_sources,
+            },
+        });
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        return Ok(());
+    }
     if global.json.value {
         let payload = serde_json::json!({
             "image_id": format!("0x{:08x}", placement.image_id),
@@ -719,9 +831,16 @@ fn emit(
     } else {
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        handle.write_all(placement.upload.as_bytes())?;
-        handle.write_all(placement.placement.as_bytes())?;
-        handle.write_all(placement.embed.as_bytes())?;
+        let any_filter = mode.upload_only || mode.placement_only || mode.embed_only;
+        if !any_filter || mode.upload_only {
+            handle.write_all(placement.upload.as_bytes())?;
+        }
+        if !any_filter || mode.placement_only {
+            handle.write_all(placement.placement.as_bytes())?;
+        }
+        if !any_filter || mode.embed_only {
+            handle.write_all(placement.embed.as_bytes())?;
+        }
     }
     Ok(())
 }

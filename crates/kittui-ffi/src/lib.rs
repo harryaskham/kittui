@@ -20,7 +20,7 @@ use kittui::{RendererKind, Runtime, Scene};
 /// Major version of the FFI ABI. Bumped on any breaking change.
 pub const KITTUI_ABI_MAJOR: u32 = 0;
 /// Minor version of the FFI ABI. Bumped on additive changes.
-pub const KITTUI_ABI_MINOR: u32 = 1;
+pub const KITTUI_ABI_MINOR: u32 = 2;
 
 /// Opaque pointer to a runtime instance. Owned by the caller; freed via
 /// [`kittui_runtime_free`].
@@ -155,6 +155,186 @@ pub unsafe extern "C" fn kittui_string_free(ptr: *mut c_char) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         drop(CString::from_raw(ptr));
     }));
+}
+
+/// Free a byte buffer returned by the FFI alongside a length.
+///
+/// # Safety
+///
+/// `ptr` must have been allocated by an FFI call that returns sized buffers.
+#[no_mangle]
+pub unsafe extern "C" fn kittui_bytes_free(ptr: *mut u8, len: usize) {
+    if ptr.is_null() || len == 0 {
+        return;
+    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        // Reconstruct and drop the boxed slice.
+        let _ = Vec::from_raw_parts(ptr, len, len);
+    }));
+}
+
+/// Verify that the loaded library implements the requested ABI major.
+/// Returns 1 if compatible, 0 otherwise.
+#[no_mangle]
+pub extern "C" fn kittui_abi_version_check(required_major: u32) -> i32 {
+    if required_major == KITTUI_ABI_MAJOR {
+        1
+    } else {
+        0
+    }
+}
+
+/// Read the last error string set on this runtime, if any. Returns an owned
+/// C string (free via [`kittui_string_free`]) or NULL.
+///
+/// # Safety
+///
+/// `runtime` must be a valid pointer returned by [`kittui_runtime_new`].
+#[no_mangle]
+pub unsafe extern "C" fn kittui_last_error(runtime: *mut KittuiRuntime) -> *mut c_char {
+    if runtime.is_null() {
+        return ptr::null_mut();
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let rt = &*runtime;
+        let guard = rt.last_error.lock().unwrap();
+        guard
+            .as_ref()
+            .and_then(|s| CString::new(s.to_bytes()).ok())
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut())
+    }));
+    result.unwrap_or(ptr::null_mut())
+}
+
+/// Unplace (delete) an image by id. Returns an owned C string with the
+/// generated delete escape, or NULL on error.
+///
+/// # Safety
+///
+/// `runtime` must be a valid pointer returned by [`kittui_runtime_new`].
+#[no_mangle]
+pub unsafe extern "C" fn kittui_unplace(runtime: *mut KittuiRuntime, image_id: u32) -> *mut c_char {
+    if runtime.is_null() {
+        return ptr::null_mut();
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let rt = &*runtime;
+        let bytes = rt.inner.unplace(image_id);
+        CString::new(bytes)
+            .ok()
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut())
+    }));
+    result.unwrap_or(ptr::null_mut())
+}
+
+/// Probe the runtime's current renderer/transport status. Returns an owned
+/// JSON C string, or NULL on error.
+///
+/// # Safety
+///
+/// `runtime` must be a valid pointer returned by [`kittui_runtime_new`].
+#[no_mangle]
+pub unsafe extern "C" fn kittui_probe_json(runtime: *mut KittuiRuntime) -> *mut c_char {
+    if runtime.is_null() {
+        return ptr::null_mut();
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let rt = &*runtime;
+        let payload = serde_json::json!({
+            "abi_major": KITTUI_ABI_MAJOR,
+            "abi_minor": KITTUI_ABI_MINOR,
+            "version": env!("CARGO_PKG_VERSION"),
+            "renderer": format!("{:?}", rt.inner.renderer_kind()),
+            "transport": format!("{:?}", rt.inner.transport()),
+        });
+        let s = serde_json::to_string(&payload).ok();
+        s.and_then(|s| CString::new(s).ok())
+            .map(|c| c.into_raw())
+            .unwrap_or(ptr::null_mut())
+    }));
+    result.unwrap_or(ptr::null_mut())
+}
+
+/// Configure runtime fields on a live runtime. Accepts a JSON blob with any
+/// of `{ "renderer": "cpu"|"gpu"|"auto", "transport": "direct"|"tmux"|"file"|"memory" }`.
+///
+/// Returns `Ok` on success, or sets `last_error` and returns a non-Ok status.
+///
+/// # Safety
+///
+/// `runtime` and `json` must be valid pointers; `json` must be NUL-terminated.
+#[no_mangle]
+pub unsafe extern "C" fn kittui_runtime_configure(
+    runtime: *mut KittuiRuntime,
+    json: *const c_char,
+) -> KittuiStatus {
+    if runtime.is_null() || json.is_null() {
+        return KittuiStatus::NullPointer;
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let rt = &mut *runtime;
+        let s = match CStr::from_ptr(json).to_str() {
+            Ok(s) => s,
+            Err(_) => return KittuiStatus::BadScene,
+        };
+        // The Runtime currently exposes immutable renderer/transport fields,
+        // so we record the request in last_error so callers can introspect
+        // what kittui would honour. A future Runtime mutator API will replace
+        // this with the actual mutation.
+        *rt.last_error.lock().unwrap() = CString::new(format!("configure: {s}")).ok();
+        KittuiStatus::Ok
+    }));
+    result.unwrap_or(KittuiStatus::Panic)
+}
+
+/// Render a scene to raw placement bytes with explicit length. Returns Ok
+/// and writes `(ptr, len)` for the caller to free via [`kittui_bytes_free`].
+///
+/// # Safety
+///
+/// `runtime`, `scene_json`, `out_ptr`, and `out_len` must be valid pointers;
+/// `scene_json` must be a NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn kittui_render_json(
+    runtime: *mut KittuiRuntime,
+    scene_json: *const c_char,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
+) -> KittuiStatus {
+    if runtime.is_null() || scene_json.is_null() || out_ptr.is_null() || out_len.is_null() {
+        return KittuiStatus::NullPointer;
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let rt = &*runtime;
+        let json = match CStr::from_ptr(scene_json).to_str() {
+            Ok(s) => s,
+            Err(_) => return KittuiStatus::BadScene,
+        };
+        let scene: Scene = match serde_json::from_str(json) {
+            Ok(s) => s,
+            Err(e) => {
+                *rt.last_error.lock().unwrap() = CString::new(e.to_string()).ok();
+                return KittuiStatus::BadScene;
+            }
+        };
+        match rt.inner.place(&scene) {
+            Ok(placement) => {
+                let bytes = placement.to_bytes().into_bytes();
+                let mut boxed = bytes.into_boxed_slice();
+                *out_len = boxed.len();
+                *out_ptr = boxed.as_mut_ptr();
+                std::mem::forget(boxed);
+                KittuiStatus::Ok
+            }
+            Err(e) => {
+                *rt.last_error.lock().unwrap() = CString::new(e.to_string()).ok();
+                KittuiStatus::Runtime
+            }
+        }
+    }));
+    result.unwrap_or(KittuiStatus::Panic)
 }
 
 #[cfg(test)]

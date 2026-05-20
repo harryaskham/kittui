@@ -169,6 +169,16 @@ impl Runtime {
         kitty::delete(image_id, self.terminal.transport)
     }
 
+    /// Renderer kind chosen at build time.
+    pub fn renderer_kind(&self) -> RendererKind {
+        self.renderer
+    }
+
+    /// Effective transport for this runtime (auto-detected or host-supplied).
+    pub fn transport(&self) -> kittui_core::terminal::Transport {
+        self.terminal.transport
+    }
+
     /// Render a batch of scenes through the same runtime/cache, returning one
     /// `Placement` per scene in input order. This is the documented batch
     /// entrypoint for hosts that need to place many scenes in one tick — it

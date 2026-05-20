@@ -83,7 +83,9 @@ fn render_node(
             rasterize_scanlines(rect, *alpha, *period_px, opacity, pixmap);
             Ok(())
         }
-        Node::Image { src, .. } => Err(RenderError::UnsupportedImage(format!("{:?}", src_kind(src)))),
+        Node::Image { rect, src, fit, tint } => {
+            rasterize_image(rect, src, *fit, *tint, opacity, pixmap)
+        }
         Node::Shader { .. } => Err(RenderError::UnsupportedImage(
             "Node::Shader is GPU-only; CPU WGSL execution lands later".to_owned(),
         )),
@@ -162,13 +164,7 @@ fn render_node(
     }
 }
 
-fn src_kind(src: &ImageRef) -> &'static str {
-    match src {
-        ImageRef::Path { .. } => "path",
-        ImageRef::Bytes { .. } => "bytes",
-        ImageRef::Cached { .. } => "cached",
-    }
-}
+fn _src_kind_unused() {}
 
 fn rasterize_rect(
     rect: &PxRect,
@@ -412,4 +408,118 @@ fn bounds(rect: &PxRect, pixmap: &Pixmap) -> (u32, u32, u32, u32) {
 }
 
 #[allow(dead_code)]
-fn _fit_unused(_: Fit) {} // Fit will be used when image rasterization lands.
+fn _fit_unused(_: Fit) {}
+
+fn fit_into_rect(dst: PxRect, src_w: u32, src_h: u32, fit: Fit) -> PxRect {
+    if src_w == 0 || src_h == 0 || dst.width == 0.0 || dst.height == 0.0 {
+        return dst;
+    }
+    let sw = src_w as f32;
+    let sh = src_h as f32;
+    match fit {
+        Fit::Stretch => dst,
+        Fit::Contain => {
+            let scale = (dst.width / sw).min(dst.height / sh);
+            let w = sw * scale;
+            let h = sh * scale;
+            PxRect::new(
+                dst.origin.0 + (dst.width - w) * 0.5,
+                dst.origin.1 + (dst.height - h) * 0.5,
+                w,
+                h,
+            )
+        }
+        Fit::Cover => {
+            let scale = (dst.width / sw).max(dst.height / sh);
+            let w = sw * scale;
+            let h = sh * scale;
+            PxRect::new(
+                dst.origin.0 + (dst.width - w) * 0.5,
+                dst.origin.1 + (dst.height - h) * 0.5,
+                w,
+                h,
+            )
+        }
+        Fit::None => PxRect::new(
+            dst.origin.0 + (dst.width - sw) * 0.5,
+            dst.origin.1 + (dst.height - sh) * 0.5,
+            sw,
+            sh,
+        ),
+    }
+}
+
+fn rasterize_image(
+    rect: &PxRect,
+    src: &ImageRef,
+    fit: Fit,
+    tint: Option<Rgba>,
+    opacity: f32,
+    pixmap: &mut Pixmap,
+) -> Result<(), RenderError> {
+    let bytes = load_image_bytes(src)?;
+    let (w, h, rgba) = decode_image(&bytes)?;
+    let placement = fit_into_rect(*rect, w, h, fit);
+    let (x0, y0, x1, y1) = bounds(&placement, pixmap);
+    if x1 <= x0 || y1 <= y0 {
+        return Ok(());
+    }
+    let target_w = placement.width.max(1.0);
+    let target_h = placement.height.max(1.0);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let fx = (x as f32 + 0.5 - placement.origin.0) / target_w;
+            let fy = (y as f32 + 0.5 - placement.origin.1) / target_h;
+            if !(0.0..1.0).contains(&fx) || !(0.0..1.0).contains(&fy) {
+                continue;
+            }
+            let sx = (fx * w as f32) as u32;
+            let sy = (fy * h as f32) as u32;
+            let idx = ((sy * w + sx) * 4) as usize;
+            let mut color = Rgba(rgba[idx], rgba[idx + 1], rgba[idx + 2], rgba[idx + 3]);
+            if let Some(t) = tint {
+                color = Rgba(
+                    ((color.0 as u16 * t.0 as u16) / 255) as u8,
+                    ((color.1 as u16 * t.1 as u16) / 255) as u8,
+                    ((color.2 as u16 * t.2 as u16) / 255) as u8,
+                    ((color.3 as u16 * t.3 as u16) / 255) as u8,
+                );
+            }
+            color.3 = ((color.3 as f32) * opacity).clamp(0.0, 255.0) as u8;
+            if color.3 == 0 {
+                continue;
+            }
+            pixmap.blend(x, y, color);
+        }
+    }
+    Ok(())
+}
+
+fn load_image_bytes(src: &ImageRef) -> Result<Vec<u8>, RenderError> {
+    match src {
+        ImageRef::Bytes { bytes } => Ok(bytes.clone()),
+        ImageRef::Path { path } => std::fs::read(path).map_err(|e| {
+            RenderError::UnsupportedImage(format!("failed to read {}: {e}", path))
+        }),
+        ImageRef::Cached { hash } => Err(RenderError::UnsupportedImage(format!(
+            "cached image refs not supported in CPU rasterizer: {hash}"
+        ))),
+    }
+}
+
+#[cfg(feature = "image-decoders")]
+fn decode_image(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), RenderError> {
+    use image::GenericImageView;
+    let img = image::load_from_memory(bytes)
+        .map_err(|e| RenderError::UnsupportedImage(format!("decode failed: {e}")))?;
+    let (w, h) = img.dimensions();
+    let rgba = img.to_rgba8().into_raw();
+    Ok((w, h, rgba))
+}
+
+#[cfg(not(feature = "image-decoders"))]
+fn decode_image(_bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), RenderError> {
+    Err(RenderError::UnsupportedImage(
+        "image-decoders feature disabled; rebuild with --features image-decoders".to_owned(),
+    ))
+}

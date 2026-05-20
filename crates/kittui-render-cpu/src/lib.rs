@@ -235,3 +235,55 @@ mod tests {
         assert!(c.1 > 50);
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "image-decoders")]
+mod image_tests {
+    use super::*;
+    use kittui_core::color::Rgba;
+    use kittui_core::geom::{CellRect, CellSize, PxRect};
+    use kittui_core::node::{Fit, ImageRef, Layer, Node};
+
+    fn tiny_png() -> Vec<u8> {
+        // Build a 2x2 RGBA PNG via the image crate (test-only).
+        let mut img = image::RgbaImage::new(2, 2);
+        img.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        img.put_pixel(1, 0, image::Rgba([0, 255, 0, 255]));
+        img.put_pixel(0, 1, image::Rgba([0, 0, 255, 255]));
+        img.put_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
+        let mut out = Vec::new();
+        let mut enc = image::codecs::png::PngEncoder::new(&mut out);
+        use image::ImageEncoder;
+        enc.write_image(&img.as_raw(), 2, 2, image::ExtendedColorType::Rgba8)
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn image_node_rasterizes_inline_bytes() {
+        let png = tiny_png();
+        let footprint = CellRect::new(0, 0, 4, 2);
+        let scene = Scene {
+            footprint,
+            cell_size: CellSize::new(8, 16),
+            layers: vec![Layer::anon(Node::Image {
+                rect: PxRect::new(0.0, 0.0, 32.0, 32.0),
+                src: ImageRef::Bytes { bytes: png },
+                fit: Fit::Stretch,
+                tint: None,
+            })],
+            animation: None,
+        };
+        let mut p = crate::Pixmap::new(scene.pixel_width(), scene.pixel_height());
+        crate::rasterize::render_scene(&scene, 0.0, &mut p).unwrap();
+        // Sample the four quadrants and verify each picked up the right pixel.
+        let c_tl = p.get(2, 2);
+        let c_tr = p.get(20, 2);
+        let c_bl = p.get(2, 20);
+        let c_br = p.get(20, 20);
+        assert!(c_tl.0 > 200 && c_tl.1 < 50, "top-left ~red: {c_tl:?}");
+        assert!(c_tr.1 > 200 && c_tr.0 < 50, "top-right ~green: {c_tr:?}");
+        assert!(c_bl.2 > 200, "bottom-left ~blue: {c_bl:?}");
+        assert!(c_br.0 > 200 && c_br.1 > 200 && c_br.2 > 200, "bottom-right ~white: {c_br:?}");
+    }
+}

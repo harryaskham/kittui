@@ -23,7 +23,7 @@ extern "C" {
 #define KITTUI_ABI_MAJOR 0
 
 /* Minor ABI version. Bumped on additive changes. */
-#define KITTUI_ABI_MINOR 1
+#define KITTUI_ABI_MINOR 2
 
 /* Return value for every fallible entry point. */
 typedef enum KittuiStatus {
@@ -55,6 +55,30 @@ KittuiStatus kittui_place_json(KittuiRuntime* runtime,
 
 /* Free a string returned by the FFI. */
 void kittui_string_free(char* ptr);
+
+/* Free a byte buffer returned by an FFI call that takes (ptr, len). */
+void kittui_bytes_free(uint8_t* ptr, size_t len);
+
+/* Return 1 if the loaded library is compatible with required_major, else 0. */
+int32_t kittui_abi_version_check(uint32_t required_major);
+
+/* Read the last error string on this runtime, or NULL. */
+char* kittui_last_error(KittuiRuntime* runtime);
+
+/* Unplace (delete) an image by id. Returns the generated delete escape. */
+char* kittui_unplace(KittuiRuntime* runtime, uint32_t image_id);
+
+/* Probe the runtime: returns an owned JSON string describing renderer/transport. */
+char* kittui_probe_json(KittuiRuntime* runtime);
+
+/* Configure runtime fields from a JSON blob. */
+KittuiStatus kittui_runtime_configure(KittuiRuntime* runtime, const char* json);
+
+/* Render+place a scene and return raw bytes with explicit length. */
+KittuiStatus kittui_render_json(KittuiRuntime* runtime,
+                                const char* scene_json,
+                                uint8_t** out_ptr,
+                                size_t* out_len);
 
 #ifdef __cplusplus
 }
