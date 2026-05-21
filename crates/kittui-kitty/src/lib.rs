@@ -151,6 +151,79 @@ pub fn upload_still(image_id: u32, png: &[u8], transport: Transport) -> String {
     )
 }
 
+/// Upload a raw 32-bit RGBA frame using the kitty `f=32` format. Skips PNG
+/// encoding entirely — callers (e.g. kittui-wm's per-frame WM hot path)
+/// supply the tight RGBA bytes plus `(width, height)` in pixels. The kitty
+/// terminal interprets the body as `width*height*4` raw RGBA bytes, base64
+/// encoded over the wire.
+///
+/// Chunked exactly like the PNG path; the first chunk header carries
+/// `f=32,s=W,v=H` instead of `f=100`.
+pub fn upload_still_rgba(
+    image_id: u32,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    transport: Transport,
+) -> String {
+    upload_still_rgba_ex(
+        image_id,
+        rgba,
+        width,
+        height,
+        Quiet::SuppressAll,
+        transport,
+    )
+}
+
+/// Variant of [`upload_still_rgba`] with explicit quiet selector.
+pub fn upload_still_rgba_ex(
+    image_id: u32,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    quiet: Quiet,
+    transport: Transport,
+) -> String {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(rgba);
+    encode_chunked_rgba(image_id, &b64, width, height, quiet, transport)
+}
+
+fn encode_chunked_rgba(
+    image_id: u32,
+    base64_body: &str,
+    width: u32,
+    height: u32,
+    quiet: Quiet,
+    transport: Transport,
+) -> String {
+    const CHUNK: usize = 4096;
+    let mut out = String::new();
+    let bytes = base64_body.as_bytes();
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let end = (offset + CHUNK).min(bytes.len());
+        let more = if end < bytes.len() { 1 } else { 0 };
+        let header = if offset == 0 {
+            format!(
+                "a=t,f=32,s={s},v={v},i={id},m={more}{q}",
+                s = width,
+                v = height,
+                id = image_id,
+                more = more,
+                q = quiet.field(),
+            )
+        } else {
+            format!("m={more}", more = more)
+        };
+        let body = std::str::from_utf8(&bytes[offset..end]).unwrap_or("");
+        let payload = format!("{ESC}_G{header};{body}{ESC}\\");
+        out.push_str(&wrap_transport(payload, transport));
+        offset = end;
+    }
+    out
+}
+
 /// Build the escape sequences that upload an animated scene.
 ///
 /// Per kitty's protocol, the first frame is uploaded with `a=t,f=100,i=<id>`
@@ -564,6 +637,24 @@ mod tests {
     fn delete_by_placement_emits_p_field() {
         let cmd = delete_placement(0x55, 3, Transport::Direct);
         assert_eq!(cmd, "\x1b_Ga=d,d=I,i=85,p=3,q=2\x1b\\");
+    }
+
+    #[test]
+    fn upload_still_rgba_emits_f32_grammar_with_s_v_width_height() {
+        // 2x2 RGBA, alternating red/green pixels.
+        let rgba: Vec<u8> = vec![
+            0xff, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0xff, 0x00,
+            0x00, 0xff,
+        ];
+        let escapes = upload_still_rgba(0xABCD, &rgba, 2, 2, Transport::Direct);
+        assert!(
+            escapes.starts_with("\x1b_Ga=t,f=32,s=2,v=2,i=43981,m=0,q=2;"),
+            "raw RGBA upload must use f=32,s=W,v=H: prefix was {}",
+            &escapes[..escapes.len().min(60)]
+        );
+        assert!(escapes.ends_with("\x1b\\"));
+        // No PNG signature in the body — must be base64 of raw RGBA only.
+        assert!(!escapes.contains("PNG"));
     }
 
     #[test]

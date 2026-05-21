@@ -94,38 +94,42 @@ pub fn run_loop<S: XServer>(
             return Ok(());
         }
 
-        // Drive frame. Don't bail on compose errors — surface them inside
-        // the chrome footer so the user can see the cause (missing TCC
-        // permission, X server gone, etc.) without leaking the terminal.
-        match compositor.compose_with_layout(layout) {
-            Ok(scenes) => {
-                last_window_count = scenes.len();
+        // Drive frame. Use the raw RGBA fast path so PNG encode falls
+        // out of the per-frame cost. Errors are surfaced inside the chrome
+        // footer instead of bailing, so a TCC failure or backend death
+        // never leaks the terminal.
+        match compositor.raw_frames(layout) {
+            Ok(frames) => {
+                last_window_count = frames.len();
                 if frame % 30 == 0 {
                     dbg.log(&format!(
-                        "frame {frame}: {} scenes",
-                        scenes.len()
+                        "frame {frame}: {} raw frames",
+                        frames.len()
                     ));
                 }
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
                 write!(handle, "\x1b[H\x1b[J")?;
-                for scene in &scenes {
-                    let p = runtime.place(scene)?;
+                let mut footer_row = 2u16;
+                for f in &frames {
+                    let p = runtime.place_raw_frame(
+                        f.image_id,
+                        &f.rgba,
+                        f.width,
+                        f.height,
+                        f.footprint,
+                    );
                     handle.write_all(p.upload.as_bytes())?;
                     write!(
                         handle,
                         "\x1b[{};{}H",
-                        scene.footprint.y + 1,
-                        scene.footprint.x + 1
+                        f.footprint.y + 1,
+                        f.footprint.x + 1
                     )?;
                     handle.write_all(p.placement.as_bytes())?;
                     handle.write_all(p.embed.as_bytes())?;
+                    footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
                 }
-                let footer_row = scenes
-                    .iter()
-                    .map(|s| s.footprint.y + s.footprint.rows + 2)
-                    .max()
-                    .unwrap_or(2);
                 write!(
                     handle,
                     "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — q to quit (log: {})",

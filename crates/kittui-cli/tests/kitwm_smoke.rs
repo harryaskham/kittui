@@ -64,7 +64,7 @@ fn kitwm_fake_backend_renders_frames_then_exits() {
         "log missing raw-mode marker:\n{contents}"
     );
     assert!(
-        contents.contains("frame 0: 2 scenes"),
+        contents.contains("frame 0: 2 raw frames"),
         "log missing first-frame marker:\n{contents}"
     );
     let _ = std::fs::remove_file(&log);

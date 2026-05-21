@@ -289,6 +289,44 @@ pub mod compositor {
         cell: CellSize,
         focused: Mutex<Option<XWindowId>>,
         modes: Mutex<HashMap<XWindowId, WindowMode>>,
+        /// Last-known `(source_rect, terminal_footprint)` pair per window,
+        /// populated by every `compose_with_layout` call. Pointer routing
+        /// reads this to map terminal cells back into source pixels.
+        placements: Mutex<HashMap<XWindowId, WindowPlacement>>,
+    }
+
+    /// Per-window mapping between the captured source surface and the
+    /// terminal cell footprint it renders into.
+    #[derive(Copy, Clone, Debug)]
+    struct WindowPlacement {
+        source_rect: PxRect,
+        footprint: CellRect,
+    }
+
+    /// WM hot-path frame returned by `Compositor::raw_frames`. The session
+    /// loop forwards this directly to `kittui::Runtime::place_raw_frame`
+    /// without going through Scene / Pixmap / PNG encode.
+    pub struct RawFrame {
+        /// Backend-local window id.
+        pub window_id: XWindowId,
+        /// Stable kitty image id derived from the window id.
+        pub image_id: u32,
+        /// Frame width in pixels.
+        pub width: u32,
+        /// Frame height in pixels.
+        pub height: u32,
+        /// Tight RGBA8 bytes (row-major, no padding).
+        pub rgba: Vec<u8>,
+        /// Terminal cell footprint this frame should be placed at.
+        pub footprint: CellRect,
+    }
+
+    /// Derive a stable 32-bit kitty image id for an XWindowId. The kitty
+    /// protocol image id space is per-terminal, so any stable mapping is
+    /// fine; we mix in a high bit so XvfbServer's small ids don't collide
+    /// with kittui's own scene-derived image ids.
+    fn kitty_image_id_for(id: XWindowId) -> u32 {
+        0x4000_0000 | id.0
     }
 
     impl<S: XServer> Compositor<S> {
@@ -299,6 +337,7 @@ pub mod compositor {
                 cell,
                 focused: Mutex::new(None),
                 modes: Mutex::new(HashMap::new()),
+                placements: Mutex::new(HashMap::new()),
             }
         }
 
@@ -317,15 +356,18 @@ pub mod compositor {
             self.compose_with_layout(&Layout::all_floating())
         }
 
-        /// Build scenes using an explicit [`Layout`]. Tiled windows use the
-        /// `tiled_rect` slot in the layout; floating windows keep their
-        /// X-server-provided pixel rect.
-        pub fn compose_with_layout(
+        /// WM hot-path equivalent of [`compose_with_layout`] that returns
+        /// raw RGBA frames + their cell footprints instead of `Scene`s. The
+        /// session loop forwards each `RawFrame` straight to
+        /// `kittui::Runtime::place_raw_frame` so the per-frame cost drops to
+        /// one base64 + one write, no PNG encode.
+        pub fn raw_frames(
             &self,
             layout: &Layout,
-        ) -> Result<Vec<Scene>, kittui_xvfb::XError> {
+        ) -> Result<Vec<RawFrame>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
             let modes = self.modes.lock().clone();
+            let mut placements_snapshot = HashMap::new();
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
                 let mode = modes.get(&w.id).copied().unwrap_or(WindowMode::Floating);
@@ -343,6 +385,70 @@ pub mod compositor {
                     (target_rect.origin.1 / self.cell.height_px as f32) as u16,
                     footprint_cols,
                     footprint_rows,
+                );
+                placements_snapshot.insert(
+                    w.id,
+                    WindowPlacement {
+                        source_rect: PxRect::new(
+                            0.0,
+                            0.0,
+                            cap.width as f32,
+                            cap.height as f32,
+                        ),
+                        footprint,
+                    },
+                );
+                out.push(RawFrame {
+                    window_id: w.id,
+                    image_id: kitty_image_id_for(w.id),
+                    width: cap.width,
+                    height: cap.height,
+                    rgba: cap.rgba,
+                    footprint,
+                });
+            }
+            *self.placements.lock() = placements_snapshot;
+            Ok(out)
+        }
+
+        /// Build scenes using an explicit [`Layout`]. Tiled windows use the
+        /// `tiled_rect` slot in the layout; floating windows keep their
+        /// X-server-provided pixel rect.
+        pub fn compose_with_layout(
+            &self,
+            layout: &Layout,
+        ) -> Result<Vec<Scene>, kittui_xvfb::XError> {
+            let windows = self.server.windows()?;
+            let modes = self.modes.lock().clone();
+            let mut placements_snapshot = HashMap::new();
+            let mut out = Vec::with_capacity(windows.len());
+            for w in &windows {
+                let mode = modes.get(&w.id).copied().unwrap_or(WindowMode::Floating);
+                let target_rect = match mode {
+                    WindowMode::Floating => w.rect,
+                    WindowMode::Tiled => layout.tiled_rect(w.id).unwrap_or(w.rect),
+                };
+                let cap = self.server.capture(w.id)?;
+                let footprint_cols =
+                    ((target_rect.width / self.cell.width_px as f32).ceil() as u16).max(1);
+                let footprint_rows =
+                    ((target_rect.height / self.cell.height_px as f32).ceil() as u16).max(1);
+                let footprint = CellRect::new(
+                    (target_rect.origin.0 / self.cell.width_px as f32) as u16,
+                    (target_rect.origin.1 / self.cell.height_px as f32) as u16,
+                    footprint_cols,
+                    footprint_rows,
+                );
+                placements_snapshot.insert(
+                    w.id,
+                    WindowPlacement {
+                        // The source rect is the captured surface itself,
+                        // not the on-screen rect: pointer events need to
+                        // land in source-image space because that is what
+                        // the backend captured.
+                        source_rect: PxRect::new(0.0, 0.0, cap.width as f32, cap.height as f32),
+                        footprint,
+                    },
                 );
                 let rect = PxRect::new(0.0, 0.0, target_rect.width, target_rect.height);
                 let border = Rgba::parse("#00d8ff").unwrap();
@@ -373,16 +479,21 @@ pub mod compositor {
                     animation: None,
                 });
             }
+            *self.placements.lock() = placements_snapshot;
             Ok(out)
         }
 
         /// Walk the windows top-down and return the window id at `(col, row)`.
+        ///
+        /// Uses the per-window placement recorded by the most recent
+        /// `compose_with_layout` call so terminal cells map back to the
+        /// right window regardless of how the source pixels were scaled.
         pub fn hit_test(&self, col: u16, row: u16) -> Option<XWindowId> {
-            let windows = self.server.windows().ok()?;
-            // Iterate in reverse so later windows (drawn on top) win.
-            for w in windows.iter().rev() {
-                if hit(&w.rect, &self.cell, col, row) {
-                    return Some(w.id);
+            let placements = self.placements.lock();
+            // Iterate windows in z-order (compose insertion order).
+            for (id, p) in placements.iter() {
+                if footprint_contains(&p.footprint, col, row) {
+                    return Some(*id);
                 }
             }
             None
@@ -400,13 +511,16 @@ pub mod compositor {
                         return routed;
                     };
                     *self.focused.lock() = Some(id);
-                    let Ok(windows) = self.server.windows() else {
-                        return routed;
+                    let placement = match self.placements.lock().get(&id).copied() {
+                        Some(p) => p,
+                        None => return routed,
                     };
-                    let Some(window) = windows.iter().find(|w| w.id == id) else {
-                        return routed;
-                    };
-                    let (lx, ly) = local_px(*col, *row, &self.cell, &window.rect);
+                    let (lx, ly) = footprint_to_source_px(
+                        *col,
+                        *row,
+                        &placement.footprint,
+                        &placement.source_rect,
+                    );
                     let x_event = XPointerEvent::Move {
                         window: id,
                         x_px: lx,
@@ -474,6 +588,39 @@ pub mod compositor {
         }
     }
 
+    fn footprint_contains(fp: &CellRect, col: u16, row: u16) -> bool {
+        col >= fp.x
+            && col < fp.x + fp.cols
+            && row >= fp.y
+            && row < fp.y + fp.rows
+    }
+
+    /// Map a terminal cell `(col, row)` inside `footprint` to the source
+    /// pixel coordinate it represents inside `source_rect`. Used to route
+    /// pointer events into the captured surface regardless of how the
+    /// source was scaled into the terminal footprint.
+    fn footprint_to_source_px(
+        col: u16,
+        row: u16,
+        footprint: &CellRect,
+        source_rect: &PxRect,
+    ) -> (i32, i32) {
+        let fx = if footprint.cols == 0 {
+            0.0
+        } else {
+            (col.saturating_sub(footprint.x) as f32 + 0.5) / footprint.cols as f32
+        };
+        let fy = if footprint.rows == 0 {
+            0.0
+        } else {
+            (row.saturating_sub(footprint.y) as f32 + 0.5) / footprint.rows as f32
+        };
+        let x = source_rect.origin.0 + fx * source_rect.width;
+        let y = source_rect.origin.1 + fy * source_rect.height;
+        (x as i32, y as i32)
+    }
+
+    #[allow(dead_code)]
     fn hit(rect: &PxRect, cell: &CellSize, col: u16, row: u16) -> bool {
         let px = (col as f32) * cell.width_px as f32;
         let py = (row as f32) * cell.height_px as f32;
@@ -483,6 +630,7 @@ pub mod compositor {
             && py < rect.origin.1 + rect.height
     }
 
+    #[allow(dead_code)]
     fn local_px(col: u16, row: u16, cell: &CellSize, rect: &PxRect) -> (i32, i32) {
         let px = (col as f32) * cell.width_px as f32 - rect.origin.0;
         let py = (row as f32) * cell.height_px as f32 - rect.origin.1;
@@ -566,6 +714,8 @@ pub mod compositor {
         #[test]
         fn hit_test_picks_topmost_window() {
             let comp = Compositor::new(server(), CellSize::new(8, 16));
+            // Compose to populate the placements snapshot used by hit_test.
+            let _ = comp.compose().unwrap();
             // beta sits at px (80,16) → cell (10, 1).
             assert_eq!(comp.hit_test(11, 1), Some(XWindowId(2)));
             assert_eq!(comp.hit_test(1, 1), Some(XWindowId(1)));
@@ -575,6 +725,7 @@ pub mod compositor {
         #[test]
         fn route_pointer_injects_move_then_press() {
             let comp = Compositor::new(server(), CellSize::new(8, 16));
+            let _ = comp.compose().unwrap();
             let routed = comp.route_pointer(&InputEvent::MousePress {
                 button: MouseButton::Left,
                 col: 11,
@@ -609,6 +760,50 @@ pub mod compositor {
                 mods: Default::default(),
             });
             assert_eq!(f7, Some((0xffbd + 7, true)));
+        }
+
+        #[test]
+        fn pointer_in_downscaled_window_maps_back_to_source_pixels() {
+            // Source surface is 1000x500 pixels; cell metric is 8x16; the
+            // window is tiled into an 80x24 cell footprint at the origin.
+            // A click at the centre of that footprint must land at the
+            // centre of the source rect.
+            let server = FakeServer::with_windows(vec![(
+                XWindowId(42),
+                PxRect::new(0.0, 0.0, 1000.0, 500.0),
+                "hd",
+                [0xaa, 0xbb, 0xcc, 0xff],
+            )]);
+            let comp = Compositor::new(server, CellSize::new(8, 16));
+            let mut layout = Layout::all_floating();
+            layout.tile(
+                XWindowId(42),
+                PxRect::new(0.0, 0.0, 80.0 * 8.0, 24.0 * 16.0),
+            );
+            comp.set_mode(XWindowId(42), WindowMode::Tiled);
+            let _ = comp.compose_with_layout(&layout).unwrap();
+            // Centre cell of an 80x24 footprint is (40, 12).
+            let routed = comp.route_pointer(&InputEvent::MousePress {
+                button: MouseButton::Left,
+                col: 40,
+                row: 12,
+                mods: Default::default(),
+            });
+            assert_eq!(routed.len(), 2);
+            if let XPointerEvent::Move { x_px, y_px, .. } = routed[0] {
+                // Allow a few pixels of half-cell rounding either side of
+                // (1000/2, 500/2) = (500, 250).
+                assert!(
+                    (x_px - 500).abs() < 20,
+                    "x_px should be ~500, got {x_px}"
+                );
+                assert!(
+                    (y_px - 250).abs() < 20,
+                    "y_px should be ~250, got {y_px}"
+                );
+            } else {
+                panic!("expected Move, got {:?}", routed[0]);
+            }
         }
 
         #[test]

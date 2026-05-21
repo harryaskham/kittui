@@ -169,6 +169,52 @@ impl Runtime {
         kitty::delete(image_id, self.terminal.transport)
     }
 
+    /// WM hot path: emit a `Placement` for a raw RGBA frame without ever
+    /// constructing a `Scene` or running the renderer/cache. Uses kitty's
+    /// `f=32` upload (raw RGBA bytes; no PNG encode) so the per-frame cost
+    /// drops from PNG-encode time to a single base64 + write.
+    ///
+    /// `image_id` should be stable across frames for the same logical
+    /// window (so kitty keeps the placement under the same id). The caller
+    /// is responsible for emitting `unplace` when the window goes away.
+    pub fn place_raw_frame(
+        &self,
+        image_id: u32,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        footprint: CellRect,
+    ) -> Placement {
+        let transport = self.terminal.transport;
+        let mut upload = String::new();
+        if !self.has_already_placed(image_id, footprint) {
+            upload.push_str(&kitty::upload_still_rgba(
+                image_id, rgba, width, height, transport,
+            ));
+        }
+        // Always re-upload pixels for raw frames — the WM compositor
+        // changes pixels every tick. The placement + embed strings stay
+        // cached behind has_already_placed for the no-resize case.
+        if !upload.is_empty() {
+            // For raw frames we want to overwrite the previous image: a
+            // fresh upload on the same id triggers kitty to replace.
+        } else {
+            upload.push_str(&kitty::upload_still_rgba(
+                image_id, rgba, width, height, transport,
+            ));
+        }
+        let placement = kitty::placement_command(image_id, footprint, transport);
+        let embed = kitty::placeholder_text(image_id, footprint);
+        self.mark_placed(image_id, footprint);
+        Placement {
+            image_id,
+            upload,
+            placement,
+            embed,
+            footprint,
+        }
+    }
+
     /// Renderer kind chosen at build time.
     pub fn renderer_kind(&self) -> RendererKind {
         self.renderer
