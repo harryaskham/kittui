@@ -62,6 +62,7 @@ struct Cli {
     launch_on_f12: bool,
     launcher_query: Option<String>,
     launcher_overlay: bool,
+    no_launcher_overlay: bool,
     apps: bool,
     apps_limit: Option<usize>,
     apps_filter: Option<String>,
@@ -151,6 +152,7 @@ fn parse_args() -> Result<Cli> {
                 out.launcher_query = Some(args.next().ok_or_else(|| anyhow!("--launcher-query QUERY"))?);
             }
             "--launcher-overlay" => out.launcher_overlay = true,
+            "--no-launcher-overlay" => out.no_launcher_overlay = true,
             "--kill" => out.mode = Mode::Kill,
             "--status" => out.mode = Mode::Status,
             "--backend" => {
@@ -259,6 +261,8 @@ SUBCOMMANDS\n\
                          fixed KITWM_LAUNCH_CMD fallback.\n\
          --launcher-overlay open an in-session boxed launcher overlay for\n\
                          launch actions; type filters, Enter launches, Esc closes.\n\
+                         Enabled by default. Pass --no-launcher-overlay or\n\
+                         set KITTUI_WM_LAUNCHER_OVERLAY=0 to keep immediate-spawn.\n\
          keymap          print resolved keybinding config. Defaults to the\n\
                          built-in tmux-like Ctrl-A prefix map; pass\n\
                          --keymap PATH to parse and print a custom file.\n\
@@ -314,6 +318,9 @@ fn real_main() -> Result<()> {
     }
     if cli.launcher_overlay {
         std::env::set_var("KITTUI_WM_LAUNCHER_OVERLAY", "1");
+    }
+    if cli.no_launcher_overlay {
+        std::env::set_var("KITTUI_WM_LAUNCHER_OVERLAY", "0");
     }
     if let Some(path) = &cli.keymap_path {
         std::env::set_var("KITTUI_WM_KEYMAP", path);

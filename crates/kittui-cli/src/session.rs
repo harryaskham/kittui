@@ -45,8 +45,8 @@ pub fn run_loop<S: XServer>(
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false),
         launcher_overlay: std::env::var("KITTUI_WM_LAUNCHER_OVERLAY")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false),
+            .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
+            .unwrap_or(true),
     };
     run_loop_with(runtime, compositor, layout, opts)
 }
@@ -65,7 +65,7 @@ pub struct RunOptions {
 
 impl Default for RunOptions {
     fn default() -> Self {
-        Self { fps: 60, launch_on_f12: false, launcher_overlay: false }
+        Self { fps: 60, launch_on_f12: false, launcher_overlay: true }
     }
 }
 
