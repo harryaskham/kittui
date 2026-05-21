@@ -54,6 +54,7 @@ struct Cli {
     bench_seconds: Option<u32>,
     attach_command: Option<String>,
     launch: bool,
+    launcher_preview: bool,
     launch_args: Vec<String>,
     launch_on_f12: bool,
     launcher_query: Option<String>,
@@ -96,6 +97,7 @@ fn parse_args() -> Result<Cli> {
                 out.launch_args = args.by_ref().collect();
                 break;
             }
+            "launcher" => out.launcher_preview = true,
             "keymap" => out.keymap = true,
             "apps" => out.apps = true,
             "--limit" => {
@@ -224,6 +226,8 @@ SUBCOMMANDS\n\
                          latency + MB/s. --json for machine-readable output.\n\
          launch          spawn xterm by default, or run CMD ARGS after\n\
                          'kitwm launch -- CMD ARGS'. Prints pid + argv.\n\
+         launcher        render a boxed, numbered launcher preview using\n\
+                         the same --filter/--limit candidate source.\n\
          apps            list launch candidates from PATH and /Applications\n\
                          (macOS). Shows default launcher resolution. Use\n\
                          --limit N to bound output (default 50), --filter\n\
@@ -305,6 +309,9 @@ fn real_main() -> Result<()> {
     if cli.launch {
         return launch_cmd(&cli);
     }
+    if cli.launcher_preview {
+        return launcher_preview_cmd(&cli);
+    }
     if cli.keymap {
         return keymap_cmd(&cli);
     }
@@ -376,7 +383,6 @@ fn list_displays_cmd() -> Result<()> {
     Err(anyhow!("--list-displays requires --features quartz on macOS"))
 }
 
-#[cfg(all(target_os = "macos", feature = "quartz"))]
 fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         s.to_string()
@@ -1189,4 +1195,39 @@ fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
         .spawn()
         .map_err(|e| anyhow!("launch candidate {}:{}: {e}", candidate.kind, candidate.name))?;
     Ok(child.id())
+}
+
+fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
+    let limit = cli.apps_limit.unwrap_or(8).min(20);
+    let query = cli.apps_filter.as_deref().unwrap_or("");
+    let path_cmds = filter_candidates(path_commands(5000), cli.apps_filter.as_deref(), limit);
+    #[cfg(target_os = "macos")]
+    let mac_app_candidates = filter_candidates(macos_apps(5000), cli.apps_filter.as_deref(), limit);
+    #[cfg(not(target_os = "macos"))]
+    let mac_app_candidates: Vec<String> = Vec::new();
+    let mut candidates: Vec<AppCandidate> = path_cmds
+        .into_iter()
+        .map(|name| AppCandidate { kind: "path", name })
+        .chain(mac_app_candidates.into_iter().map(|name| AppCandidate { kind: "macos", name }))
+        .take(limit)
+        .collect();
+    if candidates.is_empty() {
+        candidates.push(AppCandidate { kind: "none", name: "<no matches>".to_string() });
+    }
+
+    let width = 62usize;
+    println!("┌{}┐", "─".repeat(width));
+    println!("│{:^width$}│", "kitwm launcher", width = width);
+    println!("├{}┤", "─".repeat(width));
+    println!("│ query: {:<qwidth$}│", query, qwidth = width - 8);
+    println!("├{}┤", "─".repeat(width));
+    for (idx, cand) in candidates.iter().enumerate() {
+        let marker = if idx == 0 { "▶" } else { " " };
+        let text = format!("{marker} {:>2}. [{:<5}] {}", idx + 1, cand.kind, cand.name);
+        println!("│{:<width$}│", truncate(&text, width), width = width);
+    }
+    println!("├{}┤", "─".repeat(width));
+    println!("│ {:<w$}│", "Enter launches selection · Esc closes · type filters", w = width - 1);
+    println!("└{}┘", "─".repeat(width));
+    Ok(())
 }

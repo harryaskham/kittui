@@ -640,3 +640,19 @@ fn kitwm_attach_apps_first_verbs_round_trip() {
     let _ = server.wait();
     let _ = std::fs::remove_file(&sock);
 }
+
+#[test]
+fn kitwm_launcher_preview_renders_boxed_filtered_menu() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin)
+        .args(["launcher", "--filter", "echo", "--limit", "5"])
+        .output()
+        .expect("run kitwm launcher");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("kitwm launcher"), "missing title: {s}");
+    assert!(s.contains("query: echo"), "missing query: {s}");
+    assert!(s.contains("▶") || s.contains("[path ]"), "missing selectable row: {s}");
+    assert!(s.to_ascii_lowercase().contains("echo"), "missing echo candidate: {s}");
+}
