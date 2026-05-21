@@ -195,6 +195,19 @@ pub fn parse(buf: &[u8]) -> Option<(InputEvent, usize)> {
             1,
         ));
     }
+    // ASCII Ctrl-A..Ctrl-Z arrive as bytes 0x01..0x1a. Surface these as
+    // ctrl-modified characters so WM keymaps can bind tmux-like prefixes
+    // such as Ctrl-A.
+    if (0x01..=0x1a).contains(&buf[0]) {
+        let ch = (b'a' + (buf[0] - 1)) as char;
+        return Some((
+            InputEvent::Char {
+                ch,
+                mods: Modifiers { ctrl: true, alt: false, shift: false },
+            },
+            1,
+        ));
+    }
     // UTF-8 decode of one character.
     let s = match std::str::from_utf8(buf) {
         Ok(s) => s,
@@ -466,5 +479,23 @@ mod tests {
         assert!(parse(b"\x1b").is_none());
         assert!(parse(b"\x1b[").is_none());
         assert!(parse(b"\x1b[<0;10").is_none()); // not yet terminated
+    }
+}
+
+#[cfg(test)]
+mod ctrl_keymap_tests {
+    use super::*;
+
+    #[test]
+    fn parses_ctrl_a_as_ctrl_modified_char() {
+        let (ev, n) = parse(&[0x01]).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(
+            ev,
+            InputEvent::Char {
+                ch: 'a',
+                mods: Modifiers { ctrl: true, alt: false, shift: false }
+            }
+        );
     }
 }

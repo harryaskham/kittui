@@ -210,7 +210,8 @@ SUBCOMMANDS\n\
                          Footer shows last_launch_pid and log records result.\n\
          keymap          print resolved keybinding config. Defaults to the\n\
                          built-in tmux-like Ctrl-A prefix map; pass\n\
-                         --keymap PATH to parse and print a custom file.\n"
+                         --keymap PATH to parse and print a custom file.\n\
+                         Sessions also load --keymap PATH / KITTUI_WM_KEYMAP.\n"
     );
 }
 
@@ -255,6 +256,9 @@ fn real_main() -> Result<()> {
     }
     if cli.launch_on_f12 {
         std::env::set_var("KITTUI_WM_LAUNCH_ON_F12", "1");
+    }
+    if let Some(path) = &cli.keymap_path {
+        std::env::set_var("KITTUI_WM_KEYMAP", path);
     }
 
     // Inspection flags run cooked, never enter raw mode.

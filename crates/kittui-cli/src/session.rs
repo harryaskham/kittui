@@ -24,6 +24,8 @@ use kittui_input::{InputEvent, Key};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_xvfb::XServer;
 
+use crate::keymap::{Action, KeySpec, KeyMods, Keymap};
+
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
 /// `compositor` and `layout` are passed in so callers can wire any
@@ -89,6 +91,9 @@ pub fn run_loop_with<S: XServer>(
     let mut stdin = io::stdin();
     let mut last_window_count = 0usize;
     let mut last_launch_pid: Option<u32> = None;
+    let keymap = load_runtime_keymap(&dbg);
+    let mut prefix_active = false;
+    let mut last_keymap_action: Option<String> = None;
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
     // We only re-emit placement+placeholder when the footprint or image_id
     // changes. Kitty atomically replaces the image at the same id on each
@@ -115,6 +120,47 @@ pub fn run_loop_with<S: XServer>(
         let mut quit = false;
         while let Some((ev, consumed)) = kittui_input::parse(&input_buf) {
             input_buf.drain(..consumed);
+            if let Some(spec) = key_spec_for_event(&ev) {
+                if keymap.prefix.as_ref() == Some(&spec) {
+                    prefix_active = true;
+                    last_keymap_action = Some("prefix".to_string());
+                    dbg.log(&format!("keymap prefix entered: {spec}"));
+                    continue;
+                }
+                if prefix_active {
+                    prefix_active = false;
+                    if let Some(prefix) = keymap.prefix.as_ref() {
+                        let chord = vec![prefix.clone(), spec.clone()];
+                        if let Some(action) = keymap.action_for_chord(&chord).cloned() {
+                            let action_name = action.to_string();
+                            last_keymap_action = Some(action_name.clone());
+                            dbg.log(&format!("keymap action: {} -> {action_name}", chord.iter().map(ToString::to_string).collect::<Vec<_>>().join(" ")));
+                            match action {
+                                Action::Launch | Action::SplitVerticalLauncher | Action::SplitHorizontalLauncher => {
+                                    match spawn_launcher_command() {
+                                        Ok(pid) => {
+                                            last_launch_pid = Some(pid);
+                                            dbg.log(&format!("keymap launcher spawned pid={pid}"));
+                                        }
+                                        Err(e) => dbg.log(&format!("keymap launcher failed: {e}")),
+                                    }
+                                }
+                                Action::Quit => {
+                                    quit = true;
+                                    break;
+                                }
+                                other => {
+                                    dbg.log(&format!("keymap action not implemented yet: {other}"));
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    last_keymap_action = Some(format!("unbound {spec}"));
+                    dbg.log(&format!("keymap unbound prefix chord: {spec}"));
+                    continue;
+                }
+            }
             match &ev {
                 InputEvent::Char { ch: 'q', .. }
                 | InputEvent::Key {
@@ -234,9 +280,17 @@ pub fn run_loop_with<S: XServer>(
                 let launch_note = last_launch_pid
                     .map(|pid| format!(" — last launch pid={pid}"))
                     .unwrap_or_default();
+                let keymap_note = if prefix_active {
+                    " — keymap prefix".to_string()
+                } else {
+                    last_keymap_action
+                        .as_ref()
+                        .map(|a| format!(" — action={a}"))
+                        .unwrap_or_default()
+                };
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — {:.0} fps (peak {:.0}, cap {}){} — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
                     footer_row,
                     frame,
                     last_window_count,
@@ -244,6 +298,7 @@ pub fn run_loop_with<S: XServer>(
                     peak_fps,
                     fps,
                     launch_note,
+                    keymap_note,
                     dbg.path_display()
                 )?;
                 handle.flush()?;
@@ -509,5 +564,73 @@ mod launcher_tests {
         std::env::set_var("KITWM_LAUNCH_CMD", "/bin/sleep 1");
         assert_eq!(super::launcher_command(), "/bin/sleep 1");
         std::env::remove_var("KITWM_LAUNCH_CMD");
+    }
+}
+
+fn load_runtime_keymap(dbg: &Debugger) -> Keymap {
+    if let Ok(path) = std::env::var("KITTUI_WM_KEYMAP") {
+        match Keymap::load(std::path::Path::new(&path)) {
+            Ok(km) => {
+                dbg.log(&format!("loaded keymap from {path}"));
+                return km;
+            }
+            Err(e) => {
+                dbg.log(&format!("failed to load keymap {path}: {e}; using defaults"));
+            }
+        }
+    }
+    crate::keymap::default_keymap()
+}
+
+fn key_spec_for_event(ev: &InputEvent) -> Option<KeySpec> {
+    match ev {
+        InputEvent::Char { ch, mods } => Some(KeySpec {
+            mods: KeyMods { ctrl: mods.ctrl, alt: mods.alt, shift: mods.shift },
+            key: match ch {
+                ' ' => "space".to_string(),
+                other => other.to_ascii_lowercase().to_string(),
+            },
+        }),
+        InputEvent::Key { key, mods } => Some(KeySpec {
+            mods: KeyMods { ctrl: mods.ctrl, alt: mods.alt, shift: mods.shift },
+            key: match key {
+                Key::Up => "up".to_string(),
+                Key::Down => "down".to_string(),
+                Key::Left => "left".to_string(),
+                Key::Right => "right".to_string(),
+                Key::Home => "home".to_string(),
+                Key::End => "end".to_string(),
+                Key::PageUp => "pageup".to_string(),
+                Key::PageDown => "pagedown".to_string(),
+                Key::Insert => "insert".to_string(),
+                Key::Delete => "delete".to_string(),
+                Key::Tab => "tab".to_string(),
+                Key::Backspace => "backspace".to_string(),
+                Key::Enter => "enter".to_string(),
+                Key::Escape => "escape".to_string(),
+                Key::F(n) => format!("f{n}"),
+            },
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod runtime_keymap_tests {
+    use super::*;
+    use kittui_input::Modifiers;
+
+    #[test]
+    fn event_to_keyspec_maps_ctrl_a_and_enter() {
+        let ctrl_a = key_spec_for_event(&InputEvent::Char {
+            ch: 'a',
+            mods: Modifiers { ctrl: true, alt: false, shift: false },
+        }).unwrap();
+        assert_eq!(ctrl_a.to_string(), "C-a");
+        let enter = key_spec_for_event(&InputEvent::Key {
+            key: Key::Enter,
+            mods: Modifiers::default(),
+        }).unwrap();
+        assert_eq!(enter.to_string(), "enter");
     }
 }

@@ -233,6 +233,14 @@ impl Keymap {
         Self::parse(&src)
     }
 
+    /// Look up an action for an exact chord.
+    pub fn action_for_chord(&self, chord: &[KeySpec]) -> Option<&Action> {
+        self.bindings
+            .iter()
+            .find(|b| b.chord.as_slice() == chord)
+            .map(|b| &b.action)
+    }
+
     /// Render as a stable table.
     pub fn render_table(&self) -> String {
         let mut out = String::new();
