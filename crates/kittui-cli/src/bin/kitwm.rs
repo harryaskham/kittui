@@ -143,8 +143,8 @@ fn print_help() {
          Usage: kitwm [--serve | --attach | --kill | --status] [--backend fake|quartz|xvfb]\n\n\
          Default: open a kittui-wm session in the current terminal, picking the\n\
          best available backend. q or Esc to quit.\n\n\
-         --serve   run as a Unix-socket daemon at \$KITWM_SOCK\n\
-                   (default /tmp/kitwm-\$USER.sock). Blocks until QUIT or\n\
+         --serve   run as a Unix-socket daemon at $KITWM_SOCK\n\
+                   (default /tmp/kitwm-$USER.sock). Blocks until QUIT or\n\
                    SIGINT/SIGTERM. RAII socket cleanup.\n\
          --attach  connect to a running daemon and open an interactive REPL.\n\
                    Commands: PING STATUS WINDOWS DISPLAYS HELP QUIT.\n\
