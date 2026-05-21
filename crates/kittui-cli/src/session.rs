@@ -96,6 +96,7 @@ pub fn run_loop_with<S: XServer>(
     let mut last_keymap_action: Option<String> = None;
     let mut workspaces = WorkspaceState::default();
     let mut focus_state = FocusState::default();
+    let mut split_state = SplitState::default();
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
     // We only re-emit placement+placeholder when the footprint or image_id
     // changes. Kitty atomically replaces the image at the same id on each
@@ -138,13 +139,25 @@ pub fn run_loop_with<S: XServer>(
                             last_keymap_action = Some(action_name.clone());
                             dbg.log(&format!("keymap action: {} -> {action_name}", chord.iter().map(ToString::to_string).collect::<Vec<_>>().join(" ")));
                             match action {
-                                Action::Launch | Action::SplitVerticalLauncher | Action::SplitHorizontalLauncher => {
+                                Action::Launch => {
                                     match spawn_launcher_command() {
                                         Ok(pid) => {
                                             last_launch_pid = Some(pid);
                                             dbg.log(&format!("keymap launcher spawned pid={pid}"));
                                         }
                                         Err(e) => dbg.log(&format!("keymap launcher failed: {e}")),
+                                    }
+                                }
+                                Action::SplitVerticalLauncher | Action::SplitHorizontalLauncher => {
+                                    let msg = split_state.apply(&action);
+                                    last_keymap_action = Some(msg.clone());
+                                    dbg.log(&format!("split action: {msg}"));
+                                    match spawn_launcher_command() {
+                                        Ok(pid) => {
+                                            last_launch_pid = Some(pid);
+                                            dbg.log(&format!("split launcher spawned pid={pid}"));
+                                        }
+                                        Err(e) => dbg.log(&format!("split launcher failed: {e}")),
                                     }
                                 }
                                 Action::WorkspaceNew | Action::WorkspaceNext | Action::WorkspacePrev => {
@@ -302,10 +315,11 @@ pub fn run_loop_with<S: XServer>(
                 };
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — focus {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — focus {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
                     footer_row,
                     frame,
                     workspaces.label(),
+                    split_state.label(),
                     focus_state.label(),
                     last_window_count,
                     live_fps,
@@ -743,5 +757,46 @@ mod focus_state_tests {
         assert_eq!(f.apply(&Action::FocusDown), "focus.down -> down#2");
         assert_eq!(f.apply(&Action::FocusUp), "focus.up -> up#3");
         assert_eq!(f.apply(&Action::FocusRight), "focus.right -> right#4");
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct SplitState {
+    panes: usize,
+    last_orientation: &'static str,
+}
+
+impl Default for SplitState {
+    fn default() -> Self {
+        Self { panes: 1, last_orientation: "none" }
+    }
+}
+
+impl SplitState {
+    fn apply(&mut self, action: &Action) -> String {
+        self.last_orientation = match action {
+            Action::SplitVerticalLauncher => "vertical",
+            Action::SplitHorizontalLauncher => "horizontal",
+            _ => self.last_orientation,
+        };
+        self.panes += 1;
+        format!("split.{}.launcher -> {}", self.last_orientation, self.label())
+    }
+
+    fn label(&self) -> String {
+        format!("{}:{}", self.panes, self.last_orientation)
+    }
+}
+
+#[cfg(test)]
+mod split_state_tests {
+    use super::*;
+
+    #[test]
+    fn split_state_tracks_panes_and_orientation() {
+        let mut s = SplitState::default();
+        assert_eq!(s.label(), "1:none");
+        assert_eq!(s.apply(&Action::SplitVerticalLauncher), "split.vertical.launcher -> 2:vertical");
+        assert_eq!(s.apply(&Action::SplitHorizontalLauncher), "split.horizontal.launcher -> 3:horizontal");
     }
 }
