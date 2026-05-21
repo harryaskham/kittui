@@ -34,13 +34,47 @@ pub fn run_loop<S: XServer>(
     compositor: &Compositor<S>,
     layout: &Layout,
 ) -> Result<()> {
+    let opts = RunOptions {
+        fps: std::env::var("KITTUI_WM_FPS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(60),
+    };
+    run_loop_with(runtime, compositor, layout, opts)
+}
+
+/// Tunable runtime options for the kitwm session loop.
+#[derive(Debug, Clone, Copy)]
+pub struct RunOptions {
+    /// Target frames per second. Capped at 240 to keep terminal output sane.
+    pub fps: u32,
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        Self { fps: 60 }
+    }
+}
+
+pub fn run_loop_with<S: XServer>(
+    runtime: &Runtime,
+    compositor: &Compositor<S>,
+    layout: &Layout,
+    opts: RunOptions,
+) -> Result<()> {
     let dbg = Debugger::open();
-    dbg.log("run_loop: enter");
+    dbg.log(&format!("run_loop: enter fps={}", opts.fps));
     let _raw_guard = RawMode::enter()?;
     dbg.log("raw mode + alt screen entered");
     install_signal_restore();
 
-    let frame_target = Duration::from_millis(33);
+    let fps = opts.fps.clamp(1, 240);
+    let frame_target = Duration::from_micros(1_000_000 / fps as u64);
+    // Live fps tracking: instantaneous over the last 30 frames + peak.
+    let mut fps_window_start = std::time::Instant::now();
+    let mut fps_window_frames = 0u32;
+    let mut live_fps: f32 = 0.0;
+    let mut peak_fps: f32 = 0.0;
     let mut frame = 0u64;
     let mut input_buf = Vec::<u8>::with_capacity(256);
     let mut stdin = io::stdin();
@@ -178,10 +212,13 @@ pub fn run_loop<S: XServer>(
                 prev_window_ids = current_ids;
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — {:.0} fps (peak {:.0}, cap {}) — q to quit (log: {})",
                     footer_row,
                     frame,
                     last_window_count,
+                    live_fps,
+                    peak_fps,
+                    fps,
                     dbg.path_display()
                 )?;
                 handle.flush()?;
@@ -205,7 +242,11 @@ pub fn run_loop<S: XServer>(
         let remaining = frame_target.checked_sub(elapsed).unwrap_or_default();
         if remaining > Duration::ZERO {
             let mut chunk = [0u8; 512];
-            if poll_stdin(remaining) {
+            // Brief stdin poll with a 1ms cap so even on a fd that returns
+            // ready immediately we don't spin. Skip entirely when the
+            // frame budget is already small.
+            let poll_budget = remaining.min(Duration::from_millis(1));
+            if poll_budget >= Duration::from_micros(500) && poll_stdin(poll_budget) {
                 let n = stdin.read(&mut chunk).unwrap_or(0);
                 if n > 0 {
                     dbg.log(&format!(
@@ -214,6 +255,15 @@ pub fn run_loop<S: XServer>(
                     ));
                     input_buf.extend_from_slice(&chunk[..n]);
                 }
+            }
+            // Sleep out the rest of the frame budget so --fps actually caps,
+            // but never longer than ~16ms at a stretch (preserves Ctrl-C
+            // responsiveness on a backgrounded stdin).
+            loop {
+                let used = frame_start.elapsed();
+                let Some(slack) = frame_target.checked_sub(used) else { break };
+                if slack < Duration::from_micros(500) { break; }
+                std::thread::sleep(slack);
             }
         } else {
             dbg.log(&format!(
@@ -224,6 +274,17 @@ pub fn run_loop<S: XServer>(
         }
 
         frame = frame.wrapping_add(1);
+        fps_window_frames += 1;
+        let elapsed_w = fps_window_start.elapsed();
+        if fps_window_frames >= 30 || elapsed_w >= Duration::from_millis(500) {
+            let secs = elapsed_w.as_secs_f32().max(1e-6);
+            live_fps = fps_window_frames as f32 / secs;
+            if live_fps > peak_fps {
+                peak_fps = live_fps;
+            }
+            fps_window_frames = 0;
+            fps_window_start = std::time::Instant::now();
+        }
     }
 }
 

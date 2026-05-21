@@ -42,6 +42,7 @@ struct Cli {
     list_windows: bool,
     list_displays: bool,
     capture: Option<String>,
+    fps: Option<u32>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -90,6 +91,13 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--capture requires a target spec"))?;
                 out.capture = Some(v);
             }
+            "--fps" => {
+                let v = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--fps requires an integer (1..=240)"))?;
+                let n: u32 = v.parse().map_err(|_| anyhow!("--fps expects an integer, got {v:?}"))?;
+                out.fps = Some(n);
+            }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -123,7 +131,12 @@ fn print_help() {
                          'main'                 = main display (default)\n\
                          'display:<n>'          = nth connected display\n\
                          'window:<substring>'   = first matching app window title/owner\n\
-                         'all'                  = all displays as a multi-window session\n"
+                         'all'                  = all displays as a multi-window session\n\
+         --fps N         frame-rate cap for the main loop (1..=240, default 60).\n\
+                         Live fps + peak fps render in the chrome footer.\n\
+                         Note: on macOS std::thread::sleep granularity is\n\
+                         ~10ms so the actual ceiling is roughly half the\n\
+                         requested value; raise --fps to push it higher.\n"
     );
 }
 
@@ -163,6 +176,9 @@ fn main() -> ExitCode {
 
 fn real_main() -> Result<()> {
     let cli = parse_args()?;
+    if let Some(fps) = cli.fps {
+        std::env::set_var("KITTUI_WM_FPS", fps.to_string());
+    }
 
     // Inspection flags run cooked, never enter raw mode.
     if cli.list_windows {
