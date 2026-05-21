@@ -56,6 +56,8 @@ struct Cli {
     launch: bool,
     launch_args: Vec<String>,
     launch_on_f12: bool,
+    apps: bool,
+    apps_limit: Option<usize>,
     keymap: bool,
     keymap_path: Option<String>,
 }
@@ -91,6 +93,11 @@ fn parse_args() -> Result<Cli> {
                 break;
             }
             "keymap" => out.keymap = true,
+            "apps" => out.apps = true,
+            "--limit" => {
+                let v = args.next().ok_or_else(|| anyhow!("--limit N"))?;
+                out.apps_limit = Some(v.parse().map_err(|_| anyhow!("--limit expects integer"))?);
+            }
             "--seconds" => {
                 let v = args.next().ok_or_else(|| anyhow!("--seconds N"))?;
                 out.bench_seconds = Some(v.parse().map_err(|_| anyhow!("--seconds expects integer"))?);
@@ -205,6 +212,9 @@ SUBCOMMANDS\n\
                          latency + MB/s. --json for machine-readable output.\n\
          launch          spawn xterm by default, or run CMD ARGS after\n\
                          'kitwm launch -- CMD ARGS'. Prints pid + argv.\n\
+         apps            list launch candidates from PATH and /Applications\n\
+                         (macOS). Shows default launcher resolution. Use\n\
+                         --limit N to bound output (default 50).\n\
          --launch-on-f12 intercept F12 in a running session and spawn\n\
                          KITWM_LAUNCH_CMD via /bin/sh -c (default: xterm).\n\
                          Footer shows last_launch_pid and log records result.\n\
@@ -276,6 +286,9 @@ fn real_main() -> Result<()> {
     }
     if cli.keymap {
         return keymap_cmd(&cli);
+    }
+    if cli.apps {
+        return apps_cmd(&cli);
     }
     if cli.list_windows {
         return list_windows_cmd();
@@ -983,4 +996,86 @@ fn keymap_cmd(cli: &Cli) -> Result<()> {
     };
     print!("{}", km.render_table());
     Ok(())
+}
+
+fn apps_cmd(cli: &Cli) -> Result<()> {
+    let limit = cli.apps_limit.unwrap_or(50);
+    let default_cmd = kittui_cli::session::launcher_command();
+    let default_prog = default_cmd.split_whitespace().next().unwrap_or("xterm");
+    let default_path = find_on_path(default_prog);
+    println!("kitwm apps");
+    println!("==========");
+    println!("default: {default_cmd}");
+    println!(
+        "default_resolved: {}",
+        default_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<not found on PATH>".to_string())
+    );
+    println!();
+    println!("PATH commands (first {limit}):");
+    for cmd in path_commands(limit) {
+        println!("  {cmd}");
+    }
+    #[cfg(target_os = "macos")]
+    {
+        println!();
+        println!("macOS applications (first {limit}):");
+        for app in macos_apps(limit) {
+            println!("  {app}");
+        }
+    }
+    Ok(())
+}
+
+fn find_on_path(program: &str) -> Option<std::path::PathBuf> {
+    if program.contains('/') {
+        let p = std::path::PathBuf::from(program);
+        return p.exists().then_some(p);
+    }
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let p = dir.join(program);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn path_commands(limit: usize) -> Vec<String> {
+    let mut out = std::collections::BTreeSet::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let Ok(read) = std::fs::read_dir(dir) else { continue };
+            for ent in read.flatten() {
+                let path = ent.path();
+                if !path.is_file() { continue; }
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+                if name.starts_with('.') { continue; }
+                out.insert(name.to_string());
+                if out.len() >= limit { break; }
+            }
+            if out.len() >= limit { break; }
+        }
+    }
+    out.into_iter().take(limit).collect()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_apps(limit: usize) -> Vec<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for root in ["/Applications", "/System/Applications"] {
+        let Ok(read) = std::fs::read_dir(root) else { continue };
+        for ent in read.flatten() {
+            let path = ent.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("app") { continue; }
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+            out.insert(name.trim_end_matches(".app").to_string());
+            if out.len() >= limit { break; }
+        }
+        if out.len() >= limit { break; }
+    }
+    out.into_iter().take(limit).collect()
 }

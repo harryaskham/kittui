@@ -451,3 +451,20 @@ fn kitwm_keymap_parses_custom_file() {
     assert!(s.contains("prefix: C-x"), "missing custom prefix: {s}");
     assert!(s.contains("C-x y") && s.contains("custom.yank"), "missing custom binding: {s}");
 }
+
+#[test]
+fn kitwm_apps_lists_candidates_and_default() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin)
+        .args(["apps", "--limit", "5"])
+        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .output()
+        .expect("run kitwm apps");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("kitwm apps"), "missing header: {s}");
+    assert!(s.contains("default: /bin/echo hello"), "missing default: {s}");
+    assert!(s.contains("default_resolved: /bin/echo"), "missing resolved path: {s}");
+    assert!(s.contains("PATH commands"), "missing PATH commands: {s}");
+}
