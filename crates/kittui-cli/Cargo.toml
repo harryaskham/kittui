@@ -10,6 +10,14 @@ description = "kittui command-line interface."
 name = "kittui"
 path = "src/main.rs"
 
+[[bin]]
+name = "kitwm"
+path = "src/bin/kitwm.rs"
+
+[lib]
+name = "kittui_cli"
+path = "src/lib.rs"
+
 [dependencies]
 kittui = { workspace = true }
 kittui-core = { workspace = true }
