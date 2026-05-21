@@ -96,6 +96,7 @@ pub fn run_loop_with<S: XServer>(
     let mut last_keymap_action: Option<String> = None;
     let mut workspaces = WorkspaceState::default();
     let mut focus_state = FocusState::default();
+    let mut swap_state = SwapState::default();
     let mut split_state = SplitState::default();
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
     // We only re-emit placement+placeholder when the footprint or image_id
@@ -169,6 +170,11 @@ pub fn run_loop_with<S: XServer>(
                                     let msg = focus_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("focus action: {msg}"));
+                                }
+                                Action::SwapLeft | Action::SwapDown | Action::SwapUp | Action::SwapRight => {
+                                    let msg = swap_state.apply(&action);
+                                    last_keymap_action = Some(msg.clone());
+                                    dbg.log(&format!("swap action: {msg}"));
                                 }
                                 Action::Quit => {
                                     quit = true;
@@ -315,12 +321,13 @@ pub fn run_loop_with<S: XServer>(
                 };
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — focus {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — focus {} — swap {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
                     footer_row,
                     frame,
                     workspaces.label(),
                     split_state.label(),
                     focus_state.label(),
+                    swap_state.label(),
                     last_window_count,
                     live_fps,
                     peak_fps,
@@ -798,5 +805,50 @@ mod split_state_tests {
         assert_eq!(s.label(), "1:none");
         assert_eq!(s.apply(&Action::SplitVerticalLauncher), "split.vertical.launcher -> 2:vertical");
         assert_eq!(s.apply(&Action::SplitHorizontalLauncher), "split.horizontal.launcher -> 3:horizontal");
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct SwapState {
+    last_direction: &'static str,
+    swaps: u64,
+}
+
+impl Default for SwapState {
+    fn default() -> Self {
+        Self { last_direction: "none", swaps: 0 }
+    }
+}
+
+impl SwapState {
+    fn apply(&mut self, action: &Action) -> String {
+        self.last_direction = match action {
+            Action::SwapLeft => "left",
+            Action::SwapDown => "down",
+            Action::SwapUp => "up",
+            Action::SwapRight => "right",
+            _ => self.last_direction,
+        };
+        self.swaps += 1;
+        format!("swap.{} -> {}", self.last_direction, self.label())
+    }
+
+    fn label(&self) -> String {
+        format!("{}#{}", self.last_direction, self.swaps)
+    }
+}
+
+#[cfg(test)]
+mod swap_state_tests {
+    use super::*;
+
+    #[test]
+    fn swap_state_tracks_direction_and_count() {
+        let mut s = SwapState::default();
+        assert_eq!(s.label(), "none#0");
+        assert_eq!(s.apply(&Action::SwapLeft), "swap.left -> left#1");
+        assert_eq!(s.apply(&Action::SwapDown), "swap.down -> down#2");
+        assert_eq!(s.apply(&Action::SwapUp), "swap.up -> up#3");
+        assert_eq!(s.apply(&Action::SwapRight), "swap.right -> right#4");
     }
 }
