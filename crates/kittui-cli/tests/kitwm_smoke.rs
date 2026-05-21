@@ -541,3 +541,28 @@ fn kitwm_attach_apps_verbs_round_trip() {
     let _ = server.wait();
     let _ = std::fs::remove_file(&sock);
 }
+
+#[test]
+fn kitwm_apps_filter_narrows_text_and_json() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin)
+        .args(["apps", "--filter", "echo", "--limit", "10"])
+        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .output()
+        .expect("run kitwm apps --filter");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("filter: echo"), "missing filter line: {s}");
+    assert!(s.to_ascii_lowercase().contains("echo"), "filtered output missing echo: {s}");
+
+    let json = Command::new(&bin)
+        .args(["apps", "--json", "--filter", "echo", "--limit", "10"])
+        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .output()
+        .expect("run kitwm apps --json --filter");
+    assert!(json.status.success(), "stderr: {}", String::from_utf8_lossy(&json.stderr));
+    let j = String::from_utf8_lossy(&json.stdout);
+    assert!(j.contains("\"path_commands\""), "missing path commands: {j}");
+    assert!(j.to_ascii_lowercase().contains("echo"), "json filtered output missing echo: {j}");
+}

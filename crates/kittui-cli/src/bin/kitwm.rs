@@ -58,6 +58,7 @@ struct Cli {
     launch_on_f12: bool,
     apps: bool,
     apps_limit: Option<usize>,
+    apps_filter: Option<String>,
     keymap: bool,
     keymap_path: Option<String>,
 }
@@ -97,6 +98,9 @@ fn parse_args() -> Result<Cli> {
             "--limit" => {
                 let v = args.next().ok_or_else(|| anyhow!("--limit N"))?;
                 out.apps_limit = Some(v.parse().map_err(|_| anyhow!("--limit expects integer"))?);
+            }
+            "--filter" => {
+                out.apps_filter = Some(args.next().ok_or_else(|| anyhow!("--filter QUERY"))?);
             }
             "--seconds" => {
                 let v = args.next().ok_or_else(|| anyhow!("--seconds N"))?;
@@ -214,7 +218,8 @@ SUBCOMMANDS\n\
                          'kitwm launch -- CMD ARGS'. Prints pid + argv.\n\
          apps            list launch candidates from PATH and /Applications\n\
                          (macOS). Shows default launcher resolution. Use\n\
-                         --limit N to bound output (default 50).\n\
+                         --limit N to bound output (default 50), --filter\n\
+                         QUERY to case-insensitively narrow candidates.\n\
          --launch-on-f12 intercept F12 in a running session and spawn\n\
                          KITWM_LAUNCH_CMD via /bin/sh -c (default: xterm).\n\
                          Footer shows last_launch_pid and log records result.\n\
@@ -1003,9 +1008,10 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
     let default_cmd = kittui_cli::session::launcher_command();
     let default_prog = default_cmd.split_whitespace().next().unwrap_or("xterm");
     let default_path = find_on_path(default_prog);
-    let path_cmds = path_commands(limit);
+    let query = cli.apps_filter.as_deref();
+    let path_cmds = filter_candidates(path_commands(5000), query, limit);
     #[cfg(target_os = "macos")]
-    let mac_apps = macos_apps(limit);
+    let mac_apps = filter_candidates(macos_apps(5000), query, limit);
     #[cfg(not(target_os = "macos"))]
     let mac_apps: Vec<String> = Vec::new();
     if cli.json {
@@ -1032,6 +1038,9 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
             .unwrap_or_else(|| "<not found on PATH>".to_string())
     );
     println!();
+    if let Some(q) = query {
+        println!("filter: {q}");
+    }
     println!("PATH commands (first {limit}):");
     for cmd in &path_cmds {
         println!("  {cmd}");
@@ -1104,4 +1113,16 @@ fn json_string_array(items: &[String]) -> String {
         .map(|s| format!("{:?}", s))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> Vec<String> {
+    let Some(query) = query else {
+        return items.into_iter().take(limit).collect();
+    };
+    let q = query.to_ascii_lowercase();
+    items
+        .into_iter()
+        .filter(|item| item.to_ascii_lowercase().contains(&q))
+        .take(limit)
+        .collect()
 }
