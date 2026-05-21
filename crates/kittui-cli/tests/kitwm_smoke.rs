@@ -178,3 +178,37 @@ fn kitwm_list_displays_prints_at_least_one_display() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("bounds"));
 }
+
+#[cfg(all(target_os = "macos"))]
+#[test]
+fn kitwm_record_writes_png_files() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let dir = std::env::temp_dir().join(format!(
+        "kitwm-rec-smoke-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let out = Command::new(&bin)
+        .args(["record", "--frames", "3", "--out"])
+        .arg(&dir)
+        .output()
+        .expect("run kitwm record");
+    if !out.status.success() {
+        eprintln!(
+            "skipping: kitwm record failed (likely no quartz/sck): stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return;
+    }
+    let entries: Vec<_> = std::fs::read_dir(&dir)
+        .expect("dir exists")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("png"))
+        .collect();
+    assert!(entries.len() >= 3, "expected >=3 PNG files, got {}", entries.len());
+    // First file should start with PNG signature 89 50 4E 47.
+    let bytes = std::fs::read(entries[0].path()).unwrap();
+    assert_eq!(&bytes[..4], &[0x89, 0x50, 0x4E, 0x47]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

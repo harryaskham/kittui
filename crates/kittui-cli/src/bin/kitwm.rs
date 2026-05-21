@@ -45,6 +45,9 @@ struct Cli {
     fps: Option<u32>,
     doctor: bool,
     json: bool,
+    record: bool,
+    record_frames: Option<u32>,
+    record_out: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -70,6 +73,14 @@ fn parse_args() -> Result<Cli> {
     while let Some(a) = args.next() {
         match a.as_str() {
             "doctor" => out.doctor = true,
+            "record" => out.record = true,
+            "--frames" => {
+                let v = args.next().ok_or_else(|| anyhow!("--frames N"))?;
+                out.record_frames = Some(v.parse().map_err(|_| anyhow!("--frames expects integer"))?);
+            }
+            "--out" => {
+                out.record_out = Some(args.next().ok_or_else(|| anyhow!("--out DIR"))?);
+            }
             "--json" => out.json = true,
             "--serve" => out.mode = Mode::Serve,
             "--attach" => out.mode = Mode::Attach,
@@ -145,7 +156,11 @@ fn print_help() {
 SUBCOMMANDS\n\
          doctor          print a diagnostics report (backends, displays,\n\
                          terminal probe, log status, version). Pass --json\n\
-                         for machine-readable output. Never enters raw mode.\n"
+                         for machine-readable output. Never enters raw mode.\n\
+         record          capture N frames from --capture/--backend target and\n\
+                         write them as PNG files to --out DIR (default\n\
+                         /tmp/kitwm-record-<unix-ts>). Defaults to 30 frames.\n\
+                         Never enters raw mode; safe for headless runs.\n"
     );
 }
 
@@ -192,6 +207,9 @@ fn real_main() -> Result<()> {
     // Inspection flags run cooked, never enter raw mode.
     if cli.doctor {
         return doctor_cmd(cli.json);
+    }
+    if cli.record {
+        return record_cmd(&cli);
     }
     if cli.list_windows {
         return list_windows_cmd();
@@ -575,4 +593,73 @@ fn doctor_cmd(json: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+fn record_cmd(cli: &Cli) -> Result<()> {
+    use kittui_quartz::QuartzServer;
+    use kittui_render_cpu::Pixmap;
+    use kittui_wm::compositor::{Compositor, Layout};
+
+    let frames_target = cli.record_frames.unwrap_or(30);
+    let out_dir = cli
+        .record_out
+        .clone()
+        .unwrap_or_else(|| {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("/tmp/kitwm-record-{ts}")
+        });
+    std::fs::create_dir_all(&out_dir)?;
+
+    // Resolve capture spec (reuses --capture/--pick-window logic).
+    let target = if cli.pick_window {
+        let windows = QuartzServer::list_app_windows();
+        let chosen = prompt_pick(&windows)?;
+        kittui_quartz::CaptureTarget::Window(chosen.id)
+    } else if let Some(spec) = cli.capture.as_deref() {
+        resolve_capture_spec(spec)?
+    } else {
+        kittui_quartz::CaptureTarget::MainDisplay
+    };
+
+    let server = QuartzServer::with_target(target);
+    let cell = kittui::CellSize::new(9, 18);
+    let compositor = Compositor::new(server, cell);
+    let layout = Layout::all_floating();
+
+    eprintln!("kitwm record: writing {frames_target} frames to {out_dir}");
+    let started = std::time::Instant::now();
+    for i in 0..frames_target {
+        let frames = compositor
+            .raw_frames(&layout)
+            .map_err(|e| anyhow!("capture failed at frame {i}: {e}"))?;
+        for (j, f) in frames.iter().enumerate() {
+            let mut pm = Pixmap::new(f.width, f.height);
+            pm.data_mut().copy_from_slice(&f.rgba);
+            let png = kittui_render_cpu::encode_png(&pm);
+            let path = format!("{out_dir}/frame-{:05}-win{}.png", i, j);
+            std::fs::write(&path, png)?;
+        }
+        if i % 10 == 0 {
+            eprintln!("  frame {i}/{frames_target}");
+        }
+    }
+    let elapsed = started.elapsed();
+    eprintln!(
+        "kitwm record: done. {} frames in {:.2}s ({:.1} fps). dir={}",
+        frames_target,
+        elapsed.as_secs_f32(),
+        frames_target as f32 / elapsed.as_secs_f32(),
+        out_dir
+    );
+    println!("{out_dir}");
+    Ok(())
+}
+
+#[cfg(not(all(target_os = "macos", feature = "quartz")))]
+fn record_cmd(_cli: &Cli) -> Result<()> {
+    Err(anyhow!("record requires --features quartz on macOS"))
 }
