@@ -145,8 +145,8 @@
               xorg.libXext
               libxkbcommon
               xorg.xeyes
-              xorg.xterm
-              xorg.xclock
+              xterm
+              xclock
             ];
 
           RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
