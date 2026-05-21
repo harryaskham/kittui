@@ -96,7 +96,7 @@ pub fn run_loop_with<S: XServer>(
     let mut stdin = io::stdin();
     let mut last_window_count = 0usize;
     let mut last_launch_pid: Option<u32> = None;
-    let keymap = load_runtime_keymap(&dbg);
+    let mut keymap = load_runtime_keymap(&dbg);
     let mut prefix_active = false;
     let mut last_keymap_action: Option<String> = None;
     let mut workspaces = WorkspaceState::default();
@@ -237,7 +237,18 @@ pub fn run_loop_with<S: XServer>(
                                     dbg.log(&format!("layout action: {msg}"));
                                 }
                                 Action::ReloadConfig => {
-                                    let msg = config_state.reload();
+                                    let loaded = load_runtime_keymap_result(&dbg);
+                                    let msg = match loaded {
+                                        Ok(new_keymap) => {
+                                            keymap = new_keymap;
+                                            config_state.reload_ok()
+                                        }
+                                        Err(e) => {
+                                            let msg = config_state.reload_err(&e.to_string());
+                                            dbg.log(&format!("keymap reload failed, keeping previous keymap: {e}"));
+                                            msg
+                                        }
+                                    };
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("config action: {msg}"));
                                 }
@@ -895,18 +906,24 @@ mod launcher_tests {
 }
 
 fn load_runtime_keymap(dbg: &Debugger) -> Keymap {
-    if let Ok(path) = std::env::var("KITTUI_WM_KEYMAP") {
-        match Keymap::load(std::path::Path::new(&path)) {
-            Ok(km) => {
-                dbg.log(&format!("loaded keymap from {path}"));
-                return km;
-            }
-            Err(e) => {
-                dbg.log(&format!("failed to load keymap {path}: {e}; using defaults"));
-            }
+    match load_runtime_keymap_result(dbg) {
+        Ok(km) => km,
+        Err(e) => {
+            dbg.log(&format!("failed to load runtime keymap: {e}; using defaults"));
+            crate::keymap::default_keymap()
         }
     }
-    crate::keymap::default_keymap()
+}
+
+fn load_runtime_keymap_result(dbg: &Debugger) -> Result<Keymap> {
+    if let Ok(path) = std::env::var("KITTUI_WM_KEYMAP") {
+        let km = Keymap::load(std::path::Path::new(&path))?;
+        dbg.log(&format!("loaded keymap from {path}"));
+        Ok(km)
+    } else {
+        dbg.log("loaded default keymap");
+        Ok(crate::keymap::default_keymap())
+    }
 }
 
 fn key_spec_for_event(ev: &InputEvent) -> Option<KeySpec> {
@@ -1274,16 +1291,27 @@ mod layout_state_tests {
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 struct ConfigState {
     reloads: u64,
+    last_error: Option<String>,
 }
 
 impl ConfigState {
-    fn reload(&mut self) -> String {
+    fn reload_ok(&mut self) -> String {
         self.reloads += 1;
+        self.last_error = None;
         format!("reload.config -> {}", self.label())
     }
 
+    fn reload_err(&mut self, err: &str) -> String {
+        self.reloads += 1;
+        self.last_error = Some(err.to_string());
+        format!("reload.config error -> {}", self.label())
+    }
+
     fn label(&self) -> String {
-        format!("reload#{}", self.reloads)
+        match &self.last_error {
+            Some(_) => format!("reload#{}:err", self.reloads),
+            None => format!("reload#{}", self.reloads),
+        }
     }
 }
 
@@ -1295,7 +1323,8 @@ mod config_state_tests {
     fn config_state_counts_reload() {
         let mut s = ConfigState::default();
         assert_eq!(s.label(), "reload#0");
-        assert_eq!(s.reload(), "reload.config -> reload#1");
-        assert_eq!(s.reload(), "reload.config -> reload#2");
+        assert_eq!(s.reload_ok(), "reload.config -> reload#1");
+        assert_eq!(s.reload_err("bad"), "reload.config error -> reload#2:err");
+        assert_eq!(s.reload_ok(), "reload.config -> reload#3");
     }
 }
