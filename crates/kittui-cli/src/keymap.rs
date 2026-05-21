@@ -274,6 +274,7 @@ bind p workspace.prev
 bind | split.vertical.launcher
 bind - split.horizontal.launcher
 bind Enter launch
+bind d launch
 bind l swap.right
 bind h swap.left
 bind k swap.up
@@ -298,6 +299,8 @@ mod tests {
         assert!(rendered.contains("workspace.new"));
         assert!(rendered.contains("C-a |"));
         assert!(rendered.contains("split.vertical.launcher"));
+        assert!(rendered.contains("C-a d"));
+        assert!(rendered.contains("launch"));
         assert!(rendered.contains("C-a C-h"));
         assert!(rendered.contains("focus.left"));
     }
