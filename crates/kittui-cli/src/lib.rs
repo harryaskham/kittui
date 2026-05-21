@@ -7,3 +7,4 @@
 
 pub mod session;
 pub mod daemon;
+pub mod keymap;

@@ -56,6 +56,8 @@ struct Cli {
     launch: bool,
     launch_args: Vec<String>,
     launch_on_f12: bool,
+    keymap: bool,
+    keymap_path: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -88,6 +90,7 @@ fn parse_args() -> Result<Cli> {
                 out.launch_args = args.by_ref().collect();
                 break;
             }
+            "keymap" => out.keymap = true,
             "--seconds" => {
                 let v = args.next().ok_or_else(|| anyhow!("--seconds N"))?;
                 out.bench_seconds = Some(v.parse().map_err(|_| anyhow!("--seconds expects integer"))?);
@@ -105,6 +108,9 @@ fn parse_args() -> Result<Cli> {
                 out.record_delay_ms = Some(v.parse().map_err(|_| anyhow!("--delay-ms expects integer"))?);
             }
             "--json" => out.json = true,
+            "--keymap" => {
+                out.keymap_path = Some(args.next().ok_or_else(|| anyhow!("--keymap PATH"))?);
+            }
             "-c" | "--command" => {
                 out.attach_command = Some(args.next().ok_or_else(|| anyhow!("--command CMD"))?);
             }
@@ -201,7 +207,10 @@ SUBCOMMANDS\n\
                          'kitwm launch -- CMD ARGS'. Prints pid + argv.\n\
          --launch-on-f12 intercept F12 in a running session and spawn\n\
                          KITWM_LAUNCH_CMD via /bin/sh -c (default: xterm).\n\
-                         Footer shows last_launch_pid and log records result.\n"
+                         Footer shows last_launch_pid and log records result.\n\
+         keymap          print resolved keybinding config. Defaults to the\n\
+                         built-in tmux-like Ctrl-A prefix map; pass\n\
+                         --keymap PATH to parse and print a custom file.\n"
     );
 }
 
@@ -260,6 +269,9 @@ fn real_main() -> Result<()> {
     }
     if cli.launch {
         return launch_cmd(&cli);
+    }
+    if cli.keymap {
+        return keymap_cmd(&cli);
     }
     if cli.list_windows {
         return list_windows_cmd();
@@ -956,5 +968,15 @@ fn launch_cmd(cli: &Cli) -> Result<()> {
         .spawn()
         .map_err(|e| anyhow!("launch {:?}: {e}", argv))?;
     println!("kitwm launch: pid={} argv={:?}", child.id(), argv);
+    Ok(())
+}
+
+fn keymap_cmd(cli: &Cli) -> Result<()> {
+    let km = if let Some(path) = &cli.keymap_path {
+        kittui_cli::keymap::Keymap::load(std::path::Path::new(path))?
+    } else {
+        kittui_cli::keymap::default_keymap()
+    };
+    print!("{}", km.render_table());
     Ok(())
 }

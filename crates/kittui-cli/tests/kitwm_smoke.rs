@@ -417,3 +417,37 @@ fn kitwm_launch_spawns_command_and_prints_pid() {
     assert!(s.contains("kitwm launch: pid="), "missing pid: {s}");
     assert!(s.contains("/bin/echo"), "missing argv: {s}");
 }
+
+#[test]
+fn kitwm_keymap_prints_default_ctrl_a_bindings() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin)
+        .arg("keymap")
+        .output()
+        .expect("run kitwm keymap");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("prefix: C-a"), "missing prefix: {s}");
+    assert!(s.contains("C-a c") && s.contains("workspace.new"), "missing workspace binding: {s}");
+    assert!(s.contains("C-a |") && s.contains("split.vertical.launcher"), "missing split binding: {s}");
+    assert!(s.contains("C-a C-h") && s.contains("focus.left"), "missing focus binding: {s}");
+}
+
+#[test]
+fn kitwm_keymap_parses_custom_file() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let path = std::env::temp_dir().join(format!("kitwm-keymap-{}.conf", std::process::id()));
+    std::fs::write(&path, "prefix C-x\nbind y custom.yank\n").unwrap();
+    let out = Command::new(&bin)
+        .args(["keymap", "--keymap"])
+        .arg(&path)
+        .output()
+        .expect("run kitwm keymap --keymap");
+    let _ = std::fs::remove_file(&path);
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("prefix: C-x"), "missing custom prefix: {s}");
+    assert!(s.contains("C-x y") && s.contains("custom.yank"), "missing custom binding: {s}");
+}
