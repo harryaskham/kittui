@@ -638,15 +638,16 @@ pub mod compositor {
 /// elsewhere. Per-window mode (Floating / Tiled) and chrome theme live on
 /// the compositor; backends only have to honour the small `XServer` contract.
 pub mod multi {
-    use std::collections::HashMap;
-
     use kittui::{CellRect, CellSize, Rgba, Scene};
     use kittui_core::geom::PxRect;
     use kittui_core::node::{Corners, Layer, Node};
     use kittui_core::paint::Paint;
     use kittui_input::{InputEvent, MouseButton};
-    use kittui_xvfb::{XButton, XError, XPointerEvent, XServer, XWindowId};
+    use kittui_xvfb::{XButton, XCapture, XError, XPointerEvent, XServer, XWindow, XWindowId};
     use parking_lot::Mutex;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     /// Globally-unique window identifier across all attached backends.
     #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -687,9 +688,171 @@ pub mod multi {
         }
     }
 
+    /// Background worker that continuously captures one backend's windows
+    /// and stores the latest frame per `XWindowId` in a slot the UI thread
+    /// reads non-blockingly.
+    ///
+    /// A `Pump` keeps a single OS thread per backend. The thread loops:
+    /// 1. call `backend.windows()`,
+    /// 2. for each window, call `backend.capture(id)`,
+    /// 3. store `(window_metadata, capture)` in the slot keyed by `XWindowId`,
+    /// 4. sleep for a small interval (~16ms) and repeat.
+    ///
+    /// The UI thread reads the slot via `Pump::snapshot()` which never
+    /// blocks: missing windows return empty, slow captures stale until
+    /// they catch up. Dropping the `Pump` signals the worker to exit on
+    /// its next iteration.
+    pub struct Pump {
+        backend: Arc<dyn XServer + Send + Sync>,
+        slot: Arc<PumpSlot>,
+        stop: Arc<AtomicBool>,
+        _worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    /// Latest-frame-wins snapshot the Pump worker writes to and the UI
+    /// thread reads from. `XCapture` is the heavy part (RGBA bytes).
+    #[derive(Default)]
+    struct PumpSlot {
+        windows: Mutex<Vec<XWindow>>,
+        captures: Mutex<HashMap<XWindowId, XCapture>>,
+        last_err: Mutex<Option<String>>,
+    }
+
+    /// What the Pump's UI-thread reader gets back for one window: the
+    /// last-known window metadata + the last-known capture (if any).
+    #[derive(Clone)]
+    pub struct PumpFrame {
+        /// Window metadata as of the most recent successful enumeration.
+        pub window: XWindow,
+        /// Last successful capture; `None` if the worker hasn't captured
+        /// this window yet.
+        pub capture: Option<XCapture>,
+    }
+
+    impl Pump {
+        /// Spawn a worker thread that captures `backend`'s windows in a
+        /// loop. Returns immediately; first frames arrive asynchronously.
+        pub fn spawn(backend: Arc<dyn XServer + Send + Sync>) -> Self {
+            let slot = Arc::new(PumpSlot::default());
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker = {
+                let backend = backend.clone();
+                let slot = slot.clone();
+                let stop = stop.clone();
+                std::thread::Builder::new()
+                    .name("kittui-wm-pump".into())
+                    .spawn(move || pump_worker(backend, slot, stop))
+                    .ok()
+            };
+            Self {
+                backend,
+                slot,
+                stop,
+                _worker: worker,
+            }
+        }
+
+        /// Non-blocking read of the current frames for every known window.
+        pub fn snapshot(&self) -> Vec<PumpFrame> {
+            let windows = self.slot.windows.lock().clone();
+            let captures = self.slot.captures.lock();
+            windows
+                .into_iter()
+                .map(|w| {
+                    let capture = captures.get(&w.id).cloned();
+                    PumpFrame { window: w, capture }
+                })
+                .collect()
+        }
+
+        /// Last recorded backend error, if any. Cleared on next success.
+        pub fn last_error(&self) -> Option<String> {
+            self.slot.last_err.lock().clone()
+        }
+
+        /// Forward an input event to the underlying backend. Pointer/key
+        /// injection runs on the calling thread because injection is fast
+        /// (every backend's `inject_*` is non-blocking by contract).
+        pub fn inject_pointer(&self, ev: XPointerEvent) -> Result<(), XError> {
+            self.backend.inject_pointer(ev)
+        }
+
+        /// See [`Pump::inject_pointer`].
+        pub fn inject_key(&self, sym: u32, pressed: bool) -> Result<(), XError> {
+            self.backend.inject_key(sym, pressed)
+        }
+    }
+
+    impl Drop for Pump {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            // Don't join: the worker may be inside a blocking capture and
+            // we don't want the UI thread to wait. The thread is a daemon
+            // in effect and exits on its own once stop is observed.
+        }
+    }
+
+    /// `Arc<dyn XServer>` adapter so a backend can live behind a `Pump`
+    /// (which holds an Arc) while still satisfying the compositor's
+    /// `Box<dyn XServer + Send + Sync>` synchronous slot.
+    struct SharedServer(Arc<dyn XServer + Send + Sync>);
+
+    impl XServer for SharedServer {
+        fn windows(&self) -> Result<Vec<XWindow>, XError> {
+            self.0.windows()
+        }
+        fn capture(&self, id: XWindowId) -> Result<XCapture, XError> {
+            self.0.capture(id)
+        }
+        fn inject_pointer(&self, ev: XPointerEvent) -> Result<(), XError> {
+            self.0.inject_pointer(ev)
+        }
+        fn inject_key(&self, sym: u32, pressed: bool) -> Result<(), XError> {
+            self.0.inject_key(sym, pressed)
+        }
+    }
+
+    fn pump_worker(
+        backend: Arc<dyn XServer + Send + Sync>,
+        slot: Arc<PumpSlot>,
+        stop: Arc<AtomicBool>,
+    ) {
+        let tick = std::time::Duration::from_millis(16);
+        while !stop.load(Ordering::Relaxed) {
+            match backend.windows() {
+                Ok(windows) => {
+                    *slot.windows.lock() = windows.clone();
+                    *slot.last_err.lock() = None;
+                    for w in &windows {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        match backend.capture(w.id) {
+                            Ok(cap) => {
+                                slot.captures.lock().insert(w.id, cap);
+                            }
+                            Err(e) => {
+                                *slot.last_err.lock() =
+                                    Some(format!("capture {:?}: {e}", w.id));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    *slot.last_err.lock() = Some(format!("windows: {e}"));
+                }
+            }
+            std::thread::sleep(tick);
+        }
+    }
+
     /// Multi-backend compositor. Cheap to clone (interior mutability).
     pub struct MultiCompositor {
         backends: Vec<Box<dyn XServer + Send + Sync>>,
+        /// Optional per-backend `Pump`. When attached via `attach_pump`,
+        /// the UI-thread compose path can read frames non-blockingly via
+        /// `compose_via_pumps`. Sync compose (`compose`) ignores pumps.
+        pumps: Vec<Option<Pump>>,
         cell: CellSize,
         modes: Mutex<HashMap<WindowKey, WindowMode>>,
         focused: Mutex<Option<WindowKey>>,
@@ -700,15 +863,32 @@ pub mod multi {
         pub fn new(cell: CellSize) -> Self {
             Self {
                 backends: Vec::new(),
+                pumps: Vec::new(),
                 cell,
                 modes: Mutex::new(HashMap::new()),
                 focused: Mutex::new(None),
             }
         }
 
-        /// Attach a backend; returns its index.
+        /// Attach a backend (synchronous capture path); returns its index.
         pub fn attach(&mut self, server: Box<dyn XServer + Send + Sync>) -> usize {
             self.backends.push(server);
+            self.pumps.push(None);
+            self.backends.len() - 1
+        }
+
+        /// Attach a backend and spawn a `Pump` worker thread for it. The
+        /// compositor stores a synchronous handle so existing sync API
+        /// keeps working; new async API reads from the pump's slot.
+        ///
+        /// Returns the backend's index.
+        pub fn attach_pump(
+            &mut self,
+            backend: Arc<dyn XServer + Send + Sync>,
+        ) -> usize {
+            let pump = Pump::spawn(backend.clone());
+            self.backends.push(Box::new(SharedServer(backend)));
+            self.pumps.push(Some(pump));
             self.backends.len() - 1
         }
 
@@ -787,6 +967,87 @@ pub mod multi {
                 }
             }
             Ok(out)
+        }
+
+        /// Non-blocking compose that reads cached frames from attached
+        /// `Pump`s instead of calling `XServer::capture` synchronously.
+        ///
+        /// Backends attached via `attach` (no pump) are skipped. Backends
+        /// attached via `attach_pump` contribute every window the pump
+        /// has seen so far; if a capture hasn't arrived yet for a window
+        /// the scene's image layer is omitted but the border chrome still
+        /// renders, so the user sees a placeholder until the first frame
+        /// lands.
+        ///
+        /// This method never blocks on backend work and is the path the
+        /// daemon's UI thread should call once `bd-fb5d9d` lands.
+        pub fn compose_via_pumps(
+            &self,
+            layout: &Layout,
+        ) -> Vec<(WindowKey, Scene)> {
+            let modes = self.modes.lock().clone();
+            let mut out = Vec::new();
+            for (i, pump_opt) in self.pumps.iter().enumerate() {
+                let Some(pump) = pump_opt else { continue };
+                for frame in pump.snapshot() {
+                    let key = WindowKey {
+                        backend: i,
+                        window: frame.window.id,
+                    };
+                    let mode = modes.get(&key).copied().unwrap_or(WindowMode::Floating);
+                    let target_rect = match mode {
+                        WindowMode::Floating => frame.window.rect,
+                        WindowMode::Tiled => layout.tiled_rect(key).unwrap_or(frame.window.rect),
+                    };
+                    let cols = ((target_rect.width / self.cell.width_px as f32).ceil() as u16)
+                        .max(1);
+                    let rows = ((target_rect.height / self.cell.height_px as f32).ceil() as u16)
+                        .max(1);
+                    let footprint = CellRect::new(
+                        (target_rect.origin.0 / self.cell.width_px as f32) as u16,
+                        (target_rect.origin.1 / self.cell.height_px as f32) as u16,
+                        cols,
+                        rows,
+                    );
+                    let rect = PxRect::new(0.0, 0.0, target_rect.width, target_rect.height);
+                    let border = backend_color(i);
+                    let bg = Rgba::parse("#00000080").unwrap();
+                    let mut layers = Vec::with_capacity(2);
+                    if let Some(cap) = frame.capture {
+                        let png = kittui_render_cpu::encode_png(&{
+                            let mut p = kittui_render_cpu::Pixmap::new(cap.width, cap.height);
+                            p.data_mut().copy_from_slice(&cap.rgba);
+                            p
+                        });
+                        layers.push(Layer::anon(Node::Image {
+                            rect,
+                            src: kittui_core::node::ImageRef::Bytes { bytes: png },
+                            fit: kittui_core::node::Fit::Stretch,
+                            tint: None,
+                        }));
+                    }
+                    layers.push(Layer::anon(Node::Rect {
+                        rect,
+                        fill: Paint::Solid { color: bg },
+                        stroke: Some(kittui_core::node::Stroke {
+                            align: kittui_core::node::StrokeAlign::Inside,
+                            width_px: 1.5,
+                            paint: Paint::Solid { color: border },
+                        }),
+                        corners: Corners::uniform(4.0),
+                    }));
+                    out.push((
+                        key,
+                        Scene {
+                            footprint,
+                            cell_size: self.cell,
+                            layers,
+                            animation: None,
+                        },
+                    ));
+                }
+            }
+            out
         }
 
         /// Hit-test in cell-space, returning the topmost window across all backends.
@@ -959,6 +1220,90 @@ pub mod multi {
             assert_eq!(routed[0].0.backend, 1);
             assert!(matches!(routed[0].1, XPointerEvent::Move { .. }));
             assert!(matches!(routed[1].1, XPointerEvent::Press { .. }));
+        }
+
+        // ---- Pump tests ----------------------------------------------
+
+        struct SlowFakeServer {
+            inner: FakeServer,
+            delay: std::time::Duration,
+        }
+
+        impl XServer for SlowFakeServer {
+            fn windows(&self) -> Result<Vec<kittui_xvfb::XWindow>, XError> {
+                self.inner.windows()
+            }
+            fn capture(
+                &self,
+                id: XWindowId,
+            ) -> Result<kittui_xvfb::XCapture, XError> {
+                std::thread::sleep(self.delay);
+                self.inner.capture(id)
+            }
+            fn inject_pointer(&self, ev: XPointerEvent) -> Result<(), XError> {
+                self.inner.inject_pointer(ev)
+            }
+            fn inject_key(&self, sym: u32, pressed: bool) -> Result<(), XError> {
+                self.inner.inject_key(sym, pressed)
+            }
+        }
+
+        #[test]
+        fn pump_returns_frames_asynchronously() {
+            let server = std::sync::Arc::new(server_a());
+            let pump = Pump::spawn(server);
+            // Poll up to 1s for the first frame to arrive.
+            let mut frame_seen = false;
+            for _ in 0..50 {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                let snap = pump.snapshot();
+                if !snap.is_empty() && snap[0].capture.is_some() {
+                    frame_seen = true;
+                    break;
+                }
+            }
+            assert!(frame_seen, "pump never produced a frame");
+        }
+
+        #[test]
+        fn pump_does_not_block_compose_via_pumps() {
+            // Slow backend: each capture takes 500ms. With a 33ms UI frame
+            // budget, sync compose() would blow it; compose_via_pumps()
+            // must return effectively instantly because it only reads the
+            // pump's cached slot.
+            let slow = std::sync::Arc::new(SlowFakeServer {
+                inner: server_a(),
+                delay: std::time::Duration::from_millis(500),
+            });
+            let fast = std::sync::Arc::new(server_b());
+            let mut comp = MultiCompositor::new(CellSize::new(8, 16));
+            comp.attach_pump(slow);
+            comp.attach_pump(fast);
+
+            // Let the pumps warm up so each has at least one frame.
+            for _ in 0..50 {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                let scenes = comp.compose_via_pumps(&Layout::empty());
+                if scenes.len() == 2
+                    && scenes
+                        .iter()
+                        .all(|(_, s)| s.layers.iter().any(|l| matches!(l.root, Node::Image { .. })))
+                {
+                    break;
+                }
+            }
+
+            // Now measure: every compose_via_pumps call must finish well
+            // under the slow capture's 500ms latency.
+            let start = std::time::Instant::now();
+            for _ in 0..10 {
+                let _ = comp.compose_via_pumps(&Layout::empty());
+            }
+            let elapsed = start.elapsed();
+            assert!(
+                elapsed < std::time::Duration::from_millis(100),
+                "compose_via_pumps blocked on slow backend: {elapsed:?}"
+            );
         }
     }
 }

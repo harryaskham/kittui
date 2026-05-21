@@ -47,9 +47,10 @@ fn kitwm_fake_backend_renders_frames_then_exits() {
         .spawn()
         .expect("spawn kitwm");
 
-    // Let it render for ~1.5s, then SIGTERM (the binary's signal restore
-    // will leave the terminal clean and exit gracefully).
-    std::thread::sleep(Duration::from_millis(1500));
+    // Let it render for ~4s under parallel test load (debug-build first
+    // frame can take >1.5s on heavily-loaded CI), then SIGTERM. The
+    // binary's signal restore leaves the terminal clean and exits.
+    std::thread::sleep(Duration::from_millis(4000));
     let _ = child.kill();
     let _ = child.wait();
 
