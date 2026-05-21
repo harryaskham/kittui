@@ -468,3 +468,22 @@ fn kitwm_apps_lists_candidates_and_default() {
     assert!(s.contains("default_resolved: /bin/echo"), "missing resolved path: {s}");
     assert!(s.contains("PATH commands"), "missing PATH commands: {s}");
 }
+
+#[test]
+fn kitwm_apps_json_lists_candidates_and_default() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin)
+        .args(["apps", "--json", "--limit", "5"])
+        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .output()
+        .expect("run kitwm apps --json");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    let t = s.trim();
+    assert!(t.starts_with('{') && t.ends_with('}'), "not JSON-ish: {s}");
+    assert!(s.contains("\"default_command\": \"/bin/echo hello\""), "missing default: {s}");
+    assert!(s.contains("\"default_resolved\": \"/bin/echo\""), "missing resolved path: {s}");
+    assert!(s.contains("\"path_commands\""), "missing path commands: {s}");
+    assert!(s.contains("\"macos_apps\""), "missing macos apps: {s}");
+}

@@ -1003,6 +1003,24 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
     let default_cmd = kittui_cli::session::launcher_command();
     let default_prog = default_cmd.split_whitespace().next().unwrap_or("xterm");
     let default_path = find_on_path(default_prog);
+    let path_cmds = path_commands(limit);
+    #[cfg(target_os = "macos")]
+    let mac_apps = macos_apps(limit);
+    #[cfg(not(target_os = "macos"))]
+    let mac_apps: Vec<String> = Vec::new();
+    if cli.json {
+        println!(
+            "{{\"default_command\": {:?}, \"default_resolved\": {}, \"path_commands\": [{}], \"macos_apps\": [{}]}}",
+            default_cmd,
+            default_path
+                .as_ref()
+                .map(|p| format!("{:?}", p.display().to_string()))
+                .unwrap_or_else(|| "null".to_string()),
+            json_string_array(&path_cmds),
+            json_string_array(&mac_apps),
+        );
+        return Ok(());
+    }
     println!("kitwm apps");
     println!("==========");
     println!("default: {default_cmd}");
@@ -1015,14 +1033,14 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
     );
     println!();
     println!("PATH commands (first {limit}):");
-    for cmd in path_commands(limit) {
+    for cmd in &path_cmds {
         println!("  {cmd}");
     }
     #[cfg(target_os = "macos")]
     {
         println!();
         println!("macOS applications (first {limit}):");
-        for app in macos_apps(limit) {
+        for app in &mac_apps {
             println!("  {app}");
         }
     }
@@ -1078,4 +1096,12 @@ fn macos_apps(limit: usize) -> Vec<String> {
         if out.len() >= limit { break; }
     }
     out.into_iter().take(limit).collect()
+}
+
+fn json_string_array(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|s| format!("{:?}", s))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
