@@ -132,8 +132,10 @@ fn handle_request(
         ),
         "WINDOWS" => windows_reply(),
         "DISPLAYS" => displays_reply(),
+        "APPS" => apps_reply(50),
+        "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => {
-            "PING | STATUS | WINDOWS | DISPLAYS | QUIT | HELP\n".to_string()
+            "PING | STATUS | WINDOWS | DISPLAYS | APPS | APPS_JSON | QUIT | HELP\n".to_string()
         }
         "QUIT" => {
             quit.store(true, Ordering::SeqCst);
@@ -298,9 +300,116 @@ pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
         // Single-line replies don't send END; break after one if it
         // doesn't look like a known multi-line header.
         let first = out.lines().next().unwrap_or("");
-        if !first.starts_with("WINDOWS ") && !first.starts_with("DISPLAYS ") {
+        if !first.starts_with("WINDOWS ") && !first.starts_with("DISPLAYS ") && !first.starts_with("APPS ") {
             break;
         }
     }
     Ok(out)
+}
+
+fn apps_reply(limit: usize) -> String {
+    use std::fmt::Write;
+    let default_cmd = crate::session::launcher_command();
+    let default_prog = default_cmd.split_whitespace().next().unwrap_or("xterm");
+    let default_path = find_on_path(default_prog)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "<not found on PATH>".to_string());
+    let path_cmds = path_commands(limit);
+    #[cfg(target_os = "macos")]
+    let mac_apps = macos_apps(limit);
+    #[cfg(not(target_os = "macos"))]
+    let mac_apps: Vec<String> = Vec::new();
+
+    let mut out = String::new();
+    let _ = writeln!(out, "APPS default={default_cmd:?} resolved={default_path:?}");
+    let _ = writeln!(out, "PATH_COMMANDS {}", path_cmds.len());
+    for cmd in path_cmds {
+        let _ = writeln!(out, "  {cmd}");
+    }
+    let _ = writeln!(out, "MACOS_APPS {}", mac_apps.len());
+    for app in mac_apps {
+        let _ = writeln!(out, "  {app}");
+    }
+    out.push_str("END\n");
+    out
+}
+
+fn apps_json_reply(limit: usize) -> String {
+    let default_cmd = crate::session::launcher_command();
+    let default_prog = default_cmd.split_whitespace().next().unwrap_or("xterm");
+    let default_path = find_on_path(default_prog);
+    let path_cmds = path_commands(limit);
+    #[cfg(target_os = "macos")]
+    let mac_apps = macos_apps(limit);
+    #[cfg(not(target_os = "macos"))]
+    let mac_apps: Vec<String> = Vec::new();
+    format!(
+        "{{\"default_command\": {:?}, \"default_resolved\": {}, \"path_commands\": [{}], \"macos_apps\": [{}]}}\n",
+        default_cmd,
+        default_path
+            .as_ref()
+            .map(|p| format!("{:?}", p.display().to_string()))
+            .unwrap_or_else(|| "null".to_string()),
+        json_string_array(&path_cmds),
+        json_string_array(&mac_apps),
+    )
+}
+
+fn find_on_path(program: &str) -> Option<PathBuf> {
+    if program.contains('/') {
+        let p = PathBuf::from(program);
+        return p.exists().then_some(p);
+    }
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let p = dir.join(program);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn path_commands(limit: usize) -> Vec<String> {
+    let mut out = std::collections::BTreeSet::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let Ok(read) = std::fs::read_dir(dir) else { continue };
+            for ent in read.flatten() {
+                let path = ent.path();
+                if !path.is_file() { continue; }
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+                if name.starts_with('.') { continue; }
+                out.insert(name.to_string());
+                if out.len() >= limit { break; }
+            }
+            if out.len() >= limit { break; }
+        }
+    }
+    out.into_iter().take(limit).collect()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_apps(limit: usize) -> Vec<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for root in ["/Applications", "/System/Applications"] {
+        let Ok(read) = std::fs::read_dir(root) else { continue };
+        for ent in read.flatten() {
+            let path = ent.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("app") { continue; }
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+            out.insert(name.trim_end_matches(".app").to_string());
+            if out.len() >= limit { break; }
+        }
+        if out.len() >= limit { break; }
+    }
+    out.into_iter().take(limit).collect()
+}
+
+fn json_string_array(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|s| format!("{:?}", s))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

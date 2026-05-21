@@ -487,3 +487,57 @@ fn kitwm_apps_json_lists_candidates_and_default() {
     assert!(s.contains("\"path_commands\""), "missing path commands: {s}");
     assert!(s.contains("\"macos_apps\""), "missing macos apps: {s}");
 }
+
+#[cfg(all(target_os = "macos"))]
+#[test]
+fn kitwm_attach_apps_verbs_round_trip() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let sock = std::env::temp_dir().join(format!(
+        "kitwm-apps-verb-smoke-{}.sock",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&sock);
+    let mut server = std::process::Command::new(&bin)
+        .arg("--serve")
+        .env("KITWM_SOCK", &sock)
+        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn --serve");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !sock.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(sock.exists(), "daemon did not bind");
+
+    let apps = Command::new(&bin)
+        .args(["--attach", "-c", "APPS"])
+        .env("KITWM_SOCK", &sock)
+        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .output()
+        .expect("run APPS");
+    assert!(apps.status.success(), "stderr: {}", String::from_utf8_lossy(&apps.stderr));
+    let s = String::from_utf8_lossy(&apps.stdout);
+    assert!(s.contains("APPS default=\"/bin/echo hello\""), "missing APPS header: {s}");
+    assert!(s.contains("PATH_COMMANDS"), "missing PATH commands: {s}");
+
+    let json = Command::new(&bin)
+        .args(["--attach", "-c", "APPS_JSON"])
+        .env("KITWM_SOCK", &sock)
+        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .output()
+        .expect("run APPS_JSON");
+    assert!(json.status.success(), "stderr: {}", String::from_utf8_lossy(&json.stderr));
+    let j = String::from_utf8_lossy(&json.stdout);
+    assert!(j.contains("\"default_command\": \"/bin/echo hello\""), "missing json default: {j}");
+    assert!(j.contains("\"path_commands\""), "missing path commands json: {j}");
+
+    let _ = Command::new(&bin)
+        .arg("--kill")
+        .env("KITWM_SOCK", &sock)
+        .output();
+    let _ = server.wait();
+    let _ = std::fs::remove_file(&sock);
+}
