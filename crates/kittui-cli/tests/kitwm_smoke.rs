@@ -212,3 +212,35 @@ fn kitwm_record_writes_png_files() {
     assert_eq!(&bytes[..4], &[0x89, 0x50, 0x4E, 0x47]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(all(target_os = "macos"))]
+#[test]
+fn kitwm_record_apng_writes_single_file() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let dir = std::env::temp_dir().join(format!(
+        "kitwm-apng-smoke-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let out = Command::new(&bin)
+        .args(["record", "--frames", "4", "--apng", "--delay-ms", "50", "--out"])
+        .arg(&dir)
+        .output()
+        .expect("run kitwm record --apng");
+    if !out.status.success() {
+        eprintln!("skipping: stderr={}", String::from_utf8_lossy(&out.stderr));
+        return;
+    }
+    let apng = dir.join("kitwm.apng");
+    assert!(apng.exists(), "kitwm.apng missing at {apng:?}");
+    let bytes = std::fs::read(&apng).unwrap();
+    // PNG signature.
+    assert_eq!(&bytes[..4], &[0x89, 0x50, 0x4E, 0x47]);
+    // APNG marker chunk 'acTL' must be present.
+    assert!(
+        bytes.windows(4).any(|w| w == b"acTL"),
+        "no acTL chunk -> not an APNG"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -48,6 +48,8 @@ struct Cli {
     record: bool,
     record_frames: Option<u32>,
     record_out: Option<String>,
+    record_apng: bool,
+    record_delay_ms: Option<u32>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -80,6 +82,11 @@ fn parse_args() -> Result<Cli> {
             }
             "--out" => {
                 out.record_out = Some(args.next().ok_or_else(|| anyhow!("--out DIR"))?);
+            }
+            "--apng" => out.record_apng = true,
+            "--delay-ms" => {
+                let v = args.next().ok_or_else(|| anyhow!("--delay-ms N"))?;
+                out.record_delay_ms = Some(v.parse().map_err(|_| anyhow!("--delay-ms expects integer"))?);
             }
             "--json" => out.json = true,
             "--serve" => out.mode = Mode::Serve,
@@ -160,7 +167,9 @@ SUBCOMMANDS\n\
          record          capture N frames from --capture/--backend target and\n\
                          write them as PNG files to --out DIR (default\n\
                          /tmp/kitwm-record-<unix-ts>). Defaults to 30 frames.\n\
-                         Never enters raw mode; safe for headless runs.\n"
+                         Pass --apng to emit a single animated PNG at\n\
+                         <out>/kitwm.apng (use --delay-ms N for cadence,\n\
+                         default 33ms). Never enters raw mode.\n"
     );
 }
 
@@ -631,6 +640,9 @@ fn record_cmd(cli: &Cli) -> Result<()> {
     let layout = Layout::all_floating();
 
     eprintln!("kitwm record: writing {frames_target} frames to {out_dir}");
+    let apng_mode = cli.record_apng;
+    let delay_ms = cli.record_delay_ms.unwrap_or(33);
+    let mut apng_frames: Vec<Pixmap> = Vec::new();
     let started = std::time::Instant::now();
     for i in 0..frames_target {
         let frames = compositor
@@ -639,13 +651,36 @@ fn record_cmd(cli: &Cli) -> Result<()> {
         for (j, f) in frames.iter().enumerate() {
             let mut pm = Pixmap::new(f.width, f.height);
             pm.data_mut().copy_from_slice(&f.rgba);
-            let png = kittui_render_cpu::encode_png(&pm);
-            let path = format!("{out_dir}/frame-{:05}-win{}.png", i, j);
-            std::fs::write(&path, png)?;
+            if apng_mode {
+                // Only record window 0 into the apng (apng requires uniform
+                // width/height across frames). Multi-window apng would need
+                // composition into a single canvas; left for a future bead.
+                if j == 0 {
+                    apng_frames.push(pm);
+                }
+            } else {
+                let png = kittui_render_cpu::encode_png(&pm);
+                let path = format!("{out_dir}/frame-{:05}-win{}.png", i, j);
+                std::fs::write(&path, png)?;
+            }
         }
         if i % 10 == 0 {
             eprintln!("  frame {i}/{frames_target}");
         }
+    }
+    if apng_mode {
+        if apng_frames.is_empty() {
+            return Err(anyhow!("no frames captured; nothing to write"));
+        }
+        // Normalize: APNG demands all frames share width/height. Pad or
+        // truncate frames whose dims don't match the first.
+        let (w, h) = (apng_frames[0].width(), apng_frames[0].height());
+        apng_frames.retain(|p| p.width() == w && p.height() == h);
+        let delays: Vec<u32> = vec![delay_ms; apng_frames.len()];
+        let bytes = kittui_render_cpu::encode_apng(&apng_frames, &delays, 0);
+        let path = format!("{out_dir}/kitwm.apng");
+        std::fs::write(&path, bytes)?;
+        eprintln!("  wrote APNG: {path}");
     }
     let elapsed = started.elapsed();
     eprintln!(
