@@ -103,6 +103,7 @@ pub fn run_loop_with<S: XServer>(
     let mut focus_state = FocusState::default();
     let mut swap_state = SwapState::default();
     let mut toggle_state = ToggleState::default();
+    let mut layout_state = LayoutState::default();
     let mut split_state = SplitState::default();
     let mut launcher_overlay = LauncherOverlay::default();
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
@@ -228,6 +229,11 @@ pub fn run_loop_with<S: XServer>(
                                     let msg = toggle_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("toggle action: {msg}"));
+                                }
+                                Action::ToggleSplit | Action::BalanceWindows => {
+                                    let msg = layout_state.apply(&action);
+                                    last_keymap_action = Some(msg.clone());
+                                    dbg.log(&format!("layout action: {msg}"));
                                 }
                                 Action::Quit => {
                                     quit = true;
@@ -385,11 +391,12 @@ pub fn run_loop_with<S: XServer>(
                 };
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
                     footer_row,
                     frame,
                     workspaces.label(),
                     split_state.label(),
+                    layout_state.label(),
                     focus_state.label(),
                     swap_state.label(),
                     toggle_state.label(),
@@ -1208,5 +1215,51 @@ mod toggle_state_tests {
         assert_eq!(t.apply(&Action::FullscreenToggle), "fullscreen.toggle -> full=true float=false");
         assert_eq!(t.apply(&Action::FloatToggle), "float.toggle -> full=true float=true");
         assert_eq!(t.apply(&Action::FullscreenToggle), "fullscreen.toggle -> full=false float=true");
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct LayoutState {
+    split_axis: &'static str,
+    balances: u64,
+}
+
+impl Default for LayoutState {
+    fn default() -> Self {
+        Self { split_axis: "vertical", balances: 0 }
+    }
+}
+
+impl LayoutState {
+    fn apply(&mut self, action: &Action) -> String {
+        match action {
+            Action::ToggleSplit => {
+                self.split_axis = if self.split_axis == "vertical" { "horizontal" } else { "vertical" };
+                format!("toggle.split -> {}", self.label())
+            }
+            Action::BalanceWindows => {
+                self.balances += 1;
+                format!("balance.windows -> {}", self.label())
+            }
+            other => format!("layout ignored action {other}"),
+        }
+    }
+
+    fn label(&self) -> String {
+        format!("axis={} balanced#{}", self.split_axis, self.balances)
+    }
+}
+
+#[cfg(test)]
+mod layout_state_tests {
+    use super::*;
+
+    #[test]
+    fn layout_state_toggles_axis_and_counts_balance() {
+        let mut s = LayoutState::default();
+        assert_eq!(s.label(), "axis=vertical balanced#0");
+        assert_eq!(s.apply(&Action::ToggleSplit), "toggle.split -> axis=horizontal balanced#0");
+        assert_eq!(s.apply(&Action::ToggleSplit), "toggle.split -> axis=vertical balanced#0");
+        assert_eq!(s.apply(&Action::BalanceWindows), "balance.windows -> axis=vertical balanced#1");
     }
 }

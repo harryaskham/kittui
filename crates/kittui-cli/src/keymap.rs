@@ -105,6 +105,10 @@ pub enum Action {
     FullscreenToggle,
     /// Toggle floating state for focused tile/window.
     FloatToggle,
+    /// Toggle split orientation for future tiling.
+    ToggleSplit,
+    /// Balance window layout.
+    BalanceWindows,
     /// Swap focused tile right.
     SwapRight,
     /// Swap focused tile left.
@@ -139,6 +143,8 @@ impl Action {
             "launch" | "launcher.open" => Self::Launch,
             "fullscreen" | "fullscreen.toggle" => Self::FullscreenToggle,
             "float.toggle" | "floating.toggle" => Self::FloatToggle,
+            "toggle.split" | "split.toggle" => Self::ToggleSplit,
+            "balance.windows" | "balance" => Self::BalanceWindows,
             "swap.right" => Self::SwapRight,
             "swap.left" => Self::SwapLeft,
             "swap.up" => Self::SwapUp,
@@ -164,6 +170,8 @@ impl fmt::Display for Action {
             Self::Launch => "launch",
             Self::FullscreenToggle => "fullscreen.toggle",
             Self::FloatToggle => "float.toggle",
+            Self::ToggleSplit => "toggle.split",
+            Self::BalanceWindows => "balance.windows",
             Self::SwapRight => "swap.right",
             Self::SwapLeft => "swap.left",
             Self::SwapUp => "swap.up",
@@ -285,6 +293,8 @@ bind Enter launch
 bind d launch
 bind f fullscreen.toggle
 bind t float.toggle
+bind e toggle.split
+bind = balance.windows
 bind l swap.right
 bind h swap.left
 bind k swap.up
@@ -315,6 +325,10 @@ mod tests {
         assert!(rendered.contains("fullscreen.toggle"));
         assert!(rendered.contains("C-a t"));
         assert!(rendered.contains("float.toggle"));
+        assert!(rendered.contains("C-a e"));
+        assert!(rendered.contains("toggle.split"));
+        assert!(rendered.contains("C-a ="));
+        assert!(rendered.contains("balance.windows"));
         assert!(rendered.contains("C-a C-h"));
         assert!(rendered.contains("focus.left"));
     }
