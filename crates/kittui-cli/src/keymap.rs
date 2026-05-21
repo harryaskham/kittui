@@ -101,6 +101,10 @@ pub enum Action {
     SplitHorizontalLauncher,
     /// Open launcher.
     Launch,
+    /// Toggle fullscreen state for focused tile/window.
+    FullscreenToggle,
+    /// Toggle floating state for focused tile/window.
+    FloatToggle,
     /// Swap focused tile right.
     SwapRight,
     /// Swap focused tile left.
@@ -133,6 +137,8 @@ impl Action {
             "split.vertical.launcher" | "split-vertical-launcher" => Self::SplitVerticalLauncher,
             "split.horizontal.launcher" | "split-horizontal-launcher" => Self::SplitHorizontalLauncher,
             "launch" | "launcher.open" => Self::Launch,
+            "fullscreen" | "fullscreen.toggle" => Self::FullscreenToggle,
+            "float.toggle" | "floating.toggle" => Self::FloatToggle,
             "swap.right" => Self::SwapRight,
             "swap.left" => Self::SwapLeft,
             "swap.up" => Self::SwapUp,
@@ -156,6 +162,8 @@ impl fmt::Display for Action {
             Self::SplitVerticalLauncher => "split.vertical.launcher",
             Self::SplitHorizontalLauncher => "split.horizontal.launcher",
             Self::Launch => "launch",
+            Self::FullscreenToggle => "fullscreen.toggle",
+            Self::FloatToggle => "float.toggle",
             Self::SwapRight => "swap.right",
             Self::SwapLeft => "swap.left",
             Self::SwapUp => "swap.up",
@@ -275,6 +283,8 @@ bind | split.vertical.launcher
 bind - split.horizontal.launcher
 bind Enter launch
 bind d launch
+bind f fullscreen.toggle
+bind t float.toggle
 bind l swap.right
 bind h swap.left
 bind k swap.up
@@ -301,6 +311,10 @@ mod tests {
         assert!(rendered.contains("split.vertical.launcher"));
         assert!(rendered.contains("C-a d"));
         assert!(rendered.contains("launch"));
+        assert!(rendered.contains("C-a f"));
+        assert!(rendered.contains("fullscreen.toggle"));
+        assert!(rendered.contains("C-a t"));
+        assert!(rendered.contains("float.toggle"));
         assert!(rendered.contains("C-a C-h"));
         assert!(rendered.contains("focus.left"));
     }

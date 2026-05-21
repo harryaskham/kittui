@@ -1061,6 +1061,8 @@ fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
                     | kittui_cli::keymap::Action::WorkspacePrev
                     | kittui_cli::keymap::Action::SplitVerticalLauncher
                     | kittui_cli::keymap::Action::SplitHorizontalLauncher
+                    | kittui_cli::keymap::Action::FullscreenToggle
+                    | kittui_cli::keymap::Action::FloatToggle
                     | kittui_cli::keymap::Action::FocusLeft
                     | kittui_cli::keymap::Action::FocusRight
                     | kittui_cli::keymap::Action::FocusUp

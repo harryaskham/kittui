@@ -102,6 +102,7 @@ pub fn run_loop_with<S: XServer>(
     let mut workspaces = WorkspaceState::default();
     let mut focus_state = FocusState::default();
     let mut swap_state = SwapState::default();
+    let mut toggle_state = ToggleState::default();
     let mut split_state = SplitState::default();
     let mut launcher_overlay = LauncherOverlay::default();
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
@@ -222,6 +223,11 @@ pub fn run_loop_with<S: XServer>(
                                     let msg = swap_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("swap action: {msg}"));
+                                }
+                                Action::FullscreenToggle | Action::FloatToggle => {
+                                    let msg = toggle_state.apply(&action);
+                                    last_keymap_action = Some(msg.clone());
+                                    dbg.log(&format!("toggle action: {msg}"));
                                 }
                                 Action::Quit => {
                                     quit = true;
@@ -379,13 +385,14 @@ pub fn run_loop_with<S: XServer>(
                 };
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — focus {} — swap {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
                     footer_row,
                     frame,
                     workspaces.label(),
                     split_state.label(),
                     focus_state.label(),
                     swap_state.label(),
+                    toggle_state.label(),
                     last_window_count,
                     live_fps,
                     peak_fps,
@@ -1161,5 +1168,45 @@ mod launcher_overlay_tests {
     fn filter_launcher_candidates_is_case_insensitive() {
         let items = vec!["Echo".to_string(), "cat".to_string(), "lessecho".to_string()];
         assert_eq!(filter_launcher_candidates(items, Some("ECHO"), 10), vec!["Echo".to_string(), "lessecho".to_string()]);
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+struct ToggleState {
+    fullscreen: bool,
+    floating: bool,
+}
+
+impl ToggleState {
+    fn apply(&mut self, action: &Action) -> String {
+        match action {
+            Action::FullscreenToggle => {
+                self.fullscreen = !self.fullscreen;
+                format!("fullscreen.toggle -> {}", self.label())
+            }
+            Action::FloatToggle => {
+                self.floating = !self.floating;
+                format!("float.toggle -> {}", self.label())
+            }
+            other => format!("toggle ignored action {other}"),
+        }
+    }
+
+    fn label(&self) -> String {
+        format!("full={} float={}", self.fullscreen, self.floating)
+    }
+}
+
+#[cfg(test)]
+mod toggle_state_tests {
+    use super::*;
+
+    #[test]
+    fn toggle_state_tracks_fullscreen_and_float() {
+        let mut t = ToggleState::default();
+        assert_eq!(t.label(), "full=false float=false");
+        assert_eq!(t.apply(&Action::FullscreenToggle), "fullscreen.toggle -> full=true float=false");
+        assert_eq!(t.apply(&Action::FloatToggle), "float.toggle -> full=true float=true");
+        assert_eq!(t.apply(&Action::FullscreenToggle), "fullscreen.toggle -> full=false float=true");
     }
 }
