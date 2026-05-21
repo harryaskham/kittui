@@ -94,6 +94,7 @@ pub fn run_loop_with<S: XServer>(
     let keymap = load_runtime_keymap(&dbg);
     let mut prefix_active = false;
     let mut last_keymap_action: Option<String> = None;
+    let mut workspaces = WorkspaceState::default();
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
     // We only re-emit placement+placeholder when the footprint or image_id
     // changes. Kitty atomically replaces the image at the same id on each
@@ -144,6 +145,11 @@ pub fn run_loop_with<S: XServer>(
                                         }
                                         Err(e) => dbg.log(&format!("keymap launcher failed: {e}")),
                                     }
+                                }
+                                Action::WorkspaceNew | Action::WorkspaceNext | Action::WorkspacePrev => {
+                                    let msg = workspaces.apply(&action);
+                                    last_keymap_action = Some(msg.clone());
+                                    dbg.log(&format!("workspace action: {msg}"));
                                 }
                                 Action::Quit => {
                                     quit = true;
@@ -290,9 +296,10 @@ pub fn run_loop_with<S: XServer>(
                 };
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
                     footer_row,
                     frame,
+                    workspaces.label(),
                     last_window_count,
                     live_fps,
                     peak_fps,
@@ -632,5 +639,57 @@ mod runtime_keymap_tests {
             mods: Modifiers::default(),
         }).unwrap();
         assert_eq!(enter.to_string(), "enter");
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct WorkspaceState {
+    current: usize,
+    count: usize,
+}
+
+impl Default for WorkspaceState {
+    fn default() -> Self {
+        Self { current: 0, count: 1 }
+    }
+}
+
+impl WorkspaceState {
+    fn apply(&mut self, action: &Action) -> String {
+        match action {
+            Action::WorkspaceNew => {
+                self.count += 1;
+                self.current = self.count - 1;
+                format!("workspace.new -> {}", self.label())
+            }
+            Action::WorkspaceNext => {
+                self.current = (self.current + 1) % self.count;
+                format!("workspace.next -> {}", self.label())
+            }
+            Action::WorkspacePrev => {
+                self.current = (self.current + self.count - 1) % self.count;
+                format!("workspace.prev -> {}", self.label())
+            }
+            other => format!("workspace ignored action {other}"),
+        }
+    }
+
+    fn label(&self) -> String {
+        format!("{}/{}", self.current + 1, self.count)
+    }
+}
+
+#[cfg(test)]
+mod workspace_state_tests {
+    use super::*;
+
+    #[test]
+    fn workspace_state_create_and_cycle() {
+        let mut ws = WorkspaceState::default();
+        assert_eq!(ws.label(), "1/1");
+        assert_eq!(ws.apply(&Action::WorkspaceNew), "workspace.new -> 2/2");
+        assert_eq!(ws.apply(&Action::WorkspaceNew), "workspace.new -> 3/3");
+        assert_eq!(ws.apply(&Action::WorkspaceNext), "workspace.next -> 1/3");
+        assert_eq!(ws.apply(&Action::WorkspacePrev), "workspace.prev -> 3/3");
     }
 }
