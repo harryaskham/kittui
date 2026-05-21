@@ -143,7 +143,7 @@
               xorg.libX11
               xorg.libXtst
               xorg.libXext
-              xorg.libxkbcommon
+              libxkbcommon
               xorg.xeyes
               xorg.xterm
               xorg.xclock
