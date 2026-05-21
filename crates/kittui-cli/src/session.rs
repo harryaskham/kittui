@@ -95,6 +95,7 @@ pub fn run_loop_with<S: XServer>(
     let mut prefix_active = false;
     let mut last_keymap_action: Option<String> = None;
     let mut workspaces = WorkspaceState::default();
+    let mut focus_state = FocusState::default();
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
     // We only re-emit placement+placeholder when the footprint or image_id
     // changes. Kitty atomically replaces the image at the same id on each
@@ -150,6 +151,11 @@ pub fn run_loop_with<S: XServer>(
                                     let msg = workspaces.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("workspace action: {msg}"));
+                                }
+                                Action::FocusLeft | Action::FocusDown | Action::FocusUp | Action::FocusRight => {
+                                    let msg = focus_state.apply(&action);
+                                    last_keymap_action = Some(msg.clone());
+                                    dbg.log(&format!("focus action: {msg}"));
                                 }
                                 Action::Quit => {
                                     quit = true;
@@ -296,10 +302,11 @@ pub fn run_loop_with<S: XServer>(
                 };
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — focus {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
                     footer_row,
                     frame,
                     workspaces.label(),
+                    focus_state.label(),
                     last_window_count,
                     live_fps,
                     peak_fps,
@@ -691,5 +698,50 @@ mod workspace_state_tests {
         assert_eq!(ws.apply(&Action::WorkspaceNew), "workspace.new -> 3/3");
         assert_eq!(ws.apply(&Action::WorkspaceNext), "workspace.next -> 1/3");
         assert_eq!(ws.apply(&Action::WorkspacePrev), "workspace.prev -> 3/3");
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct FocusState {
+    last_direction: &'static str,
+    moves: u64,
+}
+
+impl Default for FocusState {
+    fn default() -> Self {
+        Self { last_direction: "none", moves: 0 }
+    }
+}
+
+impl FocusState {
+    fn apply(&mut self, action: &Action) -> String {
+        self.last_direction = match action {
+            Action::FocusLeft => "left",
+            Action::FocusDown => "down",
+            Action::FocusUp => "up",
+            Action::FocusRight => "right",
+            _ => self.last_direction,
+        };
+        self.moves += 1;
+        format!("focus.{} -> {}", self.last_direction, self.label())
+    }
+
+    fn label(&self) -> String {
+        format!("{}#{}", self.last_direction, self.moves)
+    }
+}
+
+#[cfg(test)]
+mod focus_state_tests {
+    use super::*;
+
+    #[test]
+    fn focus_state_tracks_direction_and_count() {
+        let mut f = FocusState::default();
+        assert_eq!(f.label(), "none#0");
+        assert_eq!(f.apply(&Action::FocusLeft), "focus.left -> left#1");
+        assert_eq!(f.apply(&Action::FocusDown), "focus.down -> down#2");
+        assert_eq!(f.apply(&Action::FocusUp), "focus.up -> up#3");
+        assert_eq!(f.apply(&Action::FocusRight), "focus.right -> right#4");
     }
 }

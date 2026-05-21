@@ -186,24 +186,25 @@ pub fn parse(buf: &[u8]) -> Option<(InputEvent, usize)> {
         return None;
     }
     // Single byte: control or UTF-8 char.
-    if let Some(key) = special_byte(buf[0]) {
-        return Some((
-            InputEvent::Key {
-                key,
-                mods: Modifiers::default(),
-            },
-            1,
-        ));
-    }
     // ASCII Ctrl-A..Ctrl-Z arrive as bytes 0x01..0x1a. Surface these as
     // ctrl-modified characters so WM keymaps can bind tmux-like prefixes
-    // such as Ctrl-A.
-    if (0x01..=0x1a).contains(&buf[0]) {
+    // such as Ctrl-A and Ctrl-H/J/K/L. CR (Ctrl-M) remains Enter so a
+    // regular Return key still works for bindings like `C-a Enter`.
+    if (0x01..=0x1a).contains(&buf[0]) && buf[0] != b'\r' {
         let ch = (b'a' + (buf[0] - 1)) as char;
         return Some((
             InputEvent::Char {
                 ch,
                 mods: Modifiers { ctrl: true, alt: false, shift: false },
+            },
+            1,
+        ));
+    }
+    if let Some(key) = special_byte(buf[0]) {
+        return Some((
+            InputEvent::Key {
+                key,
+                mods: Modifiers::default(),
             },
             1,
         ));
@@ -487,7 +488,7 @@ mod ctrl_keymap_tests {
     use super::*;
 
     #[test]
-    fn parses_ctrl_a_as_ctrl_modified_char() {
+    fn parses_ctrl_letters_as_ctrl_modified_chars_but_keeps_return() {
         let (ev, n) = parse(&[0x01]).unwrap();
         assert_eq!(n, 1);
         assert_eq!(
@@ -495,6 +496,24 @@ mod ctrl_keymap_tests {
             InputEvent::Char {
                 ch: 'a',
                 mods: Modifiers { ctrl: true, alt: false, shift: false }
+            }
+        );
+
+        let (ev, _) = parse(&[0x08]).unwrap();
+        assert_eq!(
+            ev,
+            InputEvent::Char {
+                ch: 'h',
+                mods: Modifiers { ctrl: true, alt: false, shift: false }
+            }
+        );
+
+        let (ev, _) = parse(b"\r").unwrap();
+        assert_eq!(
+            ev,
+            InputEvent::Key {
+                key: Key::Enter,
+                mods: Modifiers::default()
             }
         );
     }
