@@ -122,7 +122,12 @@ fn handle_request(
     let mut line = String::new();
     reader.read_line(&mut line)?;
     let cmd = line.trim();
-    let reply = match cmd {
+    let reply = if let Some(query) = cmd.strip_prefix("APPS_FIRST ") {
+        apps_first_reply(query, false)
+    } else if let Some(query) = cmd.strip_prefix("APPS_LAUNCH_FIRST ") {
+        apps_first_reply(query, true)
+    } else {
+        match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => format!(
             "pid={} uptime_s={} sock={}\n",
@@ -135,13 +140,14 @@ fn handle_request(
         "APPS" => apps_reply(50),
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => {
-            "PING | STATUS | WINDOWS | DISPLAYS | APPS | APPS_JSON | QUIT | HELP\n".to_string()
+            "PING | STATUS | WINDOWS | DISPLAYS | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | QUIT | HELP\n".to_string()
         }
         "QUIT" => {
             quit.store(true, Ordering::SeqCst);
             "BYE\n".to_string()
         }
         other => format!("ERR unknown: {other}\n"),
+        }
     };
     writer.write_all(reply.as_bytes())?;
     writer.flush()?;
@@ -412,4 +418,75 @@ fn json_string_array(items: &[String]) -> String {
         .map(|s| format!("{:?}", s))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+#[derive(Debug, Clone)]
+struct AppCandidate {
+    kind: &'static str,
+    name: String,
+}
+
+fn apps_first_reply(query: &str, launch: bool) -> String {
+    let query = query.trim();
+    if query.is_empty() {
+        return "ERR APPS_FIRST requires a query\n".to_string();
+    }
+    let path_cmds = filter_candidates(path_commands(5000), Some(query), 1);
+    #[cfg(target_os = "macos")]
+    let mac_apps = filter_candidates(macos_apps(5000), Some(query), 1);
+    #[cfg(not(target_os = "macos"))]
+    let mac_apps: Vec<String> = Vec::new();
+    let Some(candidate) = first_app_candidate(&path_cmds, &mac_apps) else {
+        return format!("ERR no app candidates matched {query:?}\n");
+    };
+    if launch {
+        match launch_app_candidate(&candidate) {
+            Ok(pid) => format!(
+                "APPS_LAUNCH_FIRST pid={} kind={} name={}\n",
+                pid, candidate.kind, candidate.name
+            ),
+            Err(e) => format!("ERR launch {}:{}: {e}\n", candidate.kind, candidate.name),
+        }
+    } else {
+        format!("APPS_FIRST kind={} name={}\n", candidate.kind, candidate.name)
+    }
+}
+
+fn first_app_candidate(path_cmds: &[String], mac_apps: &[String]) -> Option<AppCandidate> {
+    path_cmds
+        .first()
+        .map(|name| AppCandidate { kind: "path", name: name.clone() })
+        .or_else(|| {
+            mac_apps
+                .first()
+                .map(|name| AppCandidate { kind: "macos", name: name.clone() })
+        })
+}
+
+fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
+    let mut cmd = if candidate.kind == "macos" {
+        let mut c = std::process::Command::new("open");
+        c.arg("-a").arg(&candidate.name);
+        c
+    } else {
+        std::process::Command::new(&candidate.name)
+    };
+    let child = cmd
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    Ok(child.id())
+}
+
+fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> Vec<String> {
+    let Some(query) = query else {
+        return items.into_iter().take(limit).collect();
+    };
+    let q = query.to_ascii_lowercase();
+    items
+        .into_iter()
+        .filter(|item| item.to_ascii_lowercase().contains(&q))
+        .take(limit)
+        .collect()
 }

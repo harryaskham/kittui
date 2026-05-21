@@ -589,3 +589,54 @@ fn kitwm_apps_first_and_launch_first_select_candidate() {
     assert!(s.contains("kitwm apps: launched pid="), "missing launch pid: {s}");
     assert!(s.contains("kind=path"), "wrong candidate kind: {s}");
 }
+
+#[cfg(all(target_os = "macos"))]
+#[test]
+fn kitwm_attach_apps_first_verbs_round_trip() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let sock = std::env::temp_dir().join(format!(
+        "kitwm-apps-first-smoke-{}.sock",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&sock);
+    let mut server = std::process::Command::new(&bin)
+        .arg("--serve")
+        .env("KITWM_SOCK", &sock)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn --serve");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !sock.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(sock.exists(), "daemon did not bind");
+
+    let first = Command::new(&bin)
+        .args(["--attach", "-c", "APPS_FIRST echo"])
+        .env("KITWM_SOCK", &sock)
+        .output()
+        .expect("run APPS_FIRST");
+    assert!(first.status.success(), "stderr: {}", String::from_utf8_lossy(&first.stderr));
+    let s = String::from_utf8_lossy(&first.stdout);
+    assert!(s.contains("APPS_FIRST kind=path"), "missing APPS_FIRST path candidate: {s}");
+    assert!(s.to_ascii_lowercase().contains("echo"), "missing echo candidate: {s}");
+
+    let launched = Command::new(&bin)
+        .args(["--attach", "-c", "APPS_LAUNCH_FIRST echo"])
+        .env("KITWM_SOCK", &sock)
+        .output()
+        .expect("run APPS_LAUNCH_FIRST");
+    assert!(launched.status.success(), "stderr: {}", String::from_utf8_lossy(&launched.stderr));
+    let l = String::from_utf8_lossy(&launched.stdout);
+    assert!(l.contains("APPS_LAUNCH_FIRST pid="), "missing pid: {l}");
+    assert!(l.contains("kind=path"), "wrong kind: {l}");
+
+    let _ = Command::new(&bin)
+        .arg("--kill")
+        .env("KITWM_SOCK", &sock)
+        .output();
+    let _ = server.wait();
+    let _ = std::fs::remove_file(&sock);
+}
