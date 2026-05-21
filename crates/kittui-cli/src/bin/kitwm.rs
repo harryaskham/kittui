@@ -55,6 +55,7 @@ struct Cli {
     attach_command: Option<String>,
     launch: bool,
     launch_args: Vec<String>,
+    launch_on_f12: bool,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -109,6 +110,7 @@ fn parse_args() -> Result<Cli> {
             }
             "--serve" => out.mode = Mode::Serve,
             "--attach" => out.mode = Mode::Attach,
+            "--launch-on-f12" => out.launch_on_f12 = true,
             "--kill" => out.mode = Mode::Kill,
             "--status" => out.mode = Mode::Status,
             "--backend" => {
@@ -196,7 +198,10 @@ SUBCOMMANDS\n\
                          --capture target and prints captures/s + p50/p95/p99\n\
                          latency + MB/s. --json for machine-readable output.\n\
          launch          spawn xterm by default, or run CMD ARGS after\n\
-                         'kitwm launch -- CMD ARGS'. Prints pid + argv.\n"
+                         'kitwm launch -- CMD ARGS'. Prints pid + argv.\n\
+         --launch-on-f12 intercept F12 in a running session and spawn\n\
+                         KITWM_LAUNCH_CMD via /bin/sh -c (default: xterm).\n\
+                         Footer shows last_launch_pid and log records result.\n"
     );
 }
 
@@ -238,6 +243,9 @@ fn real_main() -> Result<()> {
     let cli = parse_args()?;
     if let Some(fps) = cli.fps {
         std::env::set_var("KITTUI_WM_FPS", fps.to_string());
+    }
+    if cli.launch_on_f12 {
+        std::env::set_var("KITTUI_WM_LAUNCH_ON_F12", "1");
     }
 
     // Inspection flags run cooked, never enter raw mode.

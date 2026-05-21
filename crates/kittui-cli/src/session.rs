@@ -39,6 +39,9 @@ pub fn run_loop<S: XServer>(
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(60),
+        launch_on_f12: std::env::var("KITTUI_WM_LAUNCH_ON_F12")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false),
     };
     run_loop_with(runtime, compositor, layout, opts)
 }
@@ -48,11 +51,14 @@ pub fn run_loop<S: XServer>(
 pub struct RunOptions {
     /// Target frames per second. Capped at 240 to keep terminal output sane.
     pub fps: u32,
+    /// If true, intercept F12 and spawn the launcher command instead of
+    /// forwarding it to the focused backend window.
+    pub launch_on_f12: bool,
 }
 
 impl Default for RunOptions {
     fn default() -> Self {
-        Self { fps: 60 }
+        Self { fps: 60, launch_on_f12: false }
     }
 }
 
@@ -63,7 +69,10 @@ pub fn run_loop_with<S: XServer>(
     opts: RunOptions,
 ) -> Result<()> {
     let dbg = Debugger::open();
-    dbg.log(&format!("run_loop: enter fps={}", opts.fps));
+    dbg.log(&format!(
+        "run_loop: enter fps={} launch_on_f12={}",
+        opts.fps, opts.launch_on_f12
+    ));
     let _raw_guard = RawMode::enter()?;
     dbg.log("raw mode + alt screen entered");
     install_signal_restore();
@@ -79,6 +88,7 @@ pub fn run_loop_with<S: XServer>(
     let mut input_buf = Vec::<u8>::with_capacity(256);
     let mut stdin = io::stdin();
     let mut last_window_count = 0usize;
+    let mut last_launch_pid: Option<u32> = None;
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
     // We only re-emit placement+placeholder when the footprint or image_id
     // changes. Kitty atomically replaces the image at the same id on each
@@ -122,6 +132,17 @@ pub fn run_loop_with<S: XServer>(
                 InputEvent::Char { ch, .. } => {
                     dbg.log(&format!("char event: {:?}", ch));
                     let _ = compositor.route_key(&ev);
+                }
+                InputEvent::Key { key: Key::F(12), .. } if opts.launch_on_f12 => {
+                    match spawn_launcher_command() {
+                        Ok(pid) => {
+                            last_launch_pid = Some(pid);
+                            dbg.log(&format!("launcher F12 spawned pid={pid}"));
+                        }
+                        Err(e) => {
+                            dbg.log(&format!("launcher F12 failed: {e}"));
+                        }
+                    }
                 }
                 InputEvent::Key { key, .. } => {
                     dbg.log(&format!("key event: {:?}", key));
@@ -210,15 +231,19 @@ pub fn run_loop_with<S: XServer>(
                     last_placed.remove(old_id);
                 }
                 prev_window_ids = current_ids;
+                let launch_note = last_launch_pid
+                    .map(|pid| format!(" — last launch pid={pid}"))
+                    .unwrap_or_default();
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — {:.0} fps (peak {:.0}, cap {}) — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — {:.0} fps (peak {:.0}, cap {}){} — q to quit (log: {})",
                     footer_row,
                     frame,
                     last_window_count,
                     live_fps,
                     peak_fps,
                     fps,
+                    launch_note,
                     dbg.path_display()
                 )?;
                 handle.flush()?;
@@ -445,4 +470,44 @@ fn poll_stdin(timeout: Duration) -> bool {
 fn poll_stdin(timeout: Duration) -> bool {
     std::thread::sleep(timeout);
     false
+}
+
+/// Return the shell command used by the F12 launcher.
+///
+/// Defaults to `xterm`; set `KITWM_LAUNCH_CMD` to override, e.g.
+/// `KITWM_LAUNCH_CMD='open -a Terminal'` or `'/bin/sleep 10'`.
+pub fn launcher_command() -> String {
+    std::env::var("KITWM_LAUNCH_CMD").unwrap_or_else(|_| "xterm".to_string())
+}
+
+fn spawn_launcher_command() -> Result<u32> {
+    let cmd = launcher_command();
+    let child = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(&cmd)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    Ok(child.id())
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn launcher_command_defaults_to_xterm() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITWM_LAUNCH_CMD");
+        assert_eq!(super::launcher_command(), "xterm");
+    }
+
+    #[test]
+    fn launcher_command_honors_env_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITWM_LAUNCH_CMD", "/bin/sleep 1");
+        assert_eq!(super::launcher_command(), "/bin/sleep 1");
+        std::env::remove_var("KITWM_LAUNCH_CMD");
+    }
 }
