@@ -107,6 +107,9 @@ pub fn run_loop_with<S: XServer>(
     let mut split_state = SplitState::default();
     let mut config_state = ConfigState::default();
     let mut launcher_overlay = LauncherOverlay::default();
+    // Triple-Ctrl-C kill switch (bd-2776ad): single Ctrl-C is forwarded to
+    // the focused window like any other key; three within 1s exits cleanly.
+    let mut ctrl_c_guard = CtrlCGuard::new();
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
     // We only re-emit placement+placeholder when the footprint or image_id
     // changes. Kitty atomically replaces the image at the same id on each
@@ -268,6 +271,24 @@ pub fn run_loop_with<S: XServer>(
                     continue;
                 }
             }
+            // Intercept Ctrl-C for the triple-press kill switch before
+            // forwarding to the focused window. (bd-2776ad)
+            if matches!(
+                &ev,
+                InputEvent::Char { ch: 'c', mods } if mods.ctrl && !mods.alt
+            ) {
+                let count = ctrl_c_guard.record_press(Instant::now());
+                dbg.log(&format!("ctrl-c press #{count} within window"));
+                if count >= CTRL_C_TRIGGER {
+                    dbg.log("ctrl-c triple-press exit triggered");
+                    last_keymap_action = Some("ctrl_c.triple_exit".to_string());
+                    quit = true;
+                    break;
+                }
+                // Forward single Ctrl-C to the focused window.
+                let _ = compositor.route_key(&ev);
+                continue;
+            }
             match &ev {
                 InputEvent::Char { ch: 'q', .. }
                 | InputEvent::Key {
@@ -408,7 +429,7 @@ pub fn run_loop_with<S: XServer>(
                 };
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — {} (log: {})",
                     footer_row,
                     frame,
                     workspaces.label(),
@@ -424,6 +445,7 @@ pub fn run_loop_with<S: XServer>(
                     fps,
                     launch_note,
                     keymap_note,
+                    ctrl_c_guard.quit_hint(last_window_count > 0),
                     dbg.path_display()
                 )?;
                 handle.flush()?;
@@ -886,6 +908,52 @@ fn macos_apps(limit: usize) -> Vec<String> {
 }
 
 #[cfg(test)]
+mod ctrl_c_guard_tests {
+    use super::{CtrlCGuard, CTRL_C_TRIGGER, CTRL_C_WINDOW};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn single_press_does_not_trigger() {
+        let mut g = CtrlCGuard::new();
+        let now = Instant::now();
+        assert_eq!(g.record_press(now), 1);
+        assert!(1 < CTRL_C_TRIGGER);
+    }
+
+    #[test]
+    fn three_presses_within_window_trigger() {
+        let mut g = CtrlCGuard::new();
+        let t0 = Instant::now();
+        assert_eq!(g.record_press(t0), 1);
+        assert_eq!(g.record_press(t0 + Duration::from_millis(200)), 2);
+        assert_eq!(
+            g.record_press(t0 + Duration::from_millis(400)),
+            CTRL_C_TRIGGER
+        );
+    }
+
+    #[test]
+    fn presses_outside_window_decay() {
+        let mut g = CtrlCGuard::new();
+        let t0 = Instant::now();
+        g.record_press(t0);
+        g.record_press(t0 + Duration::from_millis(500));
+        // Third press is past the 1s window from the first press; only
+        // the 2nd + 3rd should remain.
+        let count = g.record_press(t0 + CTRL_C_WINDOW + Duration::from_millis(50));
+        assert_eq!(count, 2);
+        assert!(count < CTRL_C_TRIGGER);
+    }
+
+    #[test]
+    fn footer_hint_switches_when_hosting_app() {
+        let g = CtrlCGuard::new();
+        assert_eq!(g.quit_hint(false), "q to quit");
+        assert_eq!(g.quit_hint(true), "q or Ctrl-C×3 to quit");
+    }
+}
+
+#[cfg(test)]
 mod launcher_tests {
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -1202,7 +1270,52 @@ mod launcher_overlay_tests {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
+/// Triple-Ctrl-C kill switch with decay window. (bd-2776ad)
+///
+/// Single Ctrl-C is forwarded to the focused window; only three Ctrl-C
+/// presses within `CTRL_C_WINDOW` cause the WM to exit. Presses older
+/// than the window are discarded so a slow typist won't accidentally
+/// quit.
+const CTRL_C_TRIGGER: usize = 3;
+const CTRL_C_WINDOW: Duration = Duration::from_secs(1);
+
+#[derive(Debug, Default, Clone)]
+struct CtrlCGuard {
+    presses: std::collections::VecDeque<Instant>,
+}
+
+impl CtrlCGuard {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a Ctrl-C press at `now`. Returns the number of Ctrl-C
+    /// presses currently within the decay window (including this one).
+    fn record_press(&mut self, now: Instant) -> usize {
+        while let Some(front) = self.presses.front() {
+            if now.duration_since(*front) > CTRL_C_WINDOW {
+                self.presses.pop_front();
+            } else {
+                break;
+            }
+        }
+        self.presses.push_back(now);
+        self.presses.len()
+    }
+
+    /// Footer hint for the operator. Switches the visible quit message
+    /// to mention the Ctrl-C kill switch whenever the WM is actually
+    /// hosting an app that might swallow `q` / Esc.
+    fn quit_hint(&self, hosting_app: bool) -> &'static str {
+        if hosting_app {
+            "q or Ctrl-C×3 to quit"
+        } else {
+            "q to quit"
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
 struct ToggleState {
     fullscreen: bool,
     floating: bool,
