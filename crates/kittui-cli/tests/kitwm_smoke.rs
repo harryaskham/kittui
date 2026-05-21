@@ -403,3 +403,17 @@ fn kitwm_attach_command_one_shot_round_trip() {
     let _ = server.wait();
     let _ = std::fs::remove_file(&sock);
 }
+
+#[test]
+fn kitwm_launch_spawns_command_and_prints_pid() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin)
+        .args(["launch", "--", "/bin/echo", "kitwm-launch-smoke"])
+        .output()
+        .expect("run kitwm launch");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("kitwm launch: pid="), "missing pid: {s}");
+    assert!(s.contains("/bin/echo"), "missing argv: {s}");
+}

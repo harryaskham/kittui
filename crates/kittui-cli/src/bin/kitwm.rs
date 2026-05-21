@@ -53,6 +53,8 @@ struct Cli {
     bench: bool,
     bench_seconds: Option<u32>,
     attach_command: Option<String>,
+    launch: bool,
+    launch_args: Vec<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -80,6 +82,11 @@ fn parse_args() -> Result<Cli> {
             "doctor" => out.doctor = true,
             "record" => out.record = true,
             "bench" => out.bench = true,
+            "launch" => {
+                out.launch = true;
+                out.launch_args = args.by_ref().collect();
+                break;
+            }
             "--seconds" => {
                 let v = args.next().ok_or_else(|| anyhow!("--seconds N"))?;
                 out.bench_seconds = Some(v.parse().map_err(|_| anyhow!("--seconds expects integer"))?);
@@ -187,7 +194,9 @@ SUBCOMMANDS\n\
          bench           measure capture-pipeline throughput. Runs raw_frames\n\
                          in a tight loop for --seconds N (default 3) against\n\
                          --capture target and prints captures/s + p50/p95/p99\n\
-                         latency + MB/s. --json for machine-readable output.\n"
+                         latency + MB/s. --json for machine-readable output.\n\
+         launch          spawn xterm by default, or run CMD ARGS after\n\
+                         'kitwm launch -- CMD ARGS'. Prints pid + argv.\n"
     );
 }
 
@@ -240,6 +249,9 @@ fn real_main() -> Result<()> {
     }
     if cli.bench {
         return bench_cmd(&cli);
+    }
+    if cli.launch {
+        return launch_cmd(&cli);
     }
     if cli.list_windows {
         return list_windows_cmd();
@@ -918,5 +930,23 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
         }
         if cmd.eq_ignore_ascii_case("QUIT") { break; }
     }
+    Ok(())
+}
+
+fn launch_cmd(cli: &Cli) -> Result<()> {
+    let mut argv: Vec<String> = cli.launch_args.clone();
+    if argv.first().map(|s| s.as_str()) == Some("--") {
+        argv.remove(0);
+    }
+    if argv.is_empty() {
+        argv.push("xterm".to_string());
+    }
+    let program = argv[0].clone();
+    let args = &argv[1..];
+    let child = std::process::Command::new(&program)
+        .args(args)
+        .spawn()
+        .map_err(|e| anyhow!("launch {:?}: {e}", argv))?;
+    println!("kitwm launch: pid={} argv={:?}", child.id(), argv);
     Ok(())
 }
