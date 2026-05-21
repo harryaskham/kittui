@@ -310,6 +310,34 @@ mod imp {
                 CaptureTarget::Window(_) | CaptureTarget::AllDisplays => (0, 0, 0, 0),
             }
         }
+
+        /// Global-screen-space origin to add to a local pointer event for
+        /// the configured capture target. Used by `inject_pointer` so a
+        /// click inside a secondary-display capture lands on the correct
+        /// display, not the main one.
+        pub(crate) fn global_origin_for(&self, ev: &XPointerEvent) -> (f64, f64) {
+            match &self.target {
+                CaptureTarget::MainDisplay => (0.0, 0.0),
+                CaptureTarget::Display(id) => {
+                    let b = CGDisplay::new(*id).bounds();
+                    (b.origin.x, b.origin.y)
+                }
+                CaptureTarget::AllDisplays => {
+                    let id = match ev {
+                        XPointerEvent::Move { window, .. }
+                        | XPointerEvent::Press { window, .. }
+                        | XPointerEvent::Release { window, .. } => window.0,
+                    };
+                    let b = CGDisplay::new(id).bounds();
+                    (b.origin.x, b.origin.y)
+                }
+                CaptureTarget::Window(window_id) => QuartzServer::list_app_windows()
+                    .iter()
+                    .find(|w| w.id == *window_id)
+                    .map(|w| (w.bounds.origin.0 as f64, w.bounds.origin.1 as f64))
+                    .unwrap_or((0.0, 0.0)),
+            }
+        }
     }
 
     fn read_u32(dict: &CFDictionary<CFString, CFType>, key: &str) -> Option<u32> {
@@ -477,13 +505,23 @@ mod imp {
         }
 
         fn inject_pointer(&self, event: XPointerEvent) -> Result<(), XError> {
+            // Translate local (source-pixel) coordinates into the global
+            // screen layout that CGEventPost expects. For Display/AllDisplays
+            // targets we add the target display's bounds.origin; for Window
+            // targets we add the window's screen bounds.origin reported by
+            // CGWindowList. For MainDisplay the origin is (0,0) so the
+            // addition is a no-op.
+            let (origin_x, origin_y) = self.global_origin_for(&event);
             let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
                 .map_err(|_| XError::Unavailable("CGEventSource::new failed".into()))?;
             let cg_event = match event {
                 XPointerEvent::Move { x_px, y_px, .. } => CGEvent::new_mouse_event(
                     source,
                     CGEventType::MouseMoved,
-                    CGPoint::new(x_px as f64, y_px as f64),
+                    CGPoint::new(
+                        (x_px as f64) + origin_x,
+                        (y_px as f64) + origin_y,
+                    ),
                     CGMouseButton::Left,
                 )
                 .map_err(|_| XError::Unavailable("CGEvent move failed".into()))?,

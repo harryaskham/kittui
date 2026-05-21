@@ -45,6 +45,15 @@ pub fn run_loop<S: XServer>(
     let mut input_buf = Vec::<u8>::with_capacity(256);
     let mut stdin = io::stdin();
     let mut last_window_count = 0usize;
+    // Per-window placement memo: (image_id, footprint) -> placement+embed.
+    // We only re-emit placement+placeholder when the footprint or image_id
+    // changes. Kitty atomically replaces the image at the same id on each
+    // raw RGBA upload, so the picture updates without us clearing the screen.
+    let mut last_placed: std::collections::HashMap<u32, (kittui::CellRect, String, String)> =
+        std::collections::HashMap::new();
+    // Set of window image-ids seen on the previous frame so we can delete
+    // ones that disappear without redrawing the whole screen.
+    let mut prev_window_ids: std::collections::HashSet<u32> = std::collections::HashSet::new();
 
     loop {
         let frame_start = Instant::now();
@@ -109,9 +118,28 @@ pub fn run_loop<S: XServer>(
                 }
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
-                write!(handle, "\x1b[H\x1b[J")?;
+                // Track which windows are present this frame so we can
+                // delete the ones that have disappeared.
+                let mut current_ids: std::collections::HashSet<u32> =
+                    std::collections::HashSet::with_capacity(frames.len());
                 let mut footer_row = 2u16;
                 for f in &frames {
+                    current_ids.insert(f.image_id);
+                    // Detect whether placement (footprint) changed since
+                    // last frame for this id. If so, emit a kitty
+                    // 'delete by id' first so the placeholder grid is
+                    // cleared from its old cells, then place fresh.
+                    let footprint_changed = last_placed
+                        .get(&f.image_id)
+                        .map(|(prev_fp, _, _)| prev_fp != &f.footprint)
+                        .unwrap_or(true);
+                    if footprint_changed {
+                        if last_placed.contains_key(&f.image_id) {
+                            handle.write_all(
+                                runtime.unplace(f.image_id).as_bytes(),
+                            )?;
+                        }
+                    }
                     let p = runtime.place_raw_frame(
                         f.image_id,
                         &f.rgba,
@@ -119,17 +147,35 @@ pub fn run_loop<S: XServer>(
                         f.height,
                         f.footprint,
                     );
+                    // Always re-upload (kitty atomically replaces the
+                    // image at the same id; no flicker because no clear).
                     handle.write_all(p.upload.as_bytes())?;
-                    write!(
-                        handle,
-                        "\x1b[{};{}H",
-                        f.footprint.y + 1,
-                        f.footprint.x + 1
-                    )?;
-                    handle.write_all(p.placement.as_bytes())?;
-                    handle.write_all(p.embed.as_bytes())?;
+                    if footprint_changed {
+                        write!(
+                            handle,
+                            "\x1b[{};{}H",
+                            f.footprint.y + 1,
+                            f.footprint.x + 1
+                        )?;
+                        handle.write_all(p.placement.as_bytes())?;
+                        handle.write_all(p.embed.as_bytes())?;
+                        last_placed.insert(
+                            f.image_id,
+                            (
+                                f.footprint,
+                                p.placement.clone(),
+                                p.embed.clone(),
+                            ),
+                        );
+                    }
                     footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
                 }
+                // Delete any window that disappeared since last frame.
+                for old_id in prev_window_ids.difference(&current_ids) {
+                    handle.write_all(runtime.unplace(*old_id).as_bytes())?;
+                    last_placed.remove(old_id);
+                }
+                prev_window_ids = current_ids;
                 write!(
                     handle,
                     "\x1b[{};1H\x1b[Kkittui-wm frame {} — {} windows — q to quit (log: {})",
