@@ -656,3 +656,26 @@ fn kitwm_launcher_preview_renders_boxed_filtered_menu() {
     assert!(s.contains("▶") || s.contains("[path ]"), "missing selectable row: {s}");
     assert!(s.to_ascii_lowercase().contains("echo"), "missing echo candidate: {s}");
 }
+
+#[test]
+fn kitwm_launcher_select_and_launch_selection() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin)
+        .args(["launcher", "--filter", "echo", "--select", "2", "--limit", "5"])
+        .output()
+        .expect("run kitwm launcher --select");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("kitwm launcher"), "missing launcher title: {s}");
+    assert!(s.contains("▶  2.") || s.contains("▶  1."), "missing selected marker: {s}");
+
+    let launched = Command::new(&bin)
+        .args(["launcher", "--filter", "echo", "--select", "1", "--launch-selection", "--limit", "5"])
+        .output()
+        .expect("run kitwm launcher --launch-selection");
+    assert!(launched.status.success(), "stderr: {}", String::from_utf8_lossy(&launched.stderr));
+    let ls = String::from_utf8_lossy(&launched.stdout);
+    assert!(ls.contains("kitwm launcher: launched selection=1 pid="), "missing launched pid: {ls}");
+    assert!(ls.contains("kind=path"), "expected path candidate: {ls}");
+}

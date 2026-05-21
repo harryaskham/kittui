@@ -55,6 +55,8 @@ struct Cli {
     attach_command: Option<String>,
     launch: bool,
     launcher_preview: bool,
+    launcher_select: Option<usize>,
+    launcher_launch_selection: bool,
     launch_args: Vec<String>,
     launch_on_f12: bool,
     launcher_query: Option<String>,
@@ -109,6 +111,11 @@ fn parse_args() -> Result<Cli> {
             }
             "--first" => out.apps_first = true,
             "--launch-first" => out.apps_launch_first = true,
+            "--select" => {
+                let v = args.next().ok_or_else(|| anyhow!("--select N"))?;
+                out.launcher_select = Some(v.parse().map_err(|_| anyhow!("--select expects integer"))?);
+            }
+            "--launch-selection" => out.launcher_launch_selection = true,
             "--seconds" => {
                 let v = args.next().ok_or_else(|| anyhow!("--seconds N"))?;
                 out.bench_seconds = Some(v.parse().map_err(|_| anyhow!("--seconds expects integer"))?);
@@ -227,7 +234,9 @@ SUBCOMMANDS\n\
          launch          spawn xterm by default, or run CMD ARGS after\n\
                          'kitwm launch -- CMD ARGS'. Prints pid + argv.\n\
          launcher        render a boxed, numbered launcher preview using\n\
-                         the same --filter/--limit candidate source.\n\
+                         the same --filter/--limit candidate source. Use\n\
+                         --select N to highlight a row and --launch-selection\n\
+                         to spawn that selected candidate.\n\
          apps            list launch candidates from PATH and /Applications\n\
                          (macOS). Shows default launcher resolution. Use\n\
                          --limit N to bound output (default 50), --filter\n\
@@ -1214,6 +1223,19 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
     if candidates.is_empty() {
         candidates.push(AppCandidate { kind: "none", name: "<no matches>".to_string() });
     }
+    let mut selected = cli.launcher_select.unwrap_or(1);
+    if selected == 0 { selected = 1; }
+    if selected > candidates.len() { selected = candidates.len(); }
+    let selected_idx = selected - 1;
+    if cli.launcher_launch_selection {
+        let candidate = &candidates[selected_idx];
+        if candidate.kind == "none" {
+            return Err(anyhow!("no launcher candidate selected"));
+        }
+        let pid = launch_app_candidate(candidate)?;
+        println!("kitwm launcher: launched selection={} pid={} kind={} name={}", selected, pid, candidate.kind, candidate.name);
+        return Ok(());
+    }
 
     let width = 62usize;
     println!("┌{}┐", "─".repeat(width));
@@ -1222,7 +1244,7 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
     println!("│ query: {:<qwidth$}│", query, qwidth = width - 8);
     println!("├{}┤", "─".repeat(width));
     for (idx, cand) in candidates.iter().enumerate() {
-        let marker = if idx == 0 { "▶" } else { " " };
+        let marker = if idx == selected_idx { "▶" } else { " " };
         let text = format!("{marker} {:>2}. [{:<5}] {}", idx + 1, cand.kind, cand.name);
         println!("│{:<width$}│", truncate(&text, width), width = width);
     }
