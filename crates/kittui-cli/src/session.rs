@@ -11,7 +11,7 @@
 //! - file-based debug log so the agent and the operator can introspect
 //!   without escapes interfering with the live render
 //!
-//! Both the `kittui_wm_demo` example and the `kitwm` binary call into
+//! Both the `kittui_wm_demo` example and the `kittwm` binary call into
 //! [`run_loop`].
 
 use std::io::{self, Read, Write};
@@ -51,7 +51,7 @@ pub fn run_loop<S: XServer>(
     run_loop_with(runtime, compositor, layout, opts)
 }
 
-/// Tunable runtime options for the kitwm session loop.
+/// Tunable runtime options for the kittwm session loop.
 #[derive(Debug, Clone, Copy)]
 pub struct RunOptions {
     /// Target frames per second. Capped at 240 to keep terminal output sane.
@@ -654,10 +654,10 @@ fn poll_stdin(timeout: Duration) -> bool {
 
 /// Return the shell command used by the F12 launcher.
 ///
-/// Defaults to `xterm`; set `KITWM_LAUNCH_CMD` to override, e.g.
-/// `KITWM_LAUNCH_CMD='open -a Terminal'` or `'/bin/sleep 10'`.
+/// Defaults to `xterm`; set `KITTWM_LAUNCH_CMD` to override, e.g.
+/// `KITTWM_LAUNCH_CMD='open -a Terminal'` or `'/bin/sleep 10'`.
 pub fn launcher_command() -> String {
-    std::env::var("KITWM_LAUNCH_CMD").unwrap_or_else(|_| "xterm".to_string())
+    std::env::var("KITTWM_LAUNCH_CMD").unwrap_or_else(|_| "xterm".to_string())
 }
 
 fn spawn_launcher_command() -> Result<u32> {
@@ -811,7 +811,7 @@ impl LauncherOverlay {
         let candidates = self.candidates();
         let width = 58usize;
         write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
-        write!(handle, "\x1b[3;2H│{:^width$}│", "kitwm launcher", width = width)?;
+        write!(handle, "\x1b[3;2H│{:^width$}│", "kittwm launcher", width = width)?;
         write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
         write!(handle, "\x1b[5;2H│ query: {:<qwidth$}│", truncate_cells(&self.query, width - 8), qwidth = width - 8)?;
         write!(handle, "\x1b[6;2H├{}┤", "─".repeat(width))?;
@@ -892,16 +892,16 @@ mod launcher_tests {
     #[test]
     fn launcher_command_defaults_to_xterm() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::remove_var("KITWM_LAUNCH_CMD");
+        std::env::remove_var("KITTWM_LAUNCH_CMD");
         assert_eq!(super::launcher_command(), "xterm");
     }
 
     #[test]
     fn launcher_command_honors_env_override() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("KITWM_LAUNCH_CMD", "/bin/sleep 1");
+        std::env::set_var("KITTWM_LAUNCH_CMD", "/bin/sleep 1");
         assert_eq!(super::launcher_command(), "/bin/sleep 1");
-        std::env::remove_var("KITWM_LAUNCH_CMD");
+        std::env::remove_var("KITTWM_LAUNCH_CMD");
     }
 }
 

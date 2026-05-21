@@ -1,4 +1,4 @@
-//! Minimal Unix-socket daemon protocol for kitwm.
+//! Minimal Unix-socket daemon protocol for kittwm.
 //!
 //! Single-line text requests; reply is one line. RAII guard removes the
 //! socket file on drop. The server runs an accept loop on a worker
@@ -13,13 +13,13 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-/// Default socket path for the kitwm daemon. Honors `KITWM_SOCK`.
+/// Default socket path for the kittwm daemon. Honors `KITTWM_SOCK`.
 pub fn default_socket_path() -> PathBuf {
-    if let Ok(p) = std::env::var("KITWM_SOCK") {
+    if let Ok(p) = std::env::var("KITTWM_SOCK") {
         return PathBuf::from(p);
     }
     let user = std::env::var("USER").unwrap_or_else(|_| "anon".to_string());
-    PathBuf::from(format!("/tmp/kitwm-{user}.sock"))
+    PathBuf::from(format!("/tmp/kittwm-{user}.sock"))
 }
 
 /// Accept-loop daemon that answers `PING` / `STATUS` / `QUIT`.
@@ -48,7 +48,7 @@ impl DaemonServer {
             match client_request(&path, "PING") {
                 Ok(reply) if reply.trim() == "PONG" => {
                     return Err(anyhow!(
-                        "another kitwm daemon is already listening on {}",
+                        "another kittwm daemon is already listening on {}",
                         path.display()
                     ));
                 }
@@ -174,7 +174,7 @@ mod tests {
 
     fn tmp_sock() -> PathBuf {
         std::env::temp_dir().join(format!(
-            "kitwm-test-{}.sock",
+            "kittwm-test-{}.sock",
             std::process::id()
         ))
     }
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn status_includes_pid_and_uptime() {
         let p = std::env::temp_dir().join(format!(
-            "kitwm-test-status-{}.sock",
+            "kittwm-test-status-{}.sock",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&p);
@@ -206,7 +206,7 @@ mod tests {
     #[test]
     fn quit_sets_flag() {
         let p = std::env::temp_dir().join(format!(
-            "kitwm-test-quit-{}.sock",
+            "kittwm-test-quit-{}.sock",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&p);
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn double_bind_detects_existing_daemon() {
         let p = std::env::temp_dir().join(format!(
-            "kitwm-test-dup-{}.sock",
+            "kittwm-test-dup-{}.sock",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&p);

@@ -11,8 +11,8 @@ name = "kittui"
 path = "src/main.rs"
 
 [[bin]]
-name = "kitwm"
-path = "src/bin/kitwm.rs"
+name = "kittwm"
+path = "src/bin/kittwm.rs"
 
 [lib]
 name = "kittui_cli"

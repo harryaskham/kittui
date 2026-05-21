@@ -29,6 +29,18 @@
           buildInputs = lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
         };
 
+        # Platform-native default features so the installed package always
+        # ships a working backend for kittwm (sck/quartz on macOS, xvfb on
+        # Linux) without requiring rebuild flags. (bd-1bbee6)
+        kittuiCliFeatures =
+          if pkgs.stdenv.isDarwin then [ "sck" ]
+          else if pkgs.stdenv.isLinux then [ "xvfb" ]
+          else [ ];
+        cargoFeatureFlags =
+          if kittuiCliFeatures == [ ]
+          then [ ]
+          else [ "--features" (lib.concatStringsSep "," kittuiCliFeatures) ];
+
         kittui = pkgs.rustPlatform.buildRustPackage (
           commonArgs
           // {
@@ -36,11 +48,11 @@
             cargoBuildFlags = [
               "-p"
               "kittui-cli"
-            ];
+            ] ++ cargoFeatureFlags;
             cargoTestFlags = [
               "-p"
               "kittui-cli"
-            ];
+            ] ++ cargoFeatureFlags;
             meta = {
               description = "CLI for rendering kitty graphics from kittui scenes";
               homepage = "https://github.com/harryaskham/kittui";

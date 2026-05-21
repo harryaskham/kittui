@@ -1,4 +1,4 @@
-//! kitwm keybinding configuration.
+//! kittwm keybinding configuration.
 //!
 //! v1 intentionally uses a tiny line-oriented language so operators can edit
 //! keybindings without pulling in a full scripting runtime:
@@ -127,7 +127,7 @@ pub enum Action {
     FocusUp,
     /// Focus down.
     FocusDown,
-    /// Quit kitwm.
+    /// Quit kittwm.
     Quit,
     /// Any future/custom action token.
     Custom(String),
@@ -265,7 +265,7 @@ impl Keymap {
     /// Render as a stable table.
     pub fn render_table(&self) -> String {
         let mut out = String::new();
-        out.push_str("kitwm keymap\n");
+        out.push_str("kittwm keymap\n");
         out.push_str("============\n");
         match &self.prefix {
             Some(p) => out.push_str(&format!("prefix: {p}\n")),
@@ -279,14 +279,14 @@ impl Keymap {
     }
 }
 
-/// Tmux-like default kitwm keymap.
+/// Tmux-like default kittwm keymap.
 pub fn default_keymap() -> Keymap {
     Keymap::parse(DEFAULT_KEYMAP).expect("built-in keymap must parse")
 }
 
 /// Built-in keymap source, printed in docs/tests.
 pub const DEFAULT_KEYMAP: &str = r#"
-# kitwm default keymap: tmux-like Ctrl-A prefix
+# kittwm default keymap: tmux-like Ctrl-A prefix
 prefix C-a
 bind c workspace.new
 bind n workspace.next

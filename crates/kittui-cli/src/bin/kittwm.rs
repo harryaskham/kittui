@@ -1,4 +1,4 @@
-//! `kitwm` — the kittui window manager launcher.
+//! `kittwm` — the kittui window manager launcher.
 //!
 //! With no args, opens a kittui-wm session in the current terminal,
 //! picking the best available backend (Quartz on macOS, Xvfb on Linux,
@@ -8,19 +8,19 @@
 //! Flags:
 //!
 //! ```text
-//! kitwm              # open a session in the current terminal
-//! kitwm --serve      # run only the (in-process today) backend host loop
-//! kitwm --attach     # attach to an existing daemon (REPL or -c CMD)
-//! kitwm --kill       # send shutdown to the daemon (placeholder; bd-fb5d9d)
-//! kitwm --status     # print whether a daemon is running (placeholder)
-//! kitwm --backend X  # force a specific backend: fake | quartz | xvfb
+//! kittwm              # open a session in the current terminal
+//! kittwm --serve      # run only the (in-process today) backend host loop
+//! kittwm --attach     # attach to an existing daemon (REPL or -c CMD)
+//! kittwm --kill       # send shutdown to the daemon (placeholder; bd-fb5d9d)
+//! kittwm --status     # print whether a daemon is running (placeholder)
+//! kittwm --backend X  # force a specific backend: fake | quartz | xvfb
 //! ```
 //!
 //! Once the daemon/client split (bd-fb5d9d) lands, `--serve` becomes a
-//! `fork + setsid + exec` of the daemon and `kitwm` (no args) attaches
+//! `fork + setsid + exec` of the daemon and `kittwm` (no args) attaches
 //! to the running socket transparently.
 //!
-//! The end-goal acceptance criterion is that `kitwm` opens a usable
+//! The end-goal acceptance criterion is that `kittwm` opens a usable
 //! session with an app launcher that can spawn an X11 app (xterm via
 //! XQuartz on macOS, xterm via Xvfb on Linux) and route keystrokes into
 //! it. See bead bd-a9ec5b.
@@ -194,12 +194,12 @@ fn parse_args() -> Result<Cli> {
 
 fn print_help() {
     println!(
-        "kitwm — kittui window manager\n\n\
-         Usage: kitwm [--serve | --attach | --kill | --status] [--backend fake|quartz|xvfb]\n\n\
+        "kittwm — kittui window manager\n\n\
+         Usage: kittwm [--serve | --attach | --kill | --status] [--backend fake|quartz|xvfb]\n\n\
          Default: open a kittui-wm session in the current terminal, picking the\n\
          best available backend. q or Esc to quit.\n\n\
-         --serve   run as a Unix-socket daemon at $KITWM_SOCK\n\
-                   (default /tmp/kitwm-$USER.sock). Blocks until QUIT or\n\
+         --serve   run as a Unix-socket daemon at $KITTWM_SOCK\n\
+                   (default /tmp/kittwm-$USER.sock). Blocks until QUIT or\n\
                    SIGINT/SIGTERM. RAII socket cleanup.\n\
          --attach  connect to a running daemon and open an interactive REPL.\n\
                    Commands: PING STATUS WINDOWS DISPLAYS HELP QUIT.\n\
@@ -209,9 +209,9 @@ fn print_help() {
                    no daemon is reachable.\n\
          --backend fake|quartz|xvfb force a specific backend.\n\
          --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
-                         one window, then run a kitwm session capturing only it.\n\
+                         one window, then run a kittwm session capturing only it.\n\
          --list-windows  (macOS+quartz) print every titled CGWindow with id,\n\
-                         bounds, owner, title — useful for scripting kitwm.\n\
+                         bounds, owner, title — useful for scripting kittwm.\n\
          --list-displays (macOS+quartz) print every connected CGDirectDisplayID\n\
                          with bounds + index.\n\
          --capture SPEC  (macOS+quartz) capture a specific source non-interactively:\n\
@@ -229,20 +229,20 @@ SUBCOMMANDS\n\
          doctor          print a diagnostics report (backends, displays,\n\
                          terminal probe, log status, version). Pass --json\n\
                          for machine-readable output. Never enters raw mode.\n\
-         config          inspect resolved kitwm config env/paths and keymap\n\
+         config          inspect resolved kittwm config env/paths and keymap\n\
                          validation status.\n\
          record          capture N frames from --capture/--backend target and\n\
                          write them as PNG files to --out DIR (default\n\
-                         /tmp/kitwm-record-<unix-ts>). Defaults to 30 frames.\n\
+                         /tmp/kittwm-record-<unix-ts>). Defaults to 30 frames.\n\
                          Pass --apng to emit a single animated PNG at\n\
-                         <out>/kitwm.apng (use --delay-ms N for cadence,\n\
+                         <out>/kittwm.apng (use --delay-ms N for cadence,\n\
                          default 33ms). Never enters raw mode.\n\
          bench           measure capture-pipeline throughput. Runs raw_frames\n\
                          in a tight loop for --seconds N (default 3) against\n\
                          --capture target and prints captures/s + p50/p95/p99\n\
                          latency + MB/s. --json for machine-readable output.\n\
          launch          spawn xterm by default, or run CMD ARGS after\n\
-                         'kitwm launch -- CMD ARGS'. Prints pid + argv.\n\
+                         'kittwm launch -- CMD ARGS'. Prints pid + argv.\n\
          launcher        render a boxed, numbered launcher preview using\n\
                          the same --filter/--limit candidate source. Use\n\
                          --select N to highlight a row and --launch-selection\n\
@@ -254,11 +254,11 @@ SUBCOMMANDS\n\
                          --first to print the first match, --launch-first\n\
                          to spawn it (PATH command or macOS app).\n\
          --launch-on-f12 intercept F12 in a running session and spawn\n\
-                         KITWM_LAUNCH_CMD via /bin/sh -c (default: xterm).\n\
+                         KITTWM_LAUNCH_CMD via /bin/sh -c (default: xterm).\n\
                          Footer shows last_launch_pid and log records result.\n\
          --launcher-query QUERY make runtime launch actions pick the first\n\
                          matching PATH/macOS app candidate instead of the\n\
-                         fixed KITWM_LAUNCH_CMD fallback.\n\
+                         fixed KITTWM_LAUNCH_CMD fallback.\n\
          --launcher-overlay open an in-session boxed launcher overlay for\n\
                          launch actions; type filters, Enter launches, Esc closes.\n\
                          Enabled by default. Pass --no-launcher-overlay or\n\
@@ -299,7 +299,7 @@ fn main() -> ExitCode {
     match real_main() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("kitwm: {e}");
+            eprintln!("kittwm: {e}");
             ExitCode::from(1)
         }
     }
@@ -449,7 +449,7 @@ fn run_session(cli: Cli) -> Result<()> {
 }
 
 fn run_with_fake(runtime: &Runtime, cell: CellSize) -> Result<()> {
-    // Show a tiny gallery so `kitwm` (no args) always renders something
+    // Show a tiny gallery so `kittwm` (no args) always renders something
     // visible on any host, even without Quartz/Xvfb permissions.
     let server = FakeServer::with_windows(vec![
         (
@@ -488,7 +488,7 @@ fn run_with_quartz(
         let windows = QuartzServer::list_app_windows();
         let chosen = prompt_pick(&windows)?;
         eprintln!(
-            "kitwm: capturing window {} ({}: {})",
+            "kittwm: capturing window {} ({}: {})",
             chosen.id, chosen.owner_name, chosen.title
         );
         CaptureTarget::Window(chosen.id)
@@ -503,7 +503,7 @@ fn run_with_quartz(
     let max_h = 24u32 * cell.height_px as u32 * 2;
     server.set_max_size(Some((max_w, max_h)));
 
-    eprintln!("kitwm: probing macOS Screen Recording permission...");
+    eprintln!("kittwm: probing macOS Screen Recording permission...");
     let probe = server.windows().and_then(|w| {
         if let Some(first) = w.first() {
             server.capture(first.id).map(|_| ())
@@ -513,12 +513,12 @@ fn run_with_quartz(
     });
     if let Err(e) = probe {
         return Err(anyhow!(
-            "kitwm could not capture the screen: {e}\n\n  Grant Screen Recording \
+            "kittwm could not capture the screen: {e}\n\n  Grant Screen Recording \
              to your terminal under System Settings -> Privacy & Security -> \
              Screen Recording, then quit and relaunch the terminal."
         ));
     }
-    eprintln!("kitwm: backend ready. q/Esc to quit.");
+    eprintln!("kittwm: backend ready. q/Esc to quit.");
     std::thread::sleep(std::time::Duration::from_millis(600));
 
     let compositor = Compositor::new(server, cell);
@@ -561,7 +561,7 @@ fn prompt_pick(windows: &[kittui_quartz::MacWindow]) -> Result<kittui_quartz::Ma
             "no macOS app windows visible via CGWindowList; nothing to pick"
         ));
     }
-    println!("\nkitwm --pick-window\n");
+    println!("\nkittwm --pick-window\n");
     for (i, w) in windows.iter().enumerate() {
         println!(
             "  [{:>2}]  {:<24}  {:<48}  ({:.0},{:.0}) {:.0}x{:.0}",
@@ -622,11 +622,11 @@ fn resolve_capture_spec(spec: &str) -> Result<kittui_quartz::CaptureTarget> {
             })
             .ok_or_else(|| {
                 anyhow!(
-                    "no Mac window matched 'window:{needle}'; run `kitwm --list-windows` to see candidates"
+                    "no Mac window matched 'window:{needle}'; run `kittwm --list-windows` to see candidates"
                 )
             })?;
         eprintln!(
-            "kitwm: --capture window:{} matched id={} owner={:?} title={:?}",
+            "kittwm: --capture window:{} matched id={} owner={:?} title={:?}",
             needle, chosen.id, chosen.owner_name, chosen.title
         );
         return Ok(CaptureTarget::Window(chosen.id));
@@ -687,7 +687,7 @@ fn doctor_cmd(json: bool) -> Result<()> {
         buf.push_str("}\n");
         print!("{buf}");
     } else {
-        println!("kitwm doctor");
+        println!("kittwm doctor");
         println!("============");
         println!("  version        : {version}");
         println!("  os / arch      : {os} / {arch}");
@@ -719,7 +719,7 @@ fn doctor_cmd(json: bool) -> Result<()> {
                 "Hint: SCK + CGEventPost both require Screen Recording + Accessibility"
             );
             println!(
-                "      permissions on the terminal hosting kitwm (System Settings >"
+                "      permissions on the terminal hosting kittwm (System Settings >"
             );
             println!("      Privacy & Security).");
         }
@@ -742,7 +742,7 @@ fn record_cmd(cli: &Cli) -> Result<()> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            format!("/tmp/kitwm-record-{ts}")
+            format!("/tmp/kittwm-record-{ts}")
         });
     std::fs::create_dir_all(&out_dir)?;
 
@@ -762,7 +762,7 @@ fn record_cmd(cli: &Cli) -> Result<()> {
     let compositor = Compositor::new(server, cell);
     let layout = Layout::all_floating();
 
-    eprintln!("kitwm record: writing {frames_target} frames to {out_dir}");
+    eprintln!("kittwm record: writing {frames_target} frames to {out_dir}");
     let apng_mode = cli.record_apng;
     let delay_ms = cli.record_delay_ms.unwrap_or(33);
     let mut apng_frames: Vec<Pixmap> = Vec::new();
@@ -801,13 +801,13 @@ fn record_cmd(cli: &Cli) -> Result<()> {
         apng_frames.retain(|p| p.width() == w && p.height() == h);
         let delays: Vec<u32> = vec![delay_ms; apng_frames.len()];
         let bytes = kittui_render_cpu::encode_apng(&apng_frames, &delays, 0);
-        let path = format!("{out_dir}/kitwm.apng");
+        let path = format!("{out_dir}/kittwm.apng");
         std::fs::write(&path, bytes)?;
         eprintln!("  wrote APNG: {path}");
     }
     let elapsed = started.elapsed();
     eprintln!(
-        "kitwm record: done. {} frames in {:.2}s ({:.1} fps). dir={}",
+        "kittwm record: done. {} frames in {:.2}s ({:.1} fps). dir={}",
         frames_target,
         elapsed.as_secs_f32(),
         frames_target as f32 / elapsed.as_secs_f32(),
@@ -838,7 +838,7 @@ fn bench_cmd(cli: &Cli) -> Result<()> {
     let compositor = Compositor::new(server, cell);
     let layout = Layout::all_floating();
 
-    eprintln!("kitwm bench: measuring for {secs}s ...");
+    eprintln!("kittwm bench: measuring for {secs}s ...");
     let started = std::time::Instant::now();
     let deadline = started + std::time::Duration::from_secs(secs as u64);
     let mut latencies_us: Vec<u64> = Vec::with_capacity(4096);
@@ -894,7 +894,7 @@ fn bench_cmd(cli: &Cli) -> Result<()> {
             first_dims.1,
         );
     } else {
-        println!("kitwm bench");
+        println!("kittwm bench");
         println!("===========");
         println!("  duration       : {:.3} s", wall.as_secs_f32());
         println!("  captures       : {}", iters);
@@ -923,9 +923,9 @@ fn serve_cmd(_cli: Cli) -> Result<()> {
     use kittui_cli::daemon::{default_socket_path, DaemonServer};
     let path = default_socket_path();
     let server = DaemonServer::bind(path)
-        .map_err(|e| anyhow!("kitwm --serve: {e}"))?;
+        .map_err(|e| anyhow!("kittwm --serve: {e}"))?;
     eprintln!(
-        "kitwm: daemon listening on {} (pid={}). Send QUIT or SIGINT to exit.",
+        "kittwm: daemon listening on {} (pid={}). Send QUIT or SIGINT to exit.",
         server.path().display(),
         std::process::id()
     );
@@ -943,7 +943,7 @@ fn serve_cmd(_cli: Cli) -> Result<()> {
     while !server.quit_requested() && !GOT_SIGNAL.load(Ordering::SeqCst) {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    eprintln!("kitwm: daemon shutting down.");
+    eprintln!("kittwm: daemon shutting down.");
     Ok(())
 }
 
@@ -952,11 +952,11 @@ fn status_cmd() -> Result<()> {
     let path = default_socket_path();
     match client_request(&path, "STATUS") {
         Ok(reply) => {
-            print!("kitwm daemon: {reply}");
+            print!("kittwm daemon: {reply}");
             Ok(())
         }
         Err(_) => {
-            println!("kitwm: no daemon listening on {} (try `kitwm --serve` to start one).", path.display());
+            println!("kittwm: no daemon listening on {} (try `kittwm --serve` to start one).", path.display());
             std::process::exit(1);
         }
     }
@@ -990,7 +990,7 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
         }
         return Ok(());
     }
-    eprintln!("kitwm --attach: connected to {} ({})",
+    eprintln!("kittwm --attach: connected to {} ({})",
         path.display(),
         probe.trim()
     );
@@ -1000,7 +1000,7 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
     loop {
         {
             let mut w = stdout.lock();
-            write!(w, "kitwm> ")?;
+            write!(w, "kittwm> ")?;
             w.flush()?;
         }
         let mut line = String::new();
@@ -1044,7 +1044,7 @@ fn launch_cmd(cli: &Cli) -> Result<()> {
         .args(args)
         .spawn()
         .map_err(|e| anyhow!("launch {:?}: {e}", argv))?;
-    println!("kitwm launch: pid={} argv={:?}", child.id(), argv);
+    println!("kittwm launch: pid={} argv={:?}", child.id(), argv);
     Ok(())
 }
 
@@ -1098,7 +1098,7 @@ fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
         .iter()
         .filter(|(_, actions)| actions.len() > 1)
         .collect();
-    println!("kitwm keymap check");
+    println!("kittwm keymap check");
     println!("==================");
     println!("prefix: {}", km.prefix.as_ref().map(ToString::to_string).unwrap_or_else(|| "<none>".to_string()));
     println!("bindings: {}", km.bindings.len());
@@ -1136,7 +1136,7 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
         if cli.apps_launch_first {
             let pid = launch_app_candidate(&selected)?;
             println!(
-                "kitwm apps: launched pid={} kind={} name={}",
+                "kittwm apps: launched pid={} kind={} name={}",
                 pid, selected.kind, selected.name
             );
         } else {
@@ -1157,7 +1157,7 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
         );
         return Ok(());
     }
-    println!("kitwm apps");
+    println!("kittwm apps");
     println!("==========");
     println!("default: {default_cmd}");
     println!(
@@ -1318,13 +1318,13 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
             return Err(anyhow!("no launcher candidate selected"));
         }
         let pid = launch_app_candidate(candidate)?;
-        println!("kitwm launcher: launched selection={} pid={} kind={} name={}", selected, pid, candidate.kind, candidate.name);
+        println!("kittwm launcher: launched selection={} pid={} kind={} name={}", selected, pid, candidate.kind, candidate.name);
         return Ok(());
     }
 
     let width = 62usize;
     println!("┌{}┐", "─".repeat(width));
-    println!("│{:^width$}│", "kitwm launcher", width = width);
+    println!("│{:^width$}│", "kittwm launcher", width = width);
     println!("├{}┤", "─".repeat(width));
     println!("│ query: {:<qwidth$}│", query, qwidth = width - 8);
     println!("├{}┤", "─".repeat(width));
@@ -1347,7 +1347,7 @@ fn config_cmd(_cli: &Cli) -> Result<()> {
         kittui_cli::keymap::default_keymap()
     };
     let duplicates = keymap_duplicate_count(&keymap);
-    println!("kitwm config");
+    println!("kittwm config");
     println!("============");
     println!("KITTUI_WM_KEYMAP       : {}", keymap_path.as_deref().unwrap_or("<default>"));
     println!("KITTUI_WM_LAUNCH_CMD   : {}", std::env::var("KITTUI_WM_LAUNCH_CMD").unwrap_or_else(|_| "<default: xterm>".to_string()));

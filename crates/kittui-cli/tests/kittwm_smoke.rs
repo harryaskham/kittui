@@ -1,4 +1,4 @@
-//! `kitwm` end-to-end smoke. Spawns the `kitwm` binary with the FakeServer
+//! `kittwm` end-to-end smoke. Spawns the `kittwm` binary with the FakeServer
 //! backend, lets it run briefly, and asserts that the debug log contains
 //! evidence of a real render loop (frames rendered, terminal restored).
 
@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-fn kitwm_path() -> PathBuf {
+fn kittwm_path() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.pop();
     p.pop();
@@ -16,19 +16,19 @@ fn kitwm_path() -> PathBuf {
     } else {
         "release"
     });
-    p.push("kitwm");
+    p.push("kittwm");
     p
 }
 
 #[test]
-fn kitwm_fake_backend_renders_frames_then_exits() {
-    let bin = kitwm_path();
+fn kittwm_fake_backend_renders_frames_then_exits() {
+    let bin = kittwm_path();
     if !bin.exists() {
-        eprintln!("skipping: kitwm not built yet at {}", bin.display());
+        eprintln!("skipping: kittwm not built yet at {}", bin.display());
         return;
     }
     let log = std::env::temp_dir().join(format!(
-        "kitwm-smoke-{}-{}.log",
+        "kittwm-smoke-{}-{}.log",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -45,7 +45,7 @@ fn kitwm_fake_backend_renders_frames_then_exits() {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .expect("spawn kitwm");
+        .expect("spawn kittwm");
 
     // Let it render for ~4s under parallel test load (debug-build first
     // frame can take >1.5s on heavily-loaded CI), then SIGTERM. The
@@ -71,41 +71,40 @@ fn kitwm_fake_backend_renders_frames_then_exits() {
 }
 
 #[test]
-fn kitwm_help_prints() {
-    let bin = kitwm_path();
+fn kittwm_help_prints() {
+    let bin = kittwm_path();
     if !bin.exists() {
-        eprintln!("skipping: kitwm not built");
+        eprintln!("skipping: kittwm not built");
         return;
     }
     let out = Command::new(&bin)
         .arg("--help")
         .output()
-        .expect("run kitwm --help");
+        .expect("run kittwm --help");
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("kitwm — kittui window manager"));
+    assert!(stdout.contains("kittwm — kittui window manager"));
     assert!(stdout.contains("--backend"));
 }
 
 #[test]
-fn kitwm_status_prints_when_no_daemon() {
-    let bin = kitwm_path();
+fn kittwm_status_prints_when_no_daemon() {
+    let bin = kittwm_path();
     if !bin.exists() {
-        eprintln!("skipping: kitwm not built");
+        eprintln!("skipping: kittwm not built");
         return;
     }
     // Point at a path that should never have a daemon, so we get the
     // 'no daemon listening' message and exit 1.
-    let sock = std::env::temp_dir().join(format!(
-        "kitwm-smoke-nope-{}.sock",
+    let sock = std::path::PathBuf::from("/tmp").join(format!("ktwm-smoke-nope-{}.sock",
         std::process::id()
     ));
     let _ = std::fs::remove_file(&sock);
     let out = Command::new(&bin)
         .arg("--status")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .output()
-        .expect("run kitwm --status");
+        .expect("run kittwm --status");
     // status against a missing daemon exits non-zero.
     assert!(!out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -113,22 +112,21 @@ fn kitwm_status_prints_when_no_daemon() {
 }
 
 #[test]
-fn kitwm_serve_status_kill_round_trip() {
-    let bin = kitwm_path();
+fn kittwm_serve_status_kill_round_trip() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
-    let sock = std::env::temp_dir().join(format!(
-        "kitwm-smoke-rt-{}.sock",
+    let sock = std::path::PathBuf::from("/tmp").join(format!("ktwm-smoke-rt-{}.sock",
         std::process::id()
     ));
     let _ = std::fs::remove_file(&sock);
     // Spawn --serve in the background.
     let mut child = std::process::Command::new(&bin)
         .arg("--serve")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .expect("spawn kitwm --serve");
+        .expect("spawn kittwm --serve");
     // Wait for socket file to appear.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while !sock.exists() && std::time::Instant::now() < deadline {
@@ -138,7 +136,7 @@ fn kitwm_serve_status_kill_round_trip() {
     // STATUS should succeed and mention pid=.
     let st = Command::new(&bin)
         .arg("--status")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .output()
         .unwrap();
     assert!(st.status.success(), "status stderr: {}", String::from_utf8_lossy(&st.stderr));
@@ -147,7 +145,7 @@ fn kitwm_serve_status_kill_round_trip() {
     // KILL the daemon.
     let k = Command::new(&bin)
         .arg("--kill")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .output()
         .unwrap();
     assert!(k.status.success());
@@ -157,20 +155,20 @@ fn kitwm_serve_status_kill_round_trip() {
 }
 
 #[test]
-fn kitwm_doctor_prints_text_report() {
-    let bin = kitwm_path();
+fn kittwm_doctor_prints_text_report() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
-    let out = Command::new(&bin).arg("doctor").output().expect("run kitwm doctor");
+    let out = Command::new(&bin).arg("doctor").output().expect("run kittwm doctor");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("kitwm doctor"), "missing header: {s}");
+    assert!(s.contains("kittwm doctor"), "missing header: {s}");
     assert!(s.contains("features"));
     assert!(s.contains("displays"));
 }
 
 #[test]
-fn kitwm_doctor_json_emits_object() {
-    let bin = kitwm_path();
+fn kittwm_doctor_json_emits_object() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let out = Command::new(&bin).args(["doctor", "--json"]).output().unwrap();
     assert!(out.status.success());
@@ -183,20 +181,20 @@ fn kitwm_doctor_json_emits_object() {
 
 #[cfg(all(target_os = "macos"))]
 #[test]
-fn kitwm_list_windows_prints_header_and_at_least_one_window() {
-    let bin = kitwm_path();
+fn kittwm_list_windows_prints_header_and_at_least_one_window() {
+    let bin = kittwm_path();
     if !bin.exists() {
-        eprintln!("skipping: kitwm not built");
+        eprintln!("skipping: kittwm not built");
         return;
     }
     let out = Command::new(&bin)
         .arg("--list-windows")
         .output()
-        .expect("run kitwm --list-windows");
+        .expect("run kittwm --list-windows");
     if !out.status.success() {
         // Likely built without --features quartz; skip rather than fail.
         eprintln!(
-            "skipping: kitwm --list-windows returned non-zero: stderr={}",
+            "skipping: kittwm --list-windows returned non-zero: stderr={}",
             String::from_utf8_lossy(&out.stderr)
         );
         return;
@@ -214,18 +212,18 @@ fn kitwm_list_windows_prints_header_and_at_least_one_window() {
 
 #[cfg(all(target_os = "macos"))]
 #[test]
-fn kitwm_list_displays_prints_at_least_one_display() {
-    let bin = kitwm_path();
+fn kittwm_list_displays_prints_at_least_one_display() {
+    let bin = kittwm_path();
     if !bin.exists() {
-        eprintln!("skipping: kitwm not built");
+        eprintln!("skipping: kittwm not built");
         return;
     }
     let out = Command::new(&bin)
         .arg("--list-displays")
         .output()
-        .expect("run kitwm --list-displays");
+        .expect("run kittwm --list-displays");
     if !out.status.success() {
-        eprintln!("skipping: kitwm --list-displays returned non-zero (likely no quartz feature)");
+        eprintln!("skipping: kittwm --list-displays returned non-zero (likely no quartz feature)");
         return;
     }
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -234,11 +232,11 @@ fn kitwm_list_displays_prints_at_least_one_display() {
 
 #[cfg(all(target_os = "macos"))]
 #[test]
-fn kitwm_record_writes_png_files() {
-    let bin = kitwm_path();
+fn kittwm_record_writes_png_files() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let dir = std::env::temp_dir().join(format!(
-        "kitwm-rec-smoke-{}",
+        "kittwm-rec-smoke-{}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&dir);
@@ -246,10 +244,10 @@ fn kitwm_record_writes_png_files() {
         .args(["record", "--frames", "3", "--out"])
         .arg(&dir)
         .output()
-        .expect("run kitwm record");
+        .expect("run kittwm record");
     if !out.status.success() {
         eprintln!(
-            "skipping: kitwm record failed (likely no quartz/sck): stderr={}",
+            "skipping: kittwm record failed (likely no quartz/sck): stderr={}",
             String::from_utf8_lossy(&out.stderr)
         );
         return;
@@ -268,11 +266,11 @@ fn kitwm_record_writes_png_files() {
 
 #[cfg(all(target_os = "macos"))]
 #[test]
-fn kitwm_record_apng_writes_single_file() {
-    let bin = kitwm_path();
+fn kittwm_record_apng_writes_single_file() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let dir = std::env::temp_dir().join(format!(
-        "kitwm-apng-smoke-{}",
+        "kittwm-apng-smoke-{}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&dir);
@@ -280,13 +278,13 @@ fn kitwm_record_apng_writes_single_file() {
         .args(["record", "--frames", "4", "--apng", "--delay-ms", "50", "--out"])
         .arg(&dir)
         .output()
-        .expect("run kitwm record --apng");
+        .expect("run kittwm record --apng");
     if !out.status.success() {
         eprintln!("skipping: stderr={}", String::from_utf8_lossy(&out.stderr));
         return;
     }
-    let apng = dir.join("kitwm.apng");
-    assert!(apng.exists(), "kitwm.apng missing at {apng:?}");
+    let apng = dir.join("kittwm.apng");
+    assert!(apng.exists(), "kittwm.apng missing at {apng:?}");
     let bytes = std::fs::read(&apng).unwrap();
     // PNG signature.
     assert_eq!(&bytes[..4], &[0x89, 0x50, 0x4E, 0x47]);
@@ -300,13 +298,13 @@ fn kitwm_record_apng_writes_single_file() {
 
 #[cfg(all(target_os = "macos"))]
 #[test]
-fn kitwm_bench_json_emits_metrics() {
-    let bin = kitwm_path();
+fn kittwm_bench_json_emits_metrics() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let out = Command::new(&bin)
         .args(["bench", "--seconds", "1", "--json"])
         .output()
-        .expect("run kitwm bench --json");
+        .expect("run kittwm bench --json");
     if !out.status.success() {
         eprintln!("skipping: stderr={}", String::from_utf8_lossy(&out.stderr));
         return;
@@ -321,17 +319,16 @@ fn kitwm_bench_json_emits_metrics() {
 
 #[cfg(all(target_os = "macos"))]
 #[test]
-fn kitwm_attach_repl_round_trip() {
-    let bin = kitwm_path();
+fn kittwm_attach_repl_round_trip() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
-    let sock = std::env::temp_dir().join(format!(
-        "kitwm-attach-smoke-{}.sock",
+    let sock = std::path::PathBuf::from("/tmp").join(format!("ktwm-attach-smoke-{}.sock",
         std::process::id()
     ));
     let _ = std::fs::remove_file(&sock);
     let mut server = std::process::Command::new(&bin)
         .arg("--serve")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -344,7 +341,7 @@ fn kitwm_attach_repl_round_trip() {
     // Feed a script via stdin.
     let mut child = std::process::Command::new(&bin)
         .arg("--attach")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -366,17 +363,16 @@ fn kitwm_attach_repl_round_trip() {
 
 #[cfg(all(target_os = "macos"))]
 #[test]
-fn kitwm_attach_command_one_shot_round_trip() {
-    let bin = kitwm_path();
+fn kittwm_attach_command_one_shot_round_trip() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
-    let sock = std::env::temp_dir().join(format!(
-        "kitwm-attach-command-smoke-{}.sock",
+    let sock = std::path::PathBuf::from("/tmp").join(format!("ktwm-attach-command-smoke-{}.sock",
         std::process::id()
     ));
     let _ = std::fs::remove_file(&sock);
     let mut server = std::process::Command::new(&bin)
         .arg("--serve")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -390,7 +386,7 @@ fn kitwm_attach_command_one_shot_round_trip() {
     // when the workspace is tested without the macOS/quartz feature set.
     let out = std::process::Command::new(&bin)
         .args(["--attach", "-c", "STATUS"])
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .output()
         .expect("run --attach -c STATUS");
     assert!(out.status.success(), "stderr: {} stdout: {}", String::from_utf8_lossy(&out.stderr), String::from_utf8_lossy(&out.stdout));
@@ -398,34 +394,34 @@ fn kitwm_attach_command_one_shot_round_trip() {
     assert!(s.contains("pid=") && s.contains("uptime_s="), "stdout missing status: {s}");
     let _ = std::process::Command::new(&bin)
         .arg("--kill")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .output();
     let _ = server.wait();
     let _ = std::fs::remove_file(&sock);
 }
 
 #[test]
-fn kitwm_launch_spawns_command_and_prints_pid() {
-    let bin = kitwm_path();
+fn kittwm_launch_spawns_command_and_prints_pid() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let out = Command::new(&bin)
-        .args(["launch", "--", "/bin/echo", "kitwm-launch-smoke"])
+        .args(["launch", "--", "/bin/echo", "kittwm-launch-smoke"])
         .output()
-        .expect("run kitwm launch");
+        .expect("run kittwm launch");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("kitwm launch: pid="), "missing pid: {s}");
+    assert!(s.contains("kittwm launch: pid="), "missing pid: {s}");
     assert!(s.contains("/bin/echo"), "missing argv: {s}");
 }
 
 #[test]
-fn kitwm_keymap_prints_default_ctrl_a_bindings() {
-    let bin = kitwm_path();
+fn kittwm_keymap_prints_default_ctrl_a_bindings() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let out = Command::new(&bin)
         .arg("keymap")
         .output()
-        .expect("run kitwm keymap");
+        .expect("run kittwm keymap");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
     assert!(s.contains("prefix: C-a"), "missing prefix: {s}");
@@ -435,16 +431,16 @@ fn kitwm_keymap_prints_default_ctrl_a_bindings() {
 }
 
 #[test]
-fn kitwm_keymap_parses_custom_file() {
-    let bin = kitwm_path();
+fn kittwm_keymap_parses_custom_file() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
-    let path = std::env::temp_dir().join(format!("kitwm-keymap-{}.conf", std::process::id()));
+    let path = std::env::temp_dir().join(format!("kittwm-keymap-{}.conf", std::process::id()));
     std::fs::write(&path, "prefix C-x\nbind y custom.yank\n").unwrap();
     let out = Command::new(&bin)
         .args(["keymap", "--keymap"])
         .arg(&path)
         .output()
-        .expect("run kitwm keymap --keymap");
+        .expect("run kittwm keymap --keymap");
     let _ = std::fs::remove_file(&path);
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
@@ -453,31 +449,31 @@ fn kitwm_keymap_parses_custom_file() {
 }
 
 #[test]
-fn kitwm_apps_lists_candidates_and_default() {
-    let bin = kitwm_path();
+fn kittwm_apps_lists_candidates_and_default() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let out = Command::new(&bin)
         .args(["apps", "--limit", "5"])
-        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .env("KITTWM_LAUNCH_CMD", "/bin/echo hello")
         .output()
-        .expect("run kitwm apps");
+        .expect("run kittwm apps");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("kitwm apps"), "missing header: {s}");
+    assert!(s.contains("kittwm apps"), "missing header: {s}");
     assert!(s.contains("default: /bin/echo hello"), "missing default: {s}");
     assert!(s.contains("default_resolved: /bin/echo"), "missing resolved path: {s}");
     assert!(s.contains("PATH commands"), "missing PATH commands: {s}");
 }
 
 #[test]
-fn kitwm_apps_json_lists_candidates_and_default() {
-    let bin = kitwm_path();
+fn kittwm_apps_json_lists_candidates_and_default() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let out = Command::new(&bin)
         .args(["apps", "--json", "--limit", "5"])
-        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .env("KITTWM_LAUNCH_CMD", "/bin/echo hello")
         .output()
-        .expect("run kitwm apps --json");
+        .expect("run kittwm apps --json");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
     let t = s.trim();
@@ -490,18 +486,17 @@ fn kitwm_apps_json_lists_candidates_and_default() {
 
 #[cfg(all(target_os = "macos"))]
 #[test]
-fn kitwm_attach_apps_verbs_round_trip() {
-    let bin = kitwm_path();
+fn kittwm_attach_apps_verbs_round_trip() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
-    let sock = std::env::temp_dir().join(format!(
-        "kitwm-apps-verb-smoke-{}.sock",
+    let sock = std::path::PathBuf::from("/tmp").join(format!("ktwm-apps-verb-smoke-{}.sock",
         std::process::id()
     ));
     let _ = std::fs::remove_file(&sock);
     let mut server = std::process::Command::new(&bin)
         .arg("--serve")
-        .env("KITWM_SOCK", &sock)
-        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .env("KITTWM_SOCK", &sock)
+        .env("KITTWM_LAUNCH_CMD", "/bin/echo hello")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -514,8 +509,8 @@ fn kitwm_attach_apps_verbs_round_trip() {
 
     let apps = Command::new(&bin)
         .args(["--attach", "-c", "APPS"])
-        .env("KITWM_SOCK", &sock)
-        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .env("KITTWM_SOCK", &sock)
+        .env("KITTWM_LAUNCH_CMD", "/bin/echo hello")
         .output()
         .expect("run APPS");
     assert!(apps.status.success(), "stderr: {}", String::from_utf8_lossy(&apps.stderr));
@@ -525,8 +520,8 @@ fn kitwm_attach_apps_verbs_round_trip() {
 
     let json = Command::new(&bin)
         .args(["--attach", "-c", "APPS_JSON"])
-        .env("KITWM_SOCK", &sock)
-        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .env("KITTWM_SOCK", &sock)
+        .env("KITTWM_LAUNCH_CMD", "/bin/echo hello")
         .output()
         .expect("run APPS_JSON");
     assert!(json.status.success(), "stderr: {}", String::from_utf8_lossy(&json.stderr));
@@ -536,21 +531,21 @@ fn kitwm_attach_apps_verbs_round_trip() {
 
     let _ = Command::new(&bin)
         .arg("--kill")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .output();
     let _ = server.wait();
     let _ = std::fs::remove_file(&sock);
 }
 
 #[test]
-fn kitwm_apps_filter_narrows_text_and_json() {
-    let bin = kitwm_path();
+fn kittwm_apps_filter_narrows_text_and_json() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let out = Command::new(&bin)
         .args(["apps", "--filter", "echo", "--limit", "10"])
-        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .env("KITTWM_LAUNCH_CMD", "/bin/echo hello")
         .output()
-        .expect("run kitwm apps --filter");
+        .expect("run kittwm apps --filter");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
     assert!(s.contains("filter: echo"), "missing filter line: {s}");
@@ -558,9 +553,9 @@ fn kitwm_apps_filter_narrows_text_and_json() {
 
     let json = Command::new(&bin)
         .args(["apps", "--json", "--filter", "echo", "--limit", "10"])
-        .env("KITWM_LAUNCH_CMD", "/bin/echo hello")
+        .env("KITTWM_LAUNCH_CMD", "/bin/echo hello")
         .output()
-        .expect("run kitwm apps --json --filter");
+        .expect("run kittwm apps --json --filter");
     assert!(json.status.success(), "stderr: {}", String::from_utf8_lossy(&json.stderr));
     let j = String::from_utf8_lossy(&json.stdout);
     assert!(j.contains("\"path_commands\""), "missing path commands: {j}");
@@ -568,13 +563,13 @@ fn kitwm_apps_filter_narrows_text_and_json() {
 }
 
 #[test]
-fn kitwm_apps_first_and_launch_first_select_candidate() {
-    let bin = kitwm_path();
+fn kittwm_apps_first_and_launch_first_select_candidate() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let first = Command::new(&bin)
         .args(["apps", "--filter", "echo", "--first", "--limit", "10"])
         .output()
-        .expect("run kitwm apps --first");
+        .expect("run kittwm apps --first");
     assert!(first.status.success(), "stderr: {}", String::from_utf8_lossy(&first.stderr));
     let first_out = String::from_utf8_lossy(&first.stdout);
     assert!(first_out.trim().starts_with("path:"), "expected path candidate: {first_out}");
@@ -583,26 +578,25 @@ fn kitwm_apps_first_and_launch_first_select_candidate() {
     let launched = Command::new(&bin)
         .args(["apps", "--filter", "echo", "--launch-first", "--limit", "10"])
         .output()
-        .expect("run kitwm apps --launch-first");
+        .expect("run kittwm apps --launch-first");
     assert!(launched.status.success(), "stderr: {}", String::from_utf8_lossy(&launched.stderr));
     let s = String::from_utf8_lossy(&launched.stdout);
-    assert!(s.contains("kitwm apps: launched pid="), "missing launch pid: {s}");
+    assert!(s.contains("kittwm apps: launched pid="), "missing launch pid: {s}");
     assert!(s.contains("kind=path"), "wrong candidate kind: {s}");
 }
 
 #[cfg(all(target_os = "macos"))]
 #[test]
-fn kitwm_attach_apps_first_verbs_round_trip() {
-    let bin = kitwm_path();
+fn kittwm_attach_apps_first_verbs_round_trip() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
-    let sock = std::env::temp_dir().join(format!(
-        "kitwm-apps-first-smoke-{}.sock",
+    let sock = std::path::PathBuf::from("/tmp").join(format!("ktwm-apps-first-smoke-{}.sock",
         std::process::id()
     ));
     let _ = std::fs::remove_file(&sock);
     let mut server = std::process::Command::new(&bin)
         .arg("--serve")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -615,7 +609,7 @@ fn kitwm_attach_apps_first_verbs_round_trip() {
 
     let first = Command::new(&bin)
         .args(["--attach", "-c", "APPS_FIRST echo"])
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .output()
         .expect("run APPS_FIRST");
     assert!(first.status.success(), "stderr: {}", String::from_utf8_lossy(&first.stderr));
@@ -625,7 +619,7 @@ fn kitwm_attach_apps_first_verbs_round_trip() {
 
     let launched = Command::new(&bin)
         .args(["--attach", "-c", "APPS_LAUNCH_FIRST echo"])
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .output()
         .expect("run APPS_LAUNCH_FIRST");
     assert!(launched.status.success(), "stderr: {}", String::from_utf8_lossy(&launched.stderr));
@@ -635,66 +629,66 @@ fn kitwm_attach_apps_first_verbs_round_trip() {
 
     let _ = Command::new(&bin)
         .arg("--kill")
-        .env("KITWM_SOCK", &sock)
+        .env("KITTWM_SOCK", &sock)
         .output();
     let _ = server.wait();
     let _ = std::fs::remove_file(&sock);
 }
 
 #[test]
-fn kitwm_launcher_preview_renders_boxed_filtered_menu() {
-    let bin = kitwm_path();
+fn kittwm_launcher_preview_renders_boxed_filtered_menu() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let out = Command::new(&bin)
         .args(["launcher", "--filter", "echo", "--limit", "5"])
         .output()
-        .expect("run kitwm launcher");
+        .expect("run kittwm launcher");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("kitwm launcher"), "missing title: {s}");
+    assert!(s.contains("kittwm launcher"), "missing title: {s}");
     assert!(s.contains("query: echo"), "missing query: {s}");
     assert!(s.contains("▶") || s.contains("[path ]"), "missing selectable row: {s}");
     assert!(s.to_ascii_lowercase().contains("echo"), "missing echo candidate: {s}");
 }
 
 #[test]
-fn kitwm_launcher_select_and_launch_selection() {
-    let bin = kitwm_path();
+fn kittwm_launcher_select_and_launch_selection() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let out = Command::new(&bin)
         .args(["launcher", "--filter", "echo", "--select", "2", "--limit", "5"])
         .output()
-        .expect("run kitwm launcher --select");
+        .expect("run kittwm launcher --select");
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("kitwm launcher"), "missing launcher title: {s}");
+    assert!(s.contains("kittwm launcher"), "missing launcher title: {s}");
     assert!(s.contains("▶  2.") || s.contains("▶  1."), "missing selected marker: {s}");
 
     let launched = Command::new(&bin)
         .args(["launcher", "--filter", "echo", "--select", "1", "--launch-selection", "--limit", "5"])
         .output()
-        .expect("run kitwm launcher --launch-selection");
+        .expect("run kittwm launcher --launch-selection");
     assert!(launched.status.success(), "stderr: {}", String::from_utf8_lossy(&launched.stderr));
     let ls = String::from_utf8_lossy(&launched.stdout);
-    assert!(ls.contains("kitwm launcher: launched selection=1 pid="), "missing launched pid: {ls}");
+    assert!(ls.contains("kittwm launcher: launched selection=1 pid="), "missing launched pid: {ls}");
     assert!(ls.contains("kind=path"), "expected path candidate: {ls}");
 }
 
 #[test]
-fn kitwm_keymap_check_reports_ok_for_default_and_duplicates_for_custom_file() {
-    let bin = kitwm_path();
+fn kittwm_keymap_check_reports_ok_for_default_and_duplicates_for_custom_file() {
+    let bin = kittwm_path();
     if !bin.exists() { return; }
     let ok = Command::new(&bin)
         .args(["keymap", "--check"])
         .output()
-        .expect("run kitwm keymap --check");
+        .expect("run kittwm keymap --check");
     assert!(ok.status.success(), "stderr: {}", String::from_utf8_lossy(&ok.stderr));
     let s = String::from_utf8_lossy(&ok.stdout);
-    assert!(s.contains("kitwm keymap check"), "missing header: {s}");
+    assert!(s.contains("kittwm keymap check"), "missing header: {s}");
     assert!(s.contains("duplicate_chords: 0"), "unexpected duplicates: {s}");
     assert!(s.contains("status: ok"), "missing ok: {s}");
 
-    let path = std::env::temp_dir().join(format!("kitwm-keymap-dupe-{}.conf", std::process::id()));
+    let path = std::env::temp_dir().join(format!("kittwm-keymap-dupe-{}.conf", std::process::id()));
     std::fs::write(&path, "prefix C-a\nbind c workspace.new\nbind c quit\n").unwrap();
     let dup = Command::new(&bin)
         .args(["keymap", "--check", "--keymap"])
