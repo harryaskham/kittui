@@ -94,13 +94,66 @@ fn kitwm_status_prints_when_no_daemon() {
         eprintln!("skipping: kitwm not built");
         return;
     }
+    // Point at a path that should never have a daemon, so we get the
+    // 'no daemon listening' message and exit 1.
+    let sock = std::env::temp_dir().join(format!(
+        "kitwm-smoke-nope-{}.sock",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&sock);
     let out = Command::new(&bin)
         .arg("--status")
+        .env("KITWM_SOCK", &sock)
         .output()
         .expect("run kitwm --status");
-    assert!(out.status.success());
+    // status against a missing daemon exits non-zero.
+    assert!(!out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.to_lowercase().contains("daemon"));
+    assert!(stdout.to_lowercase().contains("no daemon"), "unexpected: {stdout}");
+}
+
+#[test]
+fn kitwm_serve_status_kill_round_trip() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let sock = std::env::temp_dir().join(format!(
+        "kitwm-smoke-rt-{}.sock",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&sock);
+    // Spawn --serve in the background.
+    let mut child = std::process::Command::new(&bin)
+        .arg("--serve")
+        .env("KITWM_SOCK", &sock)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn kitwm --serve");
+    // Wait for socket file to appear.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !sock.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(sock.exists(), "daemon did not bind socket within 5s");
+    // STATUS should succeed and mention pid=.
+    let st = Command::new(&bin)
+        .arg("--status")
+        .env("KITWM_SOCK", &sock)
+        .output()
+        .unwrap();
+    assert!(st.status.success(), "status stderr: {}", String::from_utf8_lossy(&st.stderr));
+    let s = String::from_utf8_lossy(&st.stdout);
+    assert!(s.contains("pid="), "status missing pid=: {s}");
+    // KILL the daemon.
+    let k = Command::new(&bin)
+        .arg("--kill")
+        .env("KITWM_SOCK", &sock)
+        .output()
+        .unwrap();
+    assert!(k.status.success());
+    let _ = child.wait();
+    // Socket should be cleaned up.
+    assert!(!sock.exists(), "socket lingered after --kill");
 }
 
 #[test]

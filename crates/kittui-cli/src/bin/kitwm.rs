@@ -242,18 +242,14 @@ fn real_main() -> Result<()> {
     }
 
     match cli.mode {
-        Mode::Session | Mode::Serve => run_session(cli),
+        Mode::Session => run_session(cli),
+        Mode::Serve => serve_cmd(cli),
         Mode::Attach => Err(anyhow!(
-            "--attach is a placeholder until the kittui-wm daemon lands (bd-fb5d9d). \
+            "--attach is a placeholder until the attach client lands (bd-aaea73). \
              Run `kitwm` with no args to open a session in this terminal."
         )),
-        Mode::Kill => Err(anyhow!(
-            "--kill is a placeholder until the kittui-wm daemon lands (bd-fb5d9d)."
-        )),
-        Mode::Status => {
-            println!("kitwm: no daemon yet (bd-fb5d9d). Single-session in-process mode is active.");
-            Ok(())
-        }
+        Mode::Kill => kill_cmd(),
+        Mode::Status => status_cmd(),
     }
 }
 
@@ -808,4 +804,59 @@ fn bench_cmd(cli: &Cli) -> Result<()> {
 #[cfg(not(all(target_os = "macos", feature = "quartz")))]
 fn bench_cmd(_cli: &Cli) -> Result<()> {
     Err(anyhow!("bench requires --features quartz on macOS"))
+}
+
+fn serve_cmd(_cli: Cli) -> Result<()> {
+    use kittui_cli::daemon::{default_socket_path, DaemonServer};
+    let path = default_socket_path();
+    let server = DaemonServer::bind(path)
+        .map_err(|e| anyhow!("kitwm --serve: {e}"))?;
+    eprintln!(
+        "kitwm: daemon listening on {} (pid={}). Send QUIT or SIGINT to exit.",
+        server.path().display(),
+        std::process::id()
+    );
+    // Block until QUIT received or signal.
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static GOT_SIGNAL: AtomicBool = AtomicBool::new(false);
+    extern "C" fn on_signal(_: libc::c_int) {
+        GOT_SIGNAL.store(true, Ordering::SeqCst);
+    }
+    unsafe {
+        for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+            libc::signal(sig, on_signal as libc::sighandler_t);
+        }
+    }
+    while !server.quit_requested() && !GOT_SIGNAL.load(Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    eprintln!("kitwm: daemon shutting down.");
+    Ok(())
+}
+
+fn status_cmd() -> Result<()> {
+    use kittui_cli::daemon::{client_request, default_socket_path};
+    let path = default_socket_path();
+    match client_request(&path, "STATUS") {
+        Ok(reply) => {
+            print!("kitwm daemon: {reply}");
+            Ok(())
+        }
+        Err(_) => {
+            println!("kitwm: no daemon listening on {} (try `kitwm --serve` to start one).", path.display());
+            std::process::exit(1);
+        }
+    }
+}
+
+fn kill_cmd() -> Result<()> {
+    use kittui_cli::daemon::{client_request, default_socket_path};
+    let path = default_socket_path();
+    match client_request(&path, "QUIT") {
+        Ok(reply) => {
+            print!("{reply}");
+            Ok(())
+        }
+        Err(e) => Err(anyhow!("no daemon to kill at {}: {e}", path.display())),
+    }
 }

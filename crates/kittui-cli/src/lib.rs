@@ -6,3 +6,4 @@
 //! the file-based debug logger.
 
 pub mod session;
+pub mod daemon;
