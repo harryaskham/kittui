@@ -141,10 +141,11 @@ pub fn run_loop_with<S: XServer>(
                             dbg.log(&format!("keymap action: {} -> {action_name}", chord.iter().map(ToString::to_string).collect::<Vec<_>>().join(" ")));
                             match action {
                                 Action::Launch => {
+                                    let selection = launcher_selection();
                                     match spawn_launcher_command() {
                                         Ok(pid) => {
                                             last_launch_pid = Some(pid);
-                                            dbg.log(&format!("keymap launcher spawned pid={pid}"));
+                                            dbg.log(&format!("keymap launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
                                         }
                                         Err(e) => dbg.log(&format!("keymap launcher failed: {e}")),
                                     }
@@ -153,10 +154,11 @@ pub fn run_loop_with<S: XServer>(
                                     let msg = split_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("split action: {msg}"));
+                                    let selection = launcher_selection();
                                     match spawn_launcher_command() {
                                         Ok(pid) => {
                                             last_launch_pid = Some(pid);
-                                            dbg.log(&format!("split launcher spawned pid={pid}"));
+                                            dbg.log(&format!("split launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
                                         }
                                         Err(e) => dbg.log(&format!("split launcher failed: {e}")),
                                     }
@@ -211,10 +213,11 @@ pub fn run_loop_with<S: XServer>(
                     let _ = compositor.route_key(&ev);
                 }
                 InputEvent::Key { key: Key::F(12), .. } if opts.launch_on_f12 => {
+                    let selection = launcher_selection();
                     match spawn_launcher_command() {
                         Ok(pid) => {
                             last_launch_pid = Some(pid);
-                            dbg.log(&format!("launcher F12 spawned pid={pid}"));
+                            dbg.log(&format!("launcher F12 selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
                         }
                         Err(e) => {
                             dbg.log(&format!("launcher F12 failed: {e}"));
@@ -571,15 +574,103 @@ pub fn launcher_command() -> String {
 }
 
 fn spawn_launcher_command() -> Result<u32> {
-    let cmd = launcher_command();
-    let child = std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg(&cmd)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
+    let selection = launcher_selection();
+    let child = match selection.kind {
+        LauncherKind::Shell => std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&selection.command)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?,
+        LauncherKind::Path => std::process::Command::new(&selection.command)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?,
+        LauncherKind::MacOsApp => std::process::Command::new("open")
+            .arg("-a")
+            .arg(&selection.command)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?,
+    };
     Ok(child.id())
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum LauncherKind {
+    Shell,
+    Path,
+    MacOsApp,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct LauncherSelection {
+    kind: LauncherKind,
+    command: String,
+}
+
+fn launcher_selection() -> LauncherSelection {
+    if let Ok(query) = std::env::var("KITTUI_WM_LAUNCH_QUERY") {
+        if let Some(sel) = first_launcher_candidate(&query) {
+            return sel;
+        }
+    }
+    LauncherSelection { kind: LauncherKind::Shell, command: launcher_command() }
+}
+
+fn first_launcher_candidate(query: &str) -> Option<LauncherSelection> {
+    let q = query.to_ascii_lowercase();
+    for cmd in path_commands(5000) {
+        if cmd.to_ascii_lowercase().contains(&q) {
+            return Some(LauncherSelection { kind: LauncherKind::Path, command: cmd });
+        }
+    }
+    #[cfg(target_os = "macos")]
+    for app in macos_apps(5000) {
+        if app.to_ascii_lowercase().contains(&q) {
+            return Some(LauncherSelection { kind: LauncherKind::MacOsApp, command: app });
+        }
+    }
+    None
+}
+
+fn path_commands(limit: usize) -> Vec<String> {
+    let mut out = std::collections::BTreeSet::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let Ok(read) = std::fs::read_dir(dir) else { continue };
+            for ent in read.flatten() {
+                let path = ent.path();
+                if !path.is_file() { continue; }
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+                if name.starts_with('.') { continue; }
+                out.insert(name.to_string());
+                if out.len() >= limit { break; }
+            }
+            if out.len() >= limit { break; }
+        }
+    }
+    out.into_iter().take(limit).collect()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_apps(limit: usize) -> Vec<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for root in ["/Applications", "/System/Applications"] {
+        let Ok(read) = std::fs::read_dir(root) else { continue };
+        for ent in read.flatten() {
+            let path = ent.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("app") { continue; }
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+            out.insert(name.trim_end_matches(".app").to_string());
+            if out.len() >= limit { break; }
+        }
+        if out.len() >= limit { break; }
+    }
+    out.into_iter().take(limit).collect()
 }
 
 #[cfg(test)]
@@ -850,5 +941,20 @@ mod swap_state_tests {
         assert_eq!(s.apply(&Action::SwapDown), "swap.down -> down#2");
         assert_eq!(s.apply(&Action::SwapUp), "swap.up -> up#3");
         assert_eq!(s.apply(&Action::SwapRight), "swap.right -> right#4");
+    }
+}
+
+#[cfg(test)]
+mod launcher_query_tests {
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn launcher_selection_uses_path_query_before_shell_fallback() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTUI_WM_LAUNCH_QUERY", "echo");
+        let sel = super::launcher_selection();
+        std::env::remove_var("KITTUI_WM_LAUNCH_QUERY");
+        assert_eq!(sel.kind, super::LauncherKind::Path);
+        assert!(sel.command.to_ascii_lowercase().contains("echo"));
     }
 }

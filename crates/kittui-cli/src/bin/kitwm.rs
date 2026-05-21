@@ -56,6 +56,7 @@ struct Cli {
     launch: bool,
     launch_args: Vec<String>,
     launch_on_f12: bool,
+    launcher_query: Option<String>,
     apps: bool,
     apps_limit: Option<usize>,
     apps_filter: Option<String>,
@@ -132,6 +133,9 @@ fn parse_args() -> Result<Cli> {
             "--serve" => out.mode = Mode::Serve,
             "--attach" => out.mode = Mode::Attach,
             "--launch-on-f12" => out.launch_on_f12 = true,
+            "--launcher-query" => {
+                out.launcher_query = Some(args.next().ok_or_else(|| anyhow!("--launcher-query QUERY"))?);
+            }
             "--kill" => out.mode = Mode::Kill,
             "--status" => out.mode = Mode::Status,
             "--backend" => {
@@ -229,6 +233,9 @@ SUBCOMMANDS\n\
          --launch-on-f12 intercept F12 in a running session and spawn\n\
                          KITWM_LAUNCH_CMD via /bin/sh -c (default: xterm).\n\
                          Footer shows last_launch_pid and log records result.\n\
+         --launcher-query QUERY make runtime launch actions pick the first\n\
+                         matching PATH/macOS app candidate instead of the\n\
+                         fixed KITWM_LAUNCH_CMD fallback.\n\
          keymap          print resolved keybinding config. Defaults to the\n\
                          built-in tmux-like Ctrl-A prefix map; pass\n\
                          --keymap PATH to parse and print a custom file.\n\
@@ -277,6 +284,9 @@ fn real_main() -> Result<()> {
     }
     if cli.launch_on_f12 {
         std::env::set_var("KITTUI_WM_LAUNCH_ON_F12", "1");
+    }
+    if let Some(query) = &cli.launcher_query {
+        std::env::set_var("KITTUI_WM_LAUNCH_QUERY", query);
     }
     if let Some(path) = &cli.keymap_path {
         std::env::set_var("KITTUI_WM_KEYMAP", path);
