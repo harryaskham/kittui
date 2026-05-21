@@ -780,7 +780,7 @@ mod imp {
 }
 
 #[cfg(all(target_os = "macos", feature = "quartz"))]
-pub use imp::QuartzServer;
+pub use imp::{CaptureTarget, MacDisplay, MacWindow, QuartzServer};
 
 /// Stub used when the crate is built on a non-macOS host or without the
 /// `quartz` feature. Returns `XError::Unavailable` from every entry point so

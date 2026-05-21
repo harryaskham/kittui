@@ -102,3 +102,54 @@ fn kitwm_status_prints_when_no_daemon() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.to_lowercase().contains("daemon"));
 }
+
+#[cfg(all(target_os = "macos"))]
+#[test]
+fn kitwm_list_windows_prints_header_and_at_least_one_window() {
+    let bin = kitwm_path();
+    if !bin.exists() {
+        eprintln!("skipping: kitwm not built");
+        return;
+    }
+    let out = Command::new(&bin)
+        .arg("--list-windows")
+        .output()
+        .expect("run kitwm --list-windows");
+    if !out.status.success() {
+        // Likely built without --features quartz; skip rather than fail.
+        eprintln!(
+            "skipping: kitwm --list-windows returned non-zero: stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("owner") && stdout.contains("title"),
+        "missing header: {stdout}"
+    );
+    // One or more data rows. On a real macOS desktop there's always at
+    // least the WindowServer status indicators.
+    let lines = stdout.lines().count();
+    assert!(lines > 1, "expected header + at least one window: {stdout}");
+}
+
+#[cfg(all(target_os = "macos"))]
+#[test]
+fn kitwm_list_displays_prints_at_least_one_display() {
+    let bin = kitwm_path();
+    if !bin.exists() {
+        eprintln!("skipping: kitwm not built");
+        return;
+    }
+    let out = Command::new(&bin)
+        .arg("--list-displays")
+        .output()
+        .expect("run kitwm --list-displays");
+    if !out.status.success() {
+        eprintln!("skipping: kitwm --list-displays returned non-zero (likely no quartz feature)");
+        return;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("bounds"));
+}

@@ -38,6 +38,9 @@ use kittui_xvfb::{FakeServer, XServer, XWindowId};
 struct Cli {
     mode: Mode,
     backend: Option<Backend>,
+    pick_window: bool,
+    list_windows: bool,
+    list_displays: bool,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -77,6 +80,9 @@ fn parse_args() -> Result<Cli> {
                     other => return Err(anyhow!("unknown backend {other}")),
                 });
             }
+            "--pick-window" => out.pick_window = true,
+            "--list-windows" => out.list_windows = true,
+            "--list-displays" => out.list_displays = true,
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -99,7 +105,13 @@ fn print_help() {
          --attach  attach to an existing daemon (placeholder until bd-fb5d9d).\n\
          --kill    send shutdown to the daemon (placeholder).\n\
          --status  print whether a daemon is running (placeholder).\n\
-         --backend fake|quartz|xvfb force a specific backend.\n"
+         --backend fake|quartz|xvfb force a specific backend.\n\
+         --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
+                         one window, then run a kitwm session capturing only it.\n\
+         --list-windows  (macOS+quartz) print every titled CGWindow with id,\n\
+                         bounds, owner, title — useful for scripting kitwm.\n\
+         --list-displays (macOS+quartz) print every connected CGDirectDisplayID\n\
+                         with bounds + index.\n"
     );
 }
 
@@ -139,6 +151,15 @@ fn main() -> ExitCode {
 
 fn real_main() -> Result<()> {
     let cli = parse_args()?;
+
+    // Inspection flags run cooked, never enter raw mode.
+    if cli.list_windows {
+        return list_windows_cmd();
+    }
+    if cli.list_displays {
+        return list_displays_cmd();
+    }
+
     match cli.mode {
         Mode::Session | Mode::Serve => run_session(cli),
         Mode::Attach => Err(anyhow!(
@@ -155,6 +176,66 @@ fn real_main() -> Result<()> {
     }
 }
 
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+fn list_windows_cmd() -> Result<()> {
+    use kittui_quartz::QuartzServer;
+    let wins = QuartzServer::list_app_windows();
+    println!("{:>8}  {:<24}  {:<48}  bounds", "id", "owner", "title");
+    for w in wins {
+        println!(
+            "{:>8}  {:<24}  {:<48}  ({:.0},{:.0}) {:.0}x{:.0}",
+            w.id,
+            truncate(&w.owner_name, 24),
+            truncate(&w.title, 48),
+            w.bounds.origin.0,
+            w.bounds.origin.1,
+            w.bounds.width,
+            w.bounds.height,
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(all(target_os = "macos", feature = "quartz")))]
+fn list_windows_cmd() -> Result<()> {
+    Err(anyhow!("--list-windows requires --features quartz on macOS"))
+}
+
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+fn list_displays_cmd() -> Result<()> {
+    use kittui_quartz::QuartzServer;
+    let displays = QuartzServer::displays();
+    println!("{:>3}  {:>10}  bounds", "#", "id");
+    for d in displays {
+        println!(
+            "{:>3}  {:>10}  ({:.0},{:.0}) {:.0}x{:.0}",
+            d.index,
+            d.id,
+            d.bounds.origin.0,
+            d.bounds.origin.1,
+            d.bounds.width,
+            d.bounds.height,
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(all(target_os = "macos", feature = "quartz")))]
+fn list_displays_cmd() -> Result<()> {
+    Err(anyhow!("--list-displays requires --features quartz on macOS"))
+}
+
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        let mut out: String = s.chars().take(n.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    }
+}
+
 fn run_session(cli: Cli) -> Result<()> {
     let cell = CellSize::default();
     let runtime = Runtime::builder()
@@ -165,7 +246,7 @@ fn run_session(cli: Cli) -> Result<()> {
     match backend {
         Backend::Fake => run_with_fake(&runtime, cell),
         #[cfg(all(target_os = "macos", feature = "quartz"))]
-        Backend::Quartz => run_with_quartz(&runtime, cell),
+        Backend::Quartz => run_with_quartz(&runtime, cell, cli.pick_window),
         #[cfg(all(not(all(target_os = "macos", feature = "quartz")), feature = "xvfb"))]
         Backend::Xvfb => run_with_xvfb(&runtime, cell),
         #[cfg(not(all(target_os = "macos", feature = "quartz")))]
@@ -205,9 +286,22 @@ fn run_with_fake(runtime: &Runtime, cell: CellSize) -> Result<()> {
 }
 
 #[cfg(all(target_os = "macos", feature = "quartz"))]
-fn run_with_quartz(runtime: &Runtime, cell: CellSize) -> Result<()> {
-    let mut server = kittui_quartz::QuartzServer::spawn(1280, 800)
-        .map_err(|e| anyhow!("QuartzServer::spawn: {e}"))?;
+fn run_with_quartz(runtime: &Runtime, cell: CellSize, pick_window: bool) -> Result<()> {
+    use kittui_quartz::{CaptureTarget, QuartzServer};
+
+    let target = if pick_window {
+        let windows = QuartzServer::list_app_windows();
+        let chosen = prompt_pick(&windows)?;
+        eprintln!(
+            "kitwm: capturing window {} ({}: {})",
+            chosen.id, chosen.owner_name, chosen.title
+        );
+        CaptureTarget::Window(chosen.id)
+    } else {
+        CaptureTarget::MainDisplay
+    };
+
+    let mut server = QuartzServer::with_target(target);
     let max_w = 80u32 * cell.width_px as u32 * 2;
     let max_h = 24u32 * cell.height_px as u32 * 2;
     server.set_max_size(Some((max_w, max_h)));
@@ -260,4 +354,43 @@ fn run_with_xvfb(runtime: &Runtime, cell: CellSize) -> Result<()> {
     let compositor = Compositor::new(server, cell);
     let layout = Layout::all_floating();
     kittui_cli::session::run_loop(runtime, &compositor, &layout)
+}
+
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+fn prompt_pick(windows: &[kittui_quartz::MacWindow]) -> Result<kittui_quartz::MacWindow> {
+    use std::io::{BufRead, Write};
+    if windows.is_empty() {
+        return Err(anyhow!(
+            "no macOS app windows visible via CGWindowList; nothing to pick"
+        ));
+    }
+    println!("\nkitwm --pick-window\n");
+    for (i, w) in windows.iter().enumerate() {
+        println!(
+            "  [{:>2}]  {:<24}  {:<48}  ({:.0},{:.0}) {:.0}x{:.0}",
+            i,
+            truncate(&w.owner_name, 24),
+            truncate(&w.title, 48),
+            w.bounds.origin.0,
+            w.bounds.origin.1,
+            w.bounds.width,
+            w.bounds.height,
+        );
+    }
+    print!("\nNumber to capture (Enter to cancel): ");
+    std::io::stdout().flush().ok();
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    stdin.lock().read_line(&mut line).ok();
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("cancelled by operator"));
+    }
+    let idx: usize = trimmed
+        .parse()
+        .map_err(|_| anyhow!("expected a number, got {trimmed:?}"))?;
+    windows
+        .get(idx)
+        .cloned()
+        .ok_or_else(|| anyhow!("out of range; pick 0..{}", windows.len()))
 }
