@@ -566,3 +566,26 @@ fn kitwm_apps_filter_narrows_text_and_json() {
     assert!(j.contains("\"path_commands\""), "missing path commands: {j}");
     assert!(j.to_ascii_lowercase().contains("echo"), "json filtered output missing echo: {j}");
 }
+
+#[test]
+fn kitwm_apps_first_and_launch_first_select_candidate() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let first = Command::new(&bin)
+        .args(["apps", "--filter", "echo", "--first", "--limit", "10"])
+        .output()
+        .expect("run kitwm apps --first");
+    assert!(first.status.success(), "stderr: {}", String::from_utf8_lossy(&first.stderr));
+    let first_out = String::from_utf8_lossy(&first.stdout);
+    assert!(first_out.trim().starts_with("path:"), "expected path candidate: {first_out}");
+    assert!(first_out.to_ascii_lowercase().contains("echo"), "expected echo candidate: {first_out}");
+
+    let launched = Command::new(&bin)
+        .args(["apps", "--filter", "echo", "--launch-first", "--limit", "10"])
+        .output()
+        .expect("run kitwm apps --launch-first");
+    assert!(launched.status.success(), "stderr: {}", String::from_utf8_lossy(&launched.stderr));
+    let s = String::from_utf8_lossy(&launched.stdout);
+    assert!(s.contains("kitwm apps: launched pid="), "missing launch pid: {s}");
+    assert!(s.contains("kind=path"), "wrong candidate kind: {s}");
+}

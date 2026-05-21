@@ -59,6 +59,8 @@ struct Cli {
     apps: bool,
     apps_limit: Option<usize>,
     apps_filter: Option<String>,
+    apps_first: bool,
+    apps_launch_first: bool,
     keymap: bool,
     keymap_path: Option<String>,
 }
@@ -102,6 +104,8 @@ fn parse_args() -> Result<Cli> {
             "--filter" => {
                 out.apps_filter = Some(args.next().ok_or_else(|| anyhow!("--filter QUERY"))?);
             }
+            "--first" => out.apps_first = true,
+            "--launch-first" => out.apps_launch_first = true,
             "--seconds" => {
                 let v = args.next().ok_or_else(|| anyhow!("--seconds N"))?;
                 out.bench_seconds = Some(v.parse().map_err(|_| anyhow!("--seconds expects integer"))?);
@@ -219,7 +223,9 @@ SUBCOMMANDS\n\
          apps            list launch candidates from PATH and /Applications\n\
                          (macOS). Shows default launcher resolution. Use\n\
                          --limit N to bound output (default 50), --filter\n\
-                         QUERY to case-insensitively narrow candidates.\n\
+                         QUERY to case-insensitively narrow candidates,\n\
+                         --first to print the first match, --launch-first\n\
+                         to spawn it (PATH command or macOS app).\n\
          --launch-on-f12 intercept F12 in a running session and spawn\n\
                          KITWM_LAUNCH_CMD via /bin/sh -c (default: xterm).\n\
                          Footer shows last_launch_pid and log records result.\n\
@@ -1014,6 +1020,20 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
     let mac_apps = filter_candidates(macos_apps(5000), query, limit);
     #[cfg(not(target_os = "macos"))]
     let mac_apps: Vec<String> = Vec::new();
+    if cli.apps_first || cli.apps_launch_first {
+        let selected = first_app_candidate(&path_cmds, &mac_apps)
+            .ok_or_else(|| anyhow!("no app candidates matched"))?;
+        if cli.apps_launch_first {
+            let pid = launch_app_candidate(&selected)?;
+            println!(
+                "kitwm apps: launched pid={} kind={} name={}",
+                pid, selected.kind, selected.name
+            );
+        } else {
+            println!("{}:{}", selected.kind, selected.name);
+        }
+        return Ok(());
+    }
     if cli.json {
         println!(
             "{{\"default_command\": {:?}, \"default_resolved\": {}, \"path_commands\": [{}], \"macos_apps\": [{}]}}",
@@ -1125,4 +1145,38 @@ fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> V
         .filter(|item| item.to_ascii_lowercase().contains(&q))
         .take(limit)
         .collect()
+}
+
+#[derive(Debug, Clone)]
+struct AppCandidate {
+    kind: &'static str,
+    name: String,
+}
+
+fn first_app_candidate(path_cmds: &[String], mac_apps: &[String]) -> Option<AppCandidate> {
+    path_cmds
+        .first()
+        .map(|name| AppCandidate { kind: "path", name: name.clone() })
+        .or_else(|| {
+            mac_apps
+                .first()
+                .map(|name| AppCandidate { kind: "macos", name: name.clone() })
+        })
+}
+
+fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
+    let mut cmd = if candidate.kind == "macos" {
+        let mut c = std::process::Command::new("open");
+        c.arg("-a").arg(&candidate.name);
+        c
+    } else {
+        std::process::Command::new(&candidate.name)
+    };
+    let child = cmd
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| anyhow!("launch candidate {}:{}: {e}", candidate.kind, candidate.name))?;
+    Ok(child.id())
 }
