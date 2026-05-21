@@ -244,3 +244,24 @@ fn kitwm_record_apng_writes_single_file() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(all(target_os = "macos"))]
+#[test]
+fn kitwm_bench_json_emits_metrics() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin)
+        .args(["bench", "--seconds", "1", "--json"])
+        .output()
+        .expect("run kitwm bench --json");
+    if !out.status.success() {
+        eprintln!("skipping: stderr={}", String::from_utf8_lossy(&out.stderr));
+        return;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    let t = s.trim();
+    assert!(t.starts_with('{') && t.ends_with('}'), "not JSON: {s}");
+    for key in &["captures_per_s", "p50_us", "p95_us", "p99_us", "mb_per_s"] {
+        assert!(s.contains(&format!("\"{key}\"")), "missing key {key}: {s}");
+    }
+}

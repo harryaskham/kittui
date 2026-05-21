@@ -50,6 +50,8 @@ struct Cli {
     record_out: Option<String>,
     record_apng: bool,
     record_delay_ms: Option<u32>,
+    bench: bool,
+    bench_seconds: Option<u32>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -76,6 +78,11 @@ fn parse_args() -> Result<Cli> {
         match a.as_str() {
             "doctor" => out.doctor = true,
             "record" => out.record = true,
+            "bench" => out.bench = true,
+            "--seconds" => {
+                let v = args.next().ok_or_else(|| anyhow!("--seconds N"))?;
+                out.bench_seconds = Some(v.parse().map_err(|_| anyhow!("--seconds expects integer"))?);
+            }
             "--frames" => {
                 let v = args.next().ok_or_else(|| anyhow!("--frames N"))?;
                 out.record_frames = Some(v.parse().map_err(|_| anyhow!("--frames expects integer"))?);
@@ -169,7 +176,11 @@ SUBCOMMANDS\n\
                          /tmp/kitwm-record-<unix-ts>). Defaults to 30 frames.\n\
                          Pass --apng to emit a single animated PNG at\n\
                          <out>/kitwm.apng (use --delay-ms N for cadence,\n\
-                         default 33ms). Never enters raw mode.\n"
+                         default 33ms). Never enters raw mode.\n\
+         bench           measure capture-pipeline throughput. Runs raw_frames\n\
+                         in a tight loop for --seconds N (default 3) against\n\
+                         --capture target and prints captures/s + p50/p95/p99\n\
+                         latency + MB/s. --json for machine-readable output.\n"
     );
 }
 
@@ -219,6 +230,9 @@ fn real_main() -> Result<()> {
     }
     if cli.record {
         return record_cmd(&cli);
+    }
+    if cli.bench {
+        return bench_cmd(&cli);
     }
     if cli.list_windows {
         return list_windows_cmd();
@@ -697,4 +711,101 @@ fn record_cmd(cli: &Cli) -> Result<()> {
 #[cfg(not(all(target_os = "macos", feature = "quartz")))]
 fn record_cmd(_cli: &Cli) -> Result<()> {
     Err(anyhow!("record requires --features quartz on macOS"))
+}
+
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+fn bench_cmd(cli: &Cli) -> Result<()> {
+    use kittui_quartz::QuartzServer;
+    use kittui_wm::compositor::{Compositor, Layout};
+
+    let secs = cli.bench_seconds.unwrap_or(3).max(1);
+    let target = if let Some(spec) = cli.capture.as_deref() {
+        resolve_capture_spec(spec)?
+    } else {
+        kittui_quartz::CaptureTarget::MainDisplay
+    };
+    let server = QuartzServer::with_target(target);
+    let cell = kittui::CellSize::new(9, 18);
+    let compositor = Compositor::new(server, cell);
+    let layout = Layout::all_floating();
+
+    eprintln!("kitwm bench: measuring for {secs}s ...");
+    let started = std::time::Instant::now();
+    let deadline = started + std::time::Duration::from_secs(secs as u64);
+    let mut latencies_us: Vec<u64> = Vec::with_capacity(4096);
+    let mut total_bytes: u64 = 0;
+    let mut iters: u64 = 0;
+    let mut first_dims = (0u32, 0u32);
+    while std::time::Instant::now() < deadline {
+        let t0 = std::time::Instant::now();
+        let frames = compositor
+            .raw_frames(&layout)
+            .map_err(|e| anyhow!("capture failed: {e}"))?;
+        let dt = t0.elapsed();
+        latencies_us.push(dt.as_micros() as u64);
+        for f in &frames {
+            total_bytes += f.rgba.len() as u64;
+            if iters == 0 {
+                first_dims = (f.width, f.height);
+            }
+        }
+        iters += 1;
+    }
+    let wall = started.elapsed();
+    latencies_us.sort_unstable();
+    let pct = |p: f64| -> u64 {
+        if latencies_us.is_empty() { return 0; }
+        let idx = ((latencies_us.len() as f64 - 1.0) * p).round() as usize;
+        latencies_us[idx]
+    };
+    let mean = if latencies_us.is_empty() {
+        0
+    } else {
+        (latencies_us.iter().sum::<u64>() / latencies_us.len() as u64)
+    };
+    let captures_per_s = iters as f64 / wall.as_secs_f32() as f64;
+    let mb_per_s = (total_bytes as f64 / 1_048_576.0) / wall.as_secs_f32() as f64;
+
+    if cli.json {
+        println!(
+            "{{\"captures\": {}, \"wall_s\": {:.3}, \"captures_per_s\": {:.2}, \
+             \"mean_us\": {}, \"p50_us\": {}, \"p95_us\": {}, \"p99_us\": {}, \"max_us\": {}, \
+             \"bytes\": {}, \"mb_per_s\": {:.2}, \"width\": {}, \"height\": {}}}",
+            iters,
+            wall.as_secs_f32(),
+            captures_per_s,
+            mean,
+            pct(0.50),
+            pct(0.95),
+            pct(0.99),
+            latencies_us.last().copied().unwrap_or(0),
+            total_bytes,
+            mb_per_s,
+            first_dims.0,
+            first_dims.1,
+        );
+    } else {
+        println!("kitwm bench");
+        println!("===========");
+        println!("  duration       : {:.3} s", wall.as_secs_f32());
+        println!("  captures       : {}", iters);
+        println!("  captures/s     : {:.1}", captures_per_s);
+        println!("  surface        : {}x{} RGBA", first_dims.0, first_dims.1);
+        println!("  bytes captured : {:.1} MB", total_bytes as f64 / 1_048_576.0);
+        println!("  throughput     : {:.1} MB/s", mb_per_s);
+        println!("  mean latency   : {:.2} ms", mean as f64 / 1000.0);
+        println!("  p50 latency    : {:.2} ms", pct(0.50) as f64 / 1000.0);
+        println!("  p95 latency    : {:.2} ms", pct(0.95) as f64 / 1000.0);
+        println!("  p99 latency    : {:.2} ms", pct(0.99) as f64 / 1000.0);
+        println!(
+            "  max latency    : {:.2} ms",
+            latencies_us.last().copied().unwrap_or(0) as f64 / 1000.0
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(all(target_os = "macos", feature = "quartz")))]
+fn bench_cmd(_cli: &Cli) -> Result<()> {
+    Err(anyhow!("bench requires --features quartz on macOS"))
 }
