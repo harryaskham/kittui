@@ -105,6 +105,7 @@ pub fn run_loop_with<S: XServer>(
     let mut toggle_state = ToggleState::default();
     let mut layout_state = LayoutState::default();
     let mut split_state = SplitState::default();
+    let mut config_state = ConfigState::default();
     let mut launcher_overlay = LauncherOverlay::default();
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
     // We only re-emit placement+placeholder when the footprint or image_id
@@ -234,6 +235,11 @@ pub fn run_loop_with<S: XServer>(
                                     let msg = layout_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("layout action: {msg}"));
+                                }
+                                Action::ReloadConfig => {
+                                    let msg = config_state.reload();
+                                    last_keymap_action = Some(msg.clone());
+                                    dbg.log(&format!("config action: {msg}"));
                                 }
                                 Action::Quit => {
                                     quit = true;
@@ -391,12 +397,13 @@ pub fn run_loop_with<S: XServer>(
                 };
                 write!(
                     handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
+                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — q to quit (log: {})",
                     footer_row,
                     frame,
                     workspaces.label(),
                     split_state.label(),
                     layout_state.label(),
+                    config_state.label(),
                     focus_state.label(),
                     swap_state.label(),
                     toggle_state.label(),
@@ -1261,5 +1268,34 @@ mod layout_state_tests {
         assert_eq!(s.apply(&Action::ToggleSplit), "toggle.split -> axis=horizontal balanced#0");
         assert_eq!(s.apply(&Action::ToggleSplit), "toggle.split -> axis=vertical balanced#0");
         assert_eq!(s.apply(&Action::BalanceWindows), "balance.windows -> axis=vertical balanced#1");
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+struct ConfigState {
+    reloads: u64,
+}
+
+impl ConfigState {
+    fn reload(&mut self) -> String {
+        self.reloads += 1;
+        format!("reload.config -> {}", self.label())
+    }
+
+    fn label(&self) -> String {
+        format!("reload#{}", self.reloads)
+    }
+}
+
+#[cfg(test)]
+mod config_state_tests {
+    use super::*;
+
+    #[test]
+    fn config_state_counts_reload() {
+        let mut s = ConfigState::default();
+        assert_eq!(s.label(), "reload#0");
+        assert_eq!(s.reload(), "reload.config -> reload#1");
+        assert_eq!(s.reload(), "reload.config -> reload#2");
     }
 }

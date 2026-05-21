@@ -109,6 +109,8 @@ pub enum Action {
     ToggleSplit,
     /// Balance window layout.
     BalanceWindows,
+    /// Reload config/keymap state.
+    ReloadConfig,
     /// Swap focused tile right.
     SwapRight,
     /// Swap focused tile left.
@@ -145,6 +147,7 @@ impl Action {
             "float.toggle" | "floating.toggle" => Self::FloatToggle,
             "toggle.split" | "split.toggle" => Self::ToggleSplit,
             "balance.windows" | "balance" => Self::BalanceWindows,
+            "reload.config" | "reload" => Self::ReloadConfig,
             "swap.right" => Self::SwapRight,
             "swap.left" => Self::SwapLeft,
             "swap.up" => Self::SwapUp,
@@ -172,6 +175,7 @@ impl fmt::Display for Action {
             Self::FloatToggle => "float.toggle",
             Self::ToggleSplit => "toggle.split",
             Self::BalanceWindows => "balance.windows",
+            Self::ReloadConfig => "reload.config",
             Self::SwapRight => "swap.right",
             Self::SwapLeft => "swap.left",
             Self::SwapUp => "swap.up",
@@ -295,6 +299,7 @@ bind f fullscreen.toggle
 bind t float.toggle
 bind e toggle.split
 bind = balance.windows
+bind r reload.config
 bind l swap.right
 bind h swap.left
 bind k swap.up
@@ -329,6 +334,8 @@ mod tests {
         assert!(rendered.contains("toggle.split"));
         assert!(rendered.contains("C-a ="));
         assert!(rendered.contains("balance.windows"));
+        assert!(rendered.contains("C-a r"));
+        assert!(rendered.contains("reload.config"));
         assert!(rendered.contains("C-a C-h"));
         assert!(rendered.contains("focus.left"));
     }

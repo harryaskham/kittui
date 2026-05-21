@@ -45,6 +45,7 @@ struct Cli {
     fps: Option<u32>,
     doctor: bool,
     json: bool,
+    config: bool,
     record: bool,
     record_frames: Option<u32>,
     record_out: Option<String>,
@@ -94,6 +95,7 @@ fn parse_args() -> Result<Cli> {
     while let Some(a) = args.next() {
         match a.as_str() {
             "doctor" => out.doctor = true,
+            "config" => out.config = true,
             "record" => out.record = true,
             "bench" => out.bench = true,
             "launch" => {
@@ -225,6 +227,8 @@ SUBCOMMANDS\n\
          doctor          print a diagnostics report (backends, displays,\n\
                          terminal probe, log status, version). Pass --json\n\
                          for machine-readable output. Never enters raw mode.\n\
+         config          inspect resolved kitwm config env/paths and keymap\n\
+                         validation status.\n\
          record          capture N frames from --capture/--backend target and\n\
                          write them as PNG files to --out DIR (default\n\
                          /tmp/kitwm-record-<unix-ts>). Defaults to 30 frames.\n\
@@ -318,6 +322,9 @@ fn real_main() -> Result<()> {
     // Inspection flags run cooked, never enter raw mode.
     if cli.doctor {
         return doctor_cmd(cli.json);
+    }
+    if cli.config {
+        return config_cmd(&cli);
     }
     if cli.record {
         return record_cmd(&cli);
@@ -1323,4 +1330,33 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
     println!("│ {:<w$}│", "Enter launches selection · Esc closes · type filters", w = width - 1);
     println!("└{}┘", "─".repeat(width));
     Ok(())
+}
+
+fn config_cmd(_cli: &Cli) -> Result<()> {
+    let keymap_path = std::env::var("KITTUI_WM_KEYMAP").ok();
+    let keymap = if let Some(path) = &keymap_path {
+        kittui_cli::keymap::Keymap::load(std::path::Path::new(path))?
+    } else {
+        kittui_cli::keymap::default_keymap()
+    };
+    let duplicates = keymap_duplicate_count(&keymap);
+    println!("kitwm config");
+    println!("============");
+    println!("KITTUI_WM_KEYMAP       : {}", keymap_path.as_deref().unwrap_or("<default>"));
+    println!("KITTUI_WM_LAUNCH_CMD   : {}", std::env::var("KITTUI_WM_LAUNCH_CMD").unwrap_or_else(|_| "<default: xterm>".to_string()));
+    println!("KITTUI_WM_LAUNCH_QUERY : {}", std::env::var("KITTUI_WM_LAUNCH_QUERY").unwrap_or_else(|_| "<unset>".to_string()));
+    println!("KITTUI_WM_LAUNCHER_OVERLAY: {}", std::env::var("KITTUI_WM_LAUNCHER_OVERLAY").unwrap_or_else(|_| "<unset>".to_string()));
+    println!("prefix                 : {}", keymap.prefix.as_ref().map(ToString::to_string).unwrap_or_else(|| "<none>".to_string()));
+    println!("bindings               : {}", keymap.bindings.len());
+    println!("duplicate_chords       : {duplicates}");
+    println!("status                 : {}", if duplicates == 0 { "ok" } else { "duplicate chords found" });
+    Ok(())
+}
+
+fn keymap_duplicate_count(km: &kittui_cli::keymap::Keymap) -> usize {
+    let mut seen = std::collections::BTreeMap::<String, usize>::new();
+    for binding in &km.bindings {
+        *seen.entry(binding.chord_string()).or_default() += 1;
+    }
+    seen.values().filter(|&&n| n > 1).count()
 }
