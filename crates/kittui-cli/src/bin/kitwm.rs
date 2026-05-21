@@ -10,7 +10,7 @@
 //! ```text
 //! kitwm              # open a session in the current terminal
 //! kitwm --serve      # run only the (in-process today) backend host loop
-//! kitwm --attach     # attach to an existing daemon (placeholder; bd-fb5d9d)
+//! kitwm --attach     # attach to an existing daemon (REPL or -c CMD)
 //! kitwm --kill       # send shutdown to the daemon (placeholder; bd-fb5d9d)
 //! kitwm --status     # print whether a daemon is running (placeholder)
 //! kitwm --backend X  # force a specific backend: fake | quartz | xvfb
@@ -52,6 +52,7 @@ struct Cli {
     record_delay_ms: Option<u32>,
     bench: bool,
     bench_seconds: Option<u32>,
+    attach_command: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -96,6 +97,9 @@ fn parse_args() -> Result<Cli> {
                 out.record_delay_ms = Some(v.parse().map_err(|_| anyhow!("--delay-ms expects integer"))?);
             }
             "--json" => out.json = true,
+            "-c" | "--command" => {
+                out.attach_command = Some(args.next().ok_or_else(|| anyhow!("--command CMD"))?);
+            }
             "--serve" => out.mode = Mode::Serve,
             "--attach" => out.mode = Mode::Attach,
             "--kill" => out.mode = Mode::Kill,
@@ -148,6 +152,7 @@ fn print_help() {
                    SIGINT/SIGTERM. RAII socket cleanup.\n\
          --attach  connect to a running daemon and open an interactive REPL.\n\
                    Commands: PING STATUS WINDOWS DISPLAYS HELP QUIT.\n\
+                   Pass -c/--command CMD for one-shot scripting mode.\n\
          --kill    send QUIT to the running daemon.\n\
          --status  print pid/uptime/sock of the running daemon; exits 1 if\n\
                    no daemon is reachable.\n\
@@ -246,7 +251,7 @@ fn real_main() -> Result<()> {
     match cli.mode {
         Mode::Session => run_session(cli),
         Mode::Serve => serve_cmd(cli),
-        Mode::Attach => attach_cmd(),
+        Mode::Attach => attach_cmd(cli.attach_command.as_deref()),
         Mode::Kill => kill_cmd(),
         Mode::Status => status_cmd(),
     }
@@ -860,13 +865,22 @@ fn kill_cmd() -> Result<()> {
     }
 }
 
-fn attach_cmd() -> Result<()> {
+fn attach_cmd(command: Option<&str>) -> Result<()> {
     use kittui_cli::daemon::{client_request_multi, default_socket_path};
     use std::io::{BufRead, Write};
     let path = default_socket_path();
     // Probe first so we fail fast if no daemon.
     let probe = client_request_multi(&path, "PING")
         .map_err(|e| anyhow!("no daemon at {}: {e}", path.display()))?;
+    if let Some(command) = command {
+        let reply = client_request_multi(&path, &command.to_ascii_uppercase())?;
+        print!("{reply}");
+        if !reply.ends_with('\n') { println!(); }
+        if reply.starts_with("ERR ") {
+            std::process::exit(2);
+        }
+        return Ok(());
+    }
     eprintln!("kitwm --attach: connected to {} ({})",
         path.display(),
         probe.trim()

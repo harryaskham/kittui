@@ -363,3 +363,43 @@ fn kitwm_attach_repl_round_trip() {
     let _ = server.wait();
     let _ = std::fs::remove_file(&sock);
 }
+
+#[cfg(all(target_os = "macos"))]
+#[test]
+fn kitwm_attach_command_one_shot_round_trip() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let sock = std::env::temp_dir().join(format!(
+        "kitwm-attach-command-smoke-{}.sock",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&sock);
+    let mut server = std::process::Command::new(&bin)
+        .arg("--serve")
+        .env("KITWM_SOCK", &sock)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn --serve");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !sock.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(sock.exists(), "daemon did not bind");
+    // Use STATUS here rather than DISPLAYS so the smoke remains valid even
+    // when the workspace is tested without the macOS/quartz feature set.
+    let out = std::process::Command::new(&bin)
+        .args(["--attach", "-c", "STATUS"])
+        .env("KITWM_SOCK", &sock)
+        .output()
+        .expect("run --attach -c STATUS");
+    assert!(out.status.success(), "stderr: {} stdout: {}", String::from_utf8_lossy(&out.stderr), String::from_utf8_lossy(&out.stdout));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("pid=") && s.contains("uptime_s="), "stdout missing status: {s}");
+    let _ = std::process::Command::new(&bin)
+        .arg("--kill")
+        .env("KITWM_SOCK", &sock)
+        .output();
+    let _ = server.wait();
+    let _ = std::fs::remove_file(&sock);
+}
