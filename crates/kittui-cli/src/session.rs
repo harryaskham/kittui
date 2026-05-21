@@ -44,6 +44,9 @@ pub fn run_loop<S: XServer>(
         launch_on_f12: std::env::var("KITTUI_WM_LAUNCH_ON_F12")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false),
+        launcher_overlay: std::env::var("KITTUI_WM_LAUNCHER_OVERLAY")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false),
     };
     run_loop_with(runtime, compositor, layout, opts)
 }
@@ -56,11 +59,13 @@ pub struct RunOptions {
     /// If true, intercept F12 and spawn the launcher command instead of
     /// forwarding it to the focused backend window.
     pub launch_on_f12: bool,
+    /// If true, launch actions open an in-session overlay first.
+    pub launcher_overlay: bool,
 }
 
 impl Default for RunOptions {
     fn default() -> Self {
-        Self { fps: 60, launch_on_f12: false }
+        Self { fps: 60, launch_on_f12: false, launcher_overlay: false }
     }
 }
 
@@ -72,8 +77,8 @@ pub fn run_loop_with<S: XServer>(
 ) -> Result<()> {
     let dbg = Debugger::open();
     dbg.log(&format!(
-        "run_loop: enter fps={} launch_on_f12={}",
-        opts.fps, opts.launch_on_f12
+        "run_loop: enter fps={} launch_on_f12={} launcher_overlay={}",
+        opts.fps, opts.launch_on_f12, opts.launcher_overlay
     ));
     let _raw_guard = RawMode::enter()?;
     dbg.log("raw mode + alt screen entered");
@@ -98,6 +103,7 @@ pub fn run_loop_with<S: XServer>(
     let mut focus_state = FocusState::default();
     let mut swap_state = SwapState::default();
     let mut split_state = SplitState::default();
+    let mut launcher_overlay = LauncherOverlay::default();
     // Per-window placement memo: (image_id, footprint) -> placement+embed.
     // We only re-emit placement+placeholder when the footprint or image_id
     // changes. Kitty atomically replaces the image at the same id on each
@@ -124,6 +130,34 @@ pub fn run_loop_with<S: XServer>(
         let mut quit = false;
         while let Some((ev, consumed)) = kittui_input::parse(&input_buf) {
             input_buf.drain(..consumed);
+            if launcher_overlay.active {
+                match launcher_overlay.handle_event(&ev) {
+                    OverlayEvent::Consumed => continue,
+                    OverlayEvent::Close => {
+                        launcher_overlay.active = false;
+                        last_keymap_action = Some("launcher.close".to_string());
+                        dbg.log("launcher overlay closed");
+                        continue;
+                    }
+                    OverlayEvent::Launch => {
+                        let selection = launcher_overlay.selection();
+                        match selection {
+                            Some(sel) => match launch_selection(&sel) {
+                                Ok(pid) => {
+                                    last_launch_pid = Some(pid);
+                                    last_keymap_action = Some(format!("launcher.launch {}:{}", sel.kind_name(), sel.command));
+                                    dbg.log(&format!("launcher overlay selected {:?} {:?} spawned pid={pid}", sel.kind, sel.command));
+                                }
+                                Err(e) => dbg.log(&format!("launcher overlay launch failed: {e}")),
+                            },
+                            None => dbg.log("launcher overlay launch requested with no candidate"),
+                        }
+                        launcher_overlay.active = false;
+                        continue;
+                    }
+                    OverlayEvent::NotHandled => {}
+                }
+            }
             if let Some(spec) = key_spec_for_event(&ev) {
                 if keymap.prefix.as_ref() == Some(&spec) {
                     prefix_active = true;
@@ -141,26 +175,37 @@ pub fn run_loop_with<S: XServer>(
                             dbg.log(&format!("keymap action: {} -> {action_name}", chord.iter().map(ToString::to_string).collect::<Vec<_>>().join(" ")));
                             match action {
                                 Action::Launch => {
-                                    let selection = launcher_selection();
-                                    match spawn_launcher_command() {
-                                        Ok(pid) => {
-                                            last_launch_pid = Some(pid);
-                                            dbg.log(&format!("keymap launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
+                                    if opts.launcher_overlay {
+                                        launcher_overlay.open_from_env();
+                                        last_keymap_action = Some("launcher.open".to_string());
+                                        dbg.log(&format!("launcher overlay opened query={:?}", launcher_overlay.query));
+                                    } else {
+                                        let selection = launcher_selection();
+                                        match spawn_launcher_command() {
+                                            Ok(pid) => {
+                                                last_launch_pid = Some(pid);
+                                                dbg.log(&format!("keymap launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
+                                            }
+                                            Err(e) => dbg.log(&format!("keymap launcher failed: {e}")),
                                         }
-                                        Err(e) => dbg.log(&format!("keymap launcher failed: {e}")),
                                     }
                                 }
                                 Action::SplitVerticalLauncher | Action::SplitHorizontalLauncher => {
                                     let msg = split_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("split action: {msg}"));
-                                    let selection = launcher_selection();
-                                    match spawn_launcher_command() {
-                                        Ok(pid) => {
-                                            last_launch_pid = Some(pid);
-                                            dbg.log(&format!("split launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
+                                    if opts.launcher_overlay {
+                                        launcher_overlay.open_from_env();
+                                        dbg.log(&format!("split opened launcher overlay query={:?}", launcher_overlay.query));
+                                    } else {
+                                        let selection = launcher_selection();
+                                        match spawn_launcher_command() {
+                                            Ok(pid) => {
+                                                last_launch_pid = Some(pid);
+                                                dbg.log(&format!("split launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
+                                            }
+                                            Err(e) => dbg.log(&format!("split launcher failed: {e}")),
                                         }
-                                        Err(e) => dbg.log(&format!("split launcher failed: {e}")),
                                     }
                                 }
                                 Action::WorkspaceNew | Action::WorkspaceNext | Action::WorkspacePrev => {
@@ -213,14 +258,20 @@ pub fn run_loop_with<S: XServer>(
                     let _ = compositor.route_key(&ev);
                 }
                 InputEvent::Key { key: Key::F(12), .. } if opts.launch_on_f12 => {
-                    let selection = launcher_selection();
-                    match spawn_launcher_command() {
-                        Ok(pid) => {
-                            last_launch_pid = Some(pid);
-                            dbg.log(&format!("launcher F12 selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
-                        }
-                        Err(e) => {
-                            dbg.log(&format!("launcher F12 failed: {e}"));
+                    if opts.launcher_overlay {
+                        launcher_overlay.open_from_env();
+                        last_keymap_action = Some("launcher.open".to_string());
+                        dbg.log(&format!("launcher F12 opened overlay query={:?}", launcher_overlay.query));
+                    } else {
+                        let selection = launcher_selection();
+                        match spawn_launcher_command() {
+                            Ok(pid) => {
+                                last_launch_pid = Some(pid);
+                                dbg.log(&format!("launcher F12 selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
+                            }
+                            Err(e) => {
+                                dbg.log(&format!("launcher F12 failed: {e}"));
+                            }
                         }
                     }
                 }
@@ -311,6 +362,10 @@ pub fn run_loop_with<S: XServer>(
                     last_placed.remove(old_id);
                 }
                 prev_window_ids = current_ids;
+                if launcher_overlay.active {
+                    launcher_overlay.render(&mut handle)?;
+                    footer_row = footer_row.max(12);
+                }
                 let launch_note = last_launch_pid
                     .map(|pid| format!(" — last launch pid={pid}"))
                     .unwrap_or_default();
@@ -575,6 +630,10 @@ pub fn launcher_command() -> String {
 
 fn spawn_launcher_command() -> Result<u32> {
     let selection = launcher_selection();
+    launch_selection(&selection)
+}
+
+fn launch_selection(selection: &LauncherSelection) -> Result<u32> {
     let child = match selection.kind {
         LauncherKind::Shell => std::process::Command::new("/bin/sh")
             .arg("-c")
@@ -612,6 +671,16 @@ struct LauncherSelection {
     command: String,
 }
 
+impl LauncherSelection {
+    fn kind_name(&self) -> &'static str {
+        match self.kind {
+            LauncherKind::Shell => "shell",
+            LauncherKind::Path => "path",
+            LauncherKind::MacOsApp => "macos",
+        }
+    }
+}
+
 fn launcher_selection() -> LauncherSelection {
     if let Ok(query) = std::env::var("KITTUI_WM_LAUNCH_QUERY") {
         if let Some(sel) = first_launcher_candidate(&query) {
@@ -635,6 +704,117 @@ fn first_launcher_candidate(query: &str) -> Option<LauncherSelection> {
         }
     }
     None
+}
+
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum OverlayEvent {
+    Consumed,
+    Close,
+    Launch,
+    NotHandled,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+struct LauncherOverlay {
+    active: bool,
+    query: String,
+    selected: usize,
+}
+
+impl LauncherOverlay {
+    fn open_from_env(&mut self) {
+        self.active = true;
+        self.query = std::env::var("KITTUI_WM_LAUNCH_QUERY").unwrap_or_default();
+        self.selected = 0;
+    }
+
+    fn handle_event(&mut self, ev: &InputEvent) -> OverlayEvent {
+        match ev {
+            InputEvent::Char { ch, mods } if !mods.ctrl && !mods.alt => {
+                self.query.push(*ch);
+                self.selected = 0;
+                OverlayEvent::Consumed
+            }
+            InputEvent::Key { key: Key::Backspace, .. } => {
+                self.query.pop();
+                self.selected = 0;
+                OverlayEvent::Consumed
+            }
+            InputEvent::Key { key: Key::Up, .. } => {
+                self.selected = self.selected.saturating_sub(1);
+                OverlayEvent::Consumed
+            }
+            InputEvent::Key { key: Key::Down, .. } => {
+                let max = self.candidates().len().saturating_sub(1);
+                self.selected = (self.selected + 1).min(max);
+                OverlayEvent::Consumed
+            }
+            InputEvent::Key { key: Key::Enter, .. } => OverlayEvent::Launch,
+            InputEvent::Key { key: Key::Escape, .. } => OverlayEvent::Close,
+            _ => OverlayEvent::NotHandled,
+        }
+    }
+
+    fn candidates(&self) -> Vec<LauncherSelection> {
+        let mut out = Vec::new();
+        let query = if self.query.is_empty() { None } else { Some(self.query.as_str()) };
+        for cmd in filter_launcher_candidates(path_commands(5000), query, 8) {
+            out.push(LauncherSelection { kind: LauncherKind::Path, command: cmd });
+        }
+        #[cfg(target_os = "macos")]
+        for app in filter_launcher_candidates(macos_apps(5000), query, 8) {
+            out.push(LauncherSelection { kind: LauncherKind::MacOsApp, command: app });
+        }
+        out.truncate(8);
+        out
+    }
+
+    fn selection(&self) -> Option<LauncherSelection> {
+        let candidates = self.candidates();
+        candidates.get(self.selected.min(candidates.len().saturating_sub(1))).cloned()
+    }
+
+    fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
+        let candidates = self.candidates();
+        let width = 58usize;
+        write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
+        write!(handle, "\x1b[3;2H│{:^width$}│", "kitwm launcher", width = width)?;
+        write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
+        write!(handle, "\x1b[5;2H│ query: {:<qwidth$}│", truncate_cells(&self.query, width - 8), qwidth = width - 8)?;
+        write!(handle, "\x1b[6;2H├{}┤", "─".repeat(width))?;
+        for row in 0..8usize {
+            let line = if let Some(c) = candidates.get(row) {
+                let marker = if row == self.selected { "▶" } else { " " };
+                format!("{marker} {:>2}. [{:<5}] {}", row + 1, c.kind_name(), c.command)
+            } else {
+                String::new()
+            };
+            write!(handle, "\x1b[{};2H│{:<width$}│", 7 + row as u16, truncate_cells(&line, width), width = width)?;
+        }
+        write!(handle, "\x1b[15;2H├{}┤", "─".repeat(width))?;
+        write!(handle, "\x1b[16;2H│ {:<w$}│", "Enter launch · Esc close · type filter · ↑/↓ select", w = width - 1)?;
+        write!(handle, "\x1b[17;2H└{}┘", "─".repeat(width))?;
+        Ok(())
+    }
+}
+
+fn filter_launcher_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> Vec<String> {
+    let Some(query) = query else { return items.into_iter().take(limit).collect(); };
+    let q = query.to_ascii_lowercase();
+    items
+        .into_iter()
+        .filter(|item| item.to_ascii_lowercase().contains(&q))
+        .take(limit)
+        .collect()
+}
+
+fn truncate_cells(s: &str, n: usize) -> String {
+    if s.chars().count() <= n { s.to_string() } else {
+        let mut out: String = s.chars().take(n.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    }
 }
 
 fn path_commands(limit: usize) -> Vec<String> {
@@ -956,5 +1136,30 @@ mod launcher_query_tests {
         std::env::remove_var("KITTUI_WM_LAUNCH_QUERY");
         assert_eq!(sel.kind, super::LauncherKind::Path);
         assert!(sel.command.to_ascii_lowercase().contains("echo"));
+    }
+}
+
+#[cfg(test)]
+mod launcher_overlay_tests {
+    use super::*;
+    use kittui_input::Modifiers;
+
+    #[test]
+    fn overlay_edits_query_and_tracks_selection() {
+        let mut overlay = LauncherOverlay::default();
+        overlay.active = true;
+        assert_eq!(overlay.handle_event(&InputEvent::Char { ch: 'e', mods: Modifiers::default() }), OverlayEvent::Consumed);
+        assert_eq!(overlay.handle_event(&InputEvent::Char { ch: 'c', mods: Modifiers::default() }), OverlayEvent::Consumed);
+        assert_eq!(overlay.query, "ec");
+        assert_eq!(overlay.handle_event(&InputEvent::Key { key: Key::Backspace, mods: Modifiers::default() }), OverlayEvent::Consumed);
+        assert_eq!(overlay.query, "e");
+        assert_eq!(overlay.handle_event(&InputEvent::Key { key: Key::Enter, mods: Modifiers::default() }), OverlayEvent::Launch);
+        assert_eq!(overlay.handle_event(&InputEvent::Key { key: Key::Escape, mods: Modifiers::default() }), OverlayEvent::Close);
+    }
+
+    #[test]
+    fn filter_launcher_candidates_is_case_insensitive() {
+        let items = vec!["Echo".to_string(), "cat".to_string(), "lessecho".to_string()];
+        assert_eq!(filter_launcher_candidates(items, Some("ECHO"), 10), vec!["Echo".to_string(), "lessecho".to_string()]);
     }
 }
