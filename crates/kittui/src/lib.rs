@@ -150,7 +150,11 @@ impl Runtime {
             }
         }
 
-        let placement = kitty::placement_command(image_id, scene.footprint, transport);
+        let placement = {
+            let mv = kitty::cursor_move(scene.footprint.x, scene.footprint.y, transport);
+            let p = kitty::placement_command(image_id, scene.footprint, transport);
+            format!("{mv}{p}")
+        };
         let embed = kitty::placeholder_text(image_id, scene.footprint);
         self.mark_placed(image_id, scene.footprint);
 
@@ -203,7 +207,11 @@ impl Runtime {
                 image_id, rgba, width, height, transport,
             ));
         }
-        let placement = kitty::placement_command(image_id, footprint, transport);
+        let placement = {
+            let mv = kitty::cursor_move(footprint.x, footprint.y, transport);
+            let p = kitty::placement_command(image_id, footprint, transport);
+            format!("{mv}{p}")
+        };
         let embed = kitty::placeholder_text(image_id, footprint);
         self.mark_placed(image_id, footprint);
         Placement {

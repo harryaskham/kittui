@@ -38,7 +38,14 @@ fn workspace_smoke_renders_box_and_emits_kitty_grammar() {
         "upload missing a=t verb"
     );
     assert!(placement.upload.ends_with("\x1b\\"));
-    assert!(placement.placement.starts_with("\x1b_Ga=p,"));
+    // Placement now begins with a CSI cursor-move so footprint.x/y are
+    // honoured (bd-12568a); the kitty graphics escape follows it.
+    assert!(
+        placement.placement.starts_with("\x1b[")
+            && placement.placement.contains("H\x1b_Ga=p,"),
+        "placement missing CSI-move + a=p prefix: {:?}",
+        &placement.placement[..placement.placement.len().min(40)]
+    );
     assert!(placement.placement.ends_with("\x1b\\"));
 
     let footprint = scene.footprint;

@@ -269,16 +269,28 @@ pub fn upload_animation_ex(
             /*first_frame=*/ i == 0,
         ));
     }
+    // Animation control: pick state + loop count per spec.
+    //   s=2          => loop forever
+    //   s=3,v=<N>    => play N times then stop (kitty extension: v=0 also infinite)
+    // c=<frame> would force current frame; omit it so playback starts at frame 1.
+    let (state, v_field): (u32, String) = if loops == 0 {
+        (2, String::new())
+    } else {
+        (3, format!(",v={loops}"))
+    };
     let control = format!(
-        "{ESC}_Ga=a,i={id},s={loops_field},c={count}{q}{ESC}\\",
+        "{ESC}_Ga=a,i={id},s={state}{v_field}{q}{ESC}\\",
         id = image_id,
-        loops_field = loops,
-        count = frames.len(),
+        state = state,
+        v_field = v_field,
         q = quiet.field(),
     );
     out.push_str(&wrap_transport(control, transport));
     for (i, delay) in frame_delays_ms.iter().enumerate() {
         let frame_index = (i as u32).saturating_add(1);
+        // Per-frame gap is set on the frame data slot via a=a,i=,r=N,z=<ms>;
+        // this is the post-upload update form documented in the kitty
+        // graphics protocol ("Controlling animations" section).
         let cmd = format!(
             "{ESC}_Ga=a,i={id},r={frame},z={delay}{q}{ESC}\\",
             id = image_id,
@@ -289,6 +301,18 @@ pub fn upload_animation_ex(
         out.push_str(&wrap_transport(cmd, transport));
     }
     out
+}
+
+/// Build a CSI cursor-move escape that positions the cursor at the
+/// 1-indexed terminal coordinate corresponding to the (0-indexed)
+/// `(col_x, row_y)` cell position. Use this to anchor a placement at an
+/// absolute terminal coordinate before emitting `placement_command`; the
+/// kitty graphics protocol itself has no absolute-positioning verb, so the
+/// cursor must be moved first. (bd-12568a)
+pub fn cursor_move(col_x: u16, row_y: u16, transport: Transport) -> String {
+    let row = row_y.saturating_add(1);
+    let col = col_x.saturating_add(1);
+    wrap_transport(format!("\x1b[{row};{col}H"), transport)
 }
 
 /// Build a placement escape sequence with explicit options.
@@ -592,11 +616,22 @@ mod tests {
         assert!(escapes.contains("\x1b_Ga=t,f=100,i=66,m=0,r=1,q=2;"));
         assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=2,q=2;"));
         assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=3,q=2;"));
-        // Animation control + per-frame delay commands.
-        assert!(escapes.contains("\x1b_Ga=a,i=66,s=0,c=3,q=2\x1b\\"));
+        // Loop forever => s=2, no v field, no c field. (bd-ad5957)
+        assert!(escapes.contains("\x1b_Ga=a,i=66,s=2,q=2\x1b\\"));
         assert!(escapes.contains("\x1b_Ga=a,i=66,r=1,z=100,q=2\x1b\\"));
         assert!(escapes.contains("\x1b_Ga=a,i=66,r=2,z=200,q=2\x1b\\"));
         assert!(escapes.contains("\x1b_Ga=a,i=66,r=3,z=300,q=2\x1b\\"));
+    }
+
+    #[test]
+    fn animated_upload_finite_loops_uses_state_3_and_v_field() {
+        let frames = vec![vec![1u8; 4], vec![2u8; 4]];
+        let delays = vec![50, 50];
+        let escapes = upload_animation(7, &frames, &delays, 5, Transport::Direct);
+        assert!(
+            escapes.contains("\x1b_Ga=a,i=7,s=3,v=5,q=2\x1b\\"),
+            "finite loop count must emit s=3,v=<N>: {escapes}"
+        );
     }
 
     #[test]
@@ -631,6 +666,26 @@ mod tests {
         let expected_b64 = base64::engine::general_purpose::STANDARD.encode(b"/kittui-9");
         let want = format!("\x1b_Ga=t,f=100,t=s,i=9,q=2;{expected_b64}\x1b\\");
         assert_eq!(escapes, want);
+    }
+
+    #[test]
+    fn cursor_move_is_one_indexed_csi_h() {
+        // (col=4, row=2) 0-indexed -> CSI 3;5 H (1-indexed). (bd-12568a)
+        let s = cursor_move(4, 2, Transport::Direct);
+        assert_eq!(s, "\x1b[3;5H");
+    }
+
+    #[test]
+    fn cursor_move_origin_emits_csi_1_1_h() {
+        let s = cursor_move(0, 0, Transport::Direct);
+        assert_eq!(s, "\x1b[1;1H");
+    }
+
+    #[test]
+    fn cursor_move_under_tmux_wraps_passthrough() {
+        let s = cursor_move(1, 1, Transport::TmuxPassthrough);
+        assert!(s.starts_with("\x1bPtmux;\x1b\x1b["));
+        assert!(s.ends_with("\x1b\\"));
     }
 
     #[test]
