@@ -41,6 +41,7 @@ struct Cli {
     pick_window: bool,
     list_windows: bool,
     list_displays: bool,
+    capture: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -83,6 +84,12 @@ fn parse_args() -> Result<Cli> {
             "--pick-window" => out.pick_window = true,
             "--list-windows" => out.list_windows = true,
             "--list-displays" => out.list_displays = true,
+            "--capture" => {
+                let v = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--capture requires a target spec"))?;
+                out.capture = Some(v);
+            }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -111,7 +118,12 @@ fn print_help() {
          --list-windows  (macOS+quartz) print every titled CGWindow with id,\n\
                          bounds, owner, title — useful for scripting kitwm.\n\
          --list-displays (macOS+quartz) print every connected CGDirectDisplayID\n\
-                         with bounds + index.\n"
+                         with bounds + index.\n\
+         --capture SPEC  (macOS+quartz) capture a specific source non-interactively:\n\
+                         'main'                 = main display (default)\n\
+                         'display:<n>'          = nth connected display\n\
+                         'window:<substring>'   = first matching app window title/owner\n\
+                         'all'                  = all displays as a multi-window session\n"
     );
 }
 
@@ -246,7 +258,7 @@ fn run_session(cli: Cli) -> Result<()> {
     match backend {
         Backend::Fake => run_with_fake(&runtime, cell),
         #[cfg(all(target_os = "macos", feature = "quartz"))]
-        Backend::Quartz => run_with_quartz(&runtime, cell, cli.pick_window),
+        Backend::Quartz => run_with_quartz(&runtime, cell, cli.pick_window, cli.capture.as_deref()),
         #[cfg(all(not(all(target_os = "macos", feature = "quartz")), feature = "xvfb"))]
         Backend::Xvfb => run_with_xvfb(&runtime, cell),
         #[cfg(not(all(target_os = "macos", feature = "quartz")))]
@@ -286,7 +298,12 @@ fn run_with_fake(runtime: &Runtime, cell: CellSize) -> Result<()> {
 }
 
 #[cfg(all(target_os = "macos", feature = "quartz"))]
-fn run_with_quartz(runtime: &Runtime, cell: CellSize, pick_window: bool) -> Result<()> {
+fn run_with_quartz(
+    runtime: &Runtime,
+    cell: CellSize,
+    pick_window: bool,
+    capture: Option<&str>,
+) -> Result<()> {
     use kittui_quartz::{CaptureTarget, QuartzServer};
 
     let target = if pick_window {
@@ -297,6 +314,8 @@ fn run_with_quartz(runtime: &Runtime, cell: CellSize, pick_window: bool) -> Resu
             chosen.id, chosen.owner_name, chosen.title
         );
         CaptureTarget::Window(chosen.id)
+    } else if let Some(spec) = capture {
+        resolve_capture_spec(spec)?
     } else {
         CaptureTarget::MainDisplay
     };
@@ -393,4 +412,48 @@ fn prompt_pick(windows: &[kittui_quartz::MacWindow]) -> Result<kittui_quartz::Ma
         .get(idx)
         .cloned()
         .ok_or_else(|| anyhow!("out of range; pick 0..{}", windows.len()))
+}
+
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+fn resolve_capture_spec(spec: &str) -> Result<kittui_quartz::CaptureTarget> {
+    use kittui_quartz::{CaptureTarget, QuartzServer};
+    if spec == "main" {
+        return Ok(CaptureTarget::MainDisplay);
+    }
+    if spec == "all" {
+        return Ok(CaptureTarget::AllDisplays);
+    }
+    if let Some(n) = spec.strip_prefix("display:") {
+        let idx: usize = n
+            .parse()
+            .map_err(|_| anyhow!("display:N expects an integer, got {n:?}"))?;
+        let displays = QuartzServer::displays();
+        let chosen = displays
+            .get(idx)
+            .ok_or_else(|| anyhow!("display index {idx} out of range (0..{})", displays.len()))?;
+        return Ok(CaptureTarget::Display(chosen.id));
+    }
+    if let Some(needle) = spec.strip_prefix("window:") {
+        let needle_lc = needle.to_ascii_lowercase();
+        let windows = QuartzServer::list_app_windows();
+        let chosen = windows
+            .iter()
+            .find(|w| {
+                w.title.to_ascii_lowercase().contains(&needle_lc)
+                    || w.owner_name.to_ascii_lowercase().contains(&needle_lc)
+            })
+            .ok_or_else(|| {
+                anyhow!(
+                    "no Mac window matched 'window:{needle}'; run `kitwm --list-windows` to see candidates"
+                )
+            })?;
+        eprintln!(
+            "kitwm: --capture window:{} matched id={} owner={:?} title={:?}",
+            needle, chosen.id, chosen.owner_name, chosen.title
+        );
+        return Ok(CaptureTarget::Window(chosen.id));
+    }
+    Err(anyhow!(
+        "unknown --capture spec {spec:?}. Use: main | all | display:<n> | window:<substr>"
+    ))
 }
