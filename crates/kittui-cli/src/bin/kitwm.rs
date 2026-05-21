@@ -143,12 +143,14 @@ fn print_help() {
          Usage: kitwm [--serve | --attach | --kill | --status] [--backend fake|quartz|xvfb]\n\n\
          Default: open a kittui-wm session in the current terminal, picking the\n\
          best available backend. q or Esc to quit.\n\n\
-         --serve   run the in-process backend host (today same as no args; will\n\
-                   become 'fork daemon + listen on $KITTUI_WM_DISPLAY socket' in\n\
-                   bd-fb5d9d).\n\
-         --attach  attach to an existing daemon (placeholder until bd-fb5d9d).\n\
-         --kill    send shutdown to the daemon (placeholder).\n\
-         --status  print whether a daemon is running (placeholder).\n\
+         --serve   run as a Unix-socket daemon at \$KITWM_SOCK\n\
+                   (default /tmp/kitwm-\$USER.sock). Blocks until QUIT or\n\
+                   SIGINT/SIGTERM. RAII socket cleanup.\n\
+         --attach  connect to a running daemon and open an interactive REPL.\n\
+                   Commands: PING STATUS WINDOWS DISPLAYS HELP QUIT.\n\
+         --kill    send QUIT to the running daemon.\n\
+         --status  print pid/uptime/sock of the running daemon; exits 1 if\n\
+                   no daemon is reachable.\n\
          --backend fake|quartz|xvfb force a specific backend.\n\
          --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
                          one window, then run a kitwm session capturing only it.\n\
@@ -244,10 +246,7 @@ fn real_main() -> Result<()> {
     match cli.mode {
         Mode::Session => run_session(cli),
         Mode::Serve => serve_cmd(cli),
-        Mode::Attach => Err(anyhow!(
-            "--attach is a placeholder until the attach client lands (bd-aaea73). \
-             Run `kitwm` with no args to open a session in this terminal."
-        )),
+        Mode::Attach => attach_cmd(),
         Mode::Kill => kill_cmd(),
         Mode::Status => status_cmd(),
     }
@@ -859,4 +858,51 @@ fn kill_cmd() -> Result<()> {
         }
         Err(e) => Err(anyhow!("no daemon to kill at {}: {e}", path.display())),
     }
+}
+
+fn attach_cmd() -> Result<()> {
+    use kittui_cli::daemon::{client_request_multi, default_socket_path};
+    use std::io::{BufRead, Write};
+    let path = default_socket_path();
+    // Probe first so we fail fast if no daemon.
+    let probe = client_request_multi(&path, "PING")
+        .map_err(|e| anyhow!("no daemon at {}: {e}", path.display()))?;
+    eprintln!("kitwm --attach: connected to {} ({})",
+        path.display(),
+        probe.trim()
+    );
+    eprintln!("Commands: PING STATUS WINDOWS DISPLAYS HELP QUIT (Ctrl-D to detach)");
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    loop {
+        {
+            let mut w = stdout.lock();
+            write!(w, "kitwm> ")?;
+            w.flush()?;
+        }
+        let mut line = String::new();
+        let n = stdin.lock().read_line(&mut line)?;
+        if n == 0 { eprintln!(); break; }
+        let cmd = line.trim();
+        if cmd.is_empty() { continue; }
+        if cmd.eq_ignore_ascii_case("detach") || cmd.eq_ignore_ascii_case("exit") {
+            break;
+        }
+        match client_request_multi(&path, &cmd.to_ascii_uppercase()) {
+            Ok(reply) => {
+                print!("{reply}");
+                if !reply.ends_with('\n') { println!(); }
+            }
+            Err(e) => {
+                eprintln!("(daemon error: {e})");
+                // Daemon likely died — exit.
+                if let Err(_) = client_request_multi(&path, "PING") {
+                    eprintln!("daemon unreachable; detaching.");
+                    break;
+                }
+            }
+        }
+        if cmd.eq_ignore_ascii_case("QUIT") { break; }
+    }
+    Ok(())
 }

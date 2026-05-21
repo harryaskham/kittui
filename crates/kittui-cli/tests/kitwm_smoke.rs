@@ -318,3 +318,48 @@ fn kitwm_bench_json_emits_metrics() {
         assert!(s.contains(&format!("\"{key}\"")), "missing key {key}: {s}");
     }
 }
+
+#[cfg(all(target_os = "macos"))]
+#[test]
+fn kitwm_attach_repl_round_trip() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let sock = std::env::temp_dir().join(format!(
+        "kitwm-attach-smoke-{}.sock",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&sock);
+    let mut server = std::process::Command::new(&bin)
+        .arg("--serve")
+        .env("KITWM_SOCK", &sock)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn --serve");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !sock.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(sock.exists(), "daemon did not bind");
+    // Feed a script via stdin.
+    let mut child = std::process::Command::new(&bin)
+        .arg("--attach")
+        .env("KITWM_SOCK", &sock)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn --attach");
+    {
+        use std::io::Write;
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(b"PING\nDISPLAYS\nQUIT\n").unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("PONG"), "attach stdout missing PONG: {s}");
+    assert!(s.contains("DISPLAYS "), "missing DISPLAYS reply: {s}");
+    assert!(s.contains("BYE"), "missing BYE: {s}");
+    let _ = server.wait();
+    let _ = std::fs::remove_file(&sock);
+}

@@ -130,6 +130,11 @@ fn handle_request(
             started.elapsed().as_secs(),
             path.display()
         ),
+        "WINDOWS" => windows_reply(),
+        "DISPLAYS" => displays_reply(),
+        "HELP" | "?" => {
+            "PING | STATUS | WINDOWS | DISPLAYS | QUIT | HELP\n".to_string()
+        }
         "QUIT" => {
             quit.store(true, Ordering::SeqCst);
             "BYE\n".to_string()
@@ -216,4 +221,86 @@ mod tests {
         let err = DaemonServer::bind(p.clone()).unwrap_err();
         assert!(err.to_string().contains("already listening"), "{err}");
     }
+}
+
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+fn windows_reply() -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let wins = kittui_quartz::QuartzServer::list_app_windows();
+    let _ = writeln!(out, "WINDOWS {}", wins.len());
+    for w in wins {
+        let _ = writeln!(
+            out,
+            "  id={} owner={:?} title={:?} bounds=({:.0},{:.0} {:.0}x{:.0})",
+            w.id,
+            w.owner_name,
+            w.title,
+            w.bounds.origin.0,
+            w.bounds.origin.1,
+            w.bounds.width,
+            w.bounds.height,
+        );
+    }
+    out.push_str("END\n");
+    out
+}
+
+#[cfg(not(all(target_os = "macos", feature = "quartz")))]
+fn windows_reply() -> String {
+    "ERR WINDOWS requires --features quartz on macOS\n".to_string()
+}
+
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+fn displays_reply() -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let ds = kittui_quartz::QuartzServer::displays();
+    let _ = writeln!(out, "DISPLAYS {}", ds.len());
+    for d in ds {
+        let _ = writeln!(
+            out,
+            "  index={} id={} bounds=({:.0},{:.0} {:.0}x{:.0})",
+            d.index, d.id, d.bounds.origin.0, d.bounds.origin.1, d.bounds.width, d.bounds.height
+        );
+    }
+    out.push_str("END\n");
+    out
+}
+
+#[cfg(not(all(target_os = "macos", feature = "quartz")))]
+fn displays_reply() -> String {
+    "ERR DISPLAYS requires --features quartz on macOS\n".to_string()
+}
+
+/// Multi-line client request — keeps reading until EOF, or until a line
+/// containing exactly "END" arrives (so multi-line replies like WINDOWS
+/// don't drop after the first line).
+pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
+    let mut stream = UnixStream::connect(path)
+        .map_err(|e| anyhow!("connect {}: {e}", path.display()))?;
+    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    stream.write_all(cmd.as_bytes())?;
+    stream.write_all(b"\n")?;
+    stream.flush()?;
+    let mut reader = BufReader::new(stream);
+    let mut out = String::new();
+    loop {
+        let mut line = String::new();
+        let n = reader.read_line(&mut line)?;
+        if n == 0 {
+            break;
+        }
+        if line.trim() == "END" {
+            break;
+        }
+        out.push_str(&line);
+        // Single-line replies don't send END; break after one if it
+        // doesn't look like a known multi-line header.
+        let first = out.lines().next().unwrap_or("");
+        if !first.starts_with("WINDOWS ") && !first.starts_with("DISPLAYS ") {
+            break;
+        }
+    }
+    Ok(out)
 }
