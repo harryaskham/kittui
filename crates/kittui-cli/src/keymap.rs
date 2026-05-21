@@ -181,7 +181,8 @@ pub struct Binding {
 }
 
 impl Binding {
-    fn chord_string(&self) -> String {
+    /// Render chord as user-facing key tokens.
+    pub fn chord_string(&self) -> String {
         self.chord.iter().map(ToString::to_string).collect::<Vec<_>>().join(" ")
     }
 }

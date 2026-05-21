@@ -68,6 +68,7 @@ struct Cli {
     apps_launch_first: bool,
     keymap: bool,
     keymap_path: Option<String>,
+    keymap_check: bool,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -137,6 +138,7 @@ fn parse_args() -> Result<Cli> {
             "--keymap" => {
                 out.keymap_path = Some(args.next().ok_or_else(|| anyhow!("--keymap PATH"))?);
             }
+            "--check" => out.keymap_check = true,
             "-c" | "--command" => {
                 out.attach_command = Some(args.next().ok_or_else(|| anyhow!("--command CMD"))?);
             }
@@ -256,6 +258,7 @@ SUBCOMMANDS\n\
          keymap          print resolved keybinding config. Defaults to the\n\
                          built-in tmux-like Ctrl-A prefix map; pass\n\
                          --keymap PATH to parse and print a custom file.\n\
+                         Use --check to validate duplicates/custom actions.\n\
                          Sessions also load --keymap PATH / KITTUI_WM_KEYMAP.\n"
     );
 }
@@ -1037,8 +1040,65 @@ fn keymap_cmd(cli: &Cli) -> Result<()> {
     } else {
         kittui_cli::keymap::default_keymap()
     };
+    if cli.keymap_check {
+        return keymap_check_cmd(&km);
+    }
     print!("{}", km.render_table());
     Ok(())
+}
+
+fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
+    let mut seen = std::collections::BTreeMap::<String, Vec<String>>::new();
+    let mut custom = Vec::<String>::new();
+    for binding in &km.bindings {
+        let chord = binding.chord_string();
+        seen.entry(chord).or_default().push(binding.action.to_string());
+        if binding.action.to_string().contains('.')
+            && !matches!(
+                binding.action,
+                kittui_cli::keymap::Action::WorkspaceNew
+                    | kittui_cli::keymap::Action::WorkspaceNext
+                    | kittui_cli::keymap::Action::WorkspacePrev
+                    | kittui_cli::keymap::Action::SplitVerticalLauncher
+                    | kittui_cli::keymap::Action::SplitHorizontalLauncher
+                    | kittui_cli::keymap::Action::FocusLeft
+                    | kittui_cli::keymap::Action::FocusRight
+                    | kittui_cli::keymap::Action::FocusUp
+                    | kittui_cli::keymap::Action::FocusDown
+                    | kittui_cli::keymap::Action::SwapLeft
+                    | kittui_cli::keymap::Action::SwapRight
+                    | kittui_cli::keymap::Action::SwapUp
+                    | kittui_cli::keymap::Action::SwapDown
+            )
+        {
+            if matches!(binding.action, kittui_cli::keymap::Action::Custom(_)) {
+                custom.push(binding.action.to_string());
+            }
+        }
+    }
+    let duplicates: Vec<_> = seen
+        .iter()
+        .filter(|(_, actions)| actions.len() > 1)
+        .collect();
+    println!("kitwm keymap check");
+    println!("==================");
+    println!("prefix: {}", km.prefix.as_ref().map(ToString::to_string).unwrap_or_else(|| "<none>".to_string()));
+    println!("bindings: {}", km.bindings.len());
+    println!("duplicate_chords: {}", duplicates.len());
+    for (chord, actions) in duplicates {
+        println!("  {chord}: {}", actions.join(", "));
+    }
+    println!("custom_actions: {}", custom.len());
+    for action in custom {
+        println!("  {action}");
+    }
+    if !seen.iter().any(|(_, actions)| actions.len() > 1) {
+        println!("status: ok");
+        Ok(())
+    } else {
+        println!("status: duplicate chords found");
+        std::process::exit(2);
+    }
 }
 
 fn apps_cmd(cli: &Cli) -> Result<()> {

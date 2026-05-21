@@ -679,3 +679,31 @@ fn kitwm_launcher_select_and_launch_selection() {
     assert!(ls.contains("kitwm launcher: launched selection=1 pid="), "missing launched pid: {ls}");
     assert!(ls.contains("kind=path"), "expected path candidate: {ls}");
 }
+
+#[test]
+fn kitwm_keymap_check_reports_ok_for_default_and_duplicates_for_custom_file() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let ok = Command::new(&bin)
+        .args(["keymap", "--check"])
+        .output()
+        .expect("run kitwm keymap --check");
+    assert!(ok.status.success(), "stderr: {}", String::from_utf8_lossy(&ok.stderr));
+    let s = String::from_utf8_lossy(&ok.stdout);
+    assert!(s.contains("kitwm keymap check"), "missing header: {s}");
+    assert!(s.contains("duplicate_chords: 0"), "unexpected duplicates: {s}");
+    assert!(s.contains("status: ok"), "missing ok: {s}");
+
+    let path = std::env::temp_dir().join(format!("kitwm-keymap-dupe-{}.conf", std::process::id()));
+    std::fs::write(&path, "prefix C-a\nbind c workspace.new\nbind c quit\n").unwrap();
+    let dup = Command::new(&bin)
+        .args(["keymap", "--check", "--keymap"])
+        .arg(&path)
+        .output()
+        .expect("run duplicate keymap check");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(dup.status.code(), Some(2), "expected duplicate exit 2, got {:?}; stdout={}", dup.status.code(), String::from_utf8_lossy(&dup.stdout));
+    let d = String::from_utf8_lossy(&dup.stdout);
+    assert!(d.contains("duplicate_chords: 1"), "missing duplicate count: {d}");
+    assert!(d.contains("C-a c"), "missing duplicated chord: {d}");
+}
