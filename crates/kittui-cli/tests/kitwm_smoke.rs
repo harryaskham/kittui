@@ -103,6 +103,31 @@ fn kitwm_status_prints_when_no_daemon() {
     assert!(stdout.to_lowercase().contains("daemon"));
 }
 
+#[test]
+fn kitwm_doctor_prints_text_report() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin).arg("doctor").output().expect("run kitwm doctor");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("kitwm doctor"), "missing header: {s}");
+    assert!(s.contains("features"));
+    assert!(s.contains("displays"));
+}
+
+#[test]
+fn kitwm_doctor_json_emits_object() {
+    let bin = kitwm_path();
+    if !bin.exists() { return; }
+    let out = Command::new(&bin).args(["doctor", "--json"]).output().unwrap();
+    assert!(out.status.success());
+    let s = String::from_utf8_lossy(&out.stdout);
+    let t = s.trim();
+    assert!(t.starts_with('{') && t.ends_with('}'), "not JSON-ish: {s}");
+    assert!(s.contains("\"display_count\""));
+    assert!(s.contains("\"features\""));
+}
+
 #[cfg(all(target_os = "macos"))]
 #[test]
 fn kitwm_list_windows_prints_header_and_at_least_one_window() {

@@ -43,6 +43,8 @@ struct Cli {
     list_displays: bool,
     capture: Option<String>,
     fps: Option<u32>,
+    doctor: bool,
+    json: bool,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -67,6 +69,8 @@ fn parse_args() -> Result<Cli> {
     let mut out = Cli::default();
     while let Some(a) = args.next() {
         match a.as_str() {
+            "doctor" => out.doctor = true,
+            "--json" => out.json = true,
             "--serve" => out.mode = Mode::Serve,
             "--attach" => out.mode = Mode::Attach,
             "--kill" => out.mode = Mode::Kill,
@@ -136,7 +140,12 @@ fn print_help() {
                          Live fps + peak fps render in the chrome footer.\n\
                          Note: on macOS std::thread::sleep granularity is\n\
                          ~10ms so the actual ceiling is roughly half the\n\
-                         requested value; raise --fps to push it higher.\n"
+                         requested value; raise --fps to push it higher.\n\
+\n\
+SUBCOMMANDS\n\
+         doctor          print a diagnostics report (backends, displays,\n\
+                         terminal probe, log status, version). Pass --json\n\
+                         for machine-readable output. Never enters raw mode.\n"
     );
 }
 
@@ -181,6 +190,9 @@ fn real_main() -> Result<()> {
     }
 
     // Inspection flags run cooked, never enter raw mode.
+    if cli.doctor {
+        return doctor_cmd(cli.json);
+    }
     if cli.list_windows {
         return list_windows_cmd();
     }
@@ -472,4 +484,95 @@ fn resolve_capture_spec(spec: &str) -> Result<kittui_quartz::CaptureTarget> {
     Err(anyhow!(
         "unknown --capture spec {spec:?}. Use: main | all | display:<n> | window:<substr>"
     ))
+}
+
+fn doctor_cmd(json: bool) -> Result<()> {
+    let version = env!("CARGO_PKG_VERSION");
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    let term = std::env::var("TERM").unwrap_or_default();
+    let colorterm = std::env::var("COLORTERM").unwrap_or_default();
+    let term_program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+
+    let feat_sck = cfg!(feature = "sck");
+    let feat_quartz = cfg!(feature = "quartz");
+    let feat_xvfb = cfg!(feature = "xvfb");
+
+    let log_path = std::env::var("KITTUI_WM_LOG")
+        .unwrap_or_else(|_| "/tmp/kittui-wm.log".to_string());
+    let log_meta = std::fs::metadata(&log_path).ok();
+    let log_size = log_meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let log_present = log_meta.is_some();
+
+    #[cfg(all(target_os = "macos", feature = "quartz"))]
+    let displays = kittui_quartz::QuartzServer::displays();
+    #[cfg(not(all(target_os = "macos", feature = "quartz")))]
+    let displays: Vec<()> = Vec::new();
+    let display_count = displays.len();
+
+    // Kitty graphics: presence of TERM=xterm-kitty or KITTY_WINDOW_ID env.
+    let kitty_graphics = term.contains("kitty")
+        || std::env::var("KITTY_WINDOW_ID").is_ok()
+        || term_program.to_ascii_lowercase().contains("ghostty")
+        || term_program.to_ascii_lowercase().contains("wezterm");
+
+    if json {
+        let mut buf = String::new();
+        buf.push_str("{\n");
+        buf.push_str(&format!("  \"version\": {:?},\n", version));
+        buf.push_str(&format!("  \"os\": {:?},\n", os));
+        buf.push_str(&format!("  \"arch\": {:?},\n", arch));
+        buf.push_str(&format!(
+            "  \"features\": {{\"sck\": {}, \"quartz\": {}, \"xvfb\": {}}},\n",
+            feat_sck, feat_quartz, feat_xvfb
+        ));
+        buf.push_str(&format!("  \"term\": {:?},\n", term));
+        buf.push_str(&format!("  \"colorterm\": {:?},\n", colorterm));
+        buf.push_str(&format!("  \"term_program\": {:?},\n", term_program));
+        buf.push_str(&format!("  \"kitty_graphics_likely\": {},\n", kitty_graphics));
+        buf.push_str(&format!("  \"display_count\": {},\n", display_count));
+        buf.push_str(&format!("  \"log_path\": {:?},\n", log_path));
+        buf.push_str(&format!("  \"log_present\": {},\n", log_present));
+        buf.push_str(&format!("  \"log_size_bytes\": {}\n", log_size));
+        buf.push_str("}\n");
+        print!("{buf}");
+    } else {
+        println!("kitwm doctor");
+        println!("============");
+        println!("  version        : {version}");
+        println!("  os / arch      : {os} / {arch}");
+        println!(
+            "  features       : sck={} quartz={} xvfb={}",
+            feat_sck, feat_quartz, feat_xvfb
+        );
+        println!("  TERM           : {term}");
+        println!("  COLORTERM      : {colorterm}");
+        println!("  TERM_PROGRAM   : {term_program}");
+        println!(
+            "  kitty graphics : {}",
+            if kitty_graphics { "likely yes" } else { "unknown" }
+        );
+        println!("  displays       : {display_count}");
+        println!(
+            "  log            : {} ({}{})",
+            log_path,
+            if log_present { "present" } else { "missing" },
+            if log_present {
+                format!(", {log_size} bytes")
+            } else {
+                String::new()
+            }
+        );
+        if cfg!(target_os = "macos") {
+            println!();
+            println!(
+                "Hint: SCK + CGEventPost both require Screen Recording + Accessibility"
+            );
+            println!(
+                "      permissions on the terminal hosting kitwm (System Settings >"
+            );
+            println!("      Privacy & Security).");
+        }
+    }
+    Ok(())
 }
