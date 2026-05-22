@@ -16,6 +16,7 @@ enum Mode {
     Rich,
     Plain,
     Outline,
+    MetadataJson,
 }
 
 #[derive(Clone, Debug)]
@@ -58,6 +59,7 @@ fn real_main() -> Result<()> {
     match cfg.mode {
         Mode::Plain => write_plain(&doc, cfg.width, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
+        Mode::MetadataJson => write_metadata_json(&doc, &mut std::io::stdout().lock()),
         Mode::Rich if cfg.interactive => run_interactive(&doc, cfg),
         Mode::Rich => write_rich(&doc, &cfg, &mut std::io::stdout().lock()),
     }
@@ -76,6 +78,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--plain" => mode = Mode::Plain,
             "--rich" => mode = Mode::Rich,
             "--outline" => mode = Mode::Outline,
+            "--metadata-json" => mode = Mode::MetadataJson,
             "--width" => {
                 width = args
                     .next()
@@ -119,7 +122,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--outline] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--outline|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -314,6 +317,30 @@ fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
             writeln!(out, "{line}")?;
         }
     }
+    Ok(())
+}
+
+fn write_metadata_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "components": doc.components.len(),
+        "links": doc.links.iter().map(|link| serde_json::json!({
+            "label": link.label,
+            "url": link.url,
+        })).collect::<Vec<_>>(),
+        "images": doc.images.iter().map(|image| serde_json::json!({
+            "alt": image.alt,
+            "url": image.url,
+        })).collect::<Vec<_>>(),
+        "outline": doc.outline.iter().map(|heading| serde_json::json!({
+            "level": heading.level,
+            "text": heading.text,
+        })).collect::<Vec<_>>(),
+        "tables": doc.tables.iter().map(|table| serde_json::json!({
+            "rows": table.rows,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -827,6 +854,26 @@ mod tests {
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
         assert!(status.contains("1 headings, 0 links, 1 images"), "{status}");
+    }
+
+    #[test]
+    fn metadata_json_mode_reports_stable_shape() {
+        let doc = render_markdown(
+            "# Title\n\nSee [site](https://example.com).\n\n![logo](logo.png)\n\n| a | b |\n|---|---|\n| 1 | 2 |",
+            80,
+        );
+        let mut out = Vec::new();
+        write_metadata_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(
+            value["components"].as_u64().unwrap(),
+            doc.components.len() as u64
+        );
+        assert_eq!(value["outline"][0]["level"], 1);
+        assert_eq!(value["outline"][0]["text"], "Title");
+        assert_eq!(value["links"][0]["url"], "https://example.com");
+        assert_eq!(value["images"][0]["url"], "logo.png");
+        assert_eq!(value["tables"][0]["rows"][1][0], "1");
     }
 
     #[test]
