@@ -1,6 +1,8 @@
 //! Markdown-to-kittui component rendering.
 
-use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{
+    Alignment, CodeBlockKind, Event, HeadingLevel, MetadataBlockKind, Options, Parser, Tag, TagEnd,
+};
 
 use crate::components::{banner, h1, h2, h3, textbox, textchip, UiComponent};
 use crate::palette::Tone;
@@ -31,6 +33,8 @@ pub struct MarkdownDocument {
     pub html: Vec<MarkdownHtml>,
     /// Code blocks in encounter order.
     pub code_blocks: Vec<MarkdownCodeBlock>,
+    /// Metadata blocks in encounter order.
+    pub metadata_blocks: Vec<MarkdownMetadataBlock>,
 }
 
 /// Link rendered as a highlighted chip plus accessible URL metadata.
@@ -143,6 +147,34 @@ pub struct MarkdownCodeBlock {
     pub text: String,
 }
 
+/// Metadata/frontmatter block kind.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MarkdownMetadataBlockKind {
+    /// YAML-style frontmatter (`---`).
+    Yaml,
+    /// Pluses-delimited metadata (`+++`).
+    Pluses,
+}
+
+impl MarkdownMetadataBlockKind {
+    /// Stable lowercase metadata string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Yaml => "yaml",
+            Self::Pluses => "pluses",
+        }
+    }
+}
+
+/// One preserved Markdown metadata/frontmatter block.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkdownMetadataBlock {
+    /// Metadata block delimiter style.
+    pub kind: MarkdownMetadataBlockKind,
+    /// Raw metadata source text.
+    pub source: String,
+}
+
 #[derive(Clone, Debug)]
 struct ListState {
     next_number: Option<u64>,
@@ -169,13 +201,16 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             | Options::ENABLE_TASKLISTS
             | Options::ENABLE_FOOTNOTES
             | Options::ENABLE_DEFINITION_LIST
-            | Options::ENABLE_MATH,
+            | Options::ENABLE_MATH
+            | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
+            | Options::ENABLE_PLUSES_DELIMITED_METADATA_BLOCKS,
     );
     let mut out = MarkdownDocument::default();
     let mut buf = String::new();
     let mut heading: Option<HeadingLevel> = None;
     let mut in_code = false;
     let mut code_label: Option<String> = None;
+    let mut metadata_block: Option<MarkdownMetadataBlockKind> = None;
     let mut link_target: Option<String> = None;
     let mut link_label = String::new();
     let mut image_target: Option<String> = None;
@@ -195,6 +230,26 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
 
     for ev in parser {
         match ev {
+            Event::Start(Tag::MetadataBlock(kind)) => {
+                flush_paragraph(&mut out, &mut buf, width_cells);
+                metadata_block = Some(markdown_metadata_kind(kind));
+            }
+            Event::End(TagEnd::MetadataBlock(_)) => {
+                if let Some(kind) = metadata_block.take() {
+                    let source = take_trimmed(&mut buf);
+                    if !source.is_empty() {
+                        out.metadata_blocks.push(MarkdownMetadataBlock {
+                            kind: kind.clone(),
+                            source: source.clone(),
+                        });
+                        out.components.push(textbox(
+                            format!("metadata:{}\n{source}", kind.as_str()),
+                            width_cells,
+                            Tone::Tool,
+                        ));
+                    }
+                }
+            }
             Event::Start(Tag::Heading { level, .. }) => {
                 flush_paragraph(&mut out, &mut buf, width_cells);
                 heading = Some(level);
@@ -218,6 +273,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 if !in_list_item
                     && blockquote_depth == 0
                     && footnote_definition.is_none()
+                    && metadata_block.is_none()
                     && !in_definition_title
                     && !in_definition_body
                 {
@@ -572,6 +628,13 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     }
     flush_paragraph(&mut out, &mut buf, width_cells);
     out
+}
+
+fn markdown_metadata_kind(kind: MetadataBlockKind) -> MarkdownMetadataBlockKind {
+    match kind {
+        MetadataBlockKind::YamlStyle => MarkdownMetadataBlockKind::Yaml,
+        MetadataBlockKind::PlusesStyle => MarkdownMetadataBlockKind::Pluses,
+    }
 }
 
 fn markdown_alignment(alignment: Alignment) -> MarkdownTableAlignment {
@@ -958,5 +1021,21 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn markdown_preserves_metadata_blocks() {
+        let doc = render_markdown("---\ntitle: Proof\n---\n\n# Body", 60);
+        assert_eq!(
+            doc.metadata_blocks,
+            vec![MarkdownMetadataBlock {
+                kind: MarkdownMetadataBlockKind::Yaml,
+                source: "title: Proof".to_string(),
+            }]
+        );
+        assert!(doc
+            .components
+            .iter()
+            .any(|c| c.text.contains("metadata:yaml\ntitle: Proof")));
     }
 }

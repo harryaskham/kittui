@@ -32,7 +32,7 @@ pub use inline::{chip_chrome, divider_chrome, title_chrome};
 pub use markdown::{
     render_markdown, HeadingOutline, LinkChip, MarkdownCodeBlock, MarkdownDefinition,
     MarkdownDocument, MarkdownFootnote, MarkdownHtml, MarkdownHtmlKind, MarkdownImage,
-    MarkdownMath, MarkdownMathKind,
+    MarkdownMath, MarkdownMathKind, MarkdownMetadataBlock, MarkdownMetadataBlockKind,
 };
 pub use palette::{Palette, Tone};
 pub use panel::{panel_chrome, PanelOptions};

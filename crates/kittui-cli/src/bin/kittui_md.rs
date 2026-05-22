@@ -1297,6 +1297,7 @@ mod tests {
             math: vec![],
             html: vec![],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         assert_eq!(document_rows(&doc, 80), 7);
     }
@@ -1321,6 +1322,7 @@ mod tests {
             math: vec![],
             html: vec![],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         let cfg = Config {
             mode: Mode::Rich,
@@ -1738,6 +1740,7 @@ mod tests {
             math: vec![],
             html: vec![],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         let mut out = Vec::new();
         write_outline(&doc, &mut out).unwrap();
@@ -1784,6 +1787,7 @@ mod tests {
             math: vec![],
             html: vec![],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1812,6 +1816,7 @@ mod tests {
             math: vec![],
             html: vec![],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1843,6 +1848,7 @@ mod tests {
             math: vec![],
             html: vec![],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1870,6 +1876,7 @@ mod tests {
             }],
             html: vec![],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1894,6 +1901,7 @@ mod tests {
                 source: "<kbd>".to_string(),
             }],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1918,6 +1926,7 @@ mod tests {
                 language: Some("rust".to_string()),
                 text: "fn main() {}".to_string(),
             }],
+            metadata_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1951,6 +1960,7 @@ mod tests {
             math: vec![],
             html: vec![],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         assert_eq!(
             outline_lines(&doc),
@@ -1981,6 +1991,7 @@ mod tests {
             math: vec![],
             html: vec![],
             code_blocks: vec![],
+            metadata_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
