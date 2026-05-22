@@ -760,16 +760,20 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
     cfg.height_rows = Some(viewport);
     let mut total_rows = document_rows(&doc, cfg.width);
     let mut show_help = false;
+    let mut show_outline = false;
     let mut status: Option<String> = None;
     loop {
         write!(stdout, "\x1b[2J\x1b[H")?;
         if show_help {
             write_interactive_help(viewport, &mut stdout)?;
+        } else if show_outline {
+            write_interactive_outline(&doc, viewport, &mut stdout)?;
         } else {
             write_rich(&doc, &cfg, &mut stdout)?;
         }
         write_interactive_footer(
             show_help,
+            show_outline,
             status.as_deref(),
             &path,
             cfg.offset_rows,
@@ -784,6 +788,16 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
         }
         if action == PagerAction::Help {
             show_help = !show_help;
+            if show_help {
+                show_outline = false;
+            }
+            continue;
+        }
+        if action == PagerAction::Outline {
+            show_outline = !show_outline;
+            if show_outline {
+                show_help = false;
+            }
             continue;
         }
         if action == PagerAction::Reload {
@@ -792,6 +806,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                     doc = reloaded;
                     total_rows = document_rows(&doc, cfg.width);
                     cfg.offset_rows = cfg.offset_rows.min(total_rows.saturating_sub(viewport));
+                    show_outline = false;
                     status = Some(format!("reloaded {path} — {total_rows} rows"));
                 }
                 Err(err) => {
@@ -805,7 +820,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             status = None;
             continue;
         }
-        if show_help {
+        if show_help || show_outline {
             continue;
         }
         cfg.offset_rows = apply_pager_action(cfg.offset_rows, viewport, total_rows, action);
@@ -826,6 +841,7 @@ enum PagerAction {
     Home,
     End,
     Help,
+    Outline,
     Reload,
     ClearStatus,
 }
@@ -842,6 +858,7 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
         b'g' => PagerAction::Home,
         b'G' => PagerAction::End,
         b'h' | b'?' => PagerAction::Help,
+        b'o' => PagerAction::Outline,
         b'r' => PagerAction::Reload,
         b'c' => PagerAction::ClearStatus,
         27 => read_escape_action(input)?,
@@ -923,9 +940,10 @@ fn apply_pager_action(
         PagerAction::PageDown => offset.saturating_add(viewport_rows.max(1)).min(max_offset),
         PagerAction::Home => 0,
         PagerAction::End => max_offset,
-        PagerAction::Help | PagerAction::Reload | PagerAction::ClearStatus => {
-            offset.min(max_offset)
-        }
+        PagerAction::Help
+        | PagerAction::Outline
+        | PagerAction::Reload
+        | PagerAction::ClearStatus => offset.min(max_offset),
     }
 }
 
@@ -947,8 +965,29 @@ fn write_interactive_help(viewport_rows: u16, out: &mut impl Write) -> Result<()
     Ok(())
 }
 
+fn write_interactive_outline(
+    doc: &MarkdownDocument,
+    viewport_rows: u16,
+    out: &mut impl Write,
+) -> Result<()> {
+    writeln!(out, "kittui-md outline — {} headings", doc.outline.len())?;
+    writeln!(out)?;
+    if doc.outline.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for line in outline_lines(doc)
+        .into_iter()
+        .take(viewport_rows.saturating_sub(3) as usize)
+    {
+        writeln!(out, "{line}")?;
+    }
+    Ok(())
+}
+
 fn write_interactive_footer(
     show_help: bool,
+    show_outline: bool,
     status: Option<&str>,
     path: &str,
     offset_rows: u16,
@@ -969,11 +1008,19 @@ fn write_interactive_footer(
         writeln!(out, "status: {status}")?;
     }
     if show_help {
-        writeln!(out, "h/? close help • r reload • c clear status • q quit")?;
+        writeln!(
+            out,
+            "h/? close help • o outline • r reload • c clear status • q quit"
+        )?;
+    } else if show_outline {
+        writeln!(
+            out,
+            "o close outline • h/? help • r reload • c clear status • q quit"
+        )?;
     } else {
         writeln!(
             out,
-            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • r reload • c clear status • q quit"
+            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • o outline • r reload • c clear status • q quit"
         )?;
     }
     Ok(())
@@ -2208,6 +2255,11 @@ const KEYBINDINGS: &[KeybindingInfo] = &[
         action: "help",
         keys: &["h", "?"],
         description: "Toggle the interactive help screen.",
+    },
+    KeybindingInfo {
+        action: "outline",
+        keys: &["o"],
+        description: "Toggle the interactive document outline screen.",
     },
     KeybindingInfo {
         action: "reload",
@@ -4529,8 +4581,18 @@ mod tests {
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Home), 0);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::End), 20);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Help), 4);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Outline), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Reload), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::ClearStatus), 4);
+    }
+
+    #[test]
+    fn pager_reads_outline_key() {
+        let mut cursor = std::io::Cursor::new(b"o".as_slice());
+        assert_eq!(
+            read_pager_action(&mut cursor).unwrap(),
+            PagerAction::Outline
+        );
     }
 
     #[test]
@@ -4566,15 +4628,55 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("help: h, ?"), "{rendered}");
+        assert!(rendered.contains("outline: o"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
     }
 
     #[test]
+    fn interactive_outline_lists_headings() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![],
+            images: vec![],
+            outline: vec![
+                HeadingOutline {
+                    level: 1,
+                    text: "Title".to_string(),
+                    anchor: "title".to_string(),
+                },
+                HeadingOutline {
+                    level: 2,
+                    text: "Section".to_string(),
+                    anchor: "section".to_string(),
+                },
+            ],
+            footnotes: vec![],
+            footnote_references: vec![],
+            definitions: vec![],
+            math: vec![],
+            html: vec![],
+            code_blocks: vec![],
+            metadata_blocks: vec![],
+        };
+        let mut out = Vec::new();
+        write_interactive_outline(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md outline — 2 headings"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("Title #title"), "{rendered}");
+        assert!(rendered.contains("Section #section"), "{rendered}");
+    }
+
+    #[test]
     fn interactive_footer_writes_reload_status() {
         let mut out = Vec::new();
         write_interactive_footer(
+            false,
             false,
             Some("reloaded doc.md — 12 rows"),
             "doc.md",
@@ -4592,13 +4694,14 @@ mod tests {
         assert!(rendered.contains("status: reloaded doc.md"), "{rendered}");
         assert!(rendered.contains("r reload"), "{rendered}");
         assert!(rendered.contains("c clear status"), "{rendered}");
+        assert!(rendered.contains("o outline"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
     #[test]
     fn interactive_footer_omits_status_when_cleared() {
         let mut out = Vec::new();
-        write_interactive_footer(false, None, "doc.md", 0, 10, 30, &mut out).unwrap();
+        write_interactive_footer(false, false, None, "doc.md", 0, 10, 30, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(!rendered.contains("status:"), "{rendered}");
         assert!(rendered.contains("source: doc.md"), "{rendered}");
@@ -4610,6 +4713,7 @@ mod tests {
         let mut out = Vec::new();
         write_interactive_footer(
             true,
+            false,
             Some("reload failed: missing"),
             "doc.md",
             99,
@@ -4625,6 +4729,15 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("h/? close help"), "{rendered}");
+    }
+
+    #[test]
+    fn interactive_footer_writes_outline_controls() {
+        let mut out = Vec::new();
+        write_interactive_footer(false, true, None, "doc.md", 0, 10, 30, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("o close outline"), "{rendered}");
+        assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
     #[test]
