@@ -44,6 +44,8 @@ enum Mode {
     Modes,
     ModesJson,
     SchemasJson,
+    ModeInfo,
+    ModeInfoJson,
     Counts,
     CountsJson,
     Stats,
@@ -59,6 +61,7 @@ struct Config {
     height_rows: Option<u16>,
     interactive: bool,
     path: Option<String>,
+    mode_info_name: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +87,20 @@ fn real_main() -> Result<()> {
         Mode::Modes => return write_modes(&mut std::io::stdout().lock()),
         Mode::ModesJson => return write_modes_json(&mut std::io::stdout().lock()),
         Mode::SchemasJson => return write_schemas_json(&mut std::io::stdout().lock()),
+        Mode::ModeInfo => {
+            let name = cfg
+                .mode_info_name
+                .as_deref()
+                .ok_or_else(|| anyhow!("--mode-info requires a value"))?;
+            return write_mode_info(name, &mut std::io::stdout().lock());
+        }
+        Mode::ModeInfoJson => {
+            let name = cfg
+                .mode_info_name
+                .as_deref()
+                .ok_or_else(|| anyhow!("--mode-info-json requires a value"))?;
+            return write_mode_info_json(name, &mut std::io::stdout().lock());
+        }
         _ => {}
     }
     let markdown = if let Some(path) = &cfg.path {
@@ -125,6 +142,8 @@ fn real_main() -> Result<()> {
         Mode::Modes => unreachable!("mode listing returns before reading input"),
         Mode::ModesJson => unreachable!("mode listing returns before reading input"),
         Mode::SchemasJson => unreachable!("schema listing returns before reading input"),
+        Mode::ModeInfo => unreachable!("mode info returns before reading input"),
+        Mode::ModeInfoJson => unreachable!("mode info returns before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -161,6 +180,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
     let mut height_rows = None;
     let mut interactive = false;
     let mut path = None;
+    let mut mode_info_name = None;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -285,6 +305,25 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--schemas-json",
                 Mode::SchemasJson,
             )?,
+            "--mode-info" => {
+                mode_info_name = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("--mode-info requires a value"))?,
+                );
+                set_mode(&mut mode, &mut mode_flag, "--mode-info", Mode::ModeInfo)?;
+            }
+            "--mode-info-json" => {
+                mode_info_name = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("--mode-info-json requires a value"))?,
+                );
+                set_mode(
+                    &mut mode,
+                    &mut mode_flag,
+                    "--mode-info-json",
+                    Mode::ModeInfoJson,
+                )?;
+            }
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -345,6 +384,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
         height_rows,
         interactive,
         path,
+        mode_info_name,
     })
 }
 
@@ -413,6 +453,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "modes" => Ok((Mode::Modes, "--modes")),
         "modes-json" => Ok((Mode::ModesJson, "--modes-json")),
         "schemas-json" => Ok((Mode::SchemasJson, "--schemas-json")),
+        "mode-info" => Ok((Mode::ModeInfo, "--mode-info")),
+        "mode-info-json" => Ok((Mode::ModeInfoJson, "--mode-info-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
         "counts-json" => Ok((Mode::CountsJson, "--counts-json")),
         "stats" => Ok((Mode::Stats, "--stats")),
@@ -425,7 +467,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -774,6 +816,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit JSON output schema summaries",
     },
     ModeInfo {
+        flag: "--mode-info",
+        aliases: &[],
+        description: "describe one output mode",
+    },
+    ModeInfo {
+        flag: "--mode-info-json",
+        aliases: &[],
+        description: "emit one output mode description as JSON",
+    },
+    ModeInfo {
         flag: "--counts",
         aliases: &[],
         description: "print compact structural counts",
@@ -889,6 +941,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "JSON output schema summary catalog.",
     },
     JsonSchemaInfo {
+        mode: "--mode-info-json",
+        top_level_keys: &["schema_version", "mode"],
+        description: "Single output mode description.",
+    },
+    JsonSchemaInfo {
         mode: "--counts-json",
         top_level_keys: &["schema_version", "counts"],
         description: "Compact structural counts.",
@@ -965,6 +1022,67 @@ fn write_schemas_json(out: &mut impl Write) -> Result<()> {
             "top_level_keys": info.top_level_keys,
             "description": info.description,
         })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+fn mode_info_for_name(name: &str) -> Result<&'static ModeInfo> {
+    let normalized = name.trim_start_matches("--");
+    MODE_INFOS
+        .iter()
+        .find(|info| {
+            info.flag.trim_start_matches("--") == normalized
+                || info
+                    .aliases
+                    .iter()
+                    .any(|alias| alias.trim_start_matches("--") == normalized)
+        })
+        .ok_or_else(|| anyhow!("unknown mode info value {name}"))
+}
+
+fn schema_info_for_mode(flag: &str) -> Option<&'static JsonSchemaInfo> {
+    JSON_SCHEMA_INFOS.iter().find(|info| info.mode == flag)
+}
+
+fn write_mode_info(name: &str, out: &mut impl Write) -> Result<()> {
+    let info = mode_info_for_name(name)?;
+    writeln!(out, "kittui-md mode info — {}", info.flag)?;
+    if info.aliases.is_empty() {
+        writeln!(out, "aliases: <none>")?;
+    } else {
+        writeln!(out, "aliases: {}", info.aliases.join(", "))?;
+    }
+    writeln!(out, "description: {}", info.description)?;
+    if let Some(schema) = schema_info_for_mode(info.flag) {
+        writeln!(
+            out,
+            "json_top_level_keys: {}",
+            schema.top_level_keys.join(", ")
+        )?;
+    } else {
+        writeln!(out, "json_top_level_keys: <none>")?;
+    }
+    Ok(())
+}
+
+fn write_mode_info_json(name: &str, out: &mut impl Write) -> Result<()> {
+    let info = mode_info_for_name(name)?;
+    let schema = schema_info_for_mode(info.flag).map(|schema| {
+        serde_json::json!({
+            "top_level_keys": schema.top_level_keys,
+            "description": schema.description,
+        })
+    });
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "mode": {
+            "flag": info.flag,
+            "aliases": info.aliases,
+            "description": info.description,
+            "json_schema": schema,
+        },
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -2318,6 +2436,29 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_mode_info_mode() {
+        let cfg = parse_args(["--mode-info".to_string(), "widgets".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ModeInfo);
+        assert_eq!(cfg.mode_info_name.as_deref(), Some("widgets"));
+    }
+
+    #[test]
+    fn parse_args_accepts_mode_info_json_mode() {
+        let cfg = parse_args(["--mode-info-json".to_string(), "--stats-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ModeInfoJson);
+        assert_eq!(cfg.mode_info_name.as_deref(), Some("--stats-json"));
+    }
+
+    #[test]
+    fn parse_args_rejects_missing_mode_info_value() {
+        let err = parse_args(["--mode-info".to_string()]).unwrap_err();
+        assert!(
+            err.to_string().contains("--mode-info requires a value"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn parse_args_rejects_modes_plus_schemas_json() {
         let err = parse_args(["--modes".to_string(), "--schemas-json".to_string()]).unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
@@ -2927,6 +3068,7 @@ mod tests {
             height_rows: Some(3),
             interactive: true,
             path: Some("proof.md".to_string()),
+            mode_info_name: None,
         };
         let status = rich_status_line(&doc, &cfg, document_rows(&doc, 80));
         assert!(status.contains("offset=4/4 rows"), "{status}");
@@ -3711,7 +3853,42 @@ mod tests {
         }));
         assert!(schemas
             .iter()
-            .any(|schema| schema["mode"] == "--schemas-json"));
+            .any(|schema| schema["mode"] == "--mode-info-json"));
+    }
+
+    #[test]
+    fn mode_info_mode_describes_alias_and_schema() {
+        let mut out = Vec::new();
+        write_mode_info("widgets", &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md mode info — --components"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("aliases: --widgets"), "{rendered}");
+        assert!(
+            rendered.contains("json_top_level_keys: <none>"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn mode_info_json_mode_describes_json_schema() {
+        let mut out = Vec::new();
+        write_mode_info_json("stats-json", &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["mode"]["flag"], "--stats-json");
+        assert_eq!(
+            value["mode"]["json_schema"]["top_level_keys"],
+            serde_json::json!(["schema_version", "source", "render", "counts"])
+        );
+    }
+
+    #[test]
+    fn mode_info_rejects_unknown_names() {
+        let err = write_mode_info("not-a-real-mode", &mut Vec::new()).unwrap_err();
+        assert!(err.to_string().contains("unknown mode info value"), "{err}");
     }
 
     #[test]
