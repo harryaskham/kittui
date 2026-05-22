@@ -18,6 +18,7 @@ enum Mode {
     Components,
     Outline,
     References,
+    Images,
     Tables,
     CodeBlocks,
     Definitions,
@@ -69,6 +70,7 @@ fn real_main() -> Result<()> {
         Mode::Components => write_components(&doc, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
+        Mode::Images => write_images(&doc, &mut std::io::stdout().lock()),
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
@@ -102,6 +104,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--components" => mode = Mode::Components,
             "--outline" => mode = Mode::Outline,
             "--references" => mode = Mode::References,
+            "--images" => mode = Mode::Images,
             "--tables" => mode = Mode::Tables,
             "--code-blocks" => mode = Mode::CodeBlocks,
             "--definitions" => mode = Mode::Definitions,
@@ -152,7 +155,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--code-blocks|--definitions|--math|--html|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--images|--tables|--code-blocks|--definitions|--math|--html|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -381,6 +384,20 @@ fn write_stats(doc: &MarkdownDocument, source: &str, out: &mut impl Write) -> Re
     writeln!(out, "math={}", doc.math.len())?;
     writeln!(out, "html={}", doc.html.len())?;
     writeln!(out, "code_blocks={}", doc.code_blocks.len())?;
+    Ok(())
+}
+
+fn write_images(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md images — {} images", doc.images.len())?;
+    if doc.images.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for (i, image) in doc.images.iter().enumerate() {
+        writeln!(out, "image #{}", i + 1)?;
+        writeln!(out, "  alt={}", image.alt)?;
+        writeln!(out, "  url={}", image.url)?;
+    }
     Ok(())
 }
 
@@ -1358,6 +1375,32 @@ mod tests {
         assert_eq!(
             String::from_utf8(out).unwrap(),
             "kittui-md code blocks — 0 code blocks\n<empty>\n"
+        );
+    }
+
+    #[test]
+    fn images_mode_writes_alt_and_url() {
+        let doc = render_markdown("![logo](logo.png)", 80);
+        let mut out = Vec::new();
+        write_images(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md images — 1 images"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("image #1"), "{rendered}");
+        assert!(rendered.contains("alt=logo"), "{rendered}");
+        assert!(rendered.contains("url=logo.png"), "{rendered}");
+    }
+
+    #[test]
+    fn images_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_images(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md images — 0 images\n<empty>\n"
         );
     }
 
