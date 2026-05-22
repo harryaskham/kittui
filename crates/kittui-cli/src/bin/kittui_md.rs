@@ -23,6 +23,7 @@ enum Mode {
     Images,
     Tables,
     CodeBlocks,
+    MetadataBlocks,
     Definitions,
     Math,
     Html,
@@ -77,6 +78,7 @@ fn real_main() -> Result<()> {
         Mode::Images => write_images(&doc, &mut std::io::stdout().lock()),
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
+        Mode::MetadataBlocks => write_metadata_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
         Mode::Math => write_math(&doc, &mut std::io::stdout().lock()),
         Mode::Html => write_html(&doc, &mut std::io::stdout().lock()),
@@ -120,6 +122,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--code-blocks" => {
                 set_mode(&mut mode, &mut mode_flag, "--code-blocks", Mode::CodeBlocks)?
             }
+            "--metadata-blocks" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--metadata-blocks",
+                Mode::MetadataBlocks,
+            )?,
             "--definitions" => set_mode(
                 &mut mode,
                 &mut mode_flag,
@@ -194,7 +202,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--links|--footnotes|--images|--tables|--code-blocks|--definitions|--math|--html|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--links|--footnotes|--images|--tables|--code-blocks|--metadata-blocks|--definitions|--math|--html|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -571,6 +579,26 @@ fn write_code_blocks(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()>
         )?;
         writeln!(out, "---")?;
         writeln!(out, "{}", block.text)?;
+        writeln!(out, "---")?;
+    }
+    Ok(())
+}
+
+fn write_metadata_blocks(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(
+        out,
+        "kittui-md metadata blocks — {} metadata blocks",
+        doc.metadata_blocks.len()
+    )?;
+    if doc.metadata_blocks.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for (i, metadata) in doc.metadata_blocks.iter().enumerate() {
+        writeln!(out, "metadata block #{}", i + 1)?;
+        writeln!(out, "  kind={}", metadata.kind.as_str())?;
+        writeln!(out, "---")?;
+        writeln!(out, "{}", metadata.source)?;
         writeln!(out, "---")?;
     }
     Ok(())
@@ -1235,7 +1263,8 @@ fn terminal_cols() -> Option<u16> {
 mod tests {
     use super::*;
     use kittui_affordances::{
-        h1, h2, textbox, HeadingOutline, MarkdownDefinition, MarkdownFootnote, MarkdownImage, Tone,
+        h1, h2, textbox, HeadingOutline, MarkdownDefinition, MarkdownFootnote, MarkdownImage,
+        MarkdownMetadataBlock, MarkdownMetadataBlockKind, Tone,
     };
 
     #[test]
@@ -1250,6 +1279,13 @@ mod tests {
     fn parse_args_accepts_single_output_mode() {
         let cfg = parse_args(["--components".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Components);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_metadata_blocks_mode() {
+        let cfg = parse_args(["--metadata-blocks".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::MetadataBlocks);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
     }
 
@@ -1483,6 +1519,38 @@ mod tests {
         assert_eq!(
             String::from_utf8(out).unwrap(),
             "kittui-md code blocks — 0 code blocks\n<empty>\n"
+        );
+    }
+
+    #[test]
+    fn metadata_blocks_mode_writes_kind_and_source() {
+        let doc = MarkdownDocument {
+            metadata_blocks: vec![MarkdownMetadataBlock {
+                kind: MarkdownMetadataBlockKind::Yaml,
+                source: "title: Proof".to_string(),
+            }],
+            ..MarkdownDocument::default()
+        };
+        let mut out = Vec::new();
+        write_metadata_blocks(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md metadata blocks — 1 metadata blocks"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("metadata block #1"), "{rendered}");
+        assert!(rendered.contains("kind=yaml"), "{rendered}");
+        assert!(rendered.contains("title: Proof"), "{rendered}");
+    }
+
+    #[test]
+    fn metadata_blocks_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_metadata_blocks(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md metadata blocks — 0 metadata blocks\n<empty>\n"
         );
     }
 
