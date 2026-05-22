@@ -24,6 +24,7 @@ enum Mode {
     LinksJson,
     Footnotes,
     Images,
+    ImagesJson,
     Tables,
     CodeBlocks,
     MetadataBlocks,
@@ -84,6 +85,7 @@ fn real_main() -> Result<()> {
         Mode::LinksJson => write_links_json(&doc, &mut std::io::stdout().lock()),
         Mode::Footnotes => write_footnotes(&doc, &mut std::io::stdout().lock()),
         Mode::Images => write_images(&doc, &mut std::io::stdout().lock()),
+        Mode::ImagesJson => write_images_json(&doc, &mut std::io::stdout().lock()),
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::MetadataBlocks => write_metadata_blocks(&doc, &mut std::io::stdout().lock()),
@@ -150,6 +152,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--notes" => set_mode(&mut mode, &mut mode_flag, "--notes", Mode::Footnotes)?,
             "--images" => set_mode(&mut mode, &mut mode_flag, "--images", Mode::Images)?,
             "--pictures" => set_mode(&mut mode, &mut mode_flag, "--pictures", Mode::Images)?,
+            "--images-json" => {
+                set_mode(&mut mode, &mut mode_flag, "--images-json", Mode::ImagesJson)?
+            }
             "--tables" => set_mode(&mut mode, &mut mode_flag, "--tables", Mode::Tables)?,
             "--grid" => set_mode(&mut mode, &mut mode_flag, "--grid", Mode::Tables)?,
             "--code-blocks" => {
@@ -257,7 +262,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--images|--pictures|--images-json|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -607,6 +612,21 @@ fn write_images(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
             writeln!(out, "  title={title}")?;
         }
     }
+    Ok(())
+}
+
+fn write_images_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "images": doc.images.iter().enumerate().map(|(index, image)| serde_json::json!({
+            "index": index,
+            "alt": image.alt,
+            "url": image.url,
+            "title": image.title,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -1638,6 +1658,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_images_json_mode() {
+        let cfg = parse_args(["--images-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ImagesJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_images_plus_images_json() {
+        let err = parse_args(["--images".to_string(), "--images-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--images"), "{err}");
+        assert!(err.to_string().contains("--images-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_accepts_grid_alias() {
         let cfg = parse_args(["--grid".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Tables);
@@ -2160,6 +2195,19 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "kittui-md images — 0 images\n<empty>\n"
         );
+    }
+
+    #[test]
+    fn images_json_mode_writes_image_records() {
+        let doc = render_markdown("![logo](logo.png \"Logo title\")", 80);
+        let mut out = Vec::new();
+        write_images_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["images"][0]["index"], 0);
+        assert_eq!(value["images"][0]["alt"], "logo");
+        assert_eq!(value["images"][0]["url"], "logo.png");
+        assert_eq!(value["images"][0]["title"], "Logo title");
     }
 
     #[test]
