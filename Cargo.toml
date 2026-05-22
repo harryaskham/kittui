@@ -48,6 +48,7 @@ parking_lot = "0.12"
 rayon = "1"
 clap = { version = "4", features = ["derive", "env"] }
 ratatui = "0.29"
+pulldown-cmark = "0.12"
 
 [profile.release]
 lto = "thin"

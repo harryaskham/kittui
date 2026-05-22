@@ -10,3 +10,4 @@ description = "Optional higher-level affordances (panel, chip, divider, title) o
 kittui = { workspace = true }
 kittui-core = { workspace = true }
 ratakittui = { path = "../ratakittui", version = "0.1.0" }
+pulldown-cmark = { workspace = true }

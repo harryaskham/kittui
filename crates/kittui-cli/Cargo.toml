@@ -18,6 +18,10 @@ path = "src/bin/kittwm.rs"
 name = "kittwm-browser"
 path = "src/bin/kittwm_browser.rs"
 
+[[bin]]
+name = "kittui-md"
+path = "src/bin/kittui_md.rs"
+
 [lib]
 name = "kittui_cli"
 path = "src/lib.rs"
@@ -32,6 +36,7 @@ kittui-input = { path = "../kittui-input", version = "0.1.0" }
 kittui-xvfb = { path = "../kittui-xvfb", version = "0.1.0" }
 kittui-wm = { path = "../kittui-wm", version = "0.1.0" }
 kittui-quartz = { path = "../kittui-quartz", version = "0.1.0" }
+kittui-affordances = { path = "../kittui-affordances", version = "0.1.0" }
 clap = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
