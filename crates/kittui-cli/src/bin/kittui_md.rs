@@ -451,6 +451,9 @@ fn write_links(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
         writeln!(out, "link #{}", i + 1)?;
         writeln!(out, "  label={}", link.label)?;
         writeln!(out, "  url={}", link.url)?;
+        if let Some(title) = &link.title {
+            writeln!(out, "  title={title}")?;
+        }
     }
     Ok(())
 }
@@ -487,6 +490,9 @@ fn write_images(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
         writeln!(out, "image #{}", i + 1)?;
         writeln!(out, "  alt={}", image.alt)?;
         writeln!(out, "  url={}", image.url)?;
+        if let Some(title) = &image.title {
+            writeln!(out, "  title={title}")?;
+        }
     }
     Ok(())
 }
@@ -673,10 +679,12 @@ fn write_metadata_json(
         "links": doc.links.iter().map(|link| serde_json::json!({
             "label": link.label,
             "url": link.url,
+            "title": link.title,
         })).collect::<Vec<_>>(),
         "images": doc.images.iter().map(|image| serde_json::json!({
             "alt": image.alt,
             "url": image.url,
+            "title": image.title,
         })).collect::<Vec<_>>(),
         "footnote_references": doc.footnote_references,
         "footnotes": doc.footnotes.iter().map(|footnote| serde_json::json!({
@@ -1387,6 +1395,7 @@ mod tests {
             images: vec![MarkdownImage {
                 alt: "logo".to_string(),
                 url: "logo.png".to_string(),
+                title: None,
             }],
             outline: vec![HeadingOutline {
                 level: 1,
@@ -1582,8 +1591,8 @@ mod tests {
     }
 
     #[test]
-    fn links_mode_writes_label_and_url() {
-        let doc = render_markdown("See [site](https://example.com)", 80);
+    fn links_mode_writes_label_url_and_title() {
+        let doc = render_markdown("See [site](https://example.com \"Example title\")", 80);
         let mut out = Vec::new();
         write_links(&doc, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -1591,6 +1600,7 @@ mod tests {
         assert!(rendered.contains("link #1"), "{rendered}");
         assert!(rendered.contains("label=site"), "{rendered}");
         assert!(rendered.contains("url=https://example.com"), "{rendered}");
+        assert!(rendered.contains("title=Example title"), "{rendered}");
     }
 
     #[test]
@@ -1633,8 +1643,8 @@ mod tests {
     }
 
     #[test]
-    fn images_mode_writes_alt_and_url() {
-        let doc = render_markdown("![logo](logo.png)", 80);
+    fn images_mode_writes_alt_url_and_title() {
+        let doc = render_markdown("![logo](logo.png \"Logo title\")", 80);
         let mut out = Vec::new();
         write_images(&doc, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -1645,6 +1655,7 @@ mod tests {
         assert!(rendered.contains("image #1"), "{rendered}");
         assert!(rendered.contains("alt=logo"), "{rendered}");
         assert!(rendered.contains("url=logo.png"), "{rendered}");
+        assert!(rendered.contains("title=Logo title"), "{rendered}");
     }
 
     #[test]
@@ -1777,7 +1788,9 @@ mod tests {
         assert_eq!(value["outline"][0]["level"], 1);
         assert_eq!(value["outline"][0]["text"], "Title");
         assert_eq!(value["links"][0]["url"], "https://example.com");
+        assert_eq!(value["links"][0]["title"], serde_json::Value::Null);
         assert_eq!(value["images"][0]["url"], "logo.png");
+        assert_eq!(value["images"][0]["title"], serde_json::Value::Null);
         assert_eq!(value["footnote_references"][0], "n");
         assert_eq!(value["footnotes"][0]["label"], "n");
         assert_eq!(value["footnotes"][0]["text"], "note text");
@@ -1810,6 +1823,18 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(value["metadata_blocks"][0]["kind"], "yaml");
         assert_eq!(value["metadata_blocks"][0]["source"], "title: Proof");
+    }
+
+    #[test]
+    fn metadata_json_mode_reports_link_and_image_titles() {
+        let source =
+            "[site](https://example.com \"Example title\")\n\n![logo](logo.png \"Logo title\")";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_metadata_json(&doc, source, 80, Some("titles.md"), &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["links"][0]["title"], "Example title");
+        assert_eq!(value["images"][0]["title"], "Logo title");
     }
 
     #[test]
@@ -1935,6 +1960,7 @@ mod tests {
             images: vec![MarkdownImage {
                 alt: "logo".to_string(),
                 url: "logo.png".to_string(),
+                title: None,
             }],
             outline: vec![],
             footnotes: vec![],

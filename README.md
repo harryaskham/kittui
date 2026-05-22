@@ -138,11 +138,13 @@ Modes:
 - `--interactive` opens a raw-mode rich pager for file inputs; use `j/k`, arrow
   keys, PageUp/PageDown, Home/End, `g/G`, and `q`.
 - `--outline` prints only the heading outline for quick document scanning.
-- `--links` prints only parsed Markdown links with labels and URLs.
+- `--links` prints only parsed Markdown links with labels, URLs, and optional
+  title attributes.
 - `--references` prints only links, image references, footnote references, and
   footnote definitions for a human-readable reference audit.
 - `--footnotes` prints only footnote references and definitions.
-- `--images` prints only parsed image references with alt text and URLs.
+- `--images` prints only parsed image references with alt text, URLs, and
+  optional title attributes.
 - `--tables` prints parsed table rows, alignments, column widths, and footprint
   metrics for table layout debugging.
 - `--code-blocks` prints only parsed code blocks with language labels and source
@@ -158,8 +160,9 @@ Modes:
 - `--stats` prints concise source/component/metadata counts for quick checks.
 - `--metadata-json` emits schema-versioned JSON for tools. It includes source
   byte/line/path data, render mode/width, component details, outline, links,
-  images, footnotes, definitions, math, HTML placeholders, metadata blocks,
-  code blocks, and table layout metrics.
+  images (including optional link/image title attributes), footnotes,
+  definitions, math, HTML placeholders, metadata blocks, code blocks, and table
+  layout metrics.
 
 The proof gallery at `docs/examples/kittui-md-proof.md` exercises headings,
 paragraphs, links, images, blockquotes, lists, task lists, fenced code,

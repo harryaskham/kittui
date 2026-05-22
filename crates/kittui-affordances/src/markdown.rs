@@ -44,6 +44,8 @@ pub struct LinkChip {
     pub label: String,
     /// Target URL.
     pub url: String,
+    /// Optional Markdown title attribute.
+    pub title: Option<String>,
 }
 
 /// Image rendered as an inline placeholder plus accessible URL metadata.
@@ -53,6 +55,8 @@ pub struct MarkdownImage {
     pub alt: String,
     /// Target image URL/path.
     pub url: String,
+    /// Optional Markdown title attribute.
+    pub title: Option<String>,
 }
 
 /// One entry in a Markdown heading outline.
@@ -212,8 +216,10 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let mut code_label: Option<String> = None;
     let mut metadata_block: Option<MarkdownMetadataBlockKind> = None;
     let mut link_target: Option<String> = None;
+    let mut link_title: Option<String> = None;
     let mut link_label = String::new();
     let mut image_target: Option<String> = None;
+    let mut image_title: Option<String> = None;
     let mut image_alt = String::new();
     let mut footnote_definition: Option<String> = None;
     let mut definition_term: Option<String> = None;
@@ -387,12 +393,18 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 }
                 in_code = false;
             }
-            Event::Start(Tag::Link { dest_url, .. }) => {
+            Event::Start(Tag::Link {
+                dest_url, title, ..
+            }) => {
                 link_target = Some(dest_url.to_string());
+                link_title = non_empty_title(&title);
                 link_label.clear();
             }
-            Event::Start(Tag::Image { dest_url, .. }) => {
+            Event::Start(Tag::Image {
+                dest_url, title, ..
+            }) => {
                 image_target = Some(dest_url.to_string());
+                image_title = non_empty_title(&title);
                 image_alt.clear();
             }
             Event::End(TagEnd::Image) => {
@@ -403,7 +415,8 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                         image_alt.trim().to_string()
                     };
                     let placeholder = format!("image: {alt} -> {url}");
-                    out.images.push(MarkdownImage { alt, url });
+                    let title = image_title.take();
+                    out.images.push(MarkdownImage { alt, url, title });
                     if in_table {
                         table_cell.push_str(&placeholder);
                     } else {
@@ -418,9 +431,11 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     } else {
                         link_label.trim().to_string()
                     };
+                    let title = link_title.take();
                     out.links.push(LinkChip {
                         label: label.clone(),
                         url: url.clone(),
+                        title,
                     });
                     out.components.push(textchip(label, Tone::User));
                 }
@@ -630,6 +645,15 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     out
 }
 
+fn non_empty_title(title: &str) -> Option<String> {
+    let title = title.trim();
+    if title.is_empty() {
+        None
+    } else {
+        Some(title.to_string())
+    }
+}
+
 fn markdown_metadata_kind(kind: MetadataBlockKind) -> MarkdownMetadataBlockKind {
     match kind {
         MetadataBlockKind::YamlStyle => MarkdownMetadataBlockKind::Yaml,
@@ -790,6 +814,16 @@ mod tests {
             .iter()
             .any(|c| c.kind == ComponentKind::TextBox && c.text.contains("hello site world")));
         assert_eq!(doc.links[0].url, "https://example.com");
+        assert_eq!(doc.links[0].title, None);
+    }
+
+    #[test]
+    fn markdown_preserves_link_title_metadata() {
+        let doc = render_markdown("See [site](https://example.com \"Example title\")", 60);
+        assert_eq!(doc.links.len(), 1);
+        assert_eq!(doc.links[0].label, "site");
+        assert_eq!(doc.links[0].url, "https://example.com");
+        assert_eq!(doc.links[0].title.as_deref(), Some("Example title"));
     }
 
     #[test]
@@ -896,9 +930,19 @@ mod tests {
         assert_eq!(doc.images.len(), 1);
         assert_eq!(doc.images[0].alt, "kittui logo");
         assert_eq!(doc.images[0].url, "assets/logo.png");
+        assert_eq!(doc.images[0].title, None);
         assert!(doc.components.iter().any(|c| c
             .text
             .contains("Logo: image: kittui logo -> assets/logo.png")));
+    }
+
+    #[test]
+    fn markdown_preserves_image_title_metadata() {
+        let doc = render_markdown("![kittui logo](assets/logo.png \"Logo title\")", 60);
+        assert_eq!(doc.images.len(), 1);
+        assert_eq!(doc.images[0].alt, "kittui logo");
+        assert_eq!(doc.images[0].url, "assets/logo.png");
+        assert_eq!(doc.images[0].title.as_deref(), Some("Logo title"));
     }
 
     #[test]
