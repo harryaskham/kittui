@@ -482,6 +482,7 @@ fn write_stats(
     writeln!(out, "render.width_cells={width_cells}")?;
     writeln!(out, "components={}", doc.components.len())?;
     writeln!(out, "headings={}", doc.outline.len())?;
+    writeln!(out, "heading_anchors={}", doc.outline.len())?;
     writeln!(out, "links={}", doc.links.len())?;
     writeln!(out, "images={}", doc.images.len())?;
     writeln!(out, "tables={}", doc.tables.len())?;
@@ -2032,6 +2033,7 @@ mod tests {
         assert!(rendered.contains("source.path=<stdin>"), "{rendered}");
         assert!(rendered.contains("render.width_cells=80"), "{rendered}");
         assert!(rendered.contains("headings=1"), "{rendered}");
+        assert!(rendered.contains("heading_anchors=1"), "{rendered}");
         assert!(rendered.contains("links=1"), "{rendered}");
         assert!(rendered.contains("images=1"), "{rendered}");
     }

@@ -187,8 +187,8 @@ Modes:
 - `--html` prints only preserved inline/block HTML placeholders with kind and
   source; `--markup` is a friendly alias for the same mode.
 - `--stats` prints concise source path/size, render width,
-  component/metadata counts for quick checks; `--summary` is a friendly alias
-  for the same mode.
+  component/metadata counts (including heading-anchor count) for quick checks;
+  `--summary` is a friendly alias for the same mode.
 - `--metadata-json` emits schema-versioned JSON for tools; `--json` is a
   concise alias for the same mode. It includes source
   byte/line/path data, render mode/width, component details, outline entries
