@@ -112,6 +112,7 @@ program outside kittwm, or from inside a kittwm native terminal.
 ```sh
 cargo run -p kittui-cli --bin kittui-md -- docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --plain docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --mode components-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --components docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --widgets docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --components-json docs/examples/kittui-md-proof.md
@@ -169,6 +170,8 @@ cargo run -p kittui-cli --bin kittui-md -- --interactive docs/examples/kittui-md
 Modes:
 
 - `--rich` (default) renders kittui/kitty graphics components with text overlays.
+- `--mode NAME` selects any output mode by canonical name or alias (for example
+  `--mode components-json`, `--mode widgets`, or `--mode --stats-json`).
 - `--plain` prints component records and metadata sections for text-only logs,
   including optional link/image title attributes when present.
 - `--components` prints only generated component records for conversion inspection;

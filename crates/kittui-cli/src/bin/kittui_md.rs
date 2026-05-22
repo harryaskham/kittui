@@ -299,6 +299,13 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 Mode::MetadataJson,
             )?,
             "--json" => set_mode(&mut mode, &mut mode_flag, "--json", Mode::MetadataJson)?,
+            "--mode" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--mode requires a value"))?;
+                let (selected, flag) = mode_from_name(&value)?;
+                set_mode(&mut mode, &mut mode_flag, flag, selected)?;
+            }
             "--width" => {
                 width = args
                     .next()
@@ -357,8 +364,68 @@ fn set_mode(
     Ok(())
 }
 
+fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
+    let normalized = name.trim_start_matches("--");
+    match normalized {
+        "rich" => Ok((Mode::Rich, "--rich")),
+        "plain" => Ok((Mode::Plain, "--plain")),
+        "components" => Ok((Mode::Components, "--components")),
+        "widgets" => Ok((Mode::Components, "--widgets")),
+        "components-json" => Ok((Mode::ComponentsJson, "--components-json")),
+        "outline" => Ok((Mode::Outline, "--outline")),
+        "toc" => Ok((Mode::Outline, "--toc")),
+        "headings" => Ok((Mode::Outline, "--headings")),
+        "outline-json" => Ok((Mode::OutlineJson, "--outline-json")),
+        "anchors" => Ok((Mode::Anchors, "--anchors")),
+        "slugs" => Ok((Mode::Anchors, "--slugs")),
+        "anchors-json" => Ok((Mode::AnchorsJson, "--anchors-json")),
+        "references" => Ok((Mode::References, "--references")),
+        "refs" => Ok((Mode::References, "--refs")),
+        "references-json" => Ok((Mode::ReferencesJson, "--references-json")),
+        "links" => Ok((Mode::Links, "--links")),
+        "urls" => Ok((Mode::Links, "--urls")),
+        "links-json" => Ok((Mode::LinksJson, "--links-json")),
+        "footnotes" => Ok((Mode::Footnotes, "--footnotes")),
+        "notes" => Ok((Mode::Footnotes, "--notes")),
+        "footnotes-json" => Ok((Mode::FootnotesJson, "--footnotes-json")),
+        "images" => Ok((Mode::Images, "--images")),
+        "pictures" => Ok((Mode::Images, "--pictures")),
+        "images-json" => Ok((Mode::ImagesJson, "--images-json")),
+        "tables" => Ok((Mode::Tables, "--tables")),
+        "grid" => Ok((Mode::Tables, "--grid")),
+        "tables-json" => Ok((Mode::TablesJson, "--tables-json")),
+        "code-blocks" => Ok((Mode::CodeBlocks, "--code-blocks")),
+        "snippets" => Ok((Mode::CodeBlocks, "--snippets")),
+        "code-blocks-json" => Ok((Mode::CodeBlocksJson, "--code-blocks-json")),
+        "metadata-blocks" => Ok((Mode::MetadataBlocks, "--metadata-blocks")),
+        "metadata" => Ok((Mode::MetadataBlocks, "--metadata")),
+        "frontmatter" => Ok((Mode::MetadataBlocks, "--frontmatter")),
+        "metadata-blocks-json" => Ok((Mode::MetadataBlocksJson, "--metadata-blocks-json")),
+        "definitions" => Ok((Mode::Definitions, "--definitions")),
+        "glossary" => Ok((Mode::Definitions, "--glossary")),
+        "definitions-json" => Ok((Mode::DefinitionsJson, "--definitions-json")),
+        "math" => Ok((Mode::Math, "--math")),
+        "equations" => Ok((Mode::Math, "--equations")),
+        "math-json" => Ok((Mode::MathJson, "--math-json")),
+        "html" => Ok((Mode::Html, "--html")),
+        "markup" => Ok((Mode::Html, "--markup")),
+        "html-json" => Ok((Mode::HtmlJson, "--html-json")),
+        "modes" => Ok((Mode::Modes, "--modes")),
+        "modes-json" => Ok((Mode::ModesJson, "--modes-json")),
+        "schemas-json" => Ok((Mode::SchemasJson, "--schemas-json")),
+        "counts" => Ok((Mode::Counts, "--counts")),
+        "counts-json" => Ok((Mode::CountsJson, "--counts-json")),
+        "stats" => Ok((Mode::Stats, "--stats")),
+        "summary" => Ok((Mode::Stats, "--summary")),
+        "stats-json" => Ok((Mode::StatsJson, "--stats-json")),
+        "metadata-json" => Ok((Mode::MetadataJson, "--metadata-json")),
+        "json" => Ok((Mode::MetadataJson, "--json")),
+        _ => Err(anyhow!("unknown --mode value {name}")),
+    }
+}
+
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -2139,6 +2206,63 @@ mod tests {
         let cfg = parse_args(["--components".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Components);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_mode_selector_for_canonical_name() {
+        let cfg = parse_args([
+            "--mode".to_string(),
+            "components-json".to_string(),
+            "doc.md".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(cfg.mode, Mode::ComponentsJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_mode_selector_for_flag_name() {
+        let cfg = parse_args([
+            "--mode".to_string(),
+            "--stats-json".to_string(),
+            "doc.md".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(cfg.mode, Mode::StatsJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_mode_selector_for_alias_name() {
+        let cfg = parse_args([
+            "--mode".to_string(),
+            "widgets".to_string(),
+            "doc.md".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(cfg.mode, Mode::Components);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_unknown_mode_selector() {
+        let err =
+            parse_args(["--mode".to_string(), "definitely-not-a-mode".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("unknown --mode value"), "{err}");
+        assert!(err.to_string().contains("definitely-not-a-mode"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_rejects_mode_selector_plus_direct_mode() {
+        let err = parse_args([
+            "--mode".to_string(),
+            "components".to_string(),
+            "--plain".to_string(),
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--components"), "{err}");
+        assert!(err.to_string().contains("--plain"), "{err}");
     }
 
     #[test]
