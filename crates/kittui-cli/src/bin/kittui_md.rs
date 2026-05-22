@@ -334,6 +334,17 @@ fn write_plain_component(out: &mut impl Write, comp: &UiComponent) -> Result<()>
 }
 
 fn write_metadata_sections(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    if !doc.outline.is_empty() {
+        writeln!(out, "\noutline:")?;
+        for heading in &doc.outline {
+            writeln!(
+                out,
+                "  {}{}",
+                "  ".repeat(heading.level.saturating_sub(1) as usize),
+                heading.text
+            )?;
+        }
+    }
     if !doc.links.is_empty() {
         writeln!(out, "\nlinks:")?;
         for link in &doc.links {
@@ -698,7 +709,7 @@ fn terminal_cols() -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kittui_affordances::{h1, textbox, MarkdownImage, Tone};
+    use kittui_affordances::{h1, textbox, HeadingOutline, MarkdownImage, Tone};
 
     #[test]
     fn layout_stacks_components_with_gaps() {
@@ -753,6 +764,7 @@ mod tests {
             links: vec![],
             tables: vec![],
             images: vec![],
+            outline: vec![],
         };
         assert_eq!(document_rows(&doc, 80), 7);
     }
@@ -767,6 +779,7 @@ mod tests {
                 alt: "logo".to_string(),
                 url: "logo.png".to_string(),
             }],
+            outline: vec![],
         };
         let cfg = Config {
             mode: Mode::Rich,
@@ -802,6 +815,7 @@ mod tests {
                 alt: "logo".to_string(),
                 url: "logo.png".to_string(),
             }],
+            outline: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -809,6 +823,33 @@ mod tests {
         assert!(rendered.contains("0 links, 1 images"), "{rendered}");
         assert!(
             rendered.contains("images:\n  [logo] logo.png"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn plain_metadata_sections_include_heading_outline() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![],
+            images: vec![],
+            outline: vec![
+                HeadingOutline {
+                    level: 1,
+                    text: "Title".to_string(),
+                },
+                HeadingOutline {
+                    level: 2,
+                    text: "Section".to_string(),
+                },
+            ],
+        };
+        let mut out = Vec::new();
+        write_plain(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("outline:\n  Title\n    Section"),
             "{rendered}"
         );
     }

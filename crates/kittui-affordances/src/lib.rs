@@ -29,7 +29,7 @@ pub use components::{
     banner, footer, h1, h2, h3, header, textbox, textchip, title, ComponentKind, UiComponent,
 };
 pub use inline::{chip_chrome, divider_chrome, title_chrome};
-pub use markdown::{render_markdown, LinkChip, MarkdownDocument, MarkdownImage};
+pub use markdown::{render_markdown, HeadingOutline, LinkChip, MarkdownDocument, MarkdownImage};
 pub use palette::{Palette, Tone};
 pub use panel::{panel_chrome, PanelOptions};
 pub use table::{

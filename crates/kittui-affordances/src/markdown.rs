@@ -17,6 +17,8 @@ pub struct MarkdownDocument {
     pub tables: Vec<MarkdownTable>,
     /// Image placeholders discovered while rendering.
     pub images: Vec<MarkdownImage>,
+    /// Heading outline entries in document order.
+    pub outline: Vec<HeadingOutline>,
 }
 
 /// Link rendered as a highlighted chip plus accessible URL metadata.
@@ -35,6 +37,15 @@ pub struct MarkdownImage {
     pub alt: String,
     /// Target image URL/path.
     pub url: String,
+}
+
+/// One entry in a Markdown heading outline.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadingOutline {
+    /// Heading level, 1 through 6.
+    pub level: u8,
+    /// Plain rendered heading text.
+    pub text: String,
 }
 
 #[derive(Clone, Debug)]
@@ -85,6 +96,10 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             }
             Event::End(TagEnd::Heading(level)) => {
                 let text = take_trimmed(&mut buf);
+                out.outline.push(HeadingOutline {
+                    level: heading_level_number(level),
+                    text: text.clone(),
+                });
                 let comp = match level {
                     HeadingLevel::H1 => h1(text, width_cells),
                     HeadingLevel::H2 => h2(text, width_cells),
@@ -310,6 +325,17 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     out
 }
 
+fn heading_level_number(level: HeadingLevel) -> u8 {
+    match level {
+        HeadingLevel::H1 => 1,
+        HeadingLevel::H2 => 2,
+        HeadingLevel::H3 => 3,
+        HeadingLevel::H4 => 4,
+        HeadingLevel::H5 => 5,
+        HeadingLevel::H6 => 6,
+    }
+}
+
 fn push_inline_marker(
     marker: &str,
     in_table: bool,
@@ -379,8 +405,25 @@ mod tests {
 
     #[test]
     fn markdown_renders_headings_paragraphs_and_link_chips() {
-        let doc = render_markdown("# Title\n\nhello [site](https://example.com) world", 60);
+        let doc = render_markdown(
+            "# Title\n\n## Section\n\nhello [site](https://example.com) world",
+            60,
+        );
         assert_eq!(doc.components[0].kind, ComponentKind::H1);
+        assert_eq!(
+            doc.outline[0],
+            HeadingOutline {
+                level: 1,
+                text: "Title".to_string()
+            }
+        );
+        assert_eq!(
+            doc.outline[1],
+            HeadingOutline {
+                level: 2,
+                text: "Section".to_string()
+            }
+        );
         assert!(doc
             .components
             .iter()
