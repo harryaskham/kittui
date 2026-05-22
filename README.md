@@ -181,6 +181,8 @@ cargo run -p kittui-cli --bin kittui-md -- --examples
 cargo run -p kittui-cli --bin kittui-md -- --examples-json
 cargo run -p kittui-cli --bin kittui-md -- --limits
 cargo run -p kittui-cli --bin kittui-md -- --limits-json
+cargo run -p kittui-cli --bin kittui-md -- --keybindings
+cargo run -p kittui-cli --bin kittui-md -- --keybindings-json
 cargo run -p kittui-cli --bin kittui-md -- --exit-codes
 cargo run -p kittui-cli --bin kittui-md -- --exit-codes-json
 cargo run -p kittui-cli --bin kittui-md -- --counts docs/examples/kittui-md-proof.md
@@ -265,8 +267,9 @@ Modes:
   `--output-formats` and `--output-formats-json` list supported output families;
   `--defaults` and `--defaults-json` report default mode/input/width settings;
   `--examples` and `--examples-json` list common invocations; `--limits` and
-  `--limits-json` list numeric CLI bounds; `--exit-codes` and `--exit-codes-json`
-  list process exit code meanings.
+  `--limits-json` list numeric CLI bounds; `--keybindings` and
+  `--keybindings-json` list interactive pager controls; `--exit-codes` and
+  `--exit-codes-json` list process exit code meanings.
 - `--counts` prints only concise component/metadata counts; `--counts-json`
   emits the same counts as a minimal machine-readable JSON object.
 - `--stats` prints concise source path/size, render width,

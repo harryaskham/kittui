@@ -68,6 +68,8 @@ enum Mode {
     ExamplesJson,
     Limits,
     LimitsJson,
+    Keybindings,
+    KeybindingsJson,
     ExitCodes,
     ExitCodesJson,
     Counts,
@@ -175,6 +177,8 @@ fn real_main() -> Result<()> {
         Mode::ExamplesJson => return write_examples_json(&mut std::io::stdout().lock()),
         Mode::Limits => return write_limits(&mut std::io::stdout().lock()),
         Mode::LimitsJson => return write_limits_json(&mut std::io::stdout().lock()),
+        Mode::Keybindings => return write_keybindings(&mut std::io::stdout().lock()),
+        Mode::KeybindingsJson => return write_keybindings_json(&mut std::io::stdout().lock()),
         Mode::ExitCodes => return write_exit_codes(&mut std::io::stdout().lock()),
         Mode::ExitCodesJson => return write_exit_codes_json(&mut std::io::stdout().lock()),
         _ => {}
@@ -242,6 +246,8 @@ fn real_main() -> Result<()> {
         Mode::ExamplesJson => unreachable!("examples return before reading input"),
         Mode::Limits => unreachable!("limits return before reading input"),
         Mode::LimitsJson => unreachable!("limits return before reading input"),
+        Mode::Keybindings => unreachable!("keybindings return before reading input"),
+        Mode::KeybindingsJson => unreachable!("keybindings return before reading input"),
         Mode::ExitCodes => unreachable!("exit codes return before reading input"),
         Mode::ExitCodesJson => unreachable!("exit codes return before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
@@ -544,6 +550,18 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--limits-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--limits-json", Mode::LimitsJson)?
             }
+            "--keybindings" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--keybindings",
+                Mode::Keybindings,
+            )?,
+            "--keybindings-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--keybindings-json",
+                Mode::KeybindingsJson,
+            )?,
             "--exit-codes" => set_mode(&mut mode, &mut mode_flag, "--exit-codes", Mode::ExitCodes)?,
             "--exit-codes-json" => set_mode(
                 &mut mode,
@@ -706,6 +724,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "examples-json" => Ok((Mode::ExamplesJson, "--examples-json")),
         "limits" => Ok((Mode::Limits, "--limits")),
         "limits-json" => Ok((Mode::LimitsJson, "--limits-json")),
+        "keybindings" => Ok((Mode::Keybindings, "--keybindings")),
+        "keybindings-json" => Ok((Mode::KeybindingsJson, "--keybindings-json")),
         "exit-codes" => Ok((Mode::ExitCodes, "--exit-codes")),
         "exit-codes-json" => Ok((Mode::ExitCodesJson, "--exit-codes-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
@@ -720,7 +740,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--output-formats|--output-formats-json|--defaults|--defaults-json|--examples|--examples-json|--limits|--limits-json|--exit-codes|--exit-codes-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--output-formats|--output-formats-json|--defaults|--defaults-json|--examples|--examples-json|--limits|--limits-json|--keybindings|--keybindings-json|--exit-codes|--exit-codes-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1189,6 +1209,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit numeric CLI limits as JSON",
     },
     ModeInfo {
+        flag: "--keybindings",
+        aliases: &[],
+        description: "print interactive pager keybindings",
+    },
+    ModeInfo {
+        flag: "--keybindings-json",
+        aliases: &[],
+        description: "emit interactive pager keybindings as JSON",
+    },
+    ModeInfo {
         flag: "--exit-codes",
         aliases: &[],
         description: "print process exit code meanings",
@@ -1380,6 +1410,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "Numeric CLI limits.",
     },
     JsonSchemaInfo {
+        mode: "--keybindings-json",
+        top_level_keys: &["schema_version", "keybindings"],
+        description: "Interactive pager keybindings.",
+    },
+    JsonSchemaInfo {
         mode: "--exit-codes-json",
         top_level_keys: &["schema_version", "exit_codes"],
         description: "Process exit code meanings.",
@@ -1471,6 +1506,8 @@ fn mode_category(flag: &str) -> &'static str {
         | "--examples-json"
         | "--limits"
         | "--limits-json"
+        | "--keybindings"
+        | "--keybindings-json"
         | "--exit-codes"
         | "--exit-codes-json" => "discovery",
         _ if flag.ends_with("-json") || flag == "--json" => "json",
@@ -2024,6 +2061,79 @@ fn write_limits_json(out: &mut impl Write) -> Result<()> {
             "offset_rows": { "min": 0 },
             "height_rows": { "min": 1 },
         },
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+struct KeybindingInfo {
+    action: &'static str,
+    keys: &'static [&'static str],
+    description: &'static str,
+}
+
+const KEYBINDINGS: &[KeybindingInfo] = &[
+    KeybindingInfo {
+        action: "scroll-up",
+        keys: &["k", "w", "Up"],
+        description: "Scroll the interactive pager up by one row.",
+    },
+    KeybindingInfo {
+        action: "scroll-down",
+        keys: &["j", "s", "Enter", "Down"],
+        description: "Scroll the interactive pager down by one row.",
+    },
+    KeybindingInfo {
+        action: "page-up",
+        keys: &["b", "PageUp"],
+        description: "Scroll the interactive pager up by one viewport.",
+    },
+    KeybindingInfo {
+        action: "page-down",
+        keys: &["Space", "PageDown"],
+        description: "Scroll the interactive pager down by one viewport.",
+    },
+    KeybindingInfo {
+        action: "home",
+        keys: &["g", "Home"],
+        description: "Jump to the first rendered row.",
+    },
+    KeybindingInfo {
+        action: "end",
+        keys: &["G", "End"],
+        description: "Jump to the last rendered row.",
+    },
+    KeybindingInfo {
+        action: "quit",
+        keys: &["q", "Ctrl-C"],
+        description: "Exit the interactive pager.",
+    },
+];
+
+fn write_keybindings(out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md keybindings — {} actions", KEYBINDINGS.len())?;
+    for binding in KEYBINDINGS {
+        writeln!(
+            out,
+            "{}: {} — {}",
+            binding.action,
+            binding.keys.join(", "),
+            binding.description
+        )?;
+    }
+    Ok(())
+}
+
+fn write_keybindings_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "keybindings": KEYBINDINGS.iter().enumerate().map(|(index, binding)| serde_json::json!({
+            "index": index,
+            "action": binding.action,
+            "keys": binding.keys,
+            "description": binding.description,
+        })).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -3706,6 +3816,30 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--limits"), "{err}");
         assert!(err.to_string().contains("--limits-json"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_keybindings_mode() {
+        let cfg = parse_args(["--keybindings".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Keybindings);
+    }
+
+    #[test]
+    fn parse_args_accepts_keybindings_json_mode() {
+        let cfg = parse_args(["--keybindings-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::KeybindingsJson);
+    }
+
+    #[test]
+    fn parse_args_rejects_keybindings_plus_keybindings_json() {
+        let err = parse_args([
+            "--keybindings".to_string(),
+            "--keybindings-json".to_string(),
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--keybindings"), "{err}");
+        assert!(err.to_string().contains("--keybindings-json"), "{err}");
     }
 
     #[test]
@@ -5461,6 +5595,46 @@ mod tests {
         assert_eq!(value["limits"]["width"]["max"], 200);
         assert_eq!(value["limits"]["offset_rows"]["min"], 0);
         assert_eq!(value["limits"]["height_rows"]["min"], 1);
+    }
+
+    #[test]
+    fn keybindings_mode_lists_interactive_controls() {
+        let mut out = Vec::new();
+        write_keybindings(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("kittui-md keybindings"), "{rendered}");
+        assert!(rendered.contains("scroll-up: k, w, Up"), "{rendered}");
+        assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
+    }
+
+    #[test]
+    fn keybindings_json_mode_lists_interactive_controls() {
+        let mut out = Vec::new();
+        write_keybindings_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert!(value["keybindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|binding| {
+                binding["action"] == "page-down"
+                    && binding["keys"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("Space"))
+            }));
+        assert!(value["keybindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|binding| {
+                binding["action"] == "quit"
+                    && binding["keys"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("Ctrl-C"))
+            }));
     }
 
     #[test]
