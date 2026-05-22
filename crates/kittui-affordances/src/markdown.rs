@@ -27,6 +27,8 @@ pub struct MarkdownDocument {
     pub definitions: Vec<MarkdownDefinition>,
     /// Math expressions in encounter order.
     pub math: Vec<MarkdownMath>,
+    /// HTML placeholders in encounter order.
+    pub html: Vec<MarkdownHtml>,
 }
 
 /// Link rendered as a highlighted chip plus accessible URL metadata.
@@ -99,6 +101,34 @@ pub struct MarkdownMath {
     /// Inline or display math.
     pub kind: MarkdownMathKind,
     /// Math source text.
+    pub source: String,
+}
+
+/// Markdown HTML placeholder kind.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MarkdownHtmlKind {
+    /// Inline HTML.
+    Inline,
+    /// Block HTML.
+    Block,
+}
+
+impl MarkdownHtmlKind {
+    /// Stable lowercase metadata string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Inline => "inline",
+            Self::Block => "block",
+        }
+    }
+}
+
+/// One preserved Markdown HTML fragment.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkdownHtml {
+    /// Inline or block HTML.
+    pub kind: MarkdownHtmlKind,
+    /// Source HTML text.
     pub source: String,
 }
 
@@ -453,6 +483,10 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             }
             Event::InlineHtml(html) => {
                 let html = html.trim();
+                out.html.push(MarkdownHtml {
+                    kind: MarkdownHtmlKind::Inline,
+                    source: html.to_string(),
+                });
                 let placeholder = if html.starts_with("</") {
                     html.to_string()
                 } else {
@@ -468,11 +502,17 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 }
             }
             Event::Html(html) => {
+                let text = html.trim();
+                if !text.is_empty() {
+                    out.html.push(MarkdownHtml {
+                        kind: MarkdownHtmlKind::Block,
+                        source: text.to_string(),
+                    });
+                }
                 if in_table {
-                    table_cell.push_str(&format!("html:{}", html.trim()));
+                    table_cell.push_str(&format!("html:{text}"));
                 } else {
                     flush_paragraph(&mut out, &mut buf, width_cells);
-                    let text = html.trim();
                     if !text.is_empty() {
                         out.components.push(textbox(
                             format!("html:\n{text}"),
@@ -790,6 +830,23 @@ mod tests {
             .join("\n---\n");
         assert!(text.contains("hello html:<kbd>x</kbd>"), "{text}");
         assert!(text.contains("html:\n<div>block</div>"), "{text}");
+        assert_eq!(
+            doc.html,
+            vec![
+                MarkdownHtml {
+                    kind: MarkdownHtmlKind::Inline,
+                    source: "<kbd>".to_string(),
+                },
+                MarkdownHtml {
+                    kind: MarkdownHtmlKind::Inline,
+                    source: "</kbd>".to_string(),
+                },
+                MarkdownHtml {
+                    kind: MarkdownHtmlKind::Block,
+                    source: "<div>block</div>".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]

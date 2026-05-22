@@ -31,7 +31,8 @@ pub use components::{
 pub use inline::{chip_chrome, divider_chrome, title_chrome};
 pub use markdown::{
     render_markdown, HeadingOutline, LinkChip, MarkdownDefinition, MarkdownDocument,
-    MarkdownFootnote, MarkdownImage, MarkdownMath, MarkdownMathKind,
+    MarkdownFootnote, MarkdownHtml, MarkdownHtmlKind, MarkdownImage, MarkdownMath,
+    MarkdownMathKind,
 };
 pub use palette::{Palette, Tone};
 pub use panel::{panel_chrome, PanelOptions};
