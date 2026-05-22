@@ -1034,8 +1034,9 @@ fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> St
     let viewport = cfg.height_rows.unwrap_or(total_rows);
     let max_offset = total_rows.saturating_sub(viewport);
     format!(
-        "kittui-md rich view — {} components, {} headings, {} links, {} images, {} tables, {} footnote refs, {} footnotes, {} definitions, {} math, {} html, {} metadata blocks, {} code blocks; offset={}/{} rows; viewport={}; total_rows={}",
+        "kittui-md rich view — {} components, {} headings, {} heading anchors, {} links, {} images, {} tables, {} footnote refs, {} footnotes, {} definitions, {} math, {} html, {} metadata blocks, {} code blocks; offset={}/{} rows; viewport={}; total_rows={}",
         doc.components.len(),
+        doc.outline.len(),
         doc.outline.len(),
         doc.links.len(),
         doc.images.len(),
@@ -1746,7 +1747,7 @@ mod tests {
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
         assert!(
-            status.contains("1 headings, 0 links, 1 images, 1 tables, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 1 metadata blocks, 0 code blocks"),
+            status.contains("1 headings, 1 heading anchors, 0 links, 1 images, 1 tables, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 1 metadata blocks, 0 code blocks"),
             "{status}"
         );
     }
