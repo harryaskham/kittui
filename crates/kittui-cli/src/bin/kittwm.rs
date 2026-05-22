@@ -1414,21 +1414,50 @@ fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
 }
 
 fn replace_cmd(cli: &Cli) -> Result<()> {
-    if cli.replace_args.is_empty() {
+    match resolve_replace_action(
+        &cli.replace_args,
+        std::env::var("KITTWM_WINDOW").is_ok(),
+    )? {
+        ReplaceAction::Spawn { request } => {
+            let sock = std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<unset>".to_string());
+            let path = std::path::PathBuf::from(sock.clone());
+            let reply = kittui_cli::daemon::client_request(&path, &request)?;
+            print!("{reply}");
+            Ok(())
+        }
+        ReplaceAction::Exec { argv } => exec_replace_argv(&argv),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReplaceAction {
+    Spawn { request: String },
+    Exec { argv: Vec<String> },
+}
+
+fn resolve_replace_action(args: &[String], in_window: bool) -> Result<ReplaceAction> {
+    if args.is_empty() {
         return Err(anyhow!("usage: kittwm replace <command|browser> [args...]"));
     }
-    if std::env::var("KITTWM_WINDOW").is_err() {
-        let sock = std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<unset>".to_string());
-        let request = format!("SPAWN {}", argv_to_shell_words(&cli.replace_args));
-        let path = std::path::PathBuf::from(sock.clone());
-        let reply = kittui_cli::daemon::client_request(&path, &request)?;
-        print!("{reply}");
-        return Ok(());
+    let argv = resolve_replace_argv(args);
+    if in_window {
+        Ok(ReplaceAction::Exec { argv })
+    } else {
+        Ok(ReplaceAction::Spawn {
+            request: format!("SPAWN {}", argv_to_shell_words(&argv)),
+        })
     }
-    let mut argv = cli.replace_args.clone();
-    if argv[0] == "browser" {
+}
+
+fn resolve_replace_argv(args: &[String]) -> Vec<String> {
+    let mut argv = args.to_vec();
+    if argv.first().is_some_and(|arg| arg == "browser") {
         argv[0] = "kittwm-browser".to_string();
     }
+    argv
+}
+
+fn exec_replace_argv(argv: &[String]) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -1642,4 +1671,49 @@ fn keymap_duplicate_count(km: &kittui_cli::keymap::Keymap) -> usize {
         *seen.entry(binding.chord_string()).or_default() += 1;
     }
     seen.values().filter(|&&n| n > 1).count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn replace_browser_maps_to_kittwm_browser_for_exec() {
+        let action = resolve_replace_action(&args(&["browser", "https://example.com"]), true)
+            .expect("replace action");
+        assert_eq!(
+            action,
+            ReplaceAction::Exec {
+                argv: args(&["kittwm-browser", "https://example.com"])
+            }
+        );
+    }
+
+    #[test]
+    fn replace_browser_maps_to_kittwm_browser_for_spawn_request() {
+        let action = resolve_replace_action(&args(&["browser", "https://example.com/a b"]), false)
+            .expect("replace action");
+        assert_eq!(
+            action,
+            ReplaceAction::Spawn {
+                request: "SPAWN kittwm-browser 'https://example.com/a b'".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn replace_requires_a_command() {
+        let err = resolve_replace_action(&[], true).unwrap_err();
+        assert!(err.to_string().contains("usage: kittwm replace"), "{err}");
+    }
+
+    #[test]
+    fn argv_to_shell_words_quotes_single_quotes() {
+        let shell = argv_to_shell_words(&args(&["echo", "Bob's pane"]));
+        assert_eq!(shell, "echo 'Bob'\\''s pane'");
+    }
 }
