@@ -126,6 +126,8 @@ fn handle_request(
         apps_first_reply(query, false)
     } else if let Some(query) = cmd.strip_prefix("APPS_LAUNCH_FIRST ") {
         apps_first_reply(query, true)
+    } else if let Some(argv) = cmd.strip_prefix("SPAWN ") {
+        spawn_reply(argv)
     } else {
         match cmd {
         "PING" => "PONG\n".to_string(),
@@ -140,7 +142,7 @@ fn handle_request(
         "APPS" => apps_reply(50),
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => {
-            "PING | STATUS | WINDOWS | DISPLAYS | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | QUIT | HELP\n".to_string()
+            "PING | STATUS | WINDOWS | DISPLAYS | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | SPAWN <argv> | QUIT | HELP\n".to_string()
         }
         "QUIT" => {
             quit.store(true, Ordering::SeqCst);
@@ -216,6 +218,19 @@ mod tests {
         // Give the accept thread a moment.
         std::thread::sleep(Duration::from_millis(50));
         assert!(server.quit_requested());
+    }
+
+    #[test]
+    fn spawn_command_returns_pid() {
+        let p = std::env::temp_dir().join(format!(
+            "kittwm-test-spawn-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&p);
+        let server = DaemonServer::bind(p.clone()).unwrap();
+        let reply = client_request(server.path(), "SPAWN /bin/echo daemon-spawn-ok").unwrap();
+        assert!(reply.starts_with("SPAWNED pid="), "{reply}");
+        assert!(reply.contains("daemon-spawn-ok"), "{reply}");
     }
 
     #[test]
@@ -311,6 +326,23 @@ pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
         }
     }
     Ok(out)
+}
+
+fn spawn_reply(argv: &str) -> String {
+    if argv.trim().is_empty() {
+        return "ERR SPAWN requires argv\n".to_string();
+    }
+    match std::process::Command::new("/bin/sh")
+        .arg("-lc")
+        .arg(argv)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(child) => format!("SPAWNED pid={} argv={argv}\n", child.id()),
+        Err(e) => format!("ERR SPAWN {argv}: {e}\n"),
+    }
 }
 
 fn apps_reply(limit: usize) -> String {

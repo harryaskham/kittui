@@ -1419,9 +1419,11 @@ fn replace_cmd(cli: &Cli) -> Result<()> {
     }
     if std::env::var("KITTWM_WINDOW").is_err() {
         let sock = std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<unset>".to_string());
-        return Err(anyhow!(
-            "replace requires KITTWM_WINDOW in the current pane; socket-only spawn via {sock} is tracked by bd-cddcf2"
-        ));
+        let request = format!("SPAWN {}", argv_to_shell_words(&cli.replace_args));
+        let path = std::path::PathBuf::from(sock.clone());
+        let reply = kittui_cli::daemon::client_request(&path, &request)?;
+        print!("{reply}");
+        return Ok(());
     }
     let mut argv = cli.replace_args.clone();
     if argv[0] == "browser" {
@@ -1440,6 +1442,19 @@ fn replace_cmd(cli: &Cli) -> Result<()> {
             .status()?;
         std::process::exit(status.code().unwrap_or(1));
     }
+}
+
+fn argv_to_shell_words(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| {
+            if arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_/.:".contains(c)) {
+                arg.clone()
+            } else {
+                format!("'{}'", arg.replace('\'', "'\\''"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
