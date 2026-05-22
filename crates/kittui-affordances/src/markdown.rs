@@ -1038,4 +1038,20 @@ mod tests {
             .iter()
             .any(|c| c.text.contains("metadata:yaml\ntitle: Proof")));
     }
+
+    #[test]
+    fn markdown_preserves_pluses_metadata_blocks() {
+        let doc = render_markdown("+++\ntitle = \"Proof\"\n+++\n\n# Body", 60);
+        assert_eq!(
+            doc.metadata_blocks,
+            vec![MarkdownMetadataBlock {
+                kind: MarkdownMetadataBlockKind::Pluses,
+                source: "title = \"Proof\"".to_string(),
+            }]
+        );
+        assert!(doc
+            .components
+            .iter()
+            .any(|c| c.text.contains("metadata:pluses\ntitle = \"Proof\"")));
+    }
 }

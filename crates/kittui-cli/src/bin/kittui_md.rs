@@ -1786,6 +1786,17 @@ mod tests {
     }
 
     #[test]
+    fn metadata_json_mode_reports_pluses_metadata_blocks() {
+        let source = "+++\ntitle = \"Proof\"\n+++\n\n# Body";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_metadata_json(&doc, source, 80, Some("frontmatter.md"), &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["metadata_blocks"][0]["kind"], "pluses");
+        assert_eq!(value["metadata_blocks"][0]["source"], "title = \"Proof\"");
+    }
+
+    #[test]
     fn stats_mode_counts_metadata_blocks() {
         let source = "---\ntitle: Proof\n---\n\n# Body";
         let doc = render_markdown(source, 80);
