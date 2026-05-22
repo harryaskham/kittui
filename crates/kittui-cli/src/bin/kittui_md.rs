@@ -312,9 +312,24 @@ fn write_plain(doc: &MarkdownDocument, width: u16, out: &mut impl Write) -> Resu
     )?;
     writeln!(out, "{}", "═".repeat(width as usize))?;
     for comp in &doc.components {
-        writeln!(out, "[{:?}] {}", comp.kind, comp.text)?;
+        write_plain_component(out, comp)?;
     }
     write_metadata_sections(doc, out)?;
+    Ok(())
+}
+
+fn write_plain_component(out: &mut impl Write, comp: &UiComponent) -> Result<()> {
+    let prefix = format!("[{:?}] ", comp.kind);
+    let continuation = " ".repeat(prefix.len());
+    let mut lines = comp.text.lines();
+    if let Some(first) = lines.next() {
+        writeln!(out, "{prefix}{first}")?;
+        for line in lines {
+            writeln!(out, "{continuation}{line}")?;
+        }
+    } else {
+        writeln!(out, "{prefix}")?;
+    }
     Ok(())
 }
 
@@ -766,6 +781,15 @@ mod tests {
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
         assert!(status.contains("0 links, 1 images"), "{status}");
+    }
+
+    #[test]
+    fn plain_component_indents_multiline_text() {
+        let comp = textbox("code:rust\nfn main() {}", 40, Tone::Tool);
+        let mut out = Vec::new();
+        write_plain_component(&mut out, &comp).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert_eq!(rendered, "[TextBox] code:rust\n          fn main() {}\n");
     }
 
     #[test]
