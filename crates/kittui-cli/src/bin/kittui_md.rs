@@ -422,6 +422,7 @@ fn write_stats(doc: &MarkdownDocument, source: &str, out: &mut impl Write) -> Re
     writeln!(out, "definitions={}", doc.definitions.len())?;
     writeln!(out, "math={}", doc.math.len())?;
     writeln!(out, "html={}", doc.html.len())?;
+    writeln!(out, "metadata_blocks={}", doc.metadata_blocks.len())?;
     writeln!(out, "code_blocks={}", doc.code_blocks.len())?;
     Ok(())
 }
@@ -660,6 +661,10 @@ fn write_metadata_json(
             "kind": html.kind.as_str(),
             "source": html.source,
         })).collect::<Vec<_>>(),
+        "metadata_blocks": doc.metadata_blocks.iter().map(|metadata| serde_json::json!({
+            "kind": metadata.kind.as_str(),
+            "source": metadata.source,
+        })).collect::<Vec<_>>(),
         "code_blocks": doc.code_blocks.iter().map(|code| serde_json::json!({
             "language": code.language,
             "text": code.text,
@@ -764,6 +769,17 @@ fn write_metadata_sections(doc: &MarkdownDocument, out: &mut impl Write) -> Resu
         writeln!(out, "\nhtml:")?;
         for html in &doc.html {
             writeln!(out, "  {} {}", html.kind.as_str(), html.source)?;
+        }
+    }
+    if !doc.metadata_blocks.is_empty() {
+        writeln!(out, "\nmetadata blocks:")?;
+        for metadata in &doc.metadata_blocks {
+            writeln!(
+                out,
+                "  {} {}",
+                metadata.kind.as_str(),
+                metadata.source.lines().next().unwrap_or("")
+            )?;
         }
     }
     if !doc.code_blocks.is_empty() {
@@ -1688,6 +1704,40 @@ mod tests {
         );
         assert!(value["tables"][0]["footprint"]["cols"].as_u64().unwrap() >= 10);
         assert_eq!(value["tables"][0]["footprint"]["rows"], 5);
+    }
+
+    #[test]
+    fn metadata_json_mode_reports_metadata_blocks() {
+        let source = "---\ntitle: Proof\n---\n\n# Body";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_metadata_json(&doc, source, 80, Some("frontmatter.md"), &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["metadata_blocks"][0]["kind"], "yaml");
+        assert_eq!(value["metadata_blocks"][0]["source"], "title: Proof");
+    }
+
+    #[test]
+    fn stats_mode_counts_metadata_blocks() {
+        let source = "---\ntitle: Proof\n---\n\n# Body";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_stats(&doc, source, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("metadata_blocks=1"), "{rendered}");
+    }
+
+    #[test]
+    fn plain_metadata_sections_include_metadata_blocks() {
+        let source = "---\ntitle: Proof\n---\n\n# Body";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_plain(&doc, 80, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("metadata blocks:\n  yaml title: Proof"),
+            "{rendered}"
+        );
     }
 
     #[test]
