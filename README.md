@@ -136,6 +136,7 @@ cargo run -p kittui-cli --bin kittui-md -- --grid docs/examples/kittui-md-proof.
 cargo run -p kittui-cli --bin kittui-md -- --tables-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --code-blocks docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --snippets docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --code-blocks-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --metadata-blocks docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --metadata docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --frontmatter docs/examples/kittui-md-proof.md
@@ -190,7 +191,8 @@ Modes:
   mode. `--tables-json` emits the same table records as machine-readable JSON.
 - `--code-blocks` prints only parsed code blocks with language labels and source
   text for snippet extraction; `--snippets` is a friendly alias for the same
-  mode.
+  mode. `--code-blocks-json` emits the same code block records as
+  machine-readable JSON.
 - `--metadata-blocks` prints only YAML/pluses metadata/frontmatter blocks with
   delimiter kind and source; `--metadata` and `--frontmatter` are friendly
   aliases for the same inspection mode.
