@@ -186,6 +186,36 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 table_row.push(table_cell.trim().to_string());
                 table_cell.clear();
             }
+            Event::Start(Tag::Emphasis) | Event::End(TagEnd::Emphasis) => {
+                push_inline_marker(
+                    "*",
+                    in_table,
+                    link_target.is_some(),
+                    &mut table_cell,
+                    &mut buf,
+                    &mut link_label,
+                );
+            }
+            Event::Start(Tag::Strong) | Event::End(TagEnd::Strong) => {
+                push_inline_marker(
+                    "**",
+                    in_table,
+                    link_target.is_some(),
+                    &mut table_cell,
+                    &mut buf,
+                    &mut link_label,
+                );
+            }
+            Event::Start(Tag::Strikethrough) | Event::End(TagEnd::Strikethrough) => {
+                push_inline_marker(
+                    "~~",
+                    in_table,
+                    link_target.is_some(),
+                    &mut table_cell,
+                    &mut buf,
+                    &mut link_label,
+                );
+            }
             Event::Text(t) => {
                 if link_target.is_some() {
                     link_label.push_str(&t);
@@ -234,6 +264,24 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     }
     flush_paragraph(&mut out, &mut buf, width_cells);
     out
+}
+
+fn push_inline_marker(
+    marker: &str,
+    in_table: bool,
+    in_link: bool,
+    table_cell: &mut String,
+    buf: &mut String,
+    link_label: &mut String,
+) {
+    if in_link {
+        link_label.push_str(marker);
+    }
+    if in_table {
+        table_cell.push_str(marker);
+    } else {
+        buf.push_str(marker);
+    }
 }
 
 fn table_text(table: &MarkdownTable) -> String {
@@ -348,5 +396,19 @@ mod tests {
             .join("\n---\n");
         assert!(text.contains("code:rust\nfn main() {}"), "{text}");
         assert!(text.contains("\n---\nplain"), "{text}");
+    }
+
+    #[test]
+    fn markdown_preserves_emphasis_strong_and_strikethrough_markers() {
+        let doc = render_markdown("This is *em* and **strong** and ~~gone~~.", 60);
+        let text = doc
+            .components
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("*em*"), "{text}");
+        assert!(text.contains("**strong**"), "{text}");
+        assert!(text.contains("~~gone~~"), "{text}");
     }
 }
