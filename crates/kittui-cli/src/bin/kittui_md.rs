@@ -768,7 +768,15 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
         } else {
             write_rich(&doc, &cfg, &mut stdout)?;
         }
-        write_interactive_footer(show_help, status.as_deref(), &mut stdout)?;
+        write_interactive_footer(
+            show_help,
+            status.as_deref(),
+            &path,
+            cfg.offset_rows,
+            viewport,
+            total_rows,
+            &mut stdout,
+        )?;
         stdout.flush()?;
         let action = read_pager_action(&mut stdin)?;
         if action == PagerAction::Quit {
@@ -934,8 +942,21 @@ fn write_interactive_help(viewport_rows: u16, out: &mut impl Write) -> Result<()
 fn write_interactive_footer(
     show_help: bool,
     status: Option<&str>,
+    path: &str,
+    offset_rows: u16,
+    viewport_rows: u16,
+    total_rows: u16,
     out: &mut impl Write,
 ) -> Result<()> {
+    let max_offset = total_rows.saturating_sub(viewport_rows);
+    writeln!(
+        out,
+        "source: {path} • offset {}/{} • viewport {} • rows {}",
+        offset_rows.min(max_offset),
+        max_offset,
+        viewport_rows,
+        total_rows
+    )?;
     if let Some(status) = status {
         writeln!(out, "status: {status}")?;
     }
@@ -4529,8 +4550,21 @@ mod tests {
     #[test]
     fn interactive_footer_writes_reload_status() {
         let mut out = Vec::new();
-        write_interactive_footer(false, Some("reloaded doc.md — 12 rows"), &mut out).unwrap();
+        write_interactive_footer(
+            false,
+            Some("reloaded doc.md — 12 rows"),
+            "doc.md",
+            4,
+            10,
+            30,
+            &mut out,
+        )
+        .unwrap();
         let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("source: doc.md"), "{rendered}");
+        assert!(rendered.contains("offset 4/20"), "{rendered}");
+        assert!(rendered.contains("viewport 10"), "{rendered}");
+        assert!(rendered.contains("rows 30"), "{rendered}");
         assert!(rendered.contains("status: reloaded doc.md"), "{rendered}");
         assert!(rendered.contains("r reload"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
@@ -4539,8 +4573,18 @@ mod tests {
     #[test]
     fn interactive_footer_writes_reload_error_status() {
         let mut out = Vec::new();
-        write_interactive_footer(true, Some("reload failed: missing"), &mut out).unwrap();
+        write_interactive_footer(
+            true,
+            Some("reload failed: missing"),
+            "doc.md",
+            99,
+            10,
+            30,
+            &mut out,
+        )
+        .unwrap();
         let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("offset 20/20"), "{rendered}");
         assert!(
             rendered.contains("status: reload failed: missing"),
             "{rendered}"
