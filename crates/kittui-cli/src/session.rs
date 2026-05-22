@@ -52,6 +52,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         rows,
         [
             ("KITTWM_SOCKET", sock.as_str()),
+            ("KITTWM_SOCK", sock.as_str()),
+            ("KITTUI_WM_DISPLAY", sock.as_str()),
             ("KITTWM_DISPLAY", sock.as_str()),
             ("KITTWM_WINDOW", window.as_str()),
         ],

@@ -13,13 +13,37 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-/// Default socket path for the kittwm daemon. Honors `KITTWM_SOCK`.
+/// Default socket path for the kittwm daemon.
+///
+/// Honors, in order:
+///
+/// - `KITTWM_SOCKET` / `KITTWM_SOCK`: explicit socket path.
+/// - `KITTUI_WM_DISPLAY` / `KITTWM_DISPLAY`: display-style path or `:N`
+///   shorthand, where `:1` maps to `/tmp/kittui-wm-1.sock`.
+/// - fallback `/tmp/kittwm-$USER.sock`.
 pub fn default_socket_path() -> PathBuf {
-    if let Ok(p) = std::env::var("KITTWM_SOCK") {
-        return PathBuf::from(p);
+    for key in ["KITTWM_SOCKET", "KITTWM_SOCK"] {
+        if let Ok(p) = std::env::var(key) {
+            return PathBuf::from(p);
+        }
+    }
+    for key in ["KITTUI_WM_DISPLAY", "KITTWM_DISPLAY"] {
+        if let Ok(display) = std::env::var(key) {
+            return display_to_socket_path(&display);
+        }
     }
     let user = std::env::var("USER").unwrap_or_else(|_| "anon".to_string());
     PathBuf::from(format!("/tmp/kittwm-{user}.sock"))
+}
+
+/// Convert a DISPLAY-like token into a socket path.
+pub fn display_to_socket_path(display: &str) -> PathBuf {
+    if let Some(id) = display.strip_prefix(':') {
+        let id = id.split('.').next().unwrap_or(id);
+        PathBuf::from(format!("/tmp/kittui-wm-{id}.sock"))
+    } else {
+        PathBuf::from(display)
+    }
 }
 
 /// Accept-loop daemon that answers `PING` / `STATUS` / `QUIT`.
@@ -179,6 +203,13 @@ mod tests {
             "kittwm-test-{}.sock",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn display_to_socket_path_supports_colon_display() {
+        assert_eq!(display_to_socket_path(":7"), PathBuf::from("/tmp/kittui-wm-7.sock"));
+        assert_eq!(display_to_socket_path(":7.0"), PathBuf::from("/tmp/kittui-wm-7.sock"));
+        assert_eq!(display_to_socket_path("/tmp/custom.sock"), PathBuf::from("/tmp/custom.sock"));
     }
 
     #[test]
