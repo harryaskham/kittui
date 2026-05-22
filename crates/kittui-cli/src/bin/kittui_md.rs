@@ -760,17 +760,30 @@ fn run_interactive(doc: &MarkdownDocument, mut cfg: Config) -> Result<()> {
         .unwrap_or_else(|| terminal_rows().unwrap_or(24).saturating_sub(2).max(1));
     cfg.height_rows = Some(viewport);
     let total_rows = document_rows(doc, cfg.width);
+    let mut show_help = false;
     loop {
         write!(stdout, "\x1b[2J\x1b[H")?;
-        write_rich(doc, &cfg, &mut stdout)?;
-        writeln!(
-            stdout,
-            "j/k scroll • space/page down • b/page up • g/G ends • q quit"
-        )?;
+        if show_help {
+            write_interactive_help(viewport, &mut stdout)?;
+            writeln!(stdout, "h/? close help • q quit")?;
+        } else {
+            write_rich(doc, &cfg, &mut stdout)?;
+            writeln!(
+                stdout,
+                "j/k scroll • space/page down • b/page up • g/G ends • h/? help • q quit"
+            )?;
+        }
         stdout.flush()?;
         let action = read_pager_action(&mut stdin)?;
         if action == PagerAction::Quit {
             break;
+        }
+        if action == PagerAction::Help {
+            show_help = !show_help;
+            continue;
+        }
+        if show_help {
+            continue;
         }
         cfg.offset_rows = apply_pager_action(cfg.offset_rows, viewport, total_rows, action);
     }
@@ -789,6 +802,7 @@ enum PagerAction {
     PageDown,
     Home,
     End,
+    Help,
 }
 
 fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
@@ -802,6 +816,7 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
         b'b' => PagerAction::PageUp,
         b'g' => PagerAction::Home,
         b'G' => PagerAction::End,
+        b'h' | b'?' => PagerAction::Help,
         27 => read_escape_action(input)?,
         _ => PagerAction::Noop,
     })
@@ -881,7 +896,26 @@ fn apply_pager_action(
         PagerAction::PageDown => offset.saturating_add(viewport_rows.max(1)).min(max_offset),
         PagerAction::Home => 0,
         PagerAction::End => max_offset,
+        PagerAction::Help => offset.min(max_offset),
     }
+}
+
+fn write_interactive_help(viewport_rows: u16, out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md interactive help")?;
+    writeln!(out, "")?;
+    for binding in KEYBINDINGS
+        .iter()
+        .take(viewport_rows.saturating_sub(3) as usize)
+    {
+        writeln!(
+            out,
+            "{}: {} — {}",
+            binding.action,
+            binding.keys.join(", "),
+            binding.description
+        )?;
+    }
+    Ok(())
 }
 
 fn document_rows(doc: &MarkdownDocument, width: u16) -> u16 {
@@ -2103,6 +2137,11 @@ const KEYBINDINGS: &[KeybindingInfo] = &[
         action: "end",
         keys: &["G", "End"],
         description: "Jump to the last rendered row.",
+    },
+    KeybindingInfo {
+        action: "help",
+        keys: &["h", "?"],
+        description: "Toggle the interactive help screen.",
     },
     KeybindingInfo {
         action: "quit",
@@ -4406,6 +4445,28 @@ mod tests {
         assert_eq!(apply_pager_action(20, 10, 30, PagerAction::Down), 20);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Home), 0);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::End), 20);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Help), 4);
+    }
+
+    #[test]
+    fn pager_reads_help_keys() {
+        for bytes in [b"h".as_slice(), b"?".as_slice()] {
+            let mut cursor = std::io::Cursor::new(bytes);
+            assert_eq!(read_pager_action(&mut cursor).unwrap(), PagerAction::Help);
+        }
+    }
+
+    #[test]
+    fn interactive_help_lists_keybindings() {
+        let mut out = Vec::new();
+        write_interactive_help(20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md interactive help"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("help: h, ?"), "{rendered}");
+        assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
     }
 
     #[test]
