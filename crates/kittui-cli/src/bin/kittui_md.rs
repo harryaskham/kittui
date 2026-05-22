@@ -131,6 +131,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--code-blocks" => {
                 set_mode(&mut mode, &mut mode_flag, "--code-blocks", Mode::CodeBlocks)?
             }
+            "--snippets" => set_mode(&mut mode, &mut mode_flag, "--snippets", Mode::CodeBlocks)?,
             "--metadata-blocks" => set_mode(
                 &mut mode,
                 &mut mode_flag,
@@ -219,7 +220,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--footnotes|--images|--tables|--code-blocks|--metadata-blocks|--frontmatter|--definitions|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--footnotes|--images|--tables|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1366,6 +1367,21 @@ mod tests {
         let cfg = parse_args(["--refs".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::References);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_snippets_alias() {
+        let cfg = parse_args(["--snippets".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::CodeBlocks);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_code_blocks_plus_snippets() {
+        let err = parse_args(["--code-blocks".to_string(), "--snippets".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--code-blocks"), "{err}");
+        assert!(err.to_string().contains("--snippets"), "{err}");
     }
 
     #[test]
