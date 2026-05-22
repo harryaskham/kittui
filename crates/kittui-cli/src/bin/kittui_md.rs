@@ -21,6 +21,7 @@ enum Mode {
     Tables,
     CodeBlocks,
     Definitions,
+    Math,
     Stats,
     MetadataJson,
 }
@@ -70,6 +71,7 @@ fn real_main() -> Result<()> {
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
+        Mode::Math => write_math(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(&doc, &markdown, &mut std::io::stdout().lock()),
         Mode::MetadataJson => write_metadata_json(
             &doc,
@@ -101,6 +103,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--tables" => mode = Mode::Tables,
             "--code-blocks" => mode = Mode::CodeBlocks,
             "--definitions" => mode = Mode::Definitions,
+            "--math" => mode = Mode::Math,
             "--stats" => mode = Mode::Stats,
             "--metadata-json" => mode = Mode::MetadataJson,
             "--width" => {
@@ -146,7 +149,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--code-blocks|--definitions|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--code-blocks|--definitions|--math|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -403,6 +406,20 @@ fn write_tables(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
         for row in &table.rows {
             writeln!(out, "  | {} |", row.join(" | "))?;
         }
+    }
+    Ok(())
+}
+
+fn write_math(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md math — {} expressions", doc.math.len())?;
+    if doc.math.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for (i, math) in doc.math.iter().enumerate() {
+        writeln!(out, "math #{}", i + 1)?;
+        writeln!(out, "  kind={}", math.kind.as_str())?;
+        writeln!(out, "  source={}", math.source)?;
     }
     Ok(())
 }
@@ -1196,6 +1213,37 @@ mod tests {
         assert!(
             status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 0 code blocks"),
             "{status}"
+        );
+    }
+
+    #[test]
+    fn math_mode_writes_kind_and_source() {
+        let doc = render_markdown("inline $x + y$\n\n$$\na^2\n$$", 80);
+        let mut out = Vec::new();
+        write_math(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md math — 2 expressions"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("math #1\n  kind=inline\n  source=x + y"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("math #2\n  kind=display\n  source=a^2"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn math_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_math(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md math — 0 expressions\n<empty>\n"
         );
     }
 
