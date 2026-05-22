@@ -171,15 +171,74 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
     let mut buf = [0u8; 1];
     input.read_exact(&mut buf)?;
     Ok(match buf[0] {
-        b'q' | 3 | 27 => PagerAction::Quit,
+        b'q' | 3 => PagerAction::Quit,
         b'k' | b'w' => PagerAction::Up,
         b'j' | b's' | b'\n' | b'\r' => PagerAction::Down,
         b' ' => PagerAction::PageDown,
         b'b' => PagerAction::PageUp,
         b'g' => PagerAction::Home,
         b'G' => PagerAction::End,
+        27 => read_escape_action(input)?,
         _ => PagerAction::Noop,
     })
+}
+
+fn read_escape_action(input: &mut impl Read) -> Result<PagerAction> {
+    let mut buf = [0u8; 1];
+    if input.read(&mut buf)? == 0 {
+        return Ok(PagerAction::Quit);
+    }
+    match buf[0] {
+        b'[' => read_csi_action(input),
+        b'O' => read_ss3_action(input),
+        _ => Ok(PagerAction::Noop),
+    }
+}
+
+fn read_csi_action(input: &mut impl Read) -> Result<PagerAction> {
+    let mut buf = [0u8; 1];
+    input.read_exact(&mut buf)?;
+    Ok(match buf[0] {
+        b'A' => PagerAction::Up,
+        b'B' => PagerAction::Down,
+        b'H' => PagerAction::Home,
+        b'F' => PagerAction::End,
+        b'1' | b'7' => {
+            consume_optional_tilde(input)?;
+            PagerAction::Home
+        }
+        b'4' | b'8' => {
+            consume_optional_tilde(input)?;
+            PagerAction::End
+        }
+        b'5' => {
+            consume_optional_tilde(input)?;
+            PagerAction::PageUp
+        }
+        b'6' => {
+            consume_optional_tilde(input)?;
+            PagerAction::PageDown
+        }
+        _ => PagerAction::Noop,
+    })
+}
+
+fn read_ss3_action(input: &mut impl Read) -> Result<PagerAction> {
+    let mut buf = [0u8; 1];
+    input.read_exact(&mut buf)?;
+    Ok(match buf[0] {
+        b'H' => PagerAction::Home,
+        b'F' => PagerAction::End,
+        _ => PagerAction::Noop,
+    })
+}
+
+fn consume_optional_tilde(input: &mut impl Read) -> Result<()> {
+    let mut buf = [0u8; 1];
+    if input.read(&mut buf)? == 0 || buf[0] == b'~' {
+        return Ok(());
+    }
+    Ok(())
 }
 
 fn apply_pager_action(
@@ -575,6 +634,24 @@ mod tests {
         assert_eq!(apply_pager_action(20, 10, 30, PagerAction::Down), 20);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Home), 0);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::End), 20);
+    }
+
+    #[test]
+    fn pager_reads_arrow_and_page_key_escape_sequences() {
+        let cases = [
+            (b"\x1b[A".as_slice(), PagerAction::Up),
+            (b"\x1b[B".as_slice(), PagerAction::Down),
+            (b"\x1b[5~".as_slice(), PagerAction::PageUp),
+            (b"\x1b[6~".as_slice(), PagerAction::PageDown),
+            (b"\x1b[H".as_slice(), PagerAction::Home),
+            (b"\x1b[F".as_slice(), PagerAction::End),
+            (b"\x1bOH".as_slice(), PagerAction::Home),
+            (b"\x1bOF".as_slice(), PagerAction::End),
+        ];
+        for (bytes, action) in cases {
+            let mut cursor = std::io::Cursor::new(bytes);
+            assert_eq!(read_pager_action(&mut cursor).unwrap(), action);
+        }
     }
 
     #[test]
