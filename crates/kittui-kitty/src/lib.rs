@@ -57,6 +57,19 @@ pub struct SubcellOffset {
     pub y_px: u32,
 }
 
+/// Relative placement anchor fields (`P=`, `Q=`, `H=`, `V=`).
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+pub struct RelativePlacement {
+    /// Parent/reference image id (`P=`).
+    pub image_id: u32,
+    /// Parent/reference placement id (`Q=`), when anchoring to a specific placement.
+    pub placement_id: Option<u32>,
+    /// Horizontal offset from the reference (`H=`).
+    pub x_offset_px: i32,
+    /// Vertical offset from the reference (`V=`).
+    pub y_offset_px: i32,
+}
+
 /// Options for a placement command. Default is unicode-anchored placement at
 /// the cursor with no placement id and no subcell offset.
 #[derive(Clone, Debug, Default)]
@@ -71,6 +84,8 @@ pub struct PlacementOptions {
     pub unicode_placeholder: bool,
     /// Z-index for the placement (`z=`). Default 0.
     pub z_index: i32,
+    /// Relative placement anchor (`P=`, `Q=`, `H=`, `V=`).
+    pub relative: Option<RelativePlacement>,
 }
 
 impl PlacementOptions {
@@ -342,6 +357,18 @@ pub fn placement_command_ex(
     if options.z_index != 0 {
         fields.push_str(&format!(",z={}", options.z_index));
     }
+    if let Some(relative) = options.relative {
+        fields.push_str(&format!(",P={}", relative.image_id));
+        if let Some(q) = relative.placement_id {
+            fields.push_str(&format!(",Q={q}"));
+        }
+        if relative.x_offset_px != 0 {
+            fields.push_str(&format!(",H={}", relative.x_offset_px));
+        }
+        if relative.y_offset_px != 0 {
+            fields.push_str(&format!(",V={}", relative.y_offset_px));
+        }
+    }
     fields.push_str(options.quiet.field());
     let payload = format!("{ESC}_G{fields}{ESC}\\");
     wrap_transport(payload, transport)
@@ -575,9 +602,26 @@ mod tests {
             quiet: Quiet::SuppressAll,
             unicode_placeholder: false,
             z_index: -1,
+            relative: None,
         };
         let cmd = placement_command_ex(1, CellRect::new(0, 0, 8, 4), &opts, Transport::Direct);
         assert_eq!(cmd, "\x1b_Ga=p,i=1,c=8,r=4,p=7,X=4,Y=2,z=-1,q=2\x1b\\");
+    }
+
+    #[test]
+    fn placement_command_with_relative_anchor_fields() {
+        let opts = PlacementOptions {
+            quiet: Quiet::SuppressAll,
+            relative: Some(RelativePlacement {
+                image_id: 42,
+                placement_id: Some(9),
+                x_offset_px: -3,
+                y_offset_px: 12,
+            }),
+            ..PlacementOptions::unicode()
+        };
+        let cmd = placement_command_ex(5, CellRect::new(0, 0, 8, 4), &opts, Transport::Direct);
+        assert_eq!(cmd, "\x1b_Ga=p,i=5,c=8,r=4,U=1,P=42,Q=9,H=-3,V=12,q=2\x1b\\");
     }
 
     #[test]
