@@ -66,6 +66,8 @@ enum Mode {
     DefaultsJson,
     Examples,
     ExamplesJson,
+    Limits,
+    LimitsJson,
     ExitCodes,
     ExitCodesJson,
     Counts,
@@ -171,6 +173,8 @@ fn real_main() -> Result<()> {
         Mode::DefaultsJson => return write_defaults_json(&mut std::io::stdout().lock()),
         Mode::Examples => return write_examples(&mut std::io::stdout().lock()),
         Mode::ExamplesJson => return write_examples_json(&mut std::io::stdout().lock()),
+        Mode::Limits => return write_limits(&mut std::io::stdout().lock()),
+        Mode::LimitsJson => return write_limits_json(&mut std::io::stdout().lock()),
         Mode::ExitCodes => return write_exit_codes(&mut std::io::stdout().lock()),
         Mode::ExitCodesJson => return write_exit_codes_json(&mut std::io::stdout().lock()),
         _ => {}
@@ -236,6 +240,8 @@ fn real_main() -> Result<()> {
         Mode::DefaultsJson => unreachable!("defaults return before reading input"),
         Mode::Examples => unreachable!("examples return before reading input"),
         Mode::ExamplesJson => unreachable!("examples return before reading input"),
+        Mode::Limits => unreachable!("limits return before reading input"),
+        Mode::LimitsJson => unreachable!("limits return before reading input"),
         Mode::ExitCodes => unreachable!("exit codes return before reading input"),
         Mode::ExitCodesJson => unreachable!("exit codes return before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
@@ -534,6 +540,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--examples-json",
                 Mode::ExamplesJson,
             )?,
+            "--limits" => set_mode(&mut mode, &mut mode_flag, "--limits", Mode::Limits)?,
+            "--limits-json" => {
+                set_mode(&mut mode, &mut mode_flag, "--limits-json", Mode::LimitsJson)?
+            }
             "--exit-codes" => set_mode(&mut mode, &mut mode_flag, "--exit-codes", Mode::ExitCodes)?,
             "--exit-codes-json" => set_mode(
                 &mut mode,
@@ -694,6 +704,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "defaults-json" => Ok((Mode::DefaultsJson, "--defaults-json")),
         "examples" => Ok((Mode::Examples, "--examples")),
         "examples-json" => Ok((Mode::ExamplesJson, "--examples-json")),
+        "limits" => Ok((Mode::Limits, "--limits")),
+        "limits-json" => Ok((Mode::LimitsJson, "--limits-json")),
         "exit-codes" => Ok((Mode::ExitCodes, "--exit-codes")),
         "exit-codes-json" => Ok((Mode::ExitCodesJson, "--exit-codes-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
@@ -708,7 +720,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--output-formats|--output-formats-json|--defaults|--defaults-json|--examples|--examples-json|--exit-codes|--exit-codes-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--output-formats|--output-formats-json|--defaults|--defaults-json|--examples|--examples-json|--limits|--limits-json|--exit-codes|--exit-codes-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1167,6 +1179,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit common invocation examples as JSON",
     },
     ModeInfo {
+        flag: "--limits",
+        aliases: &[],
+        description: "print numeric CLI limits",
+    },
+    ModeInfo {
+        flag: "--limits-json",
+        aliases: &[],
+        description: "emit numeric CLI limits as JSON",
+    },
+    ModeInfo {
         flag: "--exit-codes",
         aliases: &[],
         description: "print process exit code meanings",
@@ -1353,6 +1375,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "Common invocation examples.",
     },
     JsonSchemaInfo {
+        mode: "--limits-json",
+        top_level_keys: &["schema_version", "limits"],
+        description: "Numeric CLI limits.",
+    },
+    JsonSchemaInfo {
         mode: "--exit-codes-json",
         top_level_keys: &["schema_version", "exit_codes"],
         description: "Process exit code meanings.",
@@ -1442,6 +1469,8 @@ fn mode_category(flag: &str) -> &'static str {
         | "--defaults-json"
         | "--examples"
         | "--examples-json"
+        | "--limits"
+        | "--limits-json"
         | "--exit-codes"
         | "--exit-codes-json" => "discovery",
         _ if flag.ends_with("-json") || flag == "--json" => "json",
@@ -1965,6 +1994,36 @@ fn write_examples_json(out: &mut impl Write) -> Result<()> {
             "argv": example.argv,
             "description": example.description,
         })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+fn write_limits(out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md limits")?;
+    writeln!(out, "width.min=20")?;
+    writeln!(out, "width.max=200")?;
+    writeln!(out, "width.terminal_default_min=20")?;
+    writeln!(out, "width.terminal_default_max=120")?;
+    writeln!(out, "offset_rows.min=0")?;
+    writeln!(out, "height_rows.min=1")?;
+    Ok(())
+}
+
+fn write_limits_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "limits": {
+            "width": {
+                "min": 20,
+                "max": 200,
+                "terminal_default_min": 20,
+                "terminal_default_max": 120,
+            },
+            "offset_rows": { "min": 0 },
+            "height_rows": { "min": 1 },
+        },
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -3627,6 +3686,26 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--examples"), "{err}");
         assert!(err.to_string().contains("--examples-json"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_limits_mode() {
+        let cfg = parse_args(["--limits".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Limits);
+    }
+
+    #[test]
+    fn parse_args_accepts_limits_json_mode() {
+        let cfg = parse_args(["--limits-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::LimitsJson);
+    }
+
+    #[test]
+    fn parse_args_rejects_limits_plus_limits_json() {
+        let err = parse_args(["--limits".to_string(), "--limits-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--limits"), "{err}");
+        assert!(err.to_string().contains("--limits-json"), "{err}");
     }
 
     #[test]
@@ -5361,6 +5440,27 @@ mod tests {
                     .unwrap()
                     .contains(&serde_json::json!("--components-json"))
         }));
+    }
+
+    #[test]
+    fn limits_mode_lists_numeric_limits() {
+        let mut out = Vec::new();
+        write_limits(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("kittui-md limits"), "{rendered}");
+        assert!(rendered.contains("width.max=200"), "{rendered}");
+        assert!(rendered.contains("height_rows.min=1"), "{rendered}");
+    }
+
+    #[test]
+    fn limits_json_mode_lists_numeric_limits() {
+        let mut out = Vec::new();
+        write_limits_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["limits"]["width"]["max"], 200);
+        assert_eq!(value["limits"]["offset_rows"]["min"], 0);
+        assert_eq!(value["limits"]["height_rows"]["min"], 1);
     }
 
     #[test]
