@@ -119,6 +119,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             }
             "--outline" => set_mode(&mut mode, &mut mode_flag, "--outline", Mode::Outline)?,
             "--toc" => set_mode(&mut mode, &mut mode_flag, "--toc", Mode::Outline)?,
+            "--headings" => set_mode(&mut mode, &mut mode_flag, "--headings", Mode::Outline)?,
             "--references" => {
                 set_mode(&mut mode, &mut mode_flag, "--references", Mode::References)?
             }
@@ -218,7 +219,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--references|--refs|--links|--footnotes|--images|--tables|--code-blocks|--metadata-blocks|--frontmatter|--definitions|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--footnotes|--images|--tables|--code-blocks|--metadata-blocks|--frontmatter|--definitions|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1340,6 +1341,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_headings_alias() {
+        let cfg = parse_args(["--headings".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Outline);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
     fn parse_args_accepts_json_alias() {
         let cfg = parse_args(["--json".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::MetadataJson);
@@ -1390,6 +1398,14 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--outline"), "{err}");
         assert!(err.to_string().contains("--toc"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_rejects_outline_plus_headings() {
+        let err = parse_args(["--outline".to_string(), "--headings".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--outline"), "{err}");
+        assert!(err.to_string().contains("--headings"), "{err}");
     }
 
     #[test]
