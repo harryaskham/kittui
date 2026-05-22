@@ -8,7 +8,7 @@ use kittui::scene::{background_linear, rounded_rect, scene};
 use kittui::{CellRect, CellSize, Direction, RendererKind, Rgba, Runtime, Scene, Transport};
 use kittui_affordances::{
     box_glyph_scene, render_markdown, ComponentKind, MarkdownDocument, MarkdownTable,
-    TableGlyphLayout, UiComponent,
+    MarkdownTableAlignment, TableGlyphLayout, UiComponent,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -658,7 +658,15 @@ fn write_table_text(out: &mut impl Write, table: &MarkdownTable, rect: CellRect)
                 out,
                 "{}\x1b[37m{}\x1b[0m",
                 kittui_kitty::cursor_move(x, y, Transport::Direct),
-                truncate_cells(cell, widths.get(col_idx).copied().unwrap_or(1) as usize)
+                align_table_cell_text(
+                    cell,
+                    widths.get(col_idx).copied().unwrap_or(1) as usize,
+                    table
+                        .alignments
+                        .get(col_idx)
+                        .copied()
+                        .unwrap_or(MarkdownTableAlignment::None),
+                )
             )?;
             x = x
                 .saturating_add(widths.get(col_idx).copied().unwrap_or(1))
@@ -666,6 +674,26 @@ fn write_table_text(out: &mut impl Write, table: &MarkdownTable, rect: CellRect)
         }
     }
     Ok(())
+}
+
+fn align_table_cell_text(text: &str, width: usize, alignment: MarkdownTableAlignment) -> String {
+    let truncated = truncate_cells(text, width);
+    let len = truncated.chars().count();
+    if len >= width {
+        return truncated;
+    }
+    let pad = width - len;
+    match alignment {
+        MarkdownTableAlignment::Right => format!("{}{}", " ".repeat(pad), truncated),
+        MarkdownTableAlignment::Center => {
+            let left = pad / 2;
+            let right = pad - left;
+            format!("{}{}{}", " ".repeat(left), truncated, " ".repeat(right))
+        }
+        MarkdownTableAlignment::None | MarkdownTableAlignment::Left => {
+            format!("{}{}", truncated, " ".repeat(pad))
+        }
+    }
 }
 
 fn write_component_text(
@@ -1062,6 +1090,26 @@ mod tests {
         assert!(
             rendered.contains("outline:\n  Title\n    Section"),
             "{rendered}"
+        );
+    }
+
+    #[test]
+    fn align_table_cell_text_uses_markdown_alignment() {
+        assert_eq!(
+            align_table_cell_text("x", 3, MarkdownTableAlignment::Left),
+            "x  "
+        );
+        assert_eq!(
+            align_table_cell_text("x", 3, MarkdownTableAlignment::Center),
+            " x "
+        );
+        assert_eq!(
+            align_table_cell_text("x", 3, MarkdownTableAlignment::Right),
+            "  x"
+        );
+        assert_eq!(
+            align_table_cell_text("abcd", 2, MarkdownTableAlignment::Right),
+            "ab"
         );
     }
 
