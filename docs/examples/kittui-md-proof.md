@@ -1,3 +1,8 @@
+---
+title: kittui-md proof gallery
+surface: metadata-blocks
+---
+
 # kittui-md proof gallery
 
 ## Components
