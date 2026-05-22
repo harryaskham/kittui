@@ -48,6 +48,8 @@ enum Mode {
     ModeInfoJson,
     ModeSearch,
     ModeSearchJson,
+    ModeCategory,
+    ModeCategoryJson,
     About,
     AboutJson,
     Counts,
@@ -67,6 +69,7 @@ struct Config {
     path: Option<String>,
     mode_info_name: Option<String>,
     mode_search_query: Option<String>,
+    mode_category_name: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -120,6 +123,20 @@ fn real_main() -> Result<()> {
                 .ok_or_else(|| anyhow!("--mode-search-json requires a value"))?;
             return write_mode_search_json(query, &mut std::io::stdout().lock());
         }
+        Mode::ModeCategory => {
+            let category = cfg
+                .mode_category_name
+                .as_deref()
+                .ok_or_else(|| anyhow!("--mode-category requires a value"))?;
+            return write_mode_category(category, &mut std::io::stdout().lock());
+        }
+        Mode::ModeCategoryJson => {
+            let category = cfg
+                .mode_category_name
+                .as_deref()
+                .ok_or_else(|| anyhow!("--mode-category-json requires a value"))?;
+            return write_mode_category_json(category, &mut std::io::stdout().lock());
+        }
         Mode::About => return write_about(&mut std::io::stdout().lock()),
         Mode::AboutJson => return write_about_json(&mut std::io::stdout().lock()),
         _ => {}
@@ -167,6 +184,8 @@ fn real_main() -> Result<()> {
         Mode::ModeInfoJson => unreachable!("mode info returns before reading input"),
         Mode::ModeSearch => unreachable!("mode search returns before reading input"),
         Mode::ModeSearchJson => unreachable!("mode search returns before reading input"),
+        Mode::ModeCategory => unreachable!("mode category returns before reading input"),
+        Mode::ModeCategoryJson => unreachable!("mode category returns before reading input"),
         Mode::About => unreachable!("about returns before reading input"),
         Mode::AboutJson => unreachable!("about returns before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
@@ -207,6 +226,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
     let mut path = None;
     let mut mode_info_name = None;
     let mut mode_search_query = None;
+    let mut mode_category_name = None;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -369,6 +389,30 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                     Mode::ModeSearchJson,
                 )?;
             }
+            "--mode-category" => {
+                mode_category_name = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("--mode-category requires a value"))?,
+                );
+                set_mode(
+                    &mut mode,
+                    &mut mode_flag,
+                    "--mode-category",
+                    Mode::ModeCategory,
+                )?;
+            }
+            "--mode-category-json" => {
+                mode_category_name = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("--mode-category-json requires a value"))?,
+                );
+                set_mode(
+                    &mut mode,
+                    &mut mode_flag,
+                    "--mode-category-json",
+                    Mode::ModeCategoryJson,
+                )?;
+            }
             "--about" => set_mode(&mut mode, &mut mode_flag, "--about", Mode::About)?,
             "--about-json" => set_mode(&mut mode, &mut mode_flag, "--about-json", Mode::AboutJson)?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
@@ -433,6 +477,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
         path,
         mode_info_name,
         mode_search_query,
+        mode_category_name,
     })
 }
 
@@ -505,6 +550,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "mode-info-json" => Ok((Mode::ModeInfoJson, "--mode-info-json")),
         "mode-search" => Ok((Mode::ModeSearch, "--mode-search")),
         "mode-search-json" => Ok((Mode::ModeSearchJson, "--mode-search-json")),
+        "mode-category" => Ok((Mode::ModeCategory, "--mode-category")),
+        "mode-category-json" => Ok((Mode::ModeCategoryJson, "--mode-category-json")),
         "about" => Ok((Mode::About, "--about")),
         "about-json" => Ok((Mode::AboutJson, "--about-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
@@ -519,7 +566,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--about|--about-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--about|--about-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -888,6 +935,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit output mode search results as JSON",
     },
     ModeInfo {
+        flag: "--mode-category",
+        aliases: &[],
+        description: "list output modes in one category",
+    },
+    ModeInfo {
+        flag: "--mode-category-json",
+        aliases: &[],
+        description: "emit output modes in one category as JSON",
+    },
+    ModeInfo {
         flag: "--about",
         aliases: &[],
         description: "print binary version and capability summary",
@@ -1023,6 +1080,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "Output mode search results.",
     },
     JsonSchemaInfo {
+        mode: "--mode-category-json",
+        top_level_keys: &["schema_version", "category", "modes"],
+        description: "Output modes in one category.",
+    },
+    JsonSchemaInfo {
         mode: "--about-json",
         top_level_keys: &[
             "schema_version",
@@ -1093,8 +1155,17 @@ fn mode_category(flag: &str) -> &'static str {
         | "--images" | "--tables" | "--code-blocks" | "--metadata-blocks" | "--definitions"
         | "--math" | "--html" => "inspect",
         "--counts" | "--stats" => "stats",
-        "--modes" | "--modes-json" | "--schemas-json" | "--mode-info" | "--mode-info-json"
-        | "--mode-search" | "--mode-search-json" | "--about" | "--about-json" => "discovery",
+        "--modes"
+        | "--modes-json"
+        | "--schemas-json"
+        | "--mode-info"
+        | "--mode-info-json"
+        | "--mode-search"
+        | "--mode-search-json"
+        | "--mode-category"
+        | "--mode-category-json"
+        | "--about"
+        | "--about-json" => "discovery",
         _ if flag.ends_with("-json") || flag == "--json" => "json",
         _ => "other",
     }
@@ -1255,6 +1326,70 @@ fn write_mode_search_json(query: &str, out: &mut impl Write) -> Result<()> {
                 "json_schema": schema,
             })
         }).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+const MODE_CATEGORIES: &[&str] = &["render", "inspect", "json", "discovery", "stats", "other"];
+
+fn validate_mode_category(category: &str) -> Result<&str> {
+    if MODE_CATEGORIES.contains(&category) {
+        Ok(category)
+    } else {
+        Err(anyhow!("unknown mode category {category}"))
+    }
+}
+
+fn mode_category_matches(category: &str) -> Result<Vec<&'static ModeInfo>> {
+    let category = validate_mode_category(category)?;
+    Ok(MODE_INFOS
+        .iter()
+        .filter(|info| mode_category(info.flag) == category)
+        .collect())
+}
+
+fn write_mode_category(category: &str, out: &mut impl Write) -> Result<()> {
+    let matches = mode_category_matches(category)?;
+    writeln!(
+        out,
+        "kittui-md mode category — {} modes in {:?}",
+        matches.len(),
+        category
+    )?;
+    if matches.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for info in matches {
+        if info.aliases.is_empty() {
+            writeln!(out, "{} — {}", info.flag, info.description)?;
+        } else {
+            writeln!(
+                out,
+                "{} ({}) — {}",
+                info.flag,
+                info.aliases.join(", "),
+                info.description
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn write_mode_category_json(category: &str, out: &mut impl Write) -> Result<()> {
+    let matches = mode_category_matches(category)?;
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "category": category,
+        "modes": matches.iter().enumerate().map(|(index, info)| serde_json::json!({
+            "index": index,
+            "flag": info.flag,
+            "aliases": info.aliases,
+            "description": info.description,
+            "category": mode_category(info.flag),
+        })).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -2698,6 +2833,42 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_mode_category_mode() {
+        let cfg = parse_args(["--mode-category".to_string(), "json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ModeCategory);
+        assert_eq!(cfg.mode_category_name.as_deref(), Some("json"));
+    }
+
+    #[test]
+    fn parse_args_accepts_mode_category_json_mode() {
+        let cfg = parse_args(["--mode-category-json".to_string(), "inspect".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ModeCategoryJson);
+        assert_eq!(cfg.mode_category_name.as_deref(), Some("inspect"));
+    }
+
+    #[test]
+    fn parse_args_rejects_missing_mode_category_value() {
+        let err = parse_args(["--mode-category".to_string()]).unwrap_err();
+        assert!(
+            err.to_string().contains("--mode-category requires a value"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_mode_category_plus_modes() {
+        let err = parse_args([
+            "--mode-category".to_string(),
+            "json".to_string(),
+            "--modes".to_string(),
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--mode-category"), "{err}");
+        assert!(err.to_string().contains("--modes"), "{err}");
+    }
+
+    #[test]
     fn parse_args_accepts_about_mode() {
         let cfg = parse_args(["--about".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::About);
@@ -3335,6 +3506,7 @@ mod tests {
             path: Some("proof.md".to_string()),
             mode_info_name: None,
             mode_search_query: None,
+            mode_category_name: None,
         };
         let status = rich_status_line(&doc, &cfg, document_rows(&doc, 80));
         assert!(status.contains("offset=4/4 rows"), "{status}");
@@ -4199,6 +4371,37 @@ mod tests {
                 && mode["json_schema"]["top_level_keys"]
                     == serde_json::json!(["schema_version", "tables"])
         }));
+    }
+
+    #[test]
+    fn mode_category_mode_lists_modes_in_category() {
+        let mut out = Vec::new();
+        write_mode_category("inspect", &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("mode category"), "{rendered}");
+        assert!(rendered.contains("--components (--widgets)"), "{rendered}");
+        assert!(rendered.contains("--tables"), "{rendered}");
+        assert!(!rendered.contains("--tables-json"), "{rendered}");
+    }
+
+    #[test]
+    fn mode_category_json_mode_lists_modes_in_category() {
+        let mut out = Vec::new();
+        write_mode_category_json("json", &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["category"], "json");
+        let modes = value["modes"].as_array().unwrap();
+        assert!(modes
+            .iter()
+            .any(|mode| { mode["flag"] == "--tables-json" && mode["category"] == "json" }));
+        assert!(!modes.iter().any(|mode| mode["flag"] == "--tables"));
+    }
+
+    #[test]
+    fn mode_category_rejects_unknown_categories() {
+        let err = write_mode_category("not-a-category", &mut Vec::new()).unwrap_err();
+        assert!(err.to_string().contains("unknown mode category"), "{err}");
     }
 
     #[test]

@@ -161,6 +161,8 @@ cargo run -p kittui-cli --bin kittui-md -- --mode-info widgets
 cargo run -p kittui-cli --bin kittui-md -- --mode-info-json stats-json
 cargo run -p kittui-cli --bin kittui-md -- --mode-search table
 cargo run -p kittui-cli --bin kittui-md -- --mode-search-json json
+cargo run -p kittui-cli --bin kittui-md -- --mode-category inspect
+cargo run -p kittui-cli --bin kittui-md -- --mode-category-json json
 cargo run -p kittui-cli --bin kittui-md -- --about
 cargo run -p kittui-cli --bin kittui-md -- --about-json
 cargo run -p kittui-cli --bin kittui-md -- --counts docs/examples/kittui-md-proof.md
@@ -232,8 +234,10 @@ Modes:
   top-level keys for tooling discovery. `--mode-info NAME` and
   `--mode-info-json NAME` describe one mode by canonical name or alias.
   `--mode-search QUERY` and `--mode-search-json QUERY` search modes by flag,
-  alias, or description; JSON mode catalog, mode-info, and search results include
-  mode categories plus schema summaries for matching JSON output modes. `--about`
+  alias, or description; `--mode-category CATEGORY` and
+  `--mode-category-json CATEGORY` list modes in one category. JSON mode catalog,
+  mode-info, and search results include mode categories plus schema summaries for
+  matching JSON output modes. `--about`
   and `--about-json` report the binary version, default mode, and high-level
   capabilities without reading a document.
 - `--counts` prints only concise component/metadata counts; `--counts-json`
