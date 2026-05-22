@@ -23,6 +23,7 @@ pub mod panel;
 pub mod inline;
 pub mod components;
 pub mod markdown;
+pub mod table;
 
 pub use palette::{Palette, Tone};
 pub use panel::{panel_chrome, PanelOptions};
@@ -31,6 +32,7 @@ pub use components::{
     banner, footer, h1, h2, h3, header, textbox, textchip, title, ComponentKind, UiComponent,
 };
 pub use markdown::{render_markdown, LinkChip, MarkdownDocument};
+pub use table::{relative_cell_options, BoxGlyphCell, TableGlyphLayout};
 
 #[cfg(test)]
 mod tests {

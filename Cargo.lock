@@ -1216,6 +1216,7 @@ version = "0.1.0"
 dependencies = [
  "kittui",
  "kittui-core",
+ "kittui-kitty",
  "pulldown-cmark",
  "ratakittui",
 ]
