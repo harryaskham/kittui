@@ -127,6 +127,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--links" => set_mode(&mut mode, &mut mode_flag, "--links", Mode::Links)?,
             "--footnotes" => set_mode(&mut mode, &mut mode_flag, "--footnotes", Mode::Footnotes)?,
             "--images" => set_mode(&mut mode, &mut mode_flag, "--images", Mode::Images)?,
+            "--pictures" => set_mode(&mut mode, &mut mode_flag, "--pictures", Mode::Images)?,
             "--tables" => set_mode(&mut mode, &mut mode_flag, "--tables", Mode::Tables)?,
             "--code-blocks" => {
                 set_mode(&mut mode, &mut mode_flag, "--code-blocks", Mode::CodeBlocks)?
@@ -221,7 +222,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--footnotes|--images|--tables|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--footnotes|--images|--pictures|--tables|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1382,6 +1383,21 @@ mod tests {
         let cfg = parse_args(["--glossary".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Definitions);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_pictures_alias() {
+        let cfg = parse_args(["--pictures".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Images);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_images_plus_pictures() {
+        let err = parse_args(["--images".to_string(), "--pictures".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--images"), "{err}");
+        assert!(err.to_string().contains("--pictures"), "{err}");
     }
 
     #[test]

@@ -121,6 +121,7 @@ cargo run -p kittui-cli --bin kittui-md -- --references docs/examples/kittui-md-
 cargo run -p kittui-cli --bin kittui-md -- --refs docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --footnotes docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --images docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --pictures docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --tables docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --code-blocks docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --snippets docs/examples/kittui-md-proof.md
@@ -155,7 +156,7 @@ Modes:
   same mode.
 - `--footnotes` prints only footnote references and definitions.
 - `--images` prints only parsed image references with alt text, URLs, and
-  optional title attributes.
+  optional title attributes; `--pictures` is a friendly alias for the same mode.
 - `--tables` prints parsed table rows, alignments, column widths, and footprint
   metrics for table layout debugging.
 - `--code-blocks` prints only parsed code blocks with language labels and source
