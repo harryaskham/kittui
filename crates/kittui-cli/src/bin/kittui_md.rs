@@ -18,6 +18,7 @@ enum Mode {
     Components,
     Outline,
     References,
+    Footnotes,
     Images,
     Tables,
     CodeBlocks,
@@ -70,6 +71,7 @@ fn real_main() -> Result<()> {
         Mode::Components => write_components(&doc, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
+        Mode::Footnotes => write_footnotes(&doc, &mut std::io::stdout().lock()),
         Mode::Images => write_images(&doc, &mut std::io::stdout().lock()),
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
@@ -104,6 +106,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--components" => mode = Mode::Components,
             "--outline" => mode = Mode::Outline,
             "--references" => mode = Mode::References,
+            "--footnotes" => mode = Mode::Footnotes,
             "--images" => mode = Mode::Images,
             "--tables" => mode = Mode::Tables,
             "--code-blocks" => mode = Mode::CodeBlocks,
@@ -155,7 +158,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--images|--tables|--code-blocks|--definitions|--math|--html|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--footnotes|--images|--tables|--code-blocks|--definitions|--math|--html|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -384,6 +387,28 @@ fn write_stats(doc: &MarkdownDocument, source: &str, out: &mut impl Write) -> Re
     writeln!(out, "math={}", doc.math.len())?;
     writeln!(out, "html={}", doc.html.len())?;
     writeln!(out, "code_blocks={}", doc.code_blocks.len())?;
+    Ok(())
+}
+
+fn write_footnotes(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let total = doc.footnote_references.len() + doc.footnotes.len();
+    writeln!(out, "kittui-md footnotes — {total} entries")?;
+    if total == 0 {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    if !doc.footnote_references.is_empty() {
+        writeln!(out, "references:")?;
+        for label in &doc.footnote_references {
+            writeln!(out, "  [^{label}]")?;
+        }
+    }
+    if !doc.footnotes.is_empty() {
+        writeln!(out, "definitions:")?;
+        for footnote in &doc.footnotes {
+            writeln!(out, "  [^{}] {}", footnote.label, footnote.text)?;
+        }
+    }
     Ok(())
 }
 
@@ -1375,6 +1400,34 @@ mod tests {
         assert_eq!(
             String::from_utf8(out).unwrap(),
             "kittui-md code blocks — 0 code blocks\n<empty>\n"
+        );
+    }
+
+    #[test]
+    fn footnotes_mode_writes_references_and_definitions() {
+        let doc = render_markdown("see[^n]\n\n[^n]: note text", 80);
+        let mut out = Vec::new();
+        write_footnotes(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md footnotes — 2 entries"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("references:\n  [^n]"), "{rendered}");
+        assert!(
+            rendered.contains("definitions:\n  [^n] note text"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn footnotes_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_footnotes(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md footnotes — 0 entries\n<empty>\n"
         );
     }
 
