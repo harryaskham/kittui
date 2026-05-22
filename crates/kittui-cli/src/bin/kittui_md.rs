@@ -56,6 +56,8 @@ enum Mode {
     AboutJson,
     Capabilities,
     CapabilitiesJson,
+    Version,
+    VersionJson,
     Counts,
     CountsJson,
     Stats,
@@ -149,6 +151,8 @@ fn real_main() -> Result<()> {
         Mode::AboutJson => return write_about_json(&mut std::io::stdout().lock()),
         Mode::Capabilities => return write_capabilities(&mut std::io::stdout().lock()),
         Mode::CapabilitiesJson => return write_capabilities_json(&mut std::io::stdout().lock()),
+        Mode::Version => return write_version(&mut std::io::stdout().lock()),
+        Mode::VersionJson => return write_version_json(&mut std::io::stdout().lock()),
         _ => {}
     }
     let markdown = if let Some(path) = &cfg.path {
@@ -202,6 +206,8 @@ fn real_main() -> Result<()> {
         Mode::AboutJson => unreachable!("about returns before reading input"),
         Mode::Capabilities => unreachable!("capabilities return before reading input"),
         Mode::CapabilitiesJson => unreachable!("capabilities return before reading input"),
+        Mode::Version => unreachable!("version returns before reading input"),
+        Mode::VersionJson => unreachable!("version returns before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -453,6 +459,13 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--capabilities-json",
                 Mode::CapabilitiesJson,
             )?,
+            "--version" => set_mode(&mut mode, &mut mode_flag, "--version", Mode::Version)?,
+            "--version-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--version-json",
+                Mode::VersionJson,
+            )?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -596,6 +609,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "about-json" => Ok((Mode::AboutJson, "--about-json")),
         "capabilities" => Ok((Mode::Capabilities, "--capabilities")),
         "capabilities-json" => Ok((Mode::CapabilitiesJson, "--capabilities-json")),
+        "version" => Ok((Mode::Version, "--version")),
+        "version-json" => Ok((Mode::VersionJson, "--version-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
         "counts-json" => Ok((Mode::CountsJson, "--counts-json")),
         "stats" => Ok((Mode::Stats, "--stats")),
@@ -608,7 +623,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1017,6 +1032,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit high-level binary capabilities as JSON",
     },
     ModeInfo {
+        flag: "--version",
+        aliases: &[],
+        description: "print binary package version",
+    },
+    ModeInfo {
+        flag: "--version-json",
+        aliases: &[],
+        description: "emit binary package version as JSON",
+    },
+    ModeInfo {
         flag: "--counts",
         aliases: &[],
         description: "print compact structural counts",
@@ -1168,6 +1193,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "High-level binary capabilities.",
     },
     JsonSchemaInfo {
+        mode: "--version-json",
+        top_level_keys: &["schema_version", "binary", "package_version"],
+        description: "Binary package version.",
+    },
+    JsonSchemaInfo {
         mode: "--counts-json",
         top_level_keys: &["schema_version", "counts"],
         description: "Compact structural counts.",
@@ -1241,7 +1271,9 @@ fn mode_category(flag: &str) -> &'static str {
         | "--about"
         | "--about-json"
         | "--capabilities"
-        | "--capabilities-json" => "discovery",
+        | "--capabilities-json"
+        | "--version"
+        | "--version-json" => "discovery",
         _ if flag.ends_with("-json") || flag == "--json" => "json",
         _ => "other",
     }
@@ -1549,6 +1581,22 @@ fn write_capabilities_json(out: &mut impl Write) -> Result<()> {
     let value = serde_json::json!({
         "schema_version": 1,
         "capabilities": ABOUT_CAPABILITIES,
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+fn write_version(out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md {}", env!("CARGO_PKG_VERSION"))?;
+    Ok(())
+}
+
+fn write_version_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "binary": "kittui-md",
+        "package_version": env!("CARGO_PKG_VERSION"),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -3058,6 +3106,26 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--capabilities"), "{err}");
         assert!(err.to_string().contains("--capabilities-json"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_version_mode() {
+        let cfg = parse_args(["--version".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Version);
+    }
+
+    #[test]
+    fn parse_args_accepts_version_json_mode() {
+        let cfg = parse_args(["--version-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::VersionJson);
+    }
+
+    #[test]
+    fn parse_args_rejects_version_plus_version_json() {
+        let err = parse_args(["--version".to_string(), "--version-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--version"), "{err}");
+        assert!(err.to_string().contains("--version-json"), "{err}");
     }
 
     #[test]
@@ -4652,6 +4720,25 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("machine-readable-json-outputs")));
+    }
+
+    #[test]
+    fn version_mode_reports_package_version() {
+        let mut out = Vec::new();
+        write_version(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.starts_with("kittui-md "), "{rendered}");
+        assert!(rendered.contains(env!("CARGO_PKG_VERSION")), "{rendered}");
+    }
+
+    #[test]
+    fn version_json_mode_reports_package_version() {
+        let mut out = Vec::new();
+        write_version_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["binary"], "kittui-md");
+        assert_eq!(value["package_version"], env!("CARGO_PKG_VERSION"));
     }
 
     #[test]
