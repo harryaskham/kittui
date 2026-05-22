@@ -760,18 +760,15 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
     cfg.height_rows = Some(viewport);
     let mut total_rows = document_rows(&doc, cfg.width);
     let mut show_help = false;
+    let mut status: Option<String> = None;
     loop {
         write!(stdout, "\x1b[2J\x1b[H")?;
         if show_help {
             write_interactive_help(viewport, &mut stdout)?;
-            writeln!(stdout, "h/? close help • r reload • q quit")?;
         } else {
             write_rich(&doc, &cfg, &mut stdout)?;
-            writeln!(
-                stdout,
-                "j/k scroll • space/page down • b/page up • g/G ends • h/? help • r reload • q quit"
-            )?;
         }
+        write_interactive_footer(show_help, status.as_deref(), &mut stdout)?;
         stdout.flush()?;
         let action = read_pager_action(&mut stdin)?;
         if action == PagerAction::Quit {
@@ -782,9 +779,17 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             continue;
         }
         if action == PagerAction::Reload {
-            doc = reload_interactive_document(&path, cfg.width)?;
-            total_rows = document_rows(&doc, cfg.width);
-            cfg.offset_rows = cfg.offset_rows.min(total_rows.saturating_sub(viewport));
+            match reload_interactive_document(&path, cfg.width) {
+                Ok(reloaded) => {
+                    doc = reloaded;
+                    total_rows = document_rows(&doc, cfg.width);
+                    cfg.offset_rows = cfg.offset_rows.min(total_rows.saturating_sub(viewport));
+                    status = Some(format!("reloaded {path} — {total_rows} rows"));
+                }
+                Err(err) => {
+                    status = Some(format!("reload failed: {err}"));
+                }
+            }
             show_help = false;
             continue;
         }
@@ -921,6 +926,25 @@ fn write_interactive_help(viewport_rows: u16, out: &mut impl Write) -> Result<()
             binding.action,
             binding.keys.join(", "),
             binding.description
+        )?;
+    }
+    Ok(())
+}
+
+fn write_interactive_footer(
+    show_help: bool,
+    status: Option<&str>,
+    out: &mut impl Write,
+) -> Result<()> {
+    if let Some(status) = status {
+        writeln!(out, "status: {status}")?;
+    }
+    if show_help {
+        writeln!(out, "h/? close help • r reload • q quit")?;
+    } else {
+        writeln!(
+            out,
+            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • r reload • q quit"
         )?;
     }
     Ok(())
@@ -4500,6 +4524,28 @@ mod tests {
         assert!(rendered.contains("help: h, ?"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
+    }
+
+    #[test]
+    fn interactive_footer_writes_reload_status() {
+        let mut out = Vec::new();
+        write_interactive_footer(false, Some("reloaded doc.md — 12 rows"), &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("status: reloaded doc.md"), "{rendered}");
+        assert!(rendered.contains("r reload"), "{rendered}");
+        assert!(rendered.contains("h/? help"), "{rendered}");
+    }
+
+    #[test]
+    fn interactive_footer_writes_reload_error_status() {
+        let mut out = Vec::new();
+        write_interactive_footer(true, Some("reload failed: missing"), &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("status: reload failed: missing"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("h/? close help"), "{rendered}");
     }
 
     #[test]
