@@ -191,9 +191,9 @@ Modes:
   `--summary` is a friendly alias for the same mode.
 - `--metadata-json` emits schema-versioned JSON for tools; `--json` is a
   concise alias for the same mode. It includes top-level document counts, source
-  byte/line/path data, render mode/width, indexed component details, outline entries
-  with stable anchors, indexed links and images (including optional link/image
-  title attributes), footnotes,
+  byte/line/path data, render mode/width, indexed component details, indexed
+  outline entries with stable anchors, indexed links and images (including
+  optional link/image title attributes), indexed footnotes,
   definitions, math, HTML placeholders, metadata blocks, code blocks, and table
   layout metrics.
 

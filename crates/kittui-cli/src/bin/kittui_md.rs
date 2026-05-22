@@ -768,38 +768,46 @@ fn write_metadata_json(
             "title": image.title,
         })).collect::<Vec<_>>(),
         "footnote_references": doc.footnote_references,
-        "footnotes": doc.footnotes.iter().map(|footnote| serde_json::json!({
+        "footnotes": doc.footnotes.iter().enumerate().map(|(index, footnote)| serde_json::json!({
+            "index": index,
             "label": footnote.label,
             "text": footnote.text,
         })).collect::<Vec<_>>(),
-        "definitions": doc.definitions.iter().map(|definition| serde_json::json!({
+        "definitions": doc.definitions.iter().enumerate().map(|(index, definition)| serde_json::json!({
+            "index": index,
             "term": definition.term,
             "definition": definition.definition,
         })).collect::<Vec<_>>(),
-        "math": doc.math.iter().map(|math| serde_json::json!({
+        "math": doc.math.iter().enumerate().map(|(index, math)| serde_json::json!({
+            "index": index,
             "kind": math.kind.as_str(),
             "source": math.source,
         })).collect::<Vec<_>>(),
-        "html": doc.html.iter().map(|html| serde_json::json!({
+        "html": doc.html.iter().enumerate().map(|(index, html)| serde_json::json!({
+            "index": index,
             "kind": html.kind.as_str(),
             "source": html.source,
         })).collect::<Vec<_>>(),
-        "metadata_blocks": doc.metadata_blocks.iter().map(|metadata| serde_json::json!({
+        "metadata_blocks": doc.metadata_blocks.iter().enumerate().map(|(index, metadata)| serde_json::json!({
+            "index": index,
             "kind": metadata.kind.as_str(),
             "source": metadata.source,
         })).collect::<Vec<_>>(),
-        "code_blocks": doc.code_blocks.iter().map(|code| serde_json::json!({
+        "code_blocks": doc.code_blocks.iter().enumerate().map(|(index, code)| serde_json::json!({
+            "index": index,
             "language": code.language,
             "text": code.text,
         })).collect::<Vec<_>>(),
-        "outline": doc.outline.iter().map(|heading| serde_json::json!({
+        "outline": doc.outline.iter().enumerate().map(|(index, heading)| serde_json::json!({
+            "index": index,
             "level": heading.level,
             "text": heading.text,
             "anchor": heading.anchor,
         })).collect::<Vec<_>>(),
-        "tables": doc.tables.iter().map(|table| {
+        "tables": doc.tables.iter().enumerate().map(|(index, table)| {
             let footprint = table.footprint();
             serde_json::json!({
+                "index": index,
                 "rows": table.rows,
                 "alignments": table.alignments.iter().map(|alignment| alignment.as_str()).collect::<Vec<_>>(),
                 "column_widths": table.column_widths(),
@@ -2153,6 +2161,7 @@ mod tests {
                 .unwrap()
                 >= 1
         );
+        assert_eq!(value["outline"][0]["index"], 0);
         assert_eq!(value["outline"][0]["level"], 1);
         assert_eq!(value["outline"][0]["text"], "Title");
         assert_eq!(value["outline"][0]["anchor"], "title");
@@ -2163,16 +2172,22 @@ mod tests {
         assert_eq!(value["images"][0]["url"], "logo.png");
         assert_eq!(value["images"][0]["title"], serde_json::Value::Null);
         assert_eq!(value["footnote_references"][0], "n");
+        assert_eq!(value["footnotes"][0]["index"], 0);
         assert_eq!(value["footnotes"][0]["label"], "n");
         assert_eq!(value["footnotes"][0]["text"], "note text");
+        assert_eq!(value["definitions"][0]["index"], 0);
         assert_eq!(value["definitions"][0]["term"], "Term");
         assert_eq!(value["definitions"][0]["definition"], "Definition text");
+        assert_eq!(value["math"][0]["index"], 0);
         assert_eq!(value["math"][0]["kind"], "inline");
         assert_eq!(value["math"][0]["source"], "x + y");
+        assert_eq!(value["html"][0]["index"], 0);
         assert_eq!(value["html"][0]["kind"], "inline");
         assert_eq!(value["html"][0]["source"], "<kbd>");
+        assert_eq!(value["code_blocks"][0]["index"], 0);
         assert_eq!(value["code_blocks"][0]["language"], "rust");
         assert_eq!(value["code_blocks"][0]["text"], "fn main() {}");
+        assert_eq!(value["tables"][0]["index"], 0);
         assert_eq!(value["tables"][0]["rows"][1][0], "1");
         assert_eq!(value["tables"][0]["alignments"][0], "left");
         assert_eq!(value["tables"][0]["alignments"][1], "center");
@@ -2192,6 +2207,7 @@ mod tests {
         let mut out = Vec::new();
         write_metadata_json(&doc, source, 80, Some("frontmatter.md"), &mut out).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["metadata_blocks"][0]["index"], 0);
         assert_eq!(value["metadata_blocks"][0]["kind"], "yaml");
         assert_eq!(value["metadata_blocks"][0]["source"], "title: Proof");
     }
