@@ -157,6 +157,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--glossary" => set_mode(&mut mode, &mut mode_flag, "--glossary", Mode::Definitions)?,
             "--math" => set_mode(&mut mode, &mut mode_flag, "--math", Mode::Math)?,
             "--html" => set_mode(&mut mode, &mut mode_flag, "--html", Mode::Html)?,
+            "--markup" => set_mode(&mut mode, &mut mode_flag, "--markup", Mode::Html)?,
             "--stats" => set_mode(&mut mode, &mut mode_flag, "--stats", Mode::Stats)?,
             "--summary" => set_mode(&mut mode, &mut mode_flag, "--summary", Mode::Stats)?,
             "--metadata-json" => set_mode(
@@ -225,7 +226,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1386,6 +1387,21 @@ mod tests {
         let cfg = parse_args(["--glossary".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Definitions);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_markup_alias() {
+        let cfg = parse_args(["--markup".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Html);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_html_plus_markup() {
+        let err = parse_args(["--html".to_string(), "--markup".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--html"), "{err}");
+        assert!(err.to_string().contains("--markup"), "{err}");
     }
 
     #[test]
