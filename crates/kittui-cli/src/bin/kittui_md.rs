@@ -765,6 +765,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
     let mut show_images = false;
     let mut show_tables = false;
     let mut show_code_blocks = false;
+    let mut show_footnotes = false;
     let mut status: Option<String> = None;
     loop {
         write!(stdout, "\x1b[2J\x1b[H")?;
@@ -780,6 +781,8 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             write_interactive_tables(&doc, viewport, &mut stdout)?;
         } else if show_code_blocks {
             write_interactive_code_blocks(&doc, viewport, &mut stdout)?;
+        } else if show_footnotes {
+            write_interactive_footnotes(&doc, viewport, &mut stdout)?;
         } else {
             write_rich(&doc, &cfg, &mut stdout)?;
         }
@@ -790,6 +793,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             show_images,
             show_tables,
             show_code_blocks,
+            show_footnotes,
             status.as_deref(),
             &path,
             cfg.offset_rows,
@@ -810,6 +814,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_images = false;
                 show_tables = false;
                 show_code_blocks = false;
+                show_footnotes = false;
             }
             continue;
         }
@@ -821,6 +826,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_images = false;
                 show_tables = false;
                 show_code_blocks = false;
+                show_footnotes = false;
             }
             continue;
         }
@@ -832,6 +838,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_images = false;
                 show_tables = false;
                 show_code_blocks = false;
+                show_footnotes = false;
             }
             continue;
         }
@@ -843,6 +850,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_links = false;
                 show_tables = false;
                 show_code_blocks = false;
+                show_footnotes = false;
             }
             continue;
         }
@@ -854,6 +862,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_links = false;
                 show_images = false;
                 show_code_blocks = false;
+                show_footnotes = false;
             }
             continue;
         }
@@ -865,6 +874,19 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_links = false;
                 show_images = false;
                 show_tables = false;
+                show_footnotes = false;
+            }
+            continue;
+        }
+        if action == PagerAction::Footnotes {
+            show_footnotes = !show_footnotes;
+            if show_footnotes {
+                show_help = false;
+                show_outline = false;
+                show_links = false;
+                show_images = false;
+                show_tables = false;
+                show_code_blocks = false;
             }
             continue;
         }
@@ -879,6 +901,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                     show_images = false;
                     show_tables = false;
                     show_code_blocks = false;
+                    show_footnotes = false;
                     status = Some(format!("reloaded {path} — {total_rows} rows"));
                 }
                 Err(err) => {
@@ -892,7 +915,13 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             status = None;
             continue;
         }
-        if show_help || show_outline || show_links || show_images || show_tables || show_code_blocks
+        if show_help
+            || show_outline
+            || show_links
+            || show_images
+            || show_tables
+            || show_code_blocks
+            || show_footnotes
         {
             continue;
         }
@@ -919,6 +948,7 @@ enum PagerAction {
     Images,
     Tables,
     CodeBlocks,
+    Footnotes,
     Reload,
     ClearStatus,
 }
@@ -940,6 +970,7 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
         b'i' => PagerAction::Images,
         b't' => PagerAction::Tables,
         b's' => PagerAction::CodeBlocks,
+        b'f' => PagerAction::Footnotes,
         b'r' => PagerAction::Reload,
         b'c' => PagerAction::ClearStatus,
         27 => read_escape_action(input)?,
@@ -1027,6 +1058,7 @@ fn apply_pager_action(
         | PagerAction::Images
         | PagerAction::Tables
         | PagerAction::CodeBlocks
+        | PagerAction::Footnotes
         | PagerAction::Reload
         | PagerAction::ClearStatus => offset.min(max_offset),
     }
@@ -1194,6 +1226,40 @@ fn write_interactive_code_blocks(
     Ok(())
 }
 
+fn write_interactive_footnotes(
+    doc: &MarkdownDocument,
+    viewport_rows: u16,
+    out: &mut impl Write,
+) -> Result<()> {
+    writeln!(
+        out,
+        "kittui-md footnotes — {} references, {} definitions",
+        doc.footnote_references.len(),
+        doc.footnotes.len()
+    )?;
+    writeln!(out)?;
+    if doc.footnote_references.is_empty() && doc.footnotes.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    let mut written = 0usize;
+    for reference in &doc.footnote_references {
+        if written >= viewport_rows.saturating_sub(3) as usize {
+            return Ok(());
+        }
+        writeln!(out, "ref [^{reference}]")?;
+        written += 1;
+    }
+    for footnote in &doc.footnotes {
+        if written >= viewport_rows.saturating_sub(3) as usize {
+            return Ok(());
+        }
+        writeln!(out, "def [^{}]: {}", footnote.label, footnote.text)?;
+        written += 1;
+    }
+    Ok(())
+}
+
 fn write_interactive_footer(
     show_help: bool,
     show_outline: bool,
@@ -1201,6 +1267,7 @@ fn write_interactive_footer(
     show_images: bool,
     show_tables: bool,
     show_code_blocks: bool,
+    show_footnotes: bool,
     status: Option<&str>,
     path: &str,
     offset_rows: u16,
@@ -1223,37 +1290,42 @@ fn write_interactive_footer(
     if show_help {
         writeln!(
             out,
-            "h/? close help • o outline • l links • i images • t tables • s code • r reload • c clear status • q quit"
+            "h/? close help • o outline • l links • i images • t tables • s code • f footnotes • r reload • c clear status • q quit"
         )?;
     } else if show_outline {
         writeln!(
             out,
-            "o close outline • l links • i images • t tables • s code • h/? help • r reload • c clear status • q quit"
+            "o close outline • l links • i images • t tables • s code • f footnotes • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_links {
         writeln!(
             out,
-            "l close links • o outline • i images • t tables • s code • h/? help • r reload • c clear status • q quit"
+            "l close links • o outline • i images • t tables • s code • f footnotes • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_images {
         writeln!(
             out,
-            "i close images • o outline • l links • t tables • s code • h/? help • r reload • c clear status • q quit"
+            "i close images • o outline • l links • t tables • s code • f footnotes • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_tables {
         writeln!(
             out,
-            "t close tables • o outline • l links • i images • s code • h/? help • r reload • c clear status • q quit"
+            "t close tables • o outline • l links • i images • s code • f footnotes • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_code_blocks {
         writeln!(
             out,
-            "s close code • o outline • l links • i images • t tables • h/? help • r reload • c clear status • q quit"
+            "s close code • o outline • l links • i images • t tables • f footnotes • h/? help • r reload • c clear status • q quit"
+        )?;
+    } else if show_footnotes {
+        writeln!(
+            out,
+            "f close footnotes • o outline • l links • i images • t tables • s code • h/? help • r reload • c clear status • q quit"
         )?;
     } else {
         writeln!(
             out,
-            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • o outline • l links • i images • t tables • s code • r reload • c clear status • q quit"
+            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • o outline • l links • i images • t tables • s code • f footnotes • r reload • c clear status • q quit"
         )?;
     }
     Ok(())
@@ -2513,6 +2585,11 @@ const KEYBINDINGS: &[KeybindingInfo] = &[
         action: "code-blocks",
         keys: &["s"],
         description: "Toggle the interactive document code blocks screen.",
+    },
+    KeybindingInfo {
+        action: "footnotes",
+        keys: &["f"],
+        description: "Toggle the interactive document footnotes screen.",
     },
     KeybindingInfo {
         action: "reload",
@@ -4846,6 +4923,7 @@ mod tests {
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Images), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Tables), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::CodeBlocks), 4);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Footnotes), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Reload), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::ClearStatus), 4);
     }
@@ -4887,6 +4965,15 @@ mod tests {
     }
 
     #[test]
+    fn pager_reads_footnotes_key() {
+        let mut cursor = std::io::Cursor::new(b"f".as_slice());
+        assert_eq!(
+            read_pager_action(&mut cursor).unwrap(),
+            PagerAction::Footnotes
+        );
+    }
+
+    #[test]
     fn pager_reads_clear_status_key() {
         let mut cursor = std::io::Cursor::new(b"c".as_slice());
         assert_eq!(
@@ -4924,6 +5011,7 @@ mod tests {
         assert!(rendered.contains("images: i"), "{rendered}");
         assert!(rendered.contains("tables: t"), "{rendered}");
         assert!(rendered.contains("code-blocks: s"), "{rendered}");
+        assert!(rendered.contains("footnotes: f"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
@@ -5125,9 +5213,43 @@ mod tests {
     }
 
     #[test]
+    fn interactive_footnotes_lists_references_and_definitions() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![],
+            images: vec![],
+            outline: vec![],
+            footnotes: vec![MarkdownFootnote {
+                label: "note".to_string(),
+                text: "Footnote body".to_string(),
+            }],
+            footnote_references: vec!["note".to_string()],
+            definitions: vec![],
+            math: vec![],
+            html: vec![],
+            code_blocks: vec![],
+            metadata_blocks: vec![],
+        };
+        let mut out = Vec::new();
+        write_interactive_footnotes(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md footnotes — 1 references, 1 definitions"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("ref [^note]"), "{rendered}");
+        assert!(
+            rendered.contains("def [^note]: Footnote body"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
     fn interactive_footer_writes_reload_status() {
         let mut out = Vec::new();
         write_interactive_footer(
+            false,
             false,
             false,
             false,
@@ -5155,6 +5277,7 @@ mod tests {
         assert!(rendered.contains("i images"), "{rendered}");
         assert!(rendered.contains("t tables"), "{rendered}");
         assert!(rendered.contains("s code"), "{rendered}");
+        assert!(rendered.contains("f footnotes"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
@@ -5162,7 +5285,7 @@ mod tests {
     fn interactive_footer_omits_status_when_cleared() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, false, false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5176,6 +5299,7 @@ mod tests {
         let mut out = Vec::new();
         write_interactive_footer(
             true,
+            false,
             false,
             false,
             false,
@@ -5202,7 +5326,7 @@ mod tests {
     fn interactive_footer_writes_outline_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, true, false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, true, false, false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5216,7 +5340,7 @@ mod tests {
     fn interactive_footer_writes_links_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, true, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, true, false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5230,7 +5354,7 @@ mod tests {
     fn interactive_footer_writes_images_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, false, true, false, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, false, true, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5245,7 +5369,7 @@ mod tests {
     fn interactive_footer_writes_tables_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, false, false, true, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, false, false, true, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5261,7 +5385,7 @@ mod tests {
     fn interactive_footer_writes_code_blocks_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, false, false, false, true, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, false, false, false, true, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5270,6 +5394,24 @@ mod tests {
         assert!(rendered.contains("l links"), "{rendered}");
         assert!(rendered.contains("i images"), "{rendered}");
         assert!(rendered.contains("t tables"), "{rendered}");
+        assert!(rendered.contains("f footnotes"), "{rendered}");
+        assert!(rendered.contains("h/? help"), "{rendered}");
+    }
+
+    #[test]
+    fn interactive_footer_writes_footnotes_controls() {
+        let mut out = Vec::new();
+        write_interactive_footer(
+            false, false, false, false, false, false, true, None, "doc.md", 0, 10, 30, &mut out,
+        )
+        .unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("f close footnotes"), "{rendered}");
+        assert!(rendered.contains("o outline"), "{rendered}");
+        assert!(rendered.contains("l links"), "{rendered}");
+        assert!(rendered.contains("i images"), "{rendered}");
+        assert!(rendered.contains("t tables"), "{rendered}");
+        assert!(rendered.contains("s code"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
@@ -6489,6 +6631,7 @@ mod tests {
         assert!(rendered.contains("images: i"), "{rendered}");
         assert!(rendered.contains("tables: t"), "{rendered}");
         assert!(rendered.contains("code-blocks: s"), "{rendered}");
+        assert!(rendered.contains("footnotes: f"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
@@ -6554,6 +6697,17 @@ mod tests {
                         .as_array()
                         .unwrap()
                         .contains(&serde_json::json!("s"))
+            }));
+        assert!(value["keybindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|binding| {
+                binding["action"] == "footnotes"
+                    && binding["keys"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("f"))
             }));
         assert!(value["keybindings"]
             .as_array()
