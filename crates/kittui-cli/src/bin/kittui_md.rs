@@ -22,6 +22,7 @@ enum Mode {
     CodeBlocks,
     Definitions,
     Math,
+    Html,
     Stats,
     MetadataJson,
 }
@@ -72,6 +73,7 @@ fn real_main() -> Result<()> {
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
         Mode::Math => write_math(&doc, &mut std::io::stdout().lock()),
+        Mode::Html => write_html(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(&doc, &markdown, &mut std::io::stdout().lock()),
         Mode::MetadataJson => write_metadata_json(
             &doc,
@@ -104,6 +106,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--code-blocks" => mode = Mode::CodeBlocks,
             "--definitions" => mode = Mode::Definitions,
             "--math" => mode = Mode::Math,
+            "--html" => mode = Mode::Html,
             "--stats" => mode = Mode::Stats,
             "--metadata-json" => mode = Mode::MetadataJson,
             "--width" => {
@@ -149,7 +152,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--code-blocks|--definitions|--math|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--code-blocks|--definitions|--math|--html|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -406,6 +409,20 @@ fn write_tables(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
         for row in &table.rows {
             writeln!(out, "  | {} |", row.join(" | "))?;
         }
+    }
+    Ok(())
+}
+
+fn write_html(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md html — {} fragments", doc.html.len())?;
+    if doc.html.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for (i, html) in doc.html.iter().enumerate() {
+        writeln!(out, "html #{}", i + 1)?;
+        writeln!(out, "  kind={}", html.kind.as_str())?;
+        writeln!(out, "  source={}", html.source)?;
     }
     Ok(())
 }
@@ -1213,6 +1230,41 @@ mod tests {
         assert!(
             status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 0 code blocks"),
             "{status}"
+        );
+    }
+
+    #[test]
+    fn html_mode_writes_kind_and_source() {
+        let doc = render_markdown("hello <kbd>x</kbd>\n\n<div>block</div>", 80);
+        let mut out = Vec::new();
+        write_html(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md html — 3 fragments"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("html #1\n  kind=inline\n  source=<kbd>"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("html #2\n  kind=inline\n  source=</kbd>"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("html #3\n  kind=block\n  source=<div>block</div>"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn html_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_html(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md html — 0 fragments\n<empty>\n"
         );
     }
 
