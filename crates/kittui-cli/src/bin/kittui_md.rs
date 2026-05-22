@@ -31,6 +31,7 @@ enum Mode {
     CodeBlocks,
     MetadataBlocks,
     Definitions,
+    DefinitionsJson,
     Math,
     Html,
     Counts,
@@ -94,6 +95,7 @@ fn real_main() -> Result<()> {
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::MetadataBlocks => write_metadata_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
+        Mode::DefinitionsJson => write_definitions_json(&doc, &mut std::io::stdout().lock()),
         Mode::Math => write_math(&doc, &mut std::io::stdout().lock()),
         Mode::Html => write_html(&doc, &mut std::io::stdout().lock()),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
@@ -199,6 +201,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 Mode::Definitions,
             )?,
             "--glossary" => set_mode(&mut mode, &mut mode_flag, "--glossary", Mode::Definitions)?,
+            "--definitions-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--definitions-json",
+                Mode::DefinitionsJson,
+            )?,
             "--math" => set_mode(&mut mode, &mut mode_flag, "--math", Mode::Math)?,
             "--equations" => set_mode(&mut mode, &mut mode_flag, "--equations", Mode::Math)?,
             "--html" => set_mode(&mut mode, &mut mode_flag, "--html", Mode::Html)?,
@@ -275,7 +283,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--definitions-json|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -755,6 +763,20 @@ fn write_definitions(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()>
         writeln!(out, "  term={}", definition.term)?;
         writeln!(out, "  definition={}", definition.definition)?;
     }
+    Ok(())
+}
+
+fn write_definitions_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "definitions": doc.definitions.iter().enumerate().map(|(index, definition)| serde_json::json!({
+            "index": index,
+            "term": definition.term,
+            "definition": definition.definition,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -1674,6 +1696,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_definitions_json_mode() {
+        let cfg = parse_args(["--definitions-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::DefinitionsJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_definitions_plus_definitions_json() {
+        let err = parse_args([
+            "--definitions".to_string(),
+            "--definitions-json".to_string(),
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--definitions"), "{err}");
+        assert!(err.to_string().contains("--definitions-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_accepts_markup_alias() {
         let cfg = parse_args(["--markup".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Html);
@@ -2122,6 +2163,18 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "kittui-md definitions — 0 definitions\n<empty>\n"
         );
+    }
+
+    #[test]
+    fn definitions_json_mode_writes_definition_records() {
+        let doc = render_markdown("Term\n: Definition text", 80);
+        let mut out = Vec::new();
+        write_definitions_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["definitions"][0]["index"], 0);
+        assert_eq!(value["definitions"][0]["term"], "Term");
+        assert_eq!(value["definitions"][0]["definition"], "Definition text");
     }
 
     #[test]
