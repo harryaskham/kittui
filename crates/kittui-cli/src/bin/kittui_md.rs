@@ -44,6 +44,7 @@ enum Mode {
     Counts,
     CountsJson,
     Stats,
+    StatsJson,
     MetadataJson,
 }
 
@@ -115,6 +116,13 @@ fn real_main() -> Result<()> {
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
+            &doc,
+            &markdown,
+            cfg.path.as_deref(),
+            cfg.width,
+            &mut std::io::stdout().lock(),
+        ),
+        Mode::StatsJson => write_stats_json(
             &doc,
             &markdown,
             cfg.path.as_deref(),
@@ -263,6 +271,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             }
             "--stats" => set_mode(&mut mode, &mut mode_flag, "--stats", Mode::Stats)?,
             "--summary" => set_mode(&mut mode, &mut mode_flag, "--summary", Mode::Stats)?,
+            "--stats-json" => set_mode(&mut mode, &mut mode_flag, "--stats-json", Mode::StatsJson)?,
             "--metadata-json" => set_mode(
                 &mut mode,
                 &mut mode_flag,
@@ -329,7 +338,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -618,6 +627,31 @@ fn write_stats(
     writeln!(out, "source.path={}", source_path.unwrap_or("<stdin>"))?;
     writeln!(out, "render.width_cells={width_cells}")?;
     write_count_lines(doc, out)
+}
+
+fn write_stats_json(
+    doc: &MarkdownDocument,
+    source: &str,
+    source_path: Option<&str>,
+    width_cells: u16,
+    out: &mut impl Write,
+) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "source": {
+            "bytes": source.len(),
+            "lines": source.lines().count(),
+            "path": source_path.unwrap_or("<stdin>"),
+        },
+        "render": {
+            "mode": "stats-json",
+            "width_cells": width_cells,
+        },
+        "counts": metadata_counts(doc),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
 }
 
 fn write_counts(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
@@ -1839,6 +1873,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_stats_json_mode() {
+        let cfg = parse_args(["--stats-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::StatsJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_stats_plus_stats_json() {
+        let err = parse_args(["--stats".to_string(), "--stats-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--stats"), "{err}");
+        assert!(err.to_string().contains("--stats-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_accepts_counts_mode() {
         let cfg = parse_args(["--counts".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Counts);
@@ -2771,6 +2820,25 @@ mod tests {
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("source.path=docs/proof.md"), "{rendered}");
         assert!(rendered.contains("render.width_cells=72"), "{rendered}");
+    }
+
+    #[test]
+    fn stats_json_mode_reports_source_render_and_counts() {
+        let source = "# Title\n\nSee [site](https://example.com) and ![logo](logo.png).";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_stats_json(&doc, source, Some("docs/proof.md"), 72, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["source"]["bytes"], source.len());
+        assert_eq!(value["source"]["lines"], 3);
+        assert_eq!(value["source"]["path"], "docs/proof.md");
+        assert_eq!(value["render"]["mode"], "stats-json");
+        assert_eq!(value["render"]["width_cells"], 72);
+        assert_eq!(value["counts"]["headings"], 1);
+        assert_eq!(value["counts"]["links"], 1);
+        assert_eq!(value["counts"]["images"], 1);
+        assert!(value.get("components_detail").is_none());
     }
 
     #[test]

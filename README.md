@@ -157,6 +157,7 @@ cargo run -p kittui-cli --bin kittui-md -- --counts docs/examples/kittui-md-proo
 cargo run -p kittui-cli --bin kittui-md -- --counts-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --stats docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --summary docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --stats-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --metadata-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --interactive docs/examples/kittui-md-proof.md
@@ -217,7 +218,8 @@ Modes:
   emits the same counts as a minimal machine-readable JSON object.
 - `--stats` prints concise source path/size, render width,
   component/metadata counts (including heading-anchor count) for quick checks;
-  `--summary` is a friendly alias for the same mode.
+  `--summary` is a friendly alias for the same mode. `--stats-json` emits the
+  same source/render/count summary as compact machine-readable JSON.
 - `--metadata-json` emits schema-versioned JSON for tools; `--json` is a
   concise alias for the same mode. It includes top-level document counts, source
   byte/line/path data, render mode/width, indexed component details, indexed
