@@ -45,7 +45,10 @@ impl ListState {
 
 /// Render markdown into semantic kittui components.
 pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
-    let parser = Parser::new_ext(src, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH);
+    let parser = Parser::new_ext(
+        src,
+        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+    );
     let mut out = MarkdownDocument::default();
     let mut buf = String::new();
     let mut heading: Option<HeadingLevel> = None;
@@ -201,6 +204,14 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     buf.push('\n');
                 }
             }
+            Event::TaskListMarker(checked) => {
+                let marker = if checked { "[x] " } else { "[ ] " };
+                if in_table {
+                    table_cell.push_str(marker);
+                } else {
+                    buf.push_str(marker);
+                }
+            }
             Event::Rule => out.components.push(banner("—", width_cells, Tone::Tool)),
             _ => {
                 let _ = heading;
@@ -298,5 +309,18 @@ mod tests {
         assert!(text.contains("• beta"), "{text}");
         assert!(text.contains("3. gamma"), "{text}");
         assert!(text.contains("4. delta"), "{text}");
+    }
+
+    #[test]
+    fn markdown_renders_task_list_markers() {
+        let doc = render_markdown("- [ ] todo\n- [x] done", 60);
+        let text = doc
+            .components
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("• [ ] todo"), "{text}");
+        assert!(text.contains("• [x] done"), "{text}");
     }
 }
