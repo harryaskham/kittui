@@ -66,6 +66,8 @@ enum Mode {
     DefaultsJson,
     Examples,
     ExamplesJson,
+    ExitCodes,
+    ExitCodesJson,
     Counts,
     CountsJson,
     Stats,
@@ -169,6 +171,8 @@ fn real_main() -> Result<()> {
         Mode::DefaultsJson => return write_defaults_json(&mut std::io::stdout().lock()),
         Mode::Examples => return write_examples(&mut std::io::stdout().lock()),
         Mode::ExamplesJson => return write_examples_json(&mut std::io::stdout().lock()),
+        Mode::ExitCodes => return write_exit_codes(&mut std::io::stdout().lock()),
+        Mode::ExitCodesJson => return write_exit_codes_json(&mut std::io::stdout().lock()),
         _ => {}
     }
     let markdown = if let Some(path) = &cfg.path {
@@ -232,6 +236,8 @@ fn real_main() -> Result<()> {
         Mode::DefaultsJson => unreachable!("defaults return before reading input"),
         Mode::Examples => unreachable!("examples return before reading input"),
         Mode::ExamplesJson => unreachable!("examples return before reading input"),
+        Mode::ExitCodes => unreachable!("exit codes return before reading input"),
+        Mode::ExitCodesJson => unreachable!("exit codes return before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -528,6 +534,13 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--examples-json",
                 Mode::ExamplesJson,
             )?,
+            "--exit-codes" => set_mode(&mut mode, &mut mode_flag, "--exit-codes", Mode::ExitCodes)?,
+            "--exit-codes-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--exit-codes-json",
+                Mode::ExitCodesJson,
+            )?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -681,6 +694,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "defaults-json" => Ok((Mode::DefaultsJson, "--defaults-json")),
         "examples" => Ok((Mode::Examples, "--examples")),
         "examples-json" => Ok((Mode::ExamplesJson, "--examples-json")),
+        "exit-codes" => Ok((Mode::ExitCodes, "--exit-codes")),
+        "exit-codes-json" => Ok((Mode::ExitCodesJson, "--exit-codes-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
         "counts-json" => Ok((Mode::CountsJson, "--counts-json")),
         "stats" => Ok((Mode::Stats, "--stats")),
@@ -693,7 +708,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--output-formats|--output-formats-json|--defaults|--defaults-json|--examples|--examples-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--output-formats|--output-formats-json|--defaults|--defaults-json|--examples|--examples-json|--exit-codes|--exit-codes-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1152,6 +1167,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit common invocation examples as JSON",
     },
     ModeInfo {
+        flag: "--exit-codes",
+        aliases: &[],
+        description: "print process exit code meanings",
+    },
+    ModeInfo {
+        flag: "--exit-codes-json",
+        aliases: &[],
+        description: "emit process exit code meanings as JSON",
+    },
+    ModeInfo {
         flag: "--counts",
         aliases: &[],
         description: "print compact structural counts",
@@ -1328,6 +1353,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "Common invocation examples.",
     },
     JsonSchemaInfo {
+        mode: "--exit-codes-json",
+        top_level_keys: &["schema_version", "exit_codes"],
+        description: "Process exit code meanings.",
+    },
+    JsonSchemaInfo {
         mode: "--counts-json",
         top_level_keys: &["schema_version", "counts"],
         description: "Compact structural counts.",
@@ -1411,7 +1441,9 @@ fn mode_category(flag: &str) -> &'static str {
         | "--defaults"
         | "--defaults-json"
         | "--examples"
-        | "--examples-json" => "discovery",
+        | "--examples-json"
+        | "--exit-codes"
+        | "--exit-codes-json" => "discovery",
         _ if flag.ends_with("-json") || flag == "--json" => "json",
         _ => "other",
     }
@@ -1932,6 +1964,49 @@ fn write_examples_json(out: &mut impl Write) -> Result<()> {
             "name": example.name,
             "argv": example.argv,
             "description": example.description,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+struct ExitCodeInfo {
+    code: i32,
+    name: &'static str,
+    description: &'static str,
+}
+
+const EXIT_CODES: &[ExitCodeInfo] = &[
+    ExitCodeInfo {
+        code: 0,
+        name: "success",
+        description: "Command completed successfully.",
+    },
+    ExitCodeInfo {
+        code: 1,
+        name: "error",
+        description:
+            "Invalid arguments, unreadable input, rendering failure, or another runtime error.",
+    },
+];
+
+fn write_exit_codes(out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md exit codes — {} codes", EXIT_CODES.len())?;
+    for code in EXIT_CODES {
+        writeln!(out, "{} {} — {}", code.code, code.name, code.description)?;
+    }
+    Ok(())
+}
+
+fn write_exit_codes_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "exit_codes": EXIT_CODES.iter().enumerate().map(|(index, code)| serde_json::json!({
+            "index": index,
+            "code": code.code,
+            "name": code.name,
+            "description": code.description,
         })).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
@@ -3552,6 +3627,27 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--examples"), "{err}");
         assert!(err.to_string().contains("--examples-json"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_exit_codes_mode() {
+        let cfg = parse_args(["--exit-codes".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ExitCodes);
+    }
+
+    #[test]
+    fn parse_args_accepts_exit_codes_json_mode() {
+        let cfg = parse_args(["--exit-codes-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ExitCodesJson);
+    }
+
+    #[test]
+    fn parse_args_rejects_exit_codes_plus_exit_codes_json() {
+        let err =
+            parse_args(["--exit-codes".to_string(), "--exit-codes-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--exit-codes"), "{err}");
+        assert!(err.to_string().contains("--exit-codes-json"), "{err}");
     }
 
     #[test]
@@ -5265,6 +5361,34 @@ mod tests {
                     .unwrap()
                     .contains(&serde_json::json!("--components-json"))
         }));
+    }
+
+    #[test]
+    fn exit_codes_mode_lists_exit_codes() {
+        let mut out = Vec::new();
+        write_exit_codes(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("kittui-md exit codes"), "{rendered}");
+        assert!(rendered.contains("0 success"), "{rendered}");
+        assert!(rendered.contains("1 error"), "{rendered}");
+    }
+
+    #[test]
+    fn exit_codes_json_mode_lists_exit_codes() {
+        let mut out = Vec::new();
+        write_exit_codes_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert!(value["exit_codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|code| { code["code"] == 0 && code["name"] == "success" }));
+        assert!(value["exit_codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|code| { code["code"] == 1 && code["name"] == "error" }));
     }
 
     #[test]
