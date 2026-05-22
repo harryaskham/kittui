@@ -207,8 +207,8 @@ Modes:
   the same component records as machine-readable JSON.
 - `--interactive` opens a raw-mode rich pager for file inputs; use `j/k`, arrow
   keys, PageUp/PageDown, Home/End, `g/G`, `h`/`?` for in-pager help, `o` to
-  toggle the document outline, `r` to reload the file from disk, `c` to clear
-  the current status message, and `q`.
+  toggle the document outline, `l` to inspect document links, `r` to reload the
+  file from disk, `c` to clear the current status message, and `q`.
   The footer shows the source path, current offset/max offset, viewport size,
   and total rendered rows; reloads also report an in-pager status message for
   both success and transient file errors.
