@@ -1086,6 +1086,20 @@ fn write_modes(out: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
+fn mode_category(flag: &str) -> &'static str {
+    match flag {
+        "--rich" | "--plain" => "render",
+        "--components" | "--outline" | "--anchors" | "--references" | "--links" | "--footnotes"
+        | "--images" | "--tables" | "--code-blocks" | "--metadata-blocks" | "--definitions"
+        | "--math" | "--html" => "inspect",
+        "--counts" | "--stats" => "stats",
+        "--modes" | "--modes-json" | "--schemas-json" | "--mode-info" | "--mode-info-json"
+        | "--mode-search" | "--mode-search-json" | "--about" | "--about-json" => "discovery",
+        _ if flag.ends_with("-json") || flag == "--json" => "json",
+        _ => "other",
+    }
+}
+
 fn write_modes_json(out: &mut impl Write) -> Result<()> {
     let value = serde_json::json!({
         "schema_version": 1,
@@ -1094,6 +1108,7 @@ fn write_modes_json(out: &mut impl Write) -> Result<()> {
             "flag": info.flag,
             "aliases": info.aliases,
             "description": info.description,
+            "category": mode_category(info.flag),
         })).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
@@ -1169,6 +1184,7 @@ fn write_mode_info_json(name: &str, out: &mut impl Write) -> Result<()> {
             "flag": info.flag,
             "aliases": info.aliases,
             "description": info.description,
+            "category": mode_category(info.flag),
             "json_schema": schema,
         },
     });
@@ -1235,6 +1251,7 @@ fn write_mode_search_json(query: &str, out: &mut impl Write) -> Result<()> {
                 "flag": info.flag,
                 "aliases": info.aliases,
                 "description": info.description,
+                "category": mode_category(info.flag),
                 "json_schema": schema,
             })
         }).collect::<Vec<_>>(),
@@ -4073,9 +4090,13 @@ mod tests {
         assert_eq!(value["schema_version"], 1);
         let modes = value["modes"].as_array().unwrap();
         assert!(modes.iter().any(|mode| {
-            mode["flag"] == "--components" && mode["aliases"] == serde_json::json!(["--widgets"])
+            mode["flag"] == "--components"
+                && mode["aliases"] == serde_json::json!(["--widgets"])
+                && mode["category"] == "inspect"
         }));
-        assert!(modes.iter().any(|mode| mode["flag"] == "--modes-json"));
+        assert!(modes
+            .iter()
+            .any(|mode| { mode["flag"] == "--modes-json" && mode["category"] == "discovery" }));
         assert!(modes
             .iter()
             .any(|mode| mode["description"] == "emit full document metadata as JSON"));
@@ -4128,6 +4149,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(value["schema_version"], 1);
         assert_eq!(value["mode"]["flag"], "--stats-json");
+        assert_eq!(value["mode"]["category"], "json");
         assert_eq!(
             value["mode"]["json_schema"]["top_level_keys"],
             serde_json::json!(["schema_version", "source", "render", "counts"])
@@ -4167,10 +4189,13 @@ mod tests {
         assert_eq!(value["query"], "table");
         let matches = value["matches"].as_array().unwrap();
         assert!(matches.iter().any(|mode| {
-            mode["flag"] == "--tables" && mode["json_schema"] == serde_json::Value::Null
+            mode["flag"] == "--tables"
+                && mode["category"] == "inspect"
+                && mode["json_schema"] == serde_json::Value::Null
         }));
         assert!(matches.iter().any(|mode| {
             mode["flag"] == "--tables-json"
+                && mode["category"] == "json"
                 && mode["json_schema"]["top_level_keys"]
                     == serde_json::json!(["schema_version", "tables"])
         }));
