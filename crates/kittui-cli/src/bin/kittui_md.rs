@@ -23,6 +23,7 @@ struct Config {
     width: u16,
     offset_rows: u16,
     height_rows: Option<u16>,
+    interactive: bool,
     path: Option<String>,
 }
 
@@ -55,6 +56,7 @@ fn real_main() -> Result<()> {
     let doc = render_markdown(&markdown, cfg.width);
     match cfg.mode {
         Mode::Plain => write_plain(&doc, cfg.width, &mut std::io::stdout().lock()),
+        Mode::Rich if cfg.interactive => run_interactive(&doc, cfg),
         Mode::Rich => write_rich(&doc, &cfg, &mut std::io::stdout().lock()),
     }
 }
@@ -64,6 +66,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
     let mut width = terminal_cols().unwrap_or(80).clamp(20, 120);
     let mut offset_rows = 0;
     let mut height_rows = None;
+    let mut interactive = false;
     let mut path = None;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -82,6 +85,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                     .ok_or_else(|| anyhow!("--offset requires a value"))?
                     .parse()?
             }
+            "--interactive" | "-i" => interactive = true,
             "--height" => {
                 height_rows = Some(
                     args.next()
@@ -106,15 +110,137 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
         width: width.clamp(20, 200),
         offset_rows,
         height_rows,
+        interactive,
         path,
     })
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
+}
+
+fn run_interactive(doc: &MarkdownDocument, mut cfg: Config) -> Result<()> {
+    if cfg.path.is_none() {
+        return Err(anyhow!(
+            "--interactive requires an input file so stdin can be used for keys"
+        ));
+    }
+    let _raw = RawTerminal::enter()?;
+    let mut stdout = std::io::stdout().lock();
+    let mut stdin = std::io::stdin().lock();
+    let viewport = cfg
+        .height_rows
+        .unwrap_or_else(|| terminal_rows().unwrap_or(24).saturating_sub(2).max(1));
+    cfg.height_rows = Some(viewport);
+    let total_rows = document_rows(doc, cfg.width);
+    loop {
+        write!(stdout, "\x1b[2J\x1b[H")?;
+        write_rich(doc, &cfg, &mut stdout)?;
+        writeln!(
+            stdout,
+            "j/k scroll • space/page down • b/page up • g/G ends • q quit"
+        )?;
+        stdout.flush()?;
+        let action = read_pager_action(&mut stdin)?;
+        if action == PagerAction::Quit {
+            break;
+        }
+        cfg.offset_rows = apply_pager_action(cfg.offset_rows, viewport, total_rows, action);
+    }
+    write!(stdout, "\x1b[0m\x1b[?25h\x1b[2J\x1b[H")?;
+    stdout.flush()?;
+    Ok(())
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum PagerAction {
+    Noop,
+    Quit,
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+}
+
+fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
+    let mut buf = [0u8; 1];
+    input.read_exact(&mut buf)?;
+    Ok(match buf[0] {
+        b'q' | 3 | 27 => PagerAction::Quit,
+        b'k' | b'w' => PagerAction::Up,
+        b'j' | b's' | b'\n' | b'\r' => PagerAction::Down,
+        b' ' => PagerAction::PageDown,
+        b'b' => PagerAction::PageUp,
+        b'g' => PagerAction::Home,
+        b'G' => PagerAction::End,
+        _ => PagerAction::Noop,
+    })
+}
+
+fn apply_pager_action(
+    offset: u16,
+    viewport_rows: u16,
+    total_rows: u16,
+    action: PagerAction,
+) -> u16 {
+    let max_offset = total_rows.saturating_sub(viewport_rows);
+    match action {
+        PagerAction::Noop => offset.min(max_offset),
+        PagerAction::Quit => offset,
+        PagerAction::Up => offset.saturating_sub(1),
+        PagerAction::Down => offset.saturating_add(1).min(max_offset),
+        PagerAction::PageUp => offset.saturating_sub(viewport_rows.max(1)),
+        PagerAction::PageDown => offset.saturating_add(viewport_rows.max(1)).min(max_offset),
+        PagerAction::Home => 0,
+        PagerAction::End => max_offset,
+    }
+}
+
+fn document_rows(doc: &MarkdownDocument, width: u16) -> u16 {
+    layout_components(&doc.components, &doc.tables, width)
+        .last()
+        .map(|item| item.rect.y.saturating_add(item.rect.rows))
+        .unwrap_or(0)
+}
+
+struct RawTerminal {
+    original: libc::termios,
+}
+
+impl RawTerminal {
+    fn enter() -> Result<Self> {
+        let fd = libc::STDIN_FILENO;
+        let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+        let rc = unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) };
+        if rc != 0 {
+            return Err(anyhow!(
+                "tcgetattr failed: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        let original = unsafe { original.assume_init() };
+        let mut raw = original;
+        unsafe { libc::cfmakeraw(&mut raw) };
+        let rc = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw) };
+        if rc != 0 {
+            return Err(anyhow!(
+                "tcsetattr raw failed: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(Self { original })
+    }
+}
+
+impl Drop for RawTerminal {
+    fn drop(&mut self) {
+        let _ = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.original) };
+    }
 }
 
 fn write_plain(doc: &MarkdownDocument, width: u16, out: &mut impl Write) -> Result<()> {
@@ -388,6 +514,21 @@ fn truncate_cells(s: &str, max: usize) -> String {
     out
 }
 
+fn terminal_rows() -> Option<u16> {
+    let mut ws = libc::winsize {
+        ws_row: 0,
+        ws_col: 0,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    let rc = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) };
+    if rc == 0 && ws.ws_row > 0 {
+        Some(ws.ws_row)
+    } else {
+        None
+    }
+}
+
 fn terminal_cols() -> Option<u16> {
     let mut ws = libc::winsize {
         ws_row: 0,
@@ -423,6 +564,27 @@ mod tests {
         let layout = layout_components(&comps, &tables, 80);
         assert_eq!(layout[0].table_index, Some(0));
         assert!(layout[0].rect.rows > 2);
+    }
+
+    #[test]
+    fn pager_actions_clamp_to_document() {
+        assert_eq!(apply_pager_action(0, 10, 30, PagerAction::Down), 1);
+        assert_eq!(apply_pager_action(3, 10, 30, PagerAction::PageUp), 0);
+        assert_eq!(apply_pager_action(0, 10, 30, PagerAction::PageDown), 10);
+        assert_eq!(apply_pager_action(19, 10, 30, PagerAction::Down), 20);
+        assert_eq!(apply_pager_action(20, 10, 30, PagerAction::Down), 20);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Home), 0);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::End), 20);
+    }
+
+    #[test]
+    fn document_rows_reports_bottom_edge() {
+        let doc = MarkdownDocument {
+            components: vec![h1("One", 40), h1("Two", 40)],
+            links: vec![],
+            tables: vec![],
+        };
+        assert_eq!(document_rows(&doc, 80), 7);
     }
 
     #[test]
