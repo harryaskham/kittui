@@ -748,7 +748,8 @@ fn write_metadata_json(
             "code_blocks": doc.code_blocks.len(),
         },
         "components": doc.components.len(),
-        "components_detail": doc.components.iter().map(|component| serde_json::json!({
+        "components_detail": doc.components.iter().enumerate().map(|(index, component)| serde_json::json!({
+            "index": index,
             "kind": format!("{:?}", component.kind),
             "text": component.text,
             "width_cells": component.width_cells,
@@ -2140,6 +2141,7 @@ mod tests {
         assert_eq!(value["counts"]["html"], 2);
         assert_eq!(value["counts"]["metadata_blocks"], 0);
         assert_eq!(value["counts"]["code_blocks"], 1);
+        assert_eq!(value["components_detail"][0]["index"], 0);
         assert_eq!(value["components_detail"][0]["kind"], "H1");
         assert_eq!(value["components_detail"][0]["text"], "Title");
         assert_eq!(value["components_detail"][0]["width_cells"], 80);
