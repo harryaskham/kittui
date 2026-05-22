@@ -114,6 +114,7 @@ cargo run -p kittui-cli --bin kittui-md -- docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --plain docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --components docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --outline docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --links docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --references docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --footnotes docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --images docs/examples/kittui-md-proof.md
@@ -135,6 +136,7 @@ Modes:
 - `--interactive` opens a raw-mode rich pager for file inputs; use `j/k`, arrow
   keys, PageUp/PageDown, Home/End, `g/G`, and `q`.
 - `--outline` prints only the heading outline for quick document scanning.
+- `--links` prints only parsed Markdown links with labels and URLs.
 - `--references` prints only links, image references, footnote references, and
   footnote definitions for a human-readable reference audit.
 - `--footnotes` prints only footnote references and definitions.
