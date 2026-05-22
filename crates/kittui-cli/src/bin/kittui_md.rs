@@ -65,9 +65,13 @@ fn real_main() -> Result<()> {
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(&doc, &markdown, &mut std::io::stdout().lock()),
-        Mode::MetadataJson => {
-            write_metadata_json(&doc, &markdown, cfg.width, &mut std::io::stdout().lock())
-        }
+        Mode::MetadataJson => write_metadata_json(
+            &doc,
+            &markdown,
+            cfg.width,
+            cfg.path.as_deref(),
+            &mut std::io::stdout().lock(),
+        ),
         Mode::Rich if cfg.interactive => run_interactive(&doc, cfg),
         Mode::Rich => write_rich(&doc, &cfg, &mut std::io::stdout().lock()),
     }
@@ -404,6 +408,7 @@ fn write_metadata_json(
     doc: &MarkdownDocument,
     source: &str,
     width_cells: u16,
+    source_path: Option<&str>,
     out: &mut impl Write,
 ) -> Result<()> {
     let value = serde_json::json!({
@@ -411,6 +416,7 @@ fn write_metadata_json(
         "source": {
             "bytes": source.len(),
             "lines": source.lines().count(),
+            "path": source_path,
         },
         "render": {
             "mode": "metadata-json",
@@ -1178,11 +1184,12 @@ mod tests {
         );
         let mut out = Vec::new();
         let source = "# Title\n\nSee [site](https://example.com) and note[^n] plus $x + y$ and <kbd>x</kbd>.\n\n```rust\nfn main() {}\n```\n\n![logo](logo.png)\n\n| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n\nTerm\n: Definition text\n\n[^n]: note text";
-        write_metadata_json(&doc, source, 80, &mut out).unwrap();
+        write_metadata_json(&doc, source, 80, Some("proof.md"), &mut out).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(value["schema_version"], 1);
         assert_eq!(value["source"]["bytes"], source.len());
         assert_eq!(value["source"]["lines"], source.lines().count());
+        assert_eq!(value["source"]["path"], "proof.md");
         assert_eq!(value["render"]["mode"], "metadata-json");
         assert_eq!(value["render"]["width_cells"], 80);
         assert_eq!(
