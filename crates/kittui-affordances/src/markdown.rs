@@ -26,6 +26,23 @@ pub struct LinkChip {
     pub url: String,
 }
 
+#[derive(Clone, Debug)]
+struct ListState {
+    next_number: Option<u64>,
+}
+
+impl ListState {
+    fn next_marker(&mut self) -> String {
+        if let Some(next) = &mut self.next_number {
+            let marker = format!("{next}.");
+            *next = next.saturating_add(1);
+            marker
+        } else {
+            "•".to_string()
+        }
+    }
+}
+
 /// Render markdown into semantic kittui components.
 pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let parser = Parser::new_ext(src, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH);
@@ -39,6 +56,8 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let mut table_rows: Vec<Vec<String>> = Vec::new();
     let mut table_row: Vec<String> = Vec::new();
     let mut table_cell = String::new();
+    let mut list_stack: Vec<ListState> = Vec::new();
+    let mut in_list_item = false;
 
     for ev in parser {
         match ev {
@@ -57,7 +76,30 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 heading = None;
             }
             Event::Start(Tag::Paragraph) => {}
-            Event::End(TagEnd::Paragraph) => flush_paragraph(&mut out, &mut buf, width_cells),
+            Event::End(TagEnd::Paragraph) => {
+                if !in_list_item {
+                    flush_paragraph(&mut out, &mut buf, width_cells);
+                }
+            }
+            Event::Start(Tag::List(start)) => {
+                flush_paragraph(&mut out, &mut buf, width_cells);
+                list_stack.push(ListState { next_number: start });
+            }
+            Event::End(TagEnd::List(_)) => {
+                if in_list_item {
+                    flush_list_item(&mut out, &mut buf, width_cells, &mut list_stack);
+                    in_list_item = false;
+                }
+                let _ = list_stack.pop();
+            }
+            Event::Start(Tag::Item) => {
+                buf.clear();
+                in_list_item = true;
+            }
+            Event::End(TagEnd::Item) => {
+                flush_list_item(&mut out, &mut buf, width_cells, &mut list_stack);
+                in_list_item = false;
+            }
             Event::Start(Tag::BlockQuote(_)) => {
                 flush_paragraph(&mut out, &mut buf, width_cells);
             }
@@ -187,6 +229,27 @@ fn flush_paragraph(out: &mut MarkdownDocument, buf: &mut String, width_cells: u1
     }
 }
 
+fn flush_list_item(
+    out: &mut MarkdownDocument,
+    buf: &mut String,
+    width_cells: u16,
+    list_stack: &mut [ListState],
+) {
+    let text = take_trimmed(buf);
+    if text.is_empty() {
+        return;
+    }
+    let marker = list_stack
+        .last_mut()
+        .map(ListState::next_marker)
+        .unwrap_or_else(|| "•".to_string());
+    out.components.push(textbox(
+        format!("{marker} {text}"),
+        width_cells,
+        Tone::Assistant,
+    ));
+}
+
 fn take_trimmed(buf: &mut String) -> String {
     let text = buf.trim().to_string();
     buf.clear();
@@ -220,5 +283,20 @@ mod tests {
         assert_eq!(doc.tables.len(), 1);
         assert_eq!(doc.tables[0].rows[0], vec!["a", "b"]);
         assert_eq!(doc.tables[0].rows[1], vec!["1", "2"]);
+    }
+
+    #[test]
+    fn markdown_renders_unordered_and_ordered_list_markers() {
+        let doc = render_markdown("- alpha\n- beta\n\n3. gamma\n4. delta", 60);
+        let text = doc
+            .components
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("• alpha"), "{text}");
+        assert!(text.contains("• beta"), "{text}");
+        assert!(text.contains("3. gamma"), "{text}");
+        assert!(text.contains("4. delta"), "{text}");
     }
 }
