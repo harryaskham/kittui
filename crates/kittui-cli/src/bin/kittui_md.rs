@@ -60,6 +60,8 @@ enum Mode {
     VersionJson,
     InputFormats,
     InputFormatsJson,
+    OutputFormats,
+    OutputFormatsJson,
     Counts,
     CountsJson,
     Stats,
@@ -157,6 +159,8 @@ fn real_main() -> Result<()> {
         Mode::VersionJson => return write_version_json(&mut std::io::stdout().lock()),
         Mode::InputFormats => return write_input_formats(&mut std::io::stdout().lock()),
         Mode::InputFormatsJson => return write_input_formats_json(&mut std::io::stdout().lock()),
+        Mode::OutputFormats => return write_output_formats(&mut std::io::stdout().lock()),
+        Mode::OutputFormatsJson => return write_output_formats_json(&mut std::io::stdout().lock()),
         _ => {}
     }
     let markdown = if let Some(path) = &cfg.path {
@@ -214,6 +218,8 @@ fn real_main() -> Result<()> {
         Mode::VersionJson => unreachable!("version returns before reading input"),
         Mode::InputFormats => unreachable!("input formats return before reading input"),
         Mode::InputFormatsJson => unreachable!("input formats return before reading input"),
+        Mode::OutputFormats => unreachable!("output formats return before reading input"),
+        Mode::OutputFormatsJson => unreachable!("output formats return before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -484,6 +490,18 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--input-formats-json",
                 Mode::InputFormatsJson,
             )?,
+            "--output-formats" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--output-formats",
+                Mode::OutputFormats,
+            )?,
+            "--output-formats-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--output-formats-json",
+                Mode::OutputFormatsJson,
+            )?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -631,6 +649,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "version-json" => Ok((Mode::VersionJson, "--version-json")),
         "input-formats" => Ok((Mode::InputFormats, "--input-formats")),
         "input-formats-json" => Ok((Mode::InputFormatsJson, "--input-formats-json")),
+        "output-formats" => Ok((Mode::OutputFormats, "--output-formats")),
+        "output-formats-json" => Ok((Mode::OutputFormatsJson, "--output-formats-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
         "counts-json" => Ok((Mode::CountsJson, "--counts-json")),
         "stats" => Ok((Mode::Stats, "--stats")),
@@ -643,7 +663,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--output-formats|--output-formats-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1072,6 +1092,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit supported input formats as JSON",
     },
     ModeInfo {
+        flag: "--output-formats",
+        aliases: &[],
+        description: "list supported output format families",
+    },
+    ModeInfo {
+        flag: "--output-formats-json",
+        aliases: &[],
+        description: "emit supported output format families as JSON",
+    },
+    ModeInfo {
         flag: "--counts",
         aliases: &[],
         description: "print compact structural counts",
@@ -1233,6 +1263,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "Supported input formats.",
     },
     JsonSchemaInfo {
+        mode: "--output-formats-json",
+        top_level_keys: &["schema_version", "output_formats"],
+        description: "Supported output format families.",
+    },
+    JsonSchemaInfo {
         mode: "--counts-json",
         top_level_keys: &["schema_version", "counts"],
         description: "Compact structural counts.",
@@ -1310,7 +1345,9 @@ fn mode_category(flag: &str) -> &'static str {
         | "--version"
         | "--version-json"
         | "--input-formats"
-        | "--input-formats-json" => "discovery",
+        | "--input-formats-json"
+        | "--output-formats"
+        | "--output-formats-json" => "discovery",
         _ if flag.ends_with("-json") || flag == "--json" => "json",
         _ => "other",
     }
@@ -1677,6 +1714,63 @@ fn write_input_formats_json(out: &mut impl Write) -> Result<()> {
             "index": index,
             "name": format.name,
             "extensions": format.extensions,
+            "description": format.description,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+struct OutputFormatInfo {
+    name: &'static str,
+    mode_categories: &'static [&'static str],
+    description: &'static str,
+}
+
+const OUTPUT_FORMATS: &[OutputFormatInfo] = &[
+    OutputFormatInfo {
+        name: "rich-kitty-graphics",
+        mode_categories: &["render"],
+        description: "Kitty graphics protocol output with text overlays.",
+    },
+    OutputFormatInfo {
+        name: "plain-text",
+        mode_categories: &["render", "inspect", "stats", "discovery"],
+        description: "Human-readable terminal text output.",
+    },
+    OutputFormatInfo {
+        name: "json",
+        mode_categories: &["json", "discovery", "stats"],
+        description: "Schema-versioned machine-readable JSON output.",
+    },
+];
+
+fn write_output_formats(out: &mut impl Write) -> Result<()> {
+    writeln!(
+        out,
+        "kittui-md output formats — {} formats",
+        OUTPUT_FORMATS.len()
+    )?;
+    for format in OUTPUT_FORMATS {
+        writeln!(
+            out,
+            "{} ({}) — {}",
+            format.name,
+            format.mode_categories.join(", "),
+            format.description
+        )?;
+    }
+    Ok(())
+}
+
+fn write_output_formats_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "output_formats": OUTPUT_FORMATS.iter().enumerate().map(|(index, format)| serde_json::json!({
+            "index": index,
+            "name": format.name,
+            "mode_categories": format.mode_categories,
             "description": format.description,
         })).collect::<Vec<_>>(),
     });
@@ -3232,6 +3326,30 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--input-formats"), "{err}");
         assert!(err.to_string().contains("--input-formats-json"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_output_formats_mode() {
+        let cfg = parse_args(["--output-formats".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::OutputFormats);
+    }
+
+    #[test]
+    fn parse_args_accepts_output_formats_json_mode() {
+        let cfg = parse_args(["--output-formats-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::OutputFormatsJson);
+    }
+
+    #[test]
+    fn parse_args_rejects_output_formats_plus_output_formats_json() {
+        let err = parse_args([
+            "--output-formats".to_string(),
+            "--output-formats-json".to_string(),
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--output-formats"), "{err}");
+        assert!(err.to_string().contains("--output-formats-json"), "{err}");
     }
 
     #[test]
@@ -4868,6 +4986,35 @@ mod tests {
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("md")));
+    }
+
+    #[test]
+    fn output_formats_mode_lists_output_families() {
+        let mut out = Vec::new();
+        write_output_formats(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("kittui-md output formats"), "{rendered}");
+        assert!(rendered.contains("rich-kitty-graphics"), "{rendered}");
+        assert!(rendered.contains("json"), "{rendered}");
+    }
+
+    #[test]
+    fn output_formats_json_mode_lists_output_families() {
+        let mut out = Vec::new();
+        write_output_formats_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert!(value["output_formats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|format| {
+                format["name"] == "json"
+                    && format["mode_categories"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("json"))
+            }));
     }
 
     #[test]
