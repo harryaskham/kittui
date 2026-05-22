@@ -1194,12 +1194,19 @@ fn write_mode_search_json(query: &str, out: &mut impl Write) -> Result<()> {
     let value = serde_json::json!({
         "schema_version": 1,
         "query": query,
-        "matches": matches.iter().enumerate().map(|(index, info)| serde_json::json!({
-            "index": index,
-            "flag": info.flag,
-            "aliases": info.aliases,
-            "description": info.description,
-        })).collect::<Vec<_>>(),
+        "matches": matches.iter().enumerate().map(|(index, info)| {
+            let schema = schema_info_for_mode(info.flag).map(|schema| serde_json::json!({
+                "top_level_keys": schema.top_level_keys,
+                "description": schema.description,
+            }));
+            serde_json::json!({
+                "index": index,
+                "flag": info.flag,
+                "aliases": info.aliases,
+                "description": info.description,
+                "json_schema": schema,
+            })
+        }).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -4071,8 +4078,14 @@ mod tests {
         assert_eq!(value["schema_version"], 1);
         assert_eq!(value["query"], "table");
         let matches = value["matches"].as_array().unwrap();
-        assert!(matches.iter().any(|mode| mode["flag"] == "--tables"));
-        assert!(matches.iter().any(|mode| mode["flag"] == "--tables-json"));
+        assert!(matches.iter().any(|mode| {
+            mode["flag"] == "--tables" && mode["json_schema"] == serde_json::Value::Null
+        }));
+        assert!(matches.iter().any(|mode| {
+            mode["flag"] == "--tables-json"
+                && mode["json_schema"]["top_level_keys"]
+                    == serde_json::json!(["schema_version", "tables"])
+        }));
     }
 
     #[test]

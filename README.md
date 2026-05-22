@@ -230,7 +230,8 @@ Modes:
   top-level keys for tooling discovery. `--mode-info NAME` and
   `--mode-info-json NAME` describe one mode by canonical name or alias.
   `--mode-search QUERY` and `--mode-search-json QUERY` search modes by flag,
-  alias, or description.
+  alias, or description; JSON search results include schema summaries for
+  matching JSON output modes.
 - `--counts` prints only concise component/metadata counts; `--counts-json`
   emits the same counts as a minimal machine-readable JSON object.
 - `--stats` prints concise source path/size, render width,
