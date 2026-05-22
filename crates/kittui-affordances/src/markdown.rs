@@ -83,6 +83,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let mut link_label = String::new();
     let mut image_target: Option<String> = None;
     let mut image_alt = String::new();
+    let mut footnote_definition: Option<String> = None;
     let mut in_table = false;
     let mut table_rows: Vec<Vec<String>> = Vec::new();
     let mut table_row: Vec<String> = Vec::new();
@@ -113,7 +114,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             }
             Event::Start(Tag::Paragraph) => {}
             Event::End(TagEnd::Paragraph) => {
-                if !in_list_item && blockquote_depth == 0 {
+                if !in_list_item && blockquote_depth == 0 && footnote_definition.is_none() {
                     flush_paragraph(&mut out, &mut buf, width_cells);
                 }
             }
@@ -135,6 +136,22 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             Event::End(TagEnd::Item) => {
                 flush_list_item(&mut out, &mut buf, width_cells, &mut list_stack);
                 in_list_item = false;
+            }
+            Event::Start(Tag::FootnoteDefinition(label)) => {
+                flush_paragraph(&mut out, &mut buf, width_cells);
+                footnote_definition = Some(label.to_string());
+            }
+            Event::End(TagEnd::FootnoteDefinition) => {
+                if let Some(label) = footnote_definition.take() {
+                    let text = take_trimmed(&mut buf);
+                    if !text.is_empty() {
+                        out.components.push(textbox(
+                            format!("footnote [^{label}]: {text}"),
+                            width_cells,
+                            Tone::Tool,
+                        ));
+                    }
+                }
             }
             Event::Start(Tag::BlockQuote(_)) => {
                 flush_paragraph(&mut out, &mut buf, width_cells);
@@ -586,5 +603,21 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("see this[^note]"), "{text}");
+    }
+
+    #[test]
+    fn markdown_renders_footnote_definitions() {
+        let doc = render_markdown("see this[^note]\n\n[^note]: details here", 60);
+        let text = doc
+            .components
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("footnote [^note]: details here"), "{text}");
+        assert!(doc
+            .components
+            .iter()
+            .any(|c| c.kind == ComponentKind::TextBox && c.text.starts_with("footnote")));
     }
 }
