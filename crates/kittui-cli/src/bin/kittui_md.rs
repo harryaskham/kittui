@@ -143,6 +143,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--metadata-blocks",
                 Mode::MetadataBlocks,
             )?,
+            "--metadata" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--metadata",
+                Mode::MetadataBlocks,
+            )?,
             "--frontmatter" => set_mode(
                 &mut mode,
                 &mut mode_flag,
@@ -228,7 +234,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1567,12 +1573,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_metadata_alias() {
+        let cfg = parse_args(["--metadata".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::MetadataBlocks);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
     fn parse_args_rejects_frontmatter_plus_metadata_blocks() {
         let err =
             parse_args(["--metadata-blocks".to_string(), "--frontmatter".to_string()]).unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--metadata-blocks"), "{err}");
         assert!(err.to_string().contains("--frontmatter"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_rejects_metadata_plus_metadata_blocks() {
+        let err =
+            parse_args(["--metadata-blocks".to_string(), "--metadata".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--metadata-blocks"), "{err}");
+        assert!(err.to_string().contains("--metadata"), "{err}");
     }
 
     #[test]
