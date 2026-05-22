@@ -18,6 +18,7 @@ enum Mode {
     Components,
     Outline,
     References,
+    Stats,
     MetadataJson,
 }
 
@@ -63,6 +64,7 @@ fn real_main() -> Result<()> {
         Mode::Components => write_components(&doc, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
+        Mode::Stats => write_stats(&doc, &markdown, &mut std::io::stdout().lock()),
         Mode::MetadataJson => {
             write_metadata_json(&doc, &markdown, cfg.width, &mut std::io::stdout().lock())
         }
@@ -86,6 +88,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--components" => mode = Mode::Components,
             "--outline" => mode = Mode::Outline,
             "--references" => mode = Mode::References,
+            "--stats" => mode = Mode::Stats,
             "--metadata-json" => mode = Mode::MetadataJson,
             "--width" => {
                 width = args
@@ -130,7 +133,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -341,6 +344,24 @@ fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
             writeln!(out, "{line}")?;
         }
     }
+    Ok(())
+}
+
+fn write_stats(doc: &MarkdownDocument, source: &str, out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md stats")?;
+    writeln!(out, "source.bytes={}", source.len())?;
+    writeln!(out, "source.lines={}", source.lines().count())?;
+    writeln!(out, "components={}", doc.components.len())?;
+    writeln!(out, "headings={}", doc.outline.len())?;
+    writeln!(out, "links={}", doc.links.len())?;
+    writeln!(out, "images={}", doc.images.len())?;
+    writeln!(out, "tables={}", doc.tables.len())?;
+    writeln!(out, "footnote_references={}", doc.footnote_references.len())?;
+    writeln!(out, "footnotes={}", doc.footnotes.len())?;
+    writeln!(out, "definitions={}", doc.definitions.len())?;
+    writeln!(out, "math={}", doc.math.len())?;
+    writeln!(out, "html={}", doc.html.len())?;
+    writeln!(out, "code_blocks={}", doc.code_blocks.len())?;
     Ok(())
 }
 
@@ -1090,6 +1111,21 @@ mod tests {
             status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 0 code blocks"),
             "{status}"
         );
+    }
+
+    #[test]
+    fn stats_mode_reports_document_counts() {
+        let source = "# Title\n\nSee [site](https://example.com) and ![logo](logo.png).";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_stats(&doc, source, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("kittui-md stats\n"), "{rendered}");
+        assert!(rendered.contains("source.bytes="), "{rendered}");
+        assert!(rendered.contains("source.lines=3"), "{rendered}");
+        assert!(rendered.contains("headings=1"), "{rendered}");
+        assert!(rendered.contains("links=1"), "{rendered}");
+        assert!(rendered.contains("images=1"), "{rendered}");
     }
 
     #[test]
