@@ -1232,6 +1232,7 @@ fn write_schemas_json(out: &mut impl Write) -> Result<()> {
         "schemas": JSON_SCHEMA_INFOS.iter().enumerate().map(|(index, info)| serde_json::json!({
             "index": index,
             "mode": info.mode,
+            "category": mode_category(info.mode),
             "top_level_keys": info.top_level_keys,
             "description": info.description,
         })).collect::<Vec<_>>(),
@@ -4378,12 +4379,13 @@ mod tests {
         }));
         assert!(schemas.iter().any(|schema| {
             schema["mode"] == "--stats-json"
+                && schema["category"] == "json"
                 && schema["top_level_keys"]
                     == serde_json::json!(["schema_version", "source", "render", "counts"])
         }));
-        assert!(schemas
-            .iter()
-            .any(|schema| schema["mode"] == "--mode-info-json"));
+        assert!(schemas.iter().any(|schema| {
+            schema["mode"] == "--mode-info-json" && schema["category"] == "discovery"
+        }));
     }
 
     #[test]

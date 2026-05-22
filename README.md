@@ -232,8 +232,8 @@ Modes:
   emits the same HTML fragment records as machine-readable JSON.
 - `--modes` lists available output modes, aliases, and descriptions without
   reading a document; `--modes-json` emits the same mode catalog as JSON.
-  `--schemas-json` emits a compact catalog of JSON output modes and their
-  top-level keys for tooling discovery. `--mode-info NAME` and
+  `--schemas-json` emits a compact catalog of JSON output modes, categories,
+  and top-level keys for tooling discovery. `--mode-info NAME` and
   `--mode-info-json NAME` describe one mode by canonical name or alias.
   `--mode-search QUERY` and `--mode-search-json QUERY` search modes by flag,
   alias, or description; `--mode-categories` and `--mode-categories-json` list
