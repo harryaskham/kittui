@@ -144,6 +144,7 @@ cargo run -p kittui-cli --bin kittui-md -- --glossary docs/examples/kittui-md-pr
 cargo run -p kittui-cli --bin kittui-md -- --definitions-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --math docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --equations docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --math-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --html docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --markup docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --counts docs/examples/kittui-md-proof.md
@@ -196,7 +197,8 @@ Modes:
   inspection; `--glossary` is a friendly alias for the same mode.
   `--definitions-json` emits the same definition records as machine-readable JSON.
 - `--math` prints only inline/display math expressions with kind and source;
-  `--equations` is a friendly alias for the same mode.
+  `--equations` is a friendly alias for the same mode. `--math-json` emits the
+  same math records as machine-readable JSON.
 - `--html` prints only preserved inline/block HTML placeholders with kind and
   source; `--markup` is a friendly alias for the same mode.
 - `--counts` prints only concise component/metadata counts; `--counts-json`
