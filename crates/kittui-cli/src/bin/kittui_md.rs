@@ -15,6 +15,7 @@ use kittui_affordances::{
 enum Mode {
     Rich,
     Plain,
+    Outline,
 }
 
 #[derive(Clone, Debug)]
@@ -56,6 +57,7 @@ fn real_main() -> Result<()> {
     let doc = render_markdown(&markdown, cfg.width);
     match cfg.mode {
         Mode::Plain => write_plain(&doc, cfg.width, &mut std::io::stdout().lock()),
+        Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::Rich if cfg.interactive => run_interactive(&doc, cfg),
         Mode::Rich => write_rich(&doc, &cfg, &mut std::io::stdout().lock()),
     }
@@ -73,6 +75,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
         match arg.as_str() {
             "--plain" => mode = Mode::Plain,
             "--rich" => mode = Mode::Rich,
+            "--outline" => mode = Mode::Outline,
             "--width" => {
                 width = args
                     .next()
@@ -116,7 +119,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--outline] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -300,6 +303,18 @@ impl Drop for RawTerminal {
     fn drop(&mut self) {
         let _ = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.original) };
     }
+}
+
+fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md outline — {} headings", doc.outline.len())?;
+    if doc.outline.is_empty() {
+        writeln!(out, "<empty>")?;
+    } else {
+        for line in outline_lines(doc) {
+            writeln!(out, "{line}")?;
+        }
+    }
+    Ok(())
 }
 
 fn write_plain(doc: &MarkdownDocument, width: u16, out: &mut impl Write) -> Result<()> {
@@ -724,7 +739,7 @@ fn terminal_cols() -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kittui_affordances::{h1, textbox, HeadingOutline, MarkdownImage, Tone};
+    use kittui_affordances::{h1, h2, textbox, HeadingOutline, MarkdownImage, Tone};
 
     #[test]
     fn layout_stacks_components_with_gaps() {
@@ -812,6 +827,43 @@ mod tests {
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
         assert!(status.contains("1 headings, 0 links, 1 images"), "{status}");
+    }
+
+    #[test]
+    fn outline_mode_writes_only_heading_outline() {
+        let doc = MarkdownDocument {
+            components: vec![h1("Title", 40), h2("Section", 40)],
+            links: vec![],
+            tables: vec![],
+            images: vec![],
+            outline: vec![
+                HeadingOutline {
+                    level: 1,
+                    text: "Title".to_string(),
+                },
+                HeadingOutline {
+                    level: 2,
+                    text: "Section".to_string(),
+                },
+            ],
+        };
+        let mut out = Vec::new();
+        write_outline(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert_eq!(
+            rendered,
+            "kittui-md outline — 2 headings\nTitle\n  Section\n"
+        );
+        assert!(!rendered.contains("[H1]"));
+    }
+
+    #[test]
+    fn outline_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_outline(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert_eq!(rendered, "kittui-md outline — 0 headings\n<empty>\n");
     }
 
     #[test]
