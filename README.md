@@ -19,6 +19,22 @@ cargo run -p kittui-cli -- box -w 60 -h 8 --fg "#00d8ff" --bg "#08111fcc" --radi
 cargo run -p kittui-cli --example showcase
 ```
 
+## Developer validation notes
+
+The repository currently has a known rustfmt-baseline mismatch: an unconditional
+`cargo fmt --check` can report formatting diffs in files unrelated to a narrow
+change. Until the baseline is normalized, prefer a touched-file formatting check
+for Rust files changed by your branch:
+
+```bash
+git diff --name-only --diff-filter=ACMRT origin/main...HEAD -- '*.rs' \
+  | xargs -r rustfmt --edition 2021 --check
+```
+
+If you intentionally run `cargo fmt`, inspect the diff before committing and
+keep only formatting changes that are part of the current task. Do not fold a
+large workspace-wide rustfmt sweep into an unrelated kittui/kittwm feature fix.
+
 ## Configuration
 
 Every user-facing CLI option can be supplied as an explicit flag, a `KITTUI_*`
