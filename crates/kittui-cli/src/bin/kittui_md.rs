@@ -150,6 +150,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--definitions",
                 Mode::Definitions,
             )?,
+            "--glossary" => set_mode(&mut mode, &mut mode_flag, "--glossary", Mode::Definitions)?,
             "--math" => set_mode(&mut mode, &mut mode_flag, "--math", Mode::Math)?,
             "--html" => set_mode(&mut mode, &mut mode_flag, "--html", Mode::Html)?,
             "--stats" => set_mode(&mut mode, &mut mode_flag, "--stats", Mode::Stats)?,
@@ -220,7 +221,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--footnotes|--images|--tables|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--footnotes|--images|--tables|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1374,6 +1375,21 @@ mod tests {
         let cfg = parse_args(["--snippets".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::CodeBlocks);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_glossary_alias() {
+        let cfg = parse_args(["--glossary".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Definitions);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_definitions_plus_glossary() {
+        let err = parse_args(["--definitions".to_string(), "--glossary".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--definitions"), "{err}");
+        assert!(err.to_string().contains("--glossary"), "{err}");
     }
 
     #[test]
