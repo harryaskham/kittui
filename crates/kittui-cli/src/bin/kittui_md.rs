@@ -322,6 +322,7 @@ fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
 
 fn write_metadata_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
     let value = serde_json::json!({
+        "schema_version": 1,
         "components": doc.components.len(),
         "components_detail": doc.components.iter().map(|component| serde_json::json!({
             "kind": format!("{:?}", component.kind),
@@ -1028,6 +1029,7 @@ mod tests {
         let mut out = Vec::new();
         write_metadata_json(&doc, &mut out).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
         assert_eq!(
             value["components"].as_u64().unwrap(),
             doc.components.len() as u64
