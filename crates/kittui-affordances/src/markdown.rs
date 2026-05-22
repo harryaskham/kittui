@@ -25,6 +25,8 @@ pub struct MarkdownDocument {
     pub footnote_references: Vec<String>,
     /// Definition-list entries in document order.
     pub definitions: Vec<MarkdownDefinition>,
+    /// Math expressions in encounter order.
+    pub math: Vec<MarkdownMath>,
 }
 
 /// Link rendered as a highlighted chip plus accessible URL metadata.
@@ -70,6 +72,34 @@ pub struct MarkdownDefinition {
     pub term: String,
     /// Rendered definition body.
     pub definition: String,
+}
+
+/// Markdown math expression kind.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MarkdownMathKind {
+    /// Inline math delimited with `$...$`.
+    Inline,
+    /// Display math delimited with `$$...$$`.
+    Display,
+}
+
+impl MarkdownMathKind {
+    /// Stable lowercase metadata string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Inline => "inline",
+            Self::Display => "display",
+        }
+    }
+}
+
+/// One rendered Markdown math expression.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkdownMath {
+    /// Inline or display math.
+    pub kind: MarkdownMathKind,
+    /// Math source text.
+    pub source: String,
 }
 
 #[derive(Clone, Debug)]
@@ -392,7 +422,12 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 }
             }
             Event::InlineMath(math) => {
-                let placeholder = format!("math:{math}");
+                let source = math.to_string();
+                out.math.push(MarkdownMath {
+                    kind: MarkdownMathKind::Inline,
+                    source: source.clone(),
+                });
+                let placeholder = format!("math:{source}");
                 if link_target.is_some() {
                     link_label.push_str(&placeholder);
                 }
@@ -404,6 +439,10 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             }
             Event::DisplayMath(math) => {
                 let math = math.trim();
+                out.math.push(MarkdownMath {
+                    kind: MarkdownMathKind::Display,
+                    source: math.to_string(),
+                });
                 if in_table {
                     table_cell.push_str(&format!("math:{math}"));
                 } else {
@@ -822,5 +861,18 @@ mod tests {
             .join("\n---\n");
         assert!(text.contains("Inline math:x + y"), "{text}");
         assert!(text.contains("math:\na^2 + b^2"), "{text}");
+        assert_eq!(
+            doc.math,
+            vec![
+                MarkdownMath {
+                    kind: MarkdownMathKind::Inline,
+                    source: "x + y".to_string(),
+                },
+                MarkdownMath {
+                    kind: MarkdownMathKind::Display,
+                    source: "a^2 + b^2".to_string(),
+                },
+            ]
+        );
     }
 }

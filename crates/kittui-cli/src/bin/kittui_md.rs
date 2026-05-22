@@ -346,6 +346,10 @@ fn write_metadata_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<(
             "term": definition.term,
             "definition": definition.definition,
         })).collect::<Vec<_>>(),
+        "math": doc.math.iter().map(|math| serde_json::json!({
+            "kind": math.kind.as_str(),
+            "source": math.source,
+        })).collect::<Vec<_>>(),
         "outline": doc.outline.iter().map(|heading| serde_json::json!({
             "level": heading.level,
             "text": heading.text,
@@ -436,6 +440,12 @@ fn write_metadata_sections(doc: &MarkdownDocument, out: &mut impl Write) -> Resu
             writeln!(out, "  {} — {}", definition.term, definition.definition)?;
         }
     }
+    if !doc.math.is_empty() {
+        writeln!(out, "\nmath:")?;
+        for math in &doc.math {
+            writeln!(out, "  {} {}", math.kind.as_str(), math.source)?;
+        }
+    }
     Ok(())
 }
 
@@ -523,6 +533,11 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
             writeln!(out, "  📖 {} — {}", definition.term, definition.definition)?;
         }
     }
+    if !doc.math.is_empty() {
+        for math in &doc.math {
+            writeln!(out, "  ∑ {} — {}", math.kind.as_str(), math.source)?;
+        }
+    }
     Ok(())
 }
 
@@ -543,7 +558,7 @@ fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> St
     let viewport = cfg.height_rows.unwrap_or(total_rows);
     let max_offset = total_rows.saturating_sub(viewport);
     format!(
-        "kittui-md rich view — {} components, {} headings, {} links, {} images, {} footnote refs, {} footnotes, {} definitions; offset={}/{} rows; viewport={}; total_rows={}",
+        "kittui-md rich view — {} components, {} headings, {} links, {} images, {} footnote refs, {} footnotes, {} definitions, {} math; offset={}/{} rows; viewport={}; total_rows={}",
         doc.components.len(),
         doc.outline.len(),
         doc.links.len(),
@@ -551,6 +566,7 @@ fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> St
         doc.footnote_references.len(),
         doc.footnotes.len(),
         doc.definitions.len(),
+        doc.math.len(),
         cfg.offset_rows.min(max_offset),
         max_offset,
         viewport,
@@ -915,6 +931,7 @@ mod tests {
             footnotes: vec![],
             footnote_references: vec![],
             definitions: vec![],
+            math: vec![],
         };
         assert_eq!(document_rows(&doc, 80), 7);
     }
@@ -936,6 +953,7 @@ mod tests {
             footnotes: vec![],
             footnote_references: vec![],
             definitions: vec![],
+            math: vec![],
         };
         let cfg = Config {
             mode: Mode::Rich,
@@ -950,7 +968,7 @@ mod tests {
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
         assert!(
-            status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes"),
+            status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math"),
             "{status}"
         );
     }
@@ -958,7 +976,7 @@ mod tests {
     #[test]
     fn metadata_json_mode_reports_stable_shape() {
         let doc = render_markdown(
-            "# Title\n\nSee [site](https://example.com) and note[^n].\n\n![logo](logo.png)\n\n| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n\nTerm\n: Definition text\n\n[^n]: note text",
+            "# Title\n\nSee [site](https://example.com) and note[^n] plus $x + y$.\n\n![logo](logo.png)\n\n| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n\nTerm\n: Definition text\n\n[^n]: note text",
             80,
         );
         let mut out = Vec::new();
@@ -986,6 +1004,8 @@ mod tests {
         assert_eq!(value["footnotes"][0]["text"], "note text");
         assert_eq!(value["definitions"][0]["term"], "Term");
         assert_eq!(value["definitions"][0]["definition"], "Definition text");
+        assert_eq!(value["math"][0]["kind"], "inline");
+        assert_eq!(value["math"][0]["source"], "x + y");
         assert_eq!(value["tables"][0]["rows"][1][0], "1");
         assert_eq!(value["tables"][0]["alignments"][0], "left");
         assert_eq!(value["tables"][0]["alignments"][1], "center");
@@ -1018,6 +1038,7 @@ mod tests {
             footnotes: vec![],
             footnote_references: vec![],
             definitions: vec![],
+            math: vec![],
         };
         let mut out = Vec::new();
         write_outline(&doc, &mut out).unwrap();
@@ -1061,6 +1082,7 @@ mod tests {
             footnotes: vec![],
             footnote_references: vec![],
             definitions: vec![],
+            math: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1086,6 +1108,7 @@ mod tests {
             }],
             footnote_references: vec!["note".to_string()],
             definitions: vec![],
+            math: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1114,6 +1137,7 @@ mod tests {
                 term: "Term".to_string(),
                 definition: "Definition text".to_string(),
             }],
+            math: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1122,6 +1146,28 @@ mod tests {
             rendered.contains("definitions:\n  Term — Definition text"),
             "{rendered}"
         );
+    }
+
+    #[test]
+    fn plain_metadata_sections_include_math() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![],
+            images: vec![],
+            outline: vec![],
+            footnotes: vec![],
+            footnote_references: vec![],
+            definitions: vec![],
+            math: vec![kittui_affordances::MarkdownMath {
+                kind: kittui_affordances::MarkdownMathKind::Inline,
+                source: "x + y".to_string(),
+            }],
+        };
+        let mut out = Vec::new();
+        write_plain(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("math:\n  inline x + y"), "{rendered}");
     }
 
     #[test]
@@ -1144,6 +1190,7 @@ mod tests {
             footnotes: vec![],
             footnote_references: vec![],
             definitions: vec![],
+            math: vec![],
         };
         assert_eq!(
             outline_lines(&doc),
@@ -1171,6 +1218,7 @@ mod tests {
             footnotes: vec![],
             footnote_references: vec![],
             definitions: vec![],
+            math: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
