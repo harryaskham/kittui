@@ -152,8 +152,9 @@ Modes:
   source.
 - `--stats` prints concise source/component/metadata counts for quick checks.
 - `--metadata-json` emits schema-versioned JSON for tools. It includes source
-  byte/line counts, component details, outline, links, images, footnotes,
-  definitions, math, HTML placeholders, code blocks, and table layout metrics.
+  byte/line/path data, render mode/width, component details, outline, links,
+  images, footnotes, definitions, math, HTML placeholders, metadata blocks,
+  code blocks, and table layout metrics.
 
 The proof gallery at `docs/examples/kittui-md-proof.md` exercises headings,
 paragraphs, links, images, blockquotes, lists, task lists, fenced code,
