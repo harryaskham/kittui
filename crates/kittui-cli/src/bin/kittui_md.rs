@@ -35,6 +35,7 @@ enum Mode {
     Math,
     MathJson,
     Html,
+    HtmlJson,
     Counts,
     CountsJson,
     Stats,
@@ -100,6 +101,7 @@ fn real_main() -> Result<()> {
         Mode::Math => write_math(&doc, &mut std::io::stdout().lock()),
         Mode::MathJson => write_math_json(&doc, &mut std::io::stdout().lock()),
         Mode::Html => write_html(&doc, &mut std::io::stdout().lock()),
+        Mode::HtmlJson => write_html_json(&doc, &mut std::io::stdout().lock()),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -214,6 +216,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--math-json" => set_mode(&mut mode, &mut mode_flag, "--math-json", Mode::MathJson)?,
             "--html" => set_mode(&mut mode, &mut mode_flag, "--html", Mode::Html)?,
             "--markup" => set_mode(&mut mode, &mut mode_flag, "--markup", Mode::Html)?,
+            "--html-json" => set_mode(&mut mode, &mut mode_flag, "--html-json", Mode::HtmlJson)?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -286,7 +289,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -734,6 +737,20 @@ fn write_html(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
         writeln!(out, "  kind={}", html.kind.as_str())?;
         writeln!(out, "  source={}", html.source)?;
     }
+    Ok(())
+}
+
+fn write_html_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "html": doc.html.iter().enumerate().map(|(index, html)| serde_json::json!({
+            "index": index,
+            "kind": html.kind.as_str(),
+            "source": html.source,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -1739,6 +1756,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_html_json_mode() {
+        let cfg = parse_args(["--html-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::HtmlJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_html_plus_html_json() {
+        let err = parse_args(["--html".to_string(), "--html-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--html"), "{err}");
+        assert!(err.to_string().contains("--html-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_accepts_equations_alias() {
         let cfg = parse_args(["--equations".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Math);
@@ -2135,6 +2167,21 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "kittui-md html — 0 fragments\n<empty>\n"
         );
+    }
+
+    #[test]
+    fn html_json_mode_writes_html_records() {
+        let doc = render_markdown("hello <kbd>x</kbd>\n\n<div>block</div>", 80);
+        let mut out = Vec::new();
+        write_html_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["html"][0]["index"], 0);
+        assert_eq!(value["html"][0]["kind"], "inline");
+        assert_eq!(value["html"][0]["source"], "<kbd>");
+        assert_eq!(value["html"][2]["index"], 2);
+        assert_eq!(value["html"][2]["kind"], "block");
+        assert_eq!(value["html"][2]["source"], "<div>block</div>");
     }
 
     #[test]
