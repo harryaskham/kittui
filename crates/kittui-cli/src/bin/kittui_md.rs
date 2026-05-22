@@ -58,6 +58,8 @@ enum Mode {
     CapabilitiesJson,
     Version,
     VersionJson,
+    InputFormats,
+    InputFormatsJson,
     Counts,
     CountsJson,
     Stats,
@@ -153,6 +155,8 @@ fn real_main() -> Result<()> {
         Mode::CapabilitiesJson => return write_capabilities_json(&mut std::io::stdout().lock()),
         Mode::Version => return write_version(&mut std::io::stdout().lock()),
         Mode::VersionJson => return write_version_json(&mut std::io::stdout().lock()),
+        Mode::InputFormats => return write_input_formats(&mut std::io::stdout().lock()),
+        Mode::InputFormatsJson => return write_input_formats_json(&mut std::io::stdout().lock()),
         _ => {}
     }
     let markdown = if let Some(path) = &cfg.path {
@@ -208,6 +212,8 @@ fn real_main() -> Result<()> {
         Mode::CapabilitiesJson => unreachable!("capabilities return before reading input"),
         Mode::Version => unreachable!("version returns before reading input"),
         Mode::VersionJson => unreachable!("version returns before reading input"),
+        Mode::InputFormats => unreachable!("input formats return before reading input"),
+        Mode::InputFormatsJson => unreachable!("input formats return before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -466,6 +472,18 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--version-json",
                 Mode::VersionJson,
             )?,
+            "--input-formats" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--input-formats",
+                Mode::InputFormats,
+            )?,
+            "--input-formats-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--input-formats-json",
+                Mode::InputFormatsJson,
+            )?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -611,6 +629,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "capabilities-json" => Ok((Mode::CapabilitiesJson, "--capabilities-json")),
         "version" => Ok((Mode::Version, "--version")),
         "version-json" => Ok((Mode::VersionJson, "--version-json")),
+        "input-formats" => Ok((Mode::InputFormats, "--input-formats")),
+        "input-formats-json" => Ok((Mode::InputFormatsJson, "--input-formats-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
         "counts-json" => Ok((Mode::CountsJson, "--counts-json")),
         "stats" => Ok((Mode::Stats, "--stats")),
@@ -623,7 +643,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1042,6 +1062,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit binary package version as JSON",
     },
     ModeInfo {
+        flag: "--input-formats",
+        aliases: &[],
+        description: "list supported input formats",
+    },
+    ModeInfo {
+        flag: "--input-formats-json",
+        aliases: &[],
+        description: "emit supported input formats as JSON",
+    },
+    ModeInfo {
         flag: "--counts",
         aliases: &[],
         description: "print compact structural counts",
@@ -1198,6 +1228,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "Binary package version.",
     },
     JsonSchemaInfo {
+        mode: "--input-formats-json",
+        top_level_keys: &["schema_version", "input_formats"],
+        description: "Supported input formats.",
+    },
+    JsonSchemaInfo {
         mode: "--counts-json",
         top_level_keys: &["schema_version", "counts"],
         description: "Compact structural counts.",
@@ -1273,7 +1308,9 @@ fn mode_category(flag: &str) -> &'static str {
         | "--capabilities"
         | "--capabilities-json"
         | "--version"
-        | "--version-json" => "discovery",
+        | "--version-json"
+        | "--input-formats"
+        | "--input-formats-json" => "discovery",
         _ if flag.ends_with("-json") || flag == "--json" => "json",
         _ => "other",
     }
@@ -1597,6 +1634,51 @@ fn write_version_json(out: &mut impl Write) -> Result<()> {
         "schema_version": 1,
         "binary": "kittui-md",
         "package_version": env!("CARGO_PKG_VERSION"),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+struct InputFormatInfo {
+    name: &'static str,
+    extensions: &'static [&'static str],
+    description: &'static str,
+}
+
+const INPUT_FORMATS: &[InputFormatInfo] = &[InputFormatInfo {
+    name: "markdown",
+    extensions: &["md", "markdown", "mdown"],
+    description: "CommonMark-compatible Markdown parsed by pulldown-cmark.",
+}];
+
+fn write_input_formats(out: &mut impl Write) -> Result<()> {
+    writeln!(
+        out,
+        "kittui-md input formats — {} formats",
+        INPUT_FORMATS.len()
+    )?;
+    for format in INPUT_FORMATS {
+        writeln!(
+            out,
+            "{} ({}) — {}",
+            format.name,
+            format.extensions.join(", "),
+            format.description
+        )?;
+    }
+    Ok(())
+}
+
+fn write_input_formats_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "input_formats": INPUT_FORMATS.iter().enumerate().map(|(index, format)| serde_json::json!({
+            "index": index,
+            "name": format.name,
+            "extensions": format.extensions,
+            "description": format.description,
+        })).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -3126,6 +3208,30 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--version"), "{err}");
         assert!(err.to_string().contains("--version-json"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_input_formats_mode() {
+        let cfg = parse_args(["--input-formats".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::InputFormats);
+    }
+
+    #[test]
+    fn parse_args_accepts_input_formats_json_mode() {
+        let cfg = parse_args(["--input-formats-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::InputFormatsJson);
+    }
+
+    #[test]
+    fn parse_args_rejects_input_formats_plus_input_formats_json() {
+        let err = parse_args([
+            "--input-formats".to_string(),
+            "--input-formats-json".to_string(),
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--input-formats"), "{err}");
+        assert!(err.to_string().contains("--input-formats-json"), "{err}");
     }
 
     #[test]
@@ -4739,6 +4845,29 @@ mod tests {
         assert_eq!(value["schema_version"], 1);
         assert_eq!(value["binary"], "kittui-md");
         assert_eq!(value["package_version"], env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn input_formats_mode_lists_markdown_format() {
+        let mut out = Vec::new();
+        write_input_formats(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("kittui-md input formats"), "{rendered}");
+        assert!(rendered.contains("markdown"), "{rendered}");
+        assert!(rendered.contains("md"), "{rendered}");
+    }
+
+    #[test]
+    fn input_formats_json_mode_lists_markdown_format() {
+        let mut out = Vec::new();
+        write_input_formats_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["input_formats"][0]["name"], "markdown");
+        assert!(value["input_formats"][0]["extensions"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("md")));
     }
 
     #[test]
