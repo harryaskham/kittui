@@ -117,6 +117,7 @@ cargo run -p kittui-cli --bin kittui-md -- --widgets docs/examples/kittui-md-pro
 cargo run -p kittui-cli --bin kittui-md -- --outline docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --toc docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --headings docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --anchors docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --links docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --urls docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --references docs/examples/kittui-md-proof.md
@@ -157,6 +158,8 @@ Modes:
 - `--outline` prints only the heading outline plus stable `#anchor` slugs for
   quick document scanning; `--toc` and `--headings` are friendly aliases for the
   same mode.
+- `--anchors` prints only heading levels, stable anchor slugs, and heading text
+  for navigation/indexing tools.
 - `--links` prints only parsed Markdown links with labels, URLs, and optional
   title attributes; `--urls` is a friendly alias for the same mode.
 - `--references` prints only links, image references, footnote references, and

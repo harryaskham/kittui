@@ -17,6 +17,7 @@ enum Mode {
     Plain,
     Components,
     Outline,
+    Anchors,
     References,
     Links,
     Footnotes,
@@ -72,6 +73,7 @@ fn real_main() -> Result<()> {
         Mode::Plain => write_plain(&doc, cfg.width, &mut std::io::stdout().lock()),
         Mode::Components => write_components(&doc, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
+        Mode::Anchors => write_anchors(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
         Mode::Links => write_links(&doc, &mut std::io::stdout().lock()),
         Mode::Footnotes => write_footnotes(&doc, &mut std::io::stdout().lock()),
@@ -121,6 +123,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--outline" => set_mode(&mut mode, &mut mode_flag, "--outline", Mode::Outline)?,
             "--toc" => set_mode(&mut mode, &mut mode_flag, "--toc", Mode::Outline)?,
             "--headings" => set_mode(&mut mode, &mut mode_flag, "--headings", Mode::Outline)?,
+            "--anchors" => set_mode(&mut mode, &mut mode_flag, "--anchors", Mode::Anchors)?,
             "--references" => {
                 set_mode(&mut mode, &mut mode_flag, "--references", Mode::References)?
             }
@@ -234,7 +237,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -444,6 +447,22 @@ fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
         for line in outline_lines(doc) {
             writeln!(out, "{line}")?;
         }
+    }
+    Ok(())
+}
+
+fn write_anchors(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md anchors — {} headings", doc.outline.len())?;
+    if doc.outline.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for heading in &doc.outline {
+        writeln!(
+            out,
+            "h{} #{} {}",
+            heading.level, heading.anchor, heading.text
+        )?;
     }
     Ok(())
 }
@@ -1379,6 +1398,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_anchors_mode() {
+        let cfg = parse_args(["--anchors".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Anchors);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
     fn parse_args_accepts_json_alias() {
         let cfg = parse_args(["--json".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::MetadataJson);
@@ -2234,6 +2260,27 @@ mod tests {
         write_outline(&doc, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert_eq!(rendered, "kittui-md outline — 0 headings\n<empty>\n");
+    }
+
+    #[test]
+    fn anchors_mode_writes_heading_anchors() {
+        let doc = render_markdown("# Title\n\n## Section", 80);
+        let mut out = Vec::new();
+        write_anchors(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert_eq!(
+            rendered,
+            "kittui-md anchors — 2 headings\nh1 #title Title\nh2 #section Section\n"
+        );
+    }
+
+    #[test]
+    fn anchors_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_anchors(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert_eq!(rendered, "kittui-md anchors — 0 headings\n<empty>\n");
     }
 
     #[test]
