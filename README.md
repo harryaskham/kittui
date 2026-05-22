@@ -121,6 +121,7 @@ cargo run -p kittui-cli --bin kittui-md -- --images docs/examples/kittui-md-proo
 cargo run -p kittui-cli --bin kittui-md -- --tables docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --code-blocks docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --metadata-blocks docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --frontmatter docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --definitions docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --math docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --html docs/examples/kittui-md-proof.md
@@ -147,7 +148,8 @@ Modes:
 - `--code-blocks` prints only parsed code blocks with language labels and source
   text for snippet extraction.
 - `--metadata-blocks` prints only YAML/pluses metadata/frontmatter blocks with
-  delimiter kind and source.
+  delimiter kind and source; `--frontmatter` is a friendly alias for the same
+  inspection mode.
 - `--definitions` prints only definition-list term/body pairs for glossary
   inspection.
 - `--math` prints only inline/display math expressions with kind and source.

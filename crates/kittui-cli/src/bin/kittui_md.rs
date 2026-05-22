@@ -128,6 +128,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--metadata-blocks",
                 Mode::MetadataBlocks,
             )?,
+            "--frontmatter" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--frontmatter",
+                Mode::MetadataBlocks,
+            )?,
             "--definitions" => set_mode(
                 &mut mode,
                 &mut mode_flag,
@@ -202,7 +208,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--links|--footnotes|--images|--tables|--code-blocks|--metadata-blocks|--definitions|--math|--html|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--links|--footnotes|--images|--tables|--code-blocks|--metadata-blocks|--frontmatter|--definitions|--math|--html|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1289,6 +1295,22 @@ mod tests {
         let cfg = parse_args(["--metadata-blocks".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::MetadataBlocks);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_frontmatter_alias() {
+        let cfg = parse_args(["--frontmatter".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::MetadataBlocks);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_frontmatter_plus_metadata_blocks() {
+        let err =
+            parse_args(["--metadata-blocks".to_string(), "--frontmatter".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--metadata-blocks"), "{err}");
+        assert!(err.to_string().contains("--frontmatter"), "{err}");
     }
 
     #[test]
