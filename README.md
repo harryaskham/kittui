@@ -127,6 +127,7 @@ cargo run -p kittui-cli --bin kittui-md -- --references docs/examples/kittui-md-
 cargo run -p kittui-cli --bin kittui-md -- --refs docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --footnotes docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --notes docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --footnotes-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --images docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --pictures docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --images-json docs/examples/kittui-md-proof.md
@@ -176,7 +177,8 @@ Modes:
   link/image title attributes when present; `--refs` is a concise alias for the
   same mode.
 - `--footnotes` prints only footnote references and definitions; `--notes` is
-  a friendly alias for the same mode.
+  a friendly alias for the same mode. `--footnotes-json` emits the same
+  footnote reference/definition records as machine-readable JSON.
 - `--images` prints only parsed image references with alt text, URLs, and
   optional title attributes; `--pictures` is a friendly alias for the same mode.
   `--images-json` emits the same image records as machine-readable JSON.

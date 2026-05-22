@@ -23,6 +23,7 @@ enum Mode {
     Links,
     LinksJson,
     Footnotes,
+    FootnotesJson,
     Images,
     ImagesJson,
     Tables,
@@ -85,6 +86,7 @@ fn real_main() -> Result<()> {
         Mode::Links => write_links(&doc, &mut std::io::stdout().lock()),
         Mode::LinksJson => write_links_json(&doc, &mut std::io::stdout().lock()),
         Mode::Footnotes => write_footnotes(&doc, &mut std::io::stdout().lock()),
+        Mode::FootnotesJson => write_footnotes_json(&doc, &mut std::io::stdout().lock()),
         Mode::Images => write_images(&doc, &mut std::io::stdout().lock()),
         Mode::ImagesJson => write_images_json(&doc, &mut std::io::stdout().lock()),
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
@@ -152,6 +154,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--links-json" => set_mode(&mut mode, &mut mode_flag, "--links-json", Mode::LinksJson)?,
             "--footnotes" => set_mode(&mut mode, &mut mode_flag, "--footnotes", Mode::Footnotes)?,
             "--notes" => set_mode(&mut mode, &mut mode_flag, "--notes", Mode::Footnotes)?,
+            "--footnotes-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--footnotes-json",
+                Mode::FootnotesJson,
+            )?,
             "--images" => set_mode(&mut mode, &mut mode_flag, "--images", Mode::Images)?,
             "--pictures" => set_mode(&mut mode, &mut mode_flag, "--pictures", Mode::Images)?,
             "--images-json" => {
@@ -267,7 +275,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -600,6 +608,24 @@ fn write_footnotes(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
             writeln!(out, "  [^{}] {}", footnote.label, footnote.text)?;
         }
     }
+    Ok(())
+}
+
+fn write_footnotes_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "references": doc.footnote_references.iter().enumerate().map(|(index, label)| serde_json::json!({
+            "index": index,
+            "label": label,
+        })).collect::<Vec<_>>(),
+        "definitions": doc.footnotes.iter().enumerate().map(|(index, footnote)| serde_json::json!({
+            "index": index,
+            "label": footnote.label,
+            "text": footnote.text,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -1759,6 +1785,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_footnotes_json_mode() {
+        let cfg = parse_args(["--footnotes-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::FootnotesJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_footnotes_plus_footnotes_json() {
+        let err =
+            parse_args(["--footnotes".to_string(), "--footnotes-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--footnotes"), "{err}");
+        assert!(err.to_string().contains("--footnotes-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_rejects_footnotes_plus_notes() {
         let err = parse_args(["--footnotes".to_string(), "--notes".to_string()]).unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
@@ -2210,6 +2252,20 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "kittui-md footnotes — 0 entries\n<empty>\n"
         );
+    }
+
+    #[test]
+    fn footnotes_json_mode_writes_references_and_definitions() {
+        let doc = render_markdown("see[^n]\n\n[^n]: note text", 80);
+        let mut out = Vec::new();
+        write_footnotes_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["references"][0]["index"], 0);
+        assert_eq!(value["references"][0]["label"], "n");
+        assert_eq!(value["definitions"][0]["index"], 0);
+        assert_eq!(value["definitions"][0]["label"], "n");
+        assert_eq!(value["definitions"][0]["text"], "note text");
     }
 
     #[test]
