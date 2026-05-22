@@ -97,7 +97,8 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             | Options::ENABLE_STRIKETHROUGH
             | Options::ENABLE_TASKLISTS
             | Options::ENABLE_FOOTNOTES
-            | Options::ENABLE_DEFINITION_LIST,
+            | Options::ENABLE_DEFINITION_LIST
+            | Options::ENABLE_MATH,
     );
     let mut out = MarkdownDocument::default();
     let mut buf = String::new();
@@ -388,6 +389,27 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     buf.push('`');
                     buf.push_str(&t);
                     buf.push('`');
+                }
+            }
+            Event::InlineMath(math) => {
+                let placeholder = format!("math:{math}");
+                if link_target.is_some() {
+                    link_label.push_str(&placeholder);
+                }
+                if in_table {
+                    table_cell.push_str(&placeholder);
+                } else {
+                    buf.push_str(&placeholder);
+                }
+            }
+            Event::DisplayMath(math) => {
+                let math = math.trim();
+                if in_table {
+                    table_cell.push_str(&format!("math:{math}"));
+                } else {
+                    flush_paragraph(&mut out, &mut buf, width_cells);
+                    out.components
+                        .push(textbox(format!("math:\n{math}"), width_cells, Tone::Tool));
                 }
             }
             Event::InlineHtml(html) => {
@@ -787,5 +809,18 @@ mod tests {
                 definition: "Definition text".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn markdown_preserves_inline_and_display_math_placeholders() {
+        let doc = render_markdown("Inline $x + y$\n\n$$\na^2 + b^2\n$$", 60);
+        let text = doc
+            .components
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        assert!(text.contains("Inline math:x + y"), "{text}");
+        assert!(text.contains("math:\na^2 + b^2"), "{text}");
     }
 }
