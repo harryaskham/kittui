@@ -1,6 +1,6 @@
 //! Markdown-to-kittui component rendering.
 
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use crate::components::{banner, h1, h2, h3, textbox, textchip, UiComponent};
 use crate::palette::Tone;
@@ -53,6 +53,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let mut buf = String::new();
     let mut heading: Option<HeadingLevel> = None;
     let mut in_code = false;
+    let mut code_label: Option<String> = None;
     let mut link_target: Option<String> = None;
     let mut link_label = String::new();
     let mut in_table = false;
@@ -112,14 +113,26 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     out.components.push(banner(text, width_cells, Tone::Tool));
                 }
             }
-            Event::Start(Tag::CodeBlock(_)) => {
+            Event::Start(Tag::CodeBlock(kind)) => {
                 flush_paragraph(&mut out, &mut buf, width_cells);
+                code_label = match kind {
+                    CodeBlockKind::Fenced(info) => {
+                        info.split_whitespace().next().map(str::to_string)
+                    }
+                    CodeBlockKind::Indented => None,
+                };
                 in_code = true;
             }
             Event::End(TagEnd::CodeBlock) => {
                 let text = take_trimmed(&mut buf);
                 if !text.is_empty() {
-                    out.components.push(textbox(text, width_cells, Tone::Tool));
+                    let rendered = code_label
+                        .take()
+                        .filter(|label| !label.is_empty())
+                        .map(|label| format!("code:{label}\n{text}"))
+                        .unwrap_or(text);
+                    out.components
+                        .push(textbox(rendered, width_cells, Tone::Tool));
                 }
                 in_code = false;
             }
@@ -322,5 +335,18 @@ mod tests {
             .join("\n");
         assert!(text.contains("• [ ] todo"), "{text}");
         assert!(text.contains("• [x] done"), "{text}");
+    }
+
+    #[test]
+    fn markdown_renders_code_fence_language_label() {
+        let doc = render_markdown("```rust\nfn main() {}\n```\n\n```\nplain\n```", 60);
+        let text = doc
+            .components
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        assert!(text.contains("code:rust\nfn main() {}"), "{text}");
+        assert!(text.contains("\n---\nplain"), "{text}");
     }
 }
