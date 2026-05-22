@@ -28,6 +28,7 @@ enum Mode {
     Definitions,
     Math,
     Html,
+    Counts,
     Stats,
     MetadataJson,
 }
@@ -84,6 +85,7 @@ fn real_main() -> Result<()> {
         Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
         Mode::Math => write_math(&doc, &mut std::io::stdout().lock()),
         Mode::Html => write_html(&doc, &mut std::io::stdout().lock()),
+        Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
             &doc,
             &markdown,
@@ -170,6 +172,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--equations" => set_mode(&mut mode, &mut mode_flag, "--equations", Mode::Math)?,
             "--html" => set_mode(&mut mode, &mut mode_flag, "--html", Mode::Html)?,
             "--markup" => set_mode(&mut mode, &mut mode_flag, "--markup", Mode::Html)?,
+            "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--stats" => set_mode(&mut mode, &mut mode_flag, "--stats", Mode::Stats)?,
             "--summary" => set_mode(&mut mode, &mut mode_flag, "--summary", Mode::Stats)?,
             "--metadata-json" => set_mode(
@@ -238,7 +241,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -480,6 +483,15 @@ fn write_stats(
     writeln!(out, "source.lines={}", source.lines().count())?;
     writeln!(out, "source.path={}", source_path.unwrap_or("<stdin>"))?;
     writeln!(out, "render.width_cells={width_cells}")?;
+    write_count_lines(doc, out)
+}
+
+fn write_counts(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md counts")?;
+    write_count_lines(doc, out)
+}
+
+fn write_count_lines(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
     writeln!(out, "components={}", doc.components.len())?;
     writeln!(out, "headings={}", doc.outline.len())?;
     writeln!(out, "heading_anchors={}", doc.outline.len())?;
@@ -1463,6 +1475,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_counts_mode() {
+        let cfg = parse_args(["--counts".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Counts);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_counts_plus_stats() {
+        let err = parse_args(["--counts".to_string(), "--stats".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--counts"), "{err}");
+        assert!(err.to_string().contains("--stats"), "{err}");
+    }
+
+    #[test]
     fn parse_args_accepts_refs_alias() {
         let cfg = parse_args(["--refs".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::References);
@@ -2074,6 +2101,22 @@ mod tests {
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("source.path=docs/proof.md"), "{rendered}");
         assert!(rendered.contains("render.width_cells=72"), "{rendered}");
+    }
+
+    #[test]
+    fn counts_mode_reports_counts_without_source_provenance() {
+        let source = "# Title\n\nSee [site](https://example.com) and ![logo](logo.png).";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_counts(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.starts_with("kittui-md counts\n"), "{rendered}");
+        assert!(rendered.contains("components="), "{rendered}");
+        assert!(rendered.contains("headings=1"), "{rendered}");
+        assert!(rendered.contains("links=1"), "{rendered}");
+        assert!(rendered.contains("images=1"), "{rendered}");
+        assert!(!rendered.contains("source.path="), "{rendered}");
+        assert!(!rendered.contains("render.width_cells="), "{rendered}");
     }
 
     #[test]
