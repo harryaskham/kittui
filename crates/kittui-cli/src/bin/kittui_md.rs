@@ -86,6 +86,7 @@ fn real_main() -> Result<()> {
             &doc,
             &markdown,
             cfg.path.as_deref(),
+            cfg.width,
             &mut std::io::stdout().lock(),
         ),
         Mode::MetadataJson => write_metadata_json(
@@ -433,12 +434,14 @@ fn write_stats(
     doc: &MarkdownDocument,
     source: &str,
     source_path: Option<&str>,
+    width_cells: u16,
     out: &mut impl Write,
 ) -> Result<()> {
     writeln!(out, "kittui-md stats")?;
     writeln!(out, "source.bytes={}", source.len())?;
     writeln!(out, "source.lines={}", source.lines().count())?;
     writeln!(out, "source.path={}", source_path.unwrap_or("<stdin>"))?;
+    writeln!(out, "render.width_cells={width_cells}")?;
     writeln!(out, "components={}", doc.components.len())?;
     writeln!(out, "headings={}", doc.outline.len())?;
     writeln!(out, "links={}", doc.links.len())?;
@@ -1763,12 +1766,13 @@ mod tests {
         let source = "# Title\n\nSee [site](https://example.com) and ![logo](logo.png).";
         let doc = render_markdown(source, 80);
         let mut out = Vec::new();
-        write_stats(&doc, source, None, &mut out).unwrap();
+        write_stats(&doc, source, None, 80, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("kittui-md stats\n"), "{rendered}");
         assert!(rendered.contains("source.bytes="), "{rendered}");
         assert!(rendered.contains("source.lines=3"), "{rendered}");
         assert!(rendered.contains("source.path=<stdin>"), "{rendered}");
+        assert!(rendered.contains("render.width_cells=80"), "{rendered}");
         assert!(rendered.contains("headings=1"), "{rendered}");
         assert!(rendered.contains("links=1"), "{rendered}");
         assert!(rendered.contains("images=1"), "{rendered}");
@@ -1779,9 +1783,10 @@ mod tests {
         let source = "# Title";
         let doc = render_markdown(source, 80);
         let mut out = Vec::new();
-        write_stats(&doc, source, Some("docs/proof.md"), &mut out).unwrap();
+        write_stats(&doc, source, Some("docs/proof.md"), 72, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("source.path=docs/proof.md"), "{rendered}");
+        assert!(rendered.contains("render.width_cells=72"), "{rendered}");
     }
 
     #[test]
@@ -1923,7 +1928,7 @@ mod tests {
         let source = "---\ntitle: Proof\n---\n\n# Body";
         let doc = render_markdown(source, 80);
         let mut out = Vec::new();
-        write_stats(&doc, source, None, &mut out).unwrap();
+        write_stats(&doc, source, None, 80, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("metadata_blocks=1"), "{rendered}");
     }
