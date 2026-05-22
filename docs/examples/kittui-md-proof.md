@@ -7,9 +7,9 @@ surface: metadata-blocks
 
 ## Components
 
-A paragraph textbox with a [highlighted link](https://example.com), inline `code`, *emphasis*, **strong text**, ~~strikethrough~~, and inline math $x + y$.
+A paragraph textbox with a [highlighted link](https://example.com "Example link title"), inline `code`, *emphasis*, **strong text**, ~~strikethrough~~, and inline math $x + y$.
 
-![kittui placeholder image](assets/kittui-placeholder.png)
+![kittui placeholder image](assets/kittui-placeholder.png "Placeholder image title")
 
 > A banner-style blockquote/callout rendered through the component layer.
 
