@@ -18,6 +18,7 @@ enum Mode {
     Components,
     Outline,
     References,
+    Tables,
     Stats,
     MetadataJson,
 }
@@ -64,6 +65,7 @@ fn real_main() -> Result<()> {
         Mode::Components => write_components(&doc, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
+        Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(&doc, &markdown, &mut std::io::stdout().lock()),
         Mode::MetadataJson => write_metadata_json(
             &doc,
@@ -92,6 +94,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--components" => mode = Mode::Components,
             "--outline" => mode = Mode::Outline,
             "--references" => mode = Mode::References,
+            "--tables" => mode = Mode::Tables,
             "--stats" => mode = Mode::Stats,
             "--metadata-json" => mode = Mode::MetadataJson,
             "--width" => {
@@ -137,7 +140,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -366,6 +369,35 @@ fn write_stats(doc: &MarkdownDocument, source: &str, out: &mut impl Write) -> Re
     writeln!(out, "math={}", doc.math.len())?;
     writeln!(out, "html={}", doc.html.len())?;
     writeln!(out, "code_blocks={}", doc.code_blocks.len())?;
+    Ok(())
+}
+
+fn write_tables(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md tables — {} tables", doc.tables.len())?;
+    if doc.tables.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for (i, table) in doc.tables.iter().enumerate() {
+        let footprint = table.footprint();
+        writeln!(out, "table #{}", i + 1)?;
+        writeln!(out, "  rows={}", table.rows.len())?;
+        writeln!(out, "  columns={}", table.column_widths().len())?;
+        writeln!(out, "  column_widths={:?}", table.column_widths())?;
+        writeln!(
+            out,
+            "  alignments={:?}",
+            table
+                .alignments
+                .iter()
+                .map(|alignment| alignment.as_str())
+                .collect::<Vec<_>>()
+        )?;
+        writeln!(out, "  footprint={}x{}", footprint.cols, footprint.rows)?;
+        for row in &table.rows {
+            writeln!(out, "  | {} |", row.join(" | "))?;
+        }
+    }
     Ok(())
 }
 
@@ -1116,6 +1148,36 @@ mod tests {
         assert!(
             status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 0 code blocks"),
             "{status}"
+        );
+    }
+
+    #[test]
+    fn tables_mode_reports_table_metrics_and_rows() {
+        let doc = render_markdown("| a | b |\n|:---|---:|\n| 1 | 22 |", 80);
+        let mut out = Vec::new();
+        write_tables(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md tables — 1 tables"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("table #1"), "{rendered}");
+        assert!(rendered.contains("column_widths=[1, 2]"), "{rendered}");
+        assert!(
+            rendered.contains("alignments=[\"left\", \"right\"]"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("| 1 | 22 |"), "{rendered}");
+    }
+
+    #[test]
+    fn tables_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_tables(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md tables — 0 tables\n<empty>\n"
         );
     }
 
