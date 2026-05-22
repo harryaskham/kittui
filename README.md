@@ -153,6 +153,8 @@ cargo run -p kittui-cli --bin kittui-md -- --math-json docs/examples/kittui-md-p
 cargo run -p kittui-cli --bin kittui-md -- --html docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --markup docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --html-json docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --modes
+cargo run -p kittui-cli --bin kittui-md -- --modes-json
 cargo run -p kittui-cli --bin kittui-md -- --counts docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --counts-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --stats docs/examples/kittui-md-proof.md
@@ -214,6 +216,8 @@ Modes:
 - `--html` prints only preserved inline/block HTML placeholders with kind and
   source; `--markup` is a friendly alias for the same mode. `--html-json`
   emits the same HTML fragment records as machine-readable JSON.
+- `--modes` lists available output modes, aliases, and descriptions without
+  reading a document; `--modes-json` emits the same mode catalog as JSON.
 - `--counts` prints only concise component/metadata counts; `--counts-json`
   emits the same counts as a minimal machine-readable JSON object.
 - `--stats` prints concise source path/size, render width,

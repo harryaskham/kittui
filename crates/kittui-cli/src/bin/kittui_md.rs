@@ -41,6 +41,8 @@ enum Mode {
     MathJson,
     Html,
     HtmlJson,
+    Modes,
+    ModesJson,
     Counts,
     CountsJson,
     Stats,
@@ -77,6 +79,11 @@ fn main() -> ExitCode {
 
 fn real_main() -> Result<()> {
     let cfg = parse_args(std::env::args().skip(1))?;
+    match cfg.mode {
+        Mode::Modes => return write_modes(&mut std::io::stdout().lock()),
+        Mode::ModesJson => return write_modes_json(&mut std::io::stdout().lock()),
+        _ => {}
+    }
     let markdown = if let Some(path) = &cfg.path {
         std::fs::read_to_string(path)?
     } else {
@@ -113,6 +120,8 @@ fn real_main() -> Result<()> {
         Mode::MathJson => write_math_json(&doc, &mut std::io::stdout().lock()),
         Mode::Html => write_html(&doc, &mut std::io::stdout().lock()),
         Mode::HtmlJson => write_html_json(&doc, &mut std::io::stdout().lock()),
+        Mode::Modes => unreachable!("mode listing returns before reading input"),
+        Mode::ModesJson => unreachable!("mode listing returns before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -265,6 +274,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--html" => set_mode(&mut mode, &mut mode_flag, "--html", Mode::Html)?,
             "--markup" => set_mode(&mut mode, &mut mode_flag, "--markup", Mode::Html)?,
             "--html-json" => set_mode(&mut mode, &mut mode_flag, "--html-json", Mode::HtmlJson)?,
+            "--modes" => set_mode(&mut mode, &mut mode_flag, "--modes", Mode::Modes)?,
+            "--modes-json" => set_mode(&mut mode, &mut mode_flag, "--modes-json", Mode::ModesJson)?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -338,7 +349,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -522,6 +533,223 @@ impl Drop for RawTerminal {
     fn drop(&mut self) {
         let _ = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.original) };
     }
+}
+
+struct ModeInfo {
+    flag: &'static str,
+    aliases: &'static [&'static str],
+    description: &'static str,
+}
+
+const MODE_INFOS: &[ModeInfo] = &[
+    ModeInfo {
+        flag: "--rich",
+        aliases: &[],
+        description: "render rich kitty graphics components",
+    },
+    ModeInfo {
+        flag: "--plain",
+        aliases: &[],
+        description: "print component records plus text metadata sections",
+    },
+    ModeInfo {
+        flag: "--components",
+        aliases: &["--widgets"],
+        description: "print generated UI component records",
+    },
+    ModeInfo {
+        flag: "--components-json",
+        aliases: &[],
+        description: "emit generated UI component records as JSON",
+    },
+    ModeInfo {
+        flag: "--outline",
+        aliases: &["--toc", "--headings"],
+        description: "print heading outline records",
+    },
+    ModeInfo {
+        flag: "--outline-json",
+        aliases: &[],
+        description: "emit heading outline records as JSON",
+    },
+    ModeInfo {
+        flag: "--anchors",
+        aliases: &["--slugs"],
+        description: "print heading anchor records",
+    },
+    ModeInfo {
+        flag: "--anchors-json",
+        aliases: &[],
+        description: "emit heading anchor records as JSON",
+    },
+    ModeInfo {
+        flag: "--references",
+        aliases: &["--refs"],
+        description: "print combined link, image, and footnote references",
+    },
+    ModeInfo {
+        flag: "--references-json",
+        aliases: &[],
+        description: "emit combined link, image, and footnote references as JSON",
+    },
+    ModeInfo {
+        flag: "--links",
+        aliases: &["--urls"],
+        description: "print link records",
+    },
+    ModeInfo {
+        flag: "--links-json",
+        aliases: &[],
+        description: "emit link records as JSON",
+    },
+    ModeInfo {
+        flag: "--footnotes",
+        aliases: &["--notes"],
+        description: "print footnote references and definitions",
+    },
+    ModeInfo {
+        flag: "--footnotes-json",
+        aliases: &[],
+        description: "emit footnote references and definitions as JSON",
+    },
+    ModeInfo {
+        flag: "--images",
+        aliases: &["--pictures"],
+        description: "print image records",
+    },
+    ModeInfo {
+        flag: "--images-json",
+        aliases: &[],
+        description: "emit image records as JSON",
+    },
+    ModeInfo {
+        flag: "--tables",
+        aliases: &["--grid"],
+        description: "print table layout records",
+    },
+    ModeInfo {
+        flag: "--tables-json",
+        aliases: &[],
+        description: "emit table layout records as JSON",
+    },
+    ModeInfo {
+        flag: "--code-blocks",
+        aliases: &["--snippets"],
+        description: "print code block records",
+    },
+    ModeInfo {
+        flag: "--code-blocks-json",
+        aliases: &[],
+        description: "emit code block records as JSON",
+    },
+    ModeInfo {
+        flag: "--metadata-blocks",
+        aliases: &["--metadata", "--frontmatter"],
+        description: "print frontmatter/metadata block records",
+    },
+    ModeInfo {
+        flag: "--metadata-blocks-json",
+        aliases: &[],
+        description: "emit frontmatter/metadata block records as JSON",
+    },
+    ModeInfo {
+        flag: "--definitions",
+        aliases: &["--glossary"],
+        description: "print definition-list records",
+    },
+    ModeInfo {
+        flag: "--definitions-json",
+        aliases: &[],
+        description: "emit definition-list records as JSON",
+    },
+    ModeInfo {
+        flag: "--math",
+        aliases: &["--equations"],
+        description: "print math expression records",
+    },
+    ModeInfo {
+        flag: "--math-json",
+        aliases: &[],
+        description: "emit math expression records as JSON",
+    },
+    ModeInfo {
+        flag: "--html",
+        aliases: &["--markup"],
+        description: "print HTML placeholder records",
+    },
+    ModeInfo {
+        flag: "--html-json",
+        aliases: &[],
+        description: "emit HTML placeholder records as JSON",
+    },
+    ModeInfo {
+        flag: "--modes",
+        aliases: &[],
+        description: "list available output modes",
+    },
+    ModeInfo {
+        flag: "--modes-json",
+        aliases: &[],
+        description: "emit available output modes as JSON",
+    },
+    ModeInfo {
+        flag: "--counts",
+        aliases: &[],
+        description: "print compact structural counts",
+    },
+    ModeInfo {
+        flag: "--counts-json",
+        aliases: &[],
+        description: "emit compact structural counts as JSON",
+    },
+    ModeInfo {
+        flag: "--stats",
+        aliases: &["--summary"],
+        description: "print source, render, and count summary",
+    },
+    ModeInfo {
+        flag: "--stats-json",
+        aliases: &[],
+        description: "emit source, render, and count summary as JSON",
+    },
+    ModeInfo {
+        flag: "--metadata-json",
+        aliases: &["--json"],
+        description: "emit full document metadata as JSON",
+    },
+];
+
+fn write_modes(out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md modes — {} output modes", MODE_INFOS.len())?;
+    for info in MODE_INFOS {
+        if info.aliases.is_empty() {
+            writeln!(out, "{} — {}", info.flag, info.description)?;
+        } else {
+            writeln!(
+                out,
+                "{} ({}) — {}",
+                info.flag,
+                info.aliases.join(", "),
+                info.description
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn write_modes_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "modes": MODE_INFOS.iter().enumerate().map(|(index, info)| serde_json::json!({
+            "index": index,
+            "flag": info.flag,
+            "aliases": info.aliases,
+            "description": info.description,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
 }
 
 fn write_components(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
@@ -1790,6 +2018,28 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--components"), "{err}");
         assert!(err.to_string().contains("--widgets"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_modes_mode() {
+        let cfg = parse_args(["--modes".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Modes);
+        assert_eq!(cfg.path.as_deref(), None);
+    }
+
+    #[test]
+    fn parse_args_accepts_modes_json_mode() {
+        let cfg = parse_args(["--modes-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ModesJson);
+        assert_eq!(cfg.path.as_deref(), None);
+    }
+
+    #[test]
+    fn parse_args_rejects_modes_plus_modes_json() {
+        let err = parse_args(["--modes".to_string(), "--modes-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--modes"), "{err}");
+        assert!(err.to_string().contains("--modes-json"), "{err}");
     }
 
     #[test]
@@ -3120,6 +3370,33 @@ mod tests {
             .unwrap()
             .iter()
             .any(|component| { component["kind"] == "TextChip" && component["text"] == "site" }));
+    }
+
+    #[test]
+    fn modes_mode_lists_flags_aliases_and_descriptions() {
+        let mut out = Vec::new();
+        write_modes(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.starts_with("kittui-md modes"), "{rendered}");
+        assert!(rendered.contains("--components (--widgets)"), "{rendered}");
+        assert!(rendered.contains("--stats-json"), "{rendered}");
+        assert!(rendered.contains("available output modes"), "{rendered}");
+    }
+
+    #[test]
+    fn modes_json_mode_lists_flags_aliases_and_descriptions() {
+        let mut out = Vec::new();
+        write_modes_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        let modes = value["modes"].as_array().unwrap();
+        assert!(modes.iter().any(|mode| {
+            mode["flag"] == "--components" && mode["aliases"] == serde_json::json!(["--widgets"])
+        }));
+        assert!(modes.iter().any(|mode| mode["flag"] == "--modes-json"));
+        assert!(modes
+            .iter()
+            .any(|mode| mode["description"] == "emit full document metadata as JSON"));
     }
 
     #[test]
