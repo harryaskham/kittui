@@ -159,6 +159,8 @@ cargo run -p kittui-cli --bin kittui-md -- --modes-json
 cargo run -p kittui-cli --bin kittui-md -- --schemas-json
 cargo run -p kittui-cli --bin kittui-md -- --mode-info widgets
 cargo run -p kittui-cli --bin kittui-md -- --mode-info-json stats-json
+cargo run -p kittui-cli --bin kittui-md -- --mode-search table
+cargo run -p kittui-cli --bin kittui-md -- --mode-search-json json
 cargo run -p kittui-cli --bin kittui-md -- --counts docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --counts-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --stats docs/examples/kittui-md-proof.md
@@ -227,6 +229,8 @@ Modes:
   `--schemas-json` emits a compact catalog of JSON output modes and their
   top-level keys for tooling discovery. `--mode-info NAME` and
   `--mode-info-json NAME` describe one mode by canonical name or alias.
+  `--mode-search QUERY` and `--mode-search-json QUERY` search modes by flag,
+  alias, or description.
 - `--counts` prints only concise component/metadata counts; `--counts-json`
   emits the same counts as a minimal machine-readable JSON object.
 - `--stats` prints concise source path/size, render width,
