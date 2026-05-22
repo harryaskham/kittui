@@ -372,10 +372,8 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
     )?;
     writeln!(
         out,
-        "\x1b[0m\x1b[?25hkittui-md rich view — {} components, {} links; offset={} rows",
-        doc.components.len(),
-        doc.links.len(),
-        cfg.offset_rows
+        "\x1b[0m\x1b[?25h{}",
+        rich_status_line(doc, cfg, document_rows(doc, cfg.width))
     )?;
     if !doc.links.is_empty() {
         for link in &doc.links {
@@ -383,6 +381,20 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
         }
     }
     Ok(())
+}
+
+fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> String {
+    let viewport = cfg.height_rows.unwrap_or(total_rows);
+    let max_offset = total_rows.saturating_sub(viewport);
+    format!(
+        "kittui-md rich view — {} components, {} links; offset={}/{} rows; viewport={}; total_rows={}",
+        doc.components.len(),
+        doc.links.len(),
+        cfg.offset_rows.min(max_offset),
+        max_offset,
+        viewport,
+        total_rows,
+    )
 }
 
 fn layout_components<'a>(
@@ -662,6 +674,27 @@ mod tests {
             tables: vec![],
         };
         assert_eq!(document_rows(&doc, 80), 7);
+    }
+
+    #[test]
+    fn rich_status_line_reports_offset_viewport_and_total_rows() {
+        let doc = MarkdownDocument {
+            components: vec![h1("One", 40), h1("Two", 40)],
+            links: vec![],
+            tables: vec![],
+        };
+        let cfg = Config {
+            mode: Mode::Rich,
+            width: 80,
+            offset_rows: 99,
+            height_rows: Some(3),
+            interactive: true,
+            path: Some("proof.md".to_string()),
+        };
+        let status = rich_status_line(&doc, &cfg, document_rows(&doc, 80));
+        assert!(status.contains("offset=4/4 rows"), "{status}");
+        assert!(status.contains("viewport=3"), "{status}");
+        assert!(status.contains("total_rows=7"), "{status}");
     }
 
     #[test]
