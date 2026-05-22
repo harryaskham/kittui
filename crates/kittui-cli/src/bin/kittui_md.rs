@@ -18,6 +18,7 @@ enum Mode {
     Components,
     Outline,
     Anchors,
+    AnchorsJson,
     References,
     Links,
     Footnotes,
@@ -76,6 +77,7 @@ fn real_main() -> Result<()> {
         Mode::Components => write_components(&doc, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::Anchors => write_anchors(&doc, &mut std::io::stdout().lock()),
+        Mode::AnchorsJson => write_anchors_json(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
         Mode::Links => write_links(&doc, &mut std::io::stdout().lock()),
         Mode::Footnotes => write_footnotes(&doc, &mut std::io::stdout().lock()),
@@ -129,6 +131,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--headings" => set_mode(&mut mode, &mut mode_flag, "--headings", Mode::Outline)?,
             "--anchors" => set_mode(&mut mode, &mut mode_flag, "--anchors", Mode::Anchors)?,
             "--slugs" => set_mode(&mut mode, &mut mode_flag, "--slugs", Mode::Anchors)?,
+            "--anchors-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--anchors-json",
+                Mode::AnchorsJson,
+            )?,
             "--references" => {
                 set_mode(&mut mode, &mut mode_flag, "--references", Mode::References)?
             }
@@ -246,7 +254,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -473,6 +481,21 @@ fn write_anchors(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
             heading.level, heading.anchor, heading.text
         )?;
     }
+    Ok(())
+}
+
+fn write_anchors_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "anchors": doc.outline.iter().enumerate().map(|(index, heading)| serde_json::json!({
+            "index": index,
+            "level": heading.level,
+            "anchor": heading.anchor,
+            "text": heading.text,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -1472,6 +1495,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_anchors_json_mode() {
+        let cfg = parse_args(["--anchors-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::AnchorsJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_anchors_plus_anchors_json() {
+        let err = parse_args(["--anchors".to_string(), "--anchors-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--anchors"), "{err}");
+        assert!(err.to_string().contains("--anchors-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_rejects_anchors_plus_slugs() {
         let err = parse_args(["--anchors".to_string(), "--slugs".to_string()]).unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
@@ -2443,6 +2481,21 @@ mod tests {
         write_anchors(&doc, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert_eq!(rendered, "kittui-md anchors — 0 headings\n<empty>\n");
+    }
+
+    #[test]
+    fn anchors_json_mode_writes_heading_anchors() {
+        let doc = render_markdown("# Title\n\n## Section", 80);
+        let mut out = Vec::new();
+        write_anchors_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["anchors"][0]["index"], 0);
+        assert_eq!(value["anchors"][0]["level"], 1);
+        assert_eq!(value["anchors"][0]["anchor"], "title");
+        assert_eq!(value["anchors"][0]["text"], "Title");
+        assert_eq!(value["anchors"][1]["index"], 1);
+        assert_eq!(value["anchors"][1]["anchor"], "section");
     }
 
     #[test]
