@@ -26,6 +26,7 @@ enum Mode {
     Images,
     ImagesJson,
     Tables,
+    TablesJson,
     CodeBlocks,
     MetadataBlocks,
     Definitions,
@@ -87,6 +88,7 @@ fn real_main() -> Result<()> {
         Mode::Images => write_images(&doc, &mut std::io::stdout().lock()),
         Mode::ImagesJson => write_images_json(&doc, &mut std::io::stdout().lock()),
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
+        Mode::TablesJson => write_tables_json(&doc, &mut std::io::stdout().lock()),
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::MetadataBlocks => write_metadata_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
@@ -157,6 +159,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             }
             "--tables" => set_mode(&mut mode, &mut mode_flag, "--tables", Mode::Tables)?,
             "--grid" => set_mode(&mut mode, &mut mode_flag, "--grid", Mode::Tables)?,
+            "--tables-json" => {
+                set_mode(&mut mode, &mut mode_flag, "--tables-json", Mode::TablesJson)?
+            }
             "--code-blocks" => {
                 set_mode(&mut mode, &mut mode_flag, "--code-blocks", Mode::CodeBlocks)?
             }
@@ -262,7 +267,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--images|--pictures|--images-json|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -656,6 +661,28 @@ fn write_tables(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
             writeln!(out, "  | {} |", row.join(" | "))?;
         }
     }
+    Ok(())
+}
+
+fn write_tables_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "tables": doc.tables.iter().enumerate().map(|(index, table)| {
+            let footprint = table.footprint();
+            serde_json::json!({
+                "index": index,
+                "rows": table.rows,
+                "alignments": table.alignments.iter().map(|alignment| alignment.as_str()).collect::<Vec<_>>(),
+                "column_widths": table.column_widths(),
+                "footprint": {
+                    "cols": footprint.cols,
+                    "rows": footprint.rows,
+                },
+            })
+        }).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -1680,6 +1707,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_tables_json_mode() {
+        let cfg = parse_args(["--tables-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::TablesJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_tables_plus_tables_json() {
+        let err = parse_args(["--tables".to_string(), "--tables-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--tables"), "{err}");
+        assert!(err.to_string().contains("--tables-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_rejects_tables_plus_grid() {
         let err = parse_args(["--tables".to_string(), "--grid".to_string()]).unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
@@ -2238,6 +2280,24 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "kittui-md tables — 0 tables\n<empty>\n"
         );
+    }
+
+    #[test]
+    fn tables_json_mode_writes_table_records() {
+        let doc = render_markdown("| a | b |\n|:---|---:|\n| 1 | 22 |", 80);
+        let mut out = Vec::new();
+        write_tables_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["tables"][0]["index"], 0);
+        assert_eq!(value["tables"][0]["rows"][1][1], "22");
+        assert_eq!(value["tables"][0]["alignments"][0], "left");
+        assert_eq!(value["tables"][0]["alignments"][1], "right");
+        assert_eq!(
+            value["tables"][0]["column_widths"],
+            serde_json::json!([1, 2])
+        );
+        assert!(value["tables"][0]["footprint"]["cols"].as_u64().unwrap() >= 6);
     }
 
     #[test]
