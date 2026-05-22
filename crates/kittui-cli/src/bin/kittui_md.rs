@@ -347,6 +347,7 @@ fn write_metadata_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<(
         })).collect::<Vec<_>>(),
         "tables": doc.tables.iter().map(|table| serde_json::json!({
             "rows": table.rows,
+            "alignments": table.alignments.iter().map(|alignment| alignment.as_str()).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
@@ -888,7 +889,7 @@ mod tests {
     #[test]
     fn metadata_json_mode_reports_stable_shape() {
         let doc = render_markdown(
-            "# Title\n\nSee [site](https://example.com).\n\n![logo](logo.png)\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n[^n]: note text",
+            "# Title\n\nSee [site](https://example.com).\n\n![logo](logo.png)\n\n| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n\n[^n]: note text",
             80,
         );
         let mut out = Vec::new();
@@ -914,6 +915,9 @@ mod tests {
         assert_eq!(value["footnotes"][0]["label"], "n");
         assert_eq!(value["footnotes"][0]["text"], "note text");
         assert_eq!(value["tables"][0]["rows"][1][0], "1");
+        assert_eq!(value["tables"][0]["alignments"][0], "left");
+        assert_eq!(value["tables"][0]["alignments"][1], "center");
+        assert_eq!(value["tables"][0]["alignments"][2], "right");
     }
 
     #[test]

@@ -1,10 +1,10 @@
 //! Markdown-to-kittui component rendering.
 
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use crate::components::{banner, h1, h2, h3, textbox, textchip, UiComponent};
 use crate::palette::Tone;
-use crate::table::MarkdownTable;
+use crate::table::{MarkdownTable, MarkdownTableAlignment};
 
 /// Rendered markdown document as semantic kittui UI components.
 #[derive(Clone, Debug, Default)]
@@ -97,6 +97,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let mut footnote_definition: Option<String> = None;
     let mut in_table = false;
     let mut table_rows: Vec<Vec<String>> = Vec::new();
+    let mut table_alignments: Vec<MarkdownTableAlignment> = Vec::new();
     let mut table_row: Vec<String> = Vec::new();
     let mut table_cell = String::new();
     let mut list_stack: Vec<ListState> = Vec::new();
@@ -240,14 +241,16 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     out.components.push(textchip(label, Tone::User));
                 }
             }
-            Event::Start(Tag::Table(_)) => {
+            Event::Start(Tag::Table(alignments)) => {
                 flush_paragraph(&mut out, &mut buf, width_cells);
                 in_table = true;
                 table_rows.clear();
+                table_alignments = alignments.into_iter().map(markdown_alignment).collect();
             }
             Event::Start(Tag::TableHead) => table_row.clear(),
             Event::End(TagEnd::Table) => {
-                let table = MarkdownTable::new(table_rows.clone());
+                let table =
+                    MarkdownTable::with_alignments(table_rows.clone(), table_alignments.clone());
                 let text = table_text(&table);
                 out.components
                     .push(textbox(text, width_cells, Tone::Assistant));
@@ -402,6 +405,15 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     out
 }
 
+fn markdown_alignment(alignment: Alignment) -> MarkdownTableAlignment {
+    match alignment {
+        Alignment::None => MarkdownTableAlignment::None,
+        Alignment::Left => MarkdownTableAlignment::Left,
+        Alignment::Center => MarkdownTableAlignment::Center,
+        Alignment::Right => MarkdownTableAlignment::Right,
+    }
+}
+
 fn heading_level_number(level: HeadingLevel) -> u8 {
     match level {
         HeadingLevel::H1 => 1,
@@ -514,11 +526,26 @@ mod tests {
 
     #[test]
     fn markdown_renders_table_as_textbox_and_metadata() {
-        let doc = render_markdown("| a | b |\n|---|---|\n| 1 | 2 |", 60);
-        assert!(doc.components.iter().any(|c| c.text.contains("1 | 2")));
+        let doc = render_markdown(
+            "| a | b | c | d |\n|---|:---|:---:|---:|\n| 1 | 2 | 3 | 4 |",
+            60,
+        );
+        assert!(doc
+            .components
+            .iter()
+            .any(|c| c.text.contains("1 | 2 | 3 | 4")));
         assert_eq!(doc.tables.len(), 1);
-        assert_eq!(doc.tables[0].rows[0], vec!["a", "b"]);
-        assert_eq!(doc.tables[0].rows[1], vec!["1", "2"]);
+        assert_eq!(doc.tables[0].rows[0], vec!["a", "b", "c", "d"]);
+        assert_eq!(doc.tables[0].rows[1], vec!["1", "2", "3", "4"]);
+        assert_eq!(
+            doc.tables[0].alignments,
+            vec![
+                MarkdownTableAlignment::None,
+                MarkdownTableAlignment::Left,
+                MarkdownTableAlignment::Center,
+                MarkdownTableAlignment::Right,
+            ]
+        );
     }
 
     #[test]

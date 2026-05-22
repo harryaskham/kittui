@@ -4,17 +4,55 @@ use kittui::scene::scene;
 use kittui::{CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Scene};
 use kittui_kitty::{PlacementOptions, Quiet, RelativePlacement, SubcellOffset};
 
+/// Markdown table column alignment.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MarkdownTableAlignment {
+    /// No explicit alignment marker.
+    None,
+    /// Left-aligned column (`:---`).
+    Left,
+    /// Center-aligned column (`:---:`).
+    Center,
+    /// Right-aligned column (`---:`).
+    Right,
+}
+
+impl MarkdownTableAlignment {
+    /// Stable lowercase string for metadata output.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+        }
+    }
+}
+
 /// Parsed markdown table data in document order.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MarkdownTable {
     /// Rows of cell text. The first row is the header when the source table has one.
     pub rows: Vec<Vec<String>>,
+    /// Per-column alignment metadata in source order.
+    pub alignments: Vec<MarkdownTableAlignment>,
 }
 
 impl MarkdownTable {
     /// Construct from rows.
     pub fn new(rows: Vec<Vec<String>>) -> Self {
-        Self { rows }
+        Self {
+            rows,
+            alignments: Vec::new(),
+        }
+    }
+
+    /// Construct from rows and per-column alignment metadata.
+    pub fn with_alignments(
+        rows: Vec<Vec<String>>,
+        alignments: Vec<MarkdownTableAlignment>,
+    ) -> Self {
+        Self { rows, alignments }
     }
 
     /// Per-column display widths, including a minimum width of one cell.

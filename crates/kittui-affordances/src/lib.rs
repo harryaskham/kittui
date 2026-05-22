@@ -35,7 +35,8 @@ pub use markdown::{
 pub use palette::{Palette, Tone};
 pub use panel::{panel_chrome, PanelOptions};
 pub use table::{
-    box_glyph_scene, relative_cell_options, BoxGlyphCell, MarkdownTable, TableGlyphLayout,
+    box_glyph_scene, relative_cell_options, BoxGlyphCell, MarkdownTable, MarkdownTableAlignment,
+    TableGlyphLayout,
 };
 
 #[cfg(test)]
