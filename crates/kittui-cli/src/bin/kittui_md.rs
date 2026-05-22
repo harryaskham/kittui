@@ -3872,6 +3872,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_mode_selector_for_no_input_discovery_mode() {
+        let cfg = parse_args(["--mode".to_string(), "keybindings-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::KeybindingsJson);
+        assert_eq!(cfg.path, None);
+    }
+
+    #[test]
     fn parse_args_accepts_mode_selector_for_alias_name() {
         let cfg = parse_args([
             "--mode".to_string(),
