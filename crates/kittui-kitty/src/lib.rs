@@ -152,7 +152,7 @@ pub fn upload_still_ex(
     quiet: Quiet,
     transport: Transport,
 ) -> String {
-    upload(image_id, None, medium, quiet, transport, /*first_frame=*/ true)
+    upload(image_id, None, medium, quiet, transport, /*first_frame=*/ true, None)
 }
 
 /// Back-compat: upload still bytes directly via base64 with the default
@@ -242,9 +242,9 @@ fn encode_chunked_rgba(
 /// Build the escape sequences that upload an animated scene.
 ///
 /// Per kitty's protocol, the first frame is uploaded with `a=t,f=100,i=<id>`
-/// and each subsequent frame appends with `a=f,i=<id>,r=<index>`. The
-/// animation control command (`a=a`) is emitted last and sets loop count and
-/// per-frame gap defaults; per-frame delays use `a=a,i=<id>,r=<n>,z=<delay>`.
+/// and each subsequent frame appends with `a=f,i=<id>,r=<index>`. Per-frame
+/// delays are encoded as `z=<ms>` on each upload command. The animation control
+/// command (`a=a`) is emitted last and sets playback state/loop count.
 pub fn upload_animation(
     image_id: u32,
     frames: &[Vec<u8>],
@@ -275,13 +275,15 @@ pub fn upload_animation_ex(
     let mut out = String::new();
     for (i, frame) in frames.iter().enumerate() {
         let medium = UploadMedium::Direct { bytes: frame };
+        let frame_index = if i == 0 { None } else { Some((i as u32).saturating_add(1)) };
         out.push_str(&upload(
             image_id,
-            Some((i as u32).saturating_add(1)),
+            frame_index,
             medium,
             quiet,
             transport,
             /*first_frame=*/ i == 0,
+            frame_delays_ms.get(i).copied(),
         ));
     }
     // Animation control: pick state + loop count per spec.
@@ -301,20 +303,6 @@ pub fn upload_animation_ex(
         q = quiet.field(),
     );
     out.push_str(&wrap_transport(control, transport));
-    for (i, delay) in frame_delays_ms.iter().enumerate() {
-        let frame_index = (i as u32).saturating_add(1);
-        // Per-frame gap is set on the frame data slot via a=a,i=,r=N,z=<ms>;
-        // this is the post-upload update form documented in the kitty
-        // graphics protocol ("Controlling animations" section).
-        let cmd = format!(
-            "{ESC}_Ga=a,i={id},r={frame},z={delay}{q}{ESC}\\",
-            id = image_id,
-            frame = frame_index,
-            delay = delay,
-            q = quiet.field(),
-        );
-        out.push_str(&wrap_transport(cmd, transport));
-    }
     out
 }
 
@@ -462,6 +450,7 @@ fn upload(
     quiet: Quiet,
     transport: Transport,
     first_frame: bool,
+    frame_delay_ms: Option<u32>,
 ) -> String {
     let verb = if frame_index.is_some() && !first_frame {
         "a=f"
@@ -471,19 +460,19 @@ fn upload(
     match medium {
         UploadMedium::Direct { bytes } => {
             let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-            encode_chunked(image_id, verb, &b64, frame_index, quiet, transport)
+            encode_chunked(image_id, verb, &b64, frame_index, frame_delay_ms, quiet, transport)
         }
         UploadMedium::File { path } => {
             let b64 = base64::engine::general_purpose::STANDARD.encode(path_bytes(path));
-            single_payload(image_id, verb, "f", &b64, frame_index, quiet, transport)
+            single_payload(image_id, verb, "f", &b64, frame_index, frame_delay_ms, quiet, transport)
         }
         UploadMedium::TempFile { path } => {
             let b64 = base64::engine::general_purpose::STANDARD.encode(path_bytes(path));
-            single_payload(image_id, verb, "t", &b64, frame_index, quiet, transport)
+            single_payload(image_id, verb, "t", &b64, frame_index, frame_delay_ms, quiet, transport)
         }
         UploadMedium::SharedMemory { name } => {
             let b64 = base64::engine::general_purpose::STANDARD.encode(name.as_bytes());
-            single_payload(image_id, verb, "s", &b64, frame_index, quiet, transport)
+            single_payload(image_id, verb, "s", &b64, frame_index, frame_delay_ms, quiet, transport)
         }
     }
 }
@@ -504,16 +493,19 @@ fn single_payload(
     medium_field: &str,
     base64_body: &str,
     frame_index: Option<u32>,
+    frame_delay_ms: Option<u32>,
     quiet: Quiet,
     transport: Transport,
 ) -> String {
     let frame_field = frame_index.map(|i| format!(",r={i}")).unwrap_or_default();
+    let delay_field = frame_delay_ms.map(|z| format!(",z={z}")).unwrap_or_default();
     let header = format!(
-        "{verb},f=100,t={medium},i={id}{frame}{q}",
+        "{verb},f=100,t={medium},i={id}{frame}{delay}{q}",
         verb = verb,
         medium = medium_field,
         id = image_id,
         frame = frame_field,
+        delay = delay_field,
         q = quiet.field(),
     );
     let payload = format!("{ESC}_G{header};{base64_body}{ESC}\\");
@@ -525,6 +517,7 @@ fn encode_chunked(
     verb: &str,
     base64_body: &str,
     frame_index: Option<u32>,
+    frame_delay_ms: Option<u32>,
     quiet: Quiet,
     transport: Transport,
 ) -> String {
@@ -533,16 +526,18 @@ fn encode_chunked(
     let bytes = base64_body.as_bytes();
     let mut offset = 0;
     let frame_field = frame_index.map(|i| format!(",r={i}")).unwrap_or_default();
+    let delay_field = frame_delay_ms.map(|z| format!(",z={z}")).unwrap_or_default();
     while offset < bytes.len() {
         let end = (offset + CHUNK).min(bytes.len());
         let more = if end < bytes.len() { 1 } else { 0 };
         let header = if offset == 0 {
             format!(
-                "{verb},f=100,i={id},m={more}{frame_field}{q}",
+                "{verb},f=100,i={id},m={more}{frame_field}{delay_field}{q}",
                 verb = verb,
                 id = image_id,
                 more = more,
                 frame_field = frame_field,
+                delay_field = delay_field,
                 q = quiet.field(),
             )
         } else {
@@ -656,15 +651,14 @@ mod tests {
         let frames = vec![vec![1u8; 8], vec![2u8; 8], vec![3u8; 8]];
         let delays = vec![100, 200, 300];
         let escapes = upload_animation(0x42, &frames, &delays, 0, Transport::Direct);
-        // First frame uses a=t with r=1; second/third use a=f with r=2,r=3.
-        assert!(escapes.contains("\x1b_Ga=t,f=100,i=66,m=0,r=1,q=2;"));
-        assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=2,q=2;"));
-        assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=3,q=2;"));
+        // First frame uses a=t without redundant r=1; second/third use a=f with r=2,r=3.
+        // Per-frame delays live on the frame upload commands via z=<ms>.
+        assert!(escapes.contains("\x1b_Ga=t,f=100,i=66,m=0,z=100,q=2;"));
+        assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=2,z=200,q=2;"));
+        assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=3,z=300,q=2;"));
         // Loop forever => s=2, no v field, no c field. (bd-ad5957)
         assert!(escapes.contains("\x1b_Ga=a,i=66,s=2,q=2\x1b\\"));
-        assert!(escapes.contains("\x1b_Ga=a,i=66,r=1,z=100,q=2\x1b\\"));
-        assert!(escapes.contains("\x1b_Ga=a,i=66,r=2,z=200,q=2\x1b\\"));
-        assert!(escapes.contains("\x1b_Ga=a,i=66,r=3,z=300,q=2\x1b\\"));
+        assert!(!escapes.contains("a=a,i=66,r=1,z="));
     }
 
     #[test]
