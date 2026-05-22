@@ -50,6 +50,8 @@ enum Mode {
     ModeSearchJson,
     ModeCategory,
     ModeCategoryJson,
+    ModeCategories,
+    ModeCategoriesJson,
     About,
     AboutJson,
     Counts,
@@ -137,6 +139,10 @@ fn real_main() -> Result<()> {
                 .ok_or_else(|| anyhow!("--mode-category-json requires a value"))?;
             return write_mode_category_json(category, &mut std::io::stdout().lock());
         }
+        Mode::ModeCategories => return write_mode_categories(&mut std::io::stdout().lock()),
+        Mode::ModeCategoriesJson => {
+            return write_mode_categories_json(&mut std::io::stdout().lock())
+        }
         Mode::About => return write_about(&mut std::io::stdout().lock()),
         Mode::AboutJson => return write_about_json(&mut std::io::stdout().lock()),
         _ => {}
@@ -186,6 +192,8 @@ fn real_main() -> Result<()> {
         Mode::ModeSearchJson => unreachable!("mode search returns before reading input"),
         Mode::ModeCategory => unreachable!("mode category returns before reading input"),
         Mode::ModeCategoryJson => unreachable!("mode category returns before reading input"),
+        Mode::ModeCategories => unreachable!("mode categories return before reading input"),
+        Mode::ModeCategoriesJson => unreachable!("mode categories return before reading input"),
         Mode::About => unreachable!("about returns before reading input"),
         Mode::AboutJson => unreachable!("about returns before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
@@ -413,6 +421,18 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                     Mode::ModeCategoryJson,
                 )?;
             }
+            "--mode-categories" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--mode-categories",
+                Mode::ModeCategories,
+            )?,
+            "--mode-categories-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--mode-categories-json",
+                Mode::ModeCategoriesJson,
+            )?,
             "--about" => set_mode(&mut mode, &mut mode_flag, "--about", Mode::About)?,
             "--about-json" => set_mode(&mut mode, &mut mode_flag, "--about-json", Mode::AboutJson)?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
@@ -552,6 +572,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "mode-search-json" => Ok((Mode::ModeSearchJson, "--mode-search-json")),
         "mode-category" => Ok((Mode::ModeCategory, "--mode-category")),
         "mode-category-json" => Ok((Mode::ModeCategoryJson, "--mode-category-json")),
+        "mode-categories" => Ok((Mode::ModeCategories, "--mode-categories")),
+        "mode-categories-json" => Ok((Mode::ModeCategoriesJson, "--mode-categories-json")),
         "about" => Ok((Mode::About, "--about")),
         "about-json" => Ok((Mode::AboutJson, "--about-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
@@ -566,7 +588,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--about|--about-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -945,6 +967,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit output modes in one category as JSON",
     },
     ModeInfo {
+        flag: "--mode-categories",
+        aliases: &[],
+        description: "list supported output mode categories",
+    },
+    ModeInfo {
+        flag: "--mode-categories-json",
+        aliases: &[],
+        description: "emit supported output mode categories as JSON",
+    },
+    ModeInfo {
         flag: "--about",
         aliases: &[],
         description: "print binary version and capability summary",
@@ -1085,6 +1117,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "Output modes in one category.",
     },
     JsonSchemaInfo {
+        mode: "--mode-categories-json",
+        top_level_keys: &["schema_version", "categories"],
+        description: "Supported output mode categories.",
+    },
+    JsonSchemaInfo {
         mode: "--about-json",
         top_level_keys: &[
             "schema_version",
@@ -1164,6 +1201,8 @@ fn mode_category(flag: &str) -> &'static str {
         | "--mode-search-json"
         | "--mode-category"
         | "--mode-category-json"
+        | "--mode-categories"
+        | "--mode-categories-json"
         | "--about"
         | "--about-json" => "discovery",
         _ if flag.ends_with("-json") || flag == "--json" => "json",
@@ -1389,6 +1428,35 @@ fn write_mode_category_json(category: &str, out: &mut impl Write) -> Result<()> 
             "aliases": info.aliases,
             "description": info.description,
             "category": mode_category(info.flag),
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+fn mode_category_count(category: &str) -> usize {
+    MODE_INFOS
+        .iter()
+        .filter(|info| mode_category(info.flag) == category)
+        .count()
+}
+
+fn write_mode_categories(out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md mode categories")?;
+    for category in MODE_CATEGORIES {
+        writeln!(out, "{category}={}", mode_category_count(category))?;
+    }
+    Ok(())
+}
+
+fn write_mode_categories_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "categories": MODE_CATEGORIES.iter().enumerate().map(|(index, category)| serde_json::json!({
+            "index": index,
+            "name": category,
+            "count": mode_category_count(category),
         })).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
@@ -2865,6 +2933,26 @@ mod tests {
         .unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--mode-category"), "{err}");
+        assert!(err.to_string().contains("--modes"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_mode_categories_mode() {
+        let cfg = parse_args(["--mode-categories".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ModeCategories);
+    }
+
+    #[test]
+    fn parse_args_accepts_mode_categories_json_mode() {
+        let cfg = parse_args(["--mode-categories-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ModeCategoriesJson);
+    }
+
+    #[test]
+    fn parse_args_rejects_mode_categories_plus_modes() {
+        let err = parse_args(["--mode-categories".to_string(), "--modes".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--mode-categories"), "{err}");
         assert!(err.to_string().contains("--modes"), "{err}");
     }
 
@@ -4402,6 +4490,32 @@ mod tests {
     fn mode_category_rejects_unknown_categories() {
         let err = write_mode_category("not-a-category", &mut Vec::new()).unwrap_err();
         assert!(err.to_string().contains("unknown mode category"), "{err}");
+    }
+
+    #[test]
+    fn mode_categories_mode_lists_category_counts() {
+        let mut out = Vec::new();
+        write_mode_categories(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("kittui-md mode categories"), "{rendered}");
+        assert!(rendered.contains("render="), "{rendered}");
+        assert!(rendered.contains("inspect="), "{rendered}");
+        assert!(rendered.contains("json="), "{rendered}");
+    }
+
+    #[test]
+    fn mode_categories_json_mode_lists_category_counts() {
+        let mut out = Vec::new();
+        write_mode_categories_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        let categories = value["categories"].as_array().unwrap();
+        assert!(categories.iter().any(|category| {
+            category["name"] == "json" && category["count"].as_u64().unwrap() > 0
+        }));
+        assert!(categories.iter().any(|category| {
+            category["name"] == "inspect" && category["count"].as_u64().unwrap() > 0
+        }));
     }
 
     #[test]
