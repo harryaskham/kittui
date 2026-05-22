@@ -19,7 +19,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
-use kittui::Runtime;
+use kittui::{CellRect, Runtime};
+use kittui_wm::native::{NativeApp, NativeFrame, PtyTerminalApp};
 use kittui_input::{InputEvent, Key};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_xvfb::XServer;
@@ -31,6 +32,118 @@ use crate::keymap::{Action, KeySpec, KeyMods, Keymap};
 /// `compositor` and `layout` are passed in so callers can wire any
 /// `XServer` backend (FakeServer, Xvfb, Quartz, XQuartz, ...) without
 /// this module knowing about backends.
+pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
+    let dbg = Debugger::open();
+    dbg.log("native terminal loop: enter");
+    let _raw_guard = RawMode::enter()?;
+    install_signal_restore();
+
+    let (mut cols, mut rows) = native_terminal_size();
+    let sock = crate::daemon::default_socket_path().to_string_lossy().to_string();
+    let window = "native-1".to_string();
+    let cmd = std::env::var("KITTWM_TERMINAL_CMD")
+        .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
+        .unwrap_or_else(|_| "/bin/sh -l".to_string());
+    let mut app = PtyTerminalApp::spawn_with_env(
+        &cmd,
+        cols,
+        rows,
+        [
+            ("KITTWM_SOCKET", sock.as_str()),
+            ("KITTWM_DISPLAY", sock.as_str()),
+            ("KITTWM_WINDOW", window.as_str()),
+        ],
+    )?;
+    let fps = std::env::var("KITTUI_WM_FPS").ok().and_then(|s| s.parse().ok()).unwrap_or(30u32).clamp(1, 120);
+    let frame_target = Duration::from_micros(1_000_000 / fps as u64);
+    let mut stdin = io::stdin();
+    let mut frame = 0u64;
+    let mut placed = false;
+    loop {
+        let frame_start = Instant::now();
+        let mut chunk = [0u8; 1024];
+        while poll_stdin(Duration::ZERO) {
+            let n = stdin.read(&mut chunk).unwrap_or(0);
+            if n == 0 { break; }
+            if chunk[..n].contains(&0x1d) {
+                dbg.log("native terminal loop: Ctrl-] exit");
+                return Ok(());
+            }
+            app.send_bytes(&chunk[..n])?;
+        }
+
+        let (new_cols, new_rows) = native_terminal_size();
+        if (new_cols, new_rows) != (cols, rows) {
+            cols = new_cols;
+            rows = new_rows;
+            app.resize(cols, rows)?;
+            placed = false;
+            dbg.log(&format!("native terminal resized to {cols}x{rows}"));
+        }
+
+        match app.capture()? {
+            NativeFrame::Rgba { width, height, rgba } => {
+                let footprint = CellRect::new(0, 0, cols, rows);
+                let p = runtime.place_raw_frame(1, &rgba, width, height, footprint);
+                let stdout = io::stdout();
+                let mut handle = stdout.lock();
+                handle.write_all(p.upload.as_bytes())?;
+                if !placed {
+                    write!(handle, "\x1b[1;1H")?;
+                    handle.write_all(p.placement.as_bytes())?;
+                    handle.write_all(p.embed.as_bytes())?;
+                    placed = true;
+                }
+                write!(
+                    handle,
+                    "\x1b[{};1H\x1b[Kkittwm native terminal — {} — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
+                    rows + 2,
+                    app.title(),
+                    sock,
+                    frame,
+                    dbg.path_display()
+                )?;
+                handle.flush()?;
+            }
+            NativeFrame::Png { .. } => {}
+        }
+        frame += 1;
+        if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
+            std::thread::sleep(slack);
+        }
+    }
+}
+
+fn native_terminal_size() -> (u16, u16) {
+    let host = host_terminal_cells().unwrap_or((80, 24));
+    let cols = std::env::var("KITTWM_NATIVE_COLS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(host.0)
+        .max(1);
+    let rows = std::env::var("KITTWM_NATIVE_ROWS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| host.1.saturating_sub(2).max(1))
+        .max(1);
+    (cols, rows)
+}
+
+fn host_terminal_cells() -> Option<(u16, u16)> {
+    let mut ws = libc::winsize {
+        ws_row: 0,
+        ws_col: 0,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    let rc = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) };
+    if rc == 0 && ws.ws_col > 0 && ws.ws_row > 0 {
+        Some((ws.ws_col, ws.ws_row))
+    } else {
+        None
+    }
+}
+
 pub fn run_loop<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,

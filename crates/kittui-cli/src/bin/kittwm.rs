@@ -209,8 +209,9 @@ fn print_help() {
     println!(
         "kittwm — kittui window manager\n\n\
          Usage: kittwm [--serve | --attach | --kill | --status] [--backend fake|quartz|xvfb]\n\n\
-         Default: open a kittui-wm session in the current terminal, picking the\n\
-         best available backend. q or Esc to quit.\n\n\
+         Default: open a kittui-native PTY terminal in the current terminal.\n\
+         The child receives KITTWM_SOCKET, KITTWM_DISPLAY, and KITTWM_WINDOW.\n\
+         Use --backend fake|quartz|xvfb for capture-backed modes. Ctrl-] exits.\n\n\
          --serve   run as a Unix-socket daemon at $KITTWM_SOCK\n\
                    (default /tmp/kittwm-$USER.sock). Blocks until QUIT or\n\
                    SIGINT/SIGTERM. RAII socket cleanup.\n\
@@ -454,6 +455,9 @@ fn run_session(cli: Cli) -> Result<()> {
     let runtime = Runtime::builder()
         .terminal(TerminalInfo::detect())
         .build()?;
+    if cli.backend.is_none() && !cli.pick_window && cli.capture.is_none() {
+        return kittui_cli::session::run_native_terminal_loop(&runtime);
+    }
     let backend = pick_backend(cli.backend);
 
     match backend {

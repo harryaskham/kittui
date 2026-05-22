@@ -94,6 +94,16 @@ pub struct PtyTerminalApp {
 impl PtyTerminalApp {
     /// Spawn a shell command in a real PTY.
     pub fn spawn(command: &str, cols: u16, rows: u16) -> Result<Self> {
+        Self::spawn_with_env(command, cols, rows, std::iter::empty::<(&str, &str)>())
+    }
+
+    /// Spawn a shell command in a real PTY with extra environment variables.
+    pub fn spawn_with_env<'a, I, K, V>(command: &str, cols: u16, rows: u16, envs: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<std::ffi::OsStr> + 'a,
+        V: AsRef<std::ffi::OsStr> + 'a,
+    {
         let pty_system = NativePtySystem::default();
         let pair = pty_system
             .openpty(PtySize {
@@ -106,6 +116,9 @@ impl PtyTerminalApp {
         let mut builder = CommandBuilder::new("/bin/sh");
         builder.arg("-lc");
         builder.arg(command);
+        for (key, value) in envs {
+            builder.env(key, value);
+        }
         let child = pair
             .slave
             .spawn_command(builder)
@@ -147,6 +160,13 @@ impl PtyTerminalApp {
     /// Whether the PTY child has exited.
     pub fn exited(&mut self) -> Result<Option<u32>> {
         Ok(self.child.try_wait()?.map(|status| status.exit_code()))
+    }
+
+    /// Send raw bytes to the PTY, preserving control sequences.
+    pub fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        self.writer.write_all(bytes)?;
+        self.writer.flush()?;
+        Ok(())
     }
 }
 
@@ -639,6 +659,23 @@ mod tests {
         assert_eq!((width, height), (320, 96));
         assert_eq!(rgba.len(), (width * height * 4) as usize);
         assert!(rgba.chunks_exact(4).any(|px| px[0] == 0xd7));
+    }
+
+    #[test]
+    fn pty_terminal_injects_kittwm_environment() {
+        let term = PtyTerminalApp::spawn_with_env(
+            "printf \"$KITTWM_WINDOW/$KITTWM_SOCKET\"",
+            60,
+            4,
+            [("KITTWM_WINDOW", "native-1"), ("KITTWM_SOCKET", "/tmp/kittwm-test.sock")],
+        )
+        .expect("spawn pty env probe");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !term.text_snapshot().contains("native-1") {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let text = term.text_snapshot();
+        assert!(text.contains("native-1//tmp/kittwm-test.sock"), "snapshot was:\n{text}");
     }
 
     #[test]
