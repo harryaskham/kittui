@@ -131,13 +131,17 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             Event::Text(t) => {
                 if link_target.is_some() {
                     link_label.push_str(&t);
-                } else if in_table {
+                }
+                if in_table {
                     table_cell.push_str(&t);
                 } else {
                     buf.push_str(&t);
                 }
             }
             Event::Code(t) => {
+                if link_target.is_some() {
+                    link_label.push_str(&t);
+                }
                 if in_table {
                     table_cell.push('`');
                     table_cell.push_str(&t);
@@ -202,6 +206,10 @@ mod tests {
             .components
             .iter()
             .any(|c| c.kind == ComponentKind::TextChip && c.text == "site"));
+        assert!(doc
+            .components
+            .iter()
+            .any(|c| c.kind == ComponentKind::TextBox && c.text.contains("hello site world")));
         assert_eq!(doc.links[0].url, "https://example.com");
     }
 
