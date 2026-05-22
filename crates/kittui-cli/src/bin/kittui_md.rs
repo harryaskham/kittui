@@ -763,6 +763,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
     let mut show_outline = false;
     let mut show_links = false;
     let mut show_images = false;
+    let mut show_tables = false;
     let mut status: Option<String> = None;
     loop {
         write!(stdout, "\x1b[2J\x1b[H")?;
@@ -774,6 +775,8 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             write_interactive_links(&doc, viewport, &mut stdout)?;
         } else if show_images {
             write_interactive_images(&doc, viewport, &mut stdout)?;
+        } else if show_tables {
+            write_interactive_tables(&doc, viewport, &mut stdout)?;
         } else {
             write_rich(&doc, &cfg, &mut stdout)?;
         }
@@ -782,6 +785,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             show_outline,
             show_links,
             show_images,
+            show_tables,
             status.as_deref(),
             &path,
             cfg.offset_rows,
@@ -800,6 +804,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_outline = false;
                 show_links = false;
                 show_images = false;
+                show_tables = false;
             }
             continue;
         }
@@ -809,6 +814,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_help = false;
                 show_links = false;
                 show_images = false;
+                show_tables = false;
             }
             continue;
         }
@@ -818,6 +824,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_help = false;
                 show_outline = false;
                 show_images = false;
+                show_tables = false;
             }
             continue;
         }
@@ -827,6 +834,17 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_help = false;
                 show_outline = false;
                 show_links = false;
+                show_tables = false;
+            }
+            continue;
+        }
+        if action == PagerAction::Tables {
+            show_tables = !show_tables;
+            if show_tables {
+                show_help = false;
+                show_outline = false;
+                show_links = false;
+                show_images = false;
             }
             continue;
         }
@@ -839,6 +857,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                     show_outline = false;
                     show_links = false;
                     show_images = false;
+                    show_tables = false;
                     status = Some(format!("reloaded {path} — {total_rows} rows"));
                 }
                 Err(err) => {
@@ -852,7 +871,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             status = None;
             continue;
         }
-        if show_help || show_outline || show_links || show_images {
+        if show_help || show_outline || show_links || show_images || show_tables {
             continue;
         }
         cfg.offset_rows = apply_pager_action(cfg.offset_rows, viewport, total_rows, action);
@@ -876,6 +895,7 @@ enum PagerAction {
     Outline,
     Links,
     Images,
+    Tables,
     Reload,
     ClearStatus,
 }
@@ -895,6 +915,7 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
         b'o' => PagerAction::Outline,
         b'l' => PagerAction::Links,
         b'i' => PagerAction::Images,
+        b't' => PagerAction::Tables,
         b'r' => PagerAction::Reload,
         b'c' => PagerAction::ClearStatus,
         27 => read_escape_action(input)?,
@@ -980,6 +1001,7 @@ fn apply_pager_action(
         | PagerAction::Outline
         | PagerAction::Links
         | PagerAction::Images
+        | PagerAction::Tables
         | PagerAction::Reload
         | PagerAction::ClearStatus => offset.min(max_offset),
     }
@@ -1073,11 +1095,54 @@ fn write_interactive_images(
     Ok(())
 }
 
+fn write_interactive_tables(
+    doc: &MarkdownDocument,
+    viewport_rows: u16,
+    out: &mut impl Write,
+) -> Result<()> {
+    writeln!(out, "kittui-md tables — {} tables", doc.tables.len())?;
+    writeln!(out)?;
+    if doc.tables.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for (index, table) in doc
+        .tables
+        .iter()
+        .enumerate()
+        .take(viewport_rows.saturating_sub(3) as usize)
+    {
+        let footprint = table.footprint();
+        let columns = table.column_widths().len();
+        let alignments = table
+            .alignments
+            .iter()
+            .map(|alignment| alignment.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        writeln!(
+            out,
+            "table #{index}: rows={} columns={} footprint={}x{} alignments={}",
+            table.rows.len(),
+            columns,
+            footprint.cols,
+            footprint.rows,
+            if alignments.is_empty() {
+                "none"
+            } else {
+                &alignments
+            }
+        )?;
+    }
+    Ok(())
+}
+
 fn write_interactive_footer(
     show_help: bool,
     show_outline: bool,
     show_links: bool,
     show_images: bool,
+    show_tables: bool,
     status: Option<&str>,
     path: &str,
     offset_rows: u16,
@@ -1100,27 +1165,32 @@ fn write_interactive_footer(
     if show_help {
         writeln!(
             out,
-            "h/? close help • o outline • l links • i images • r reload • c clear status • q quit"
+            "h/? close help • o outline • l links • i images • t tables • r reload • c clear status • q quit"
         )?;
     } else if show_outline {
         writeln!(
             out,
-            "o close outline • l links • i images • h/? help • r reload • c clear status • q quit"
+            "o close outline • l links • i images • t tables • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_links {
         writeln!(
             out,
-            "l close links • o outline • i images • h/? help • r reload • c clear status • q quit"
+            "l close links • o outline • i images • t tables • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_images {
         writeln!(
             out,
-            "i close images • o outline • l links • h/? help • r reload • c clear status • q quit"
+            "i close images • o outline • l links • t tables • h/? help • r reload • c clear status • q quit"
+        )?;
+    } else if show_tables {
+        writeln!(
+            out,
+            "t close tables • o outline • l links • i images • h/? help • r reload • c clear status • q quit"
         )?;
     } else {
         writeln!(
             out,
-            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • o outline • l links • i images • r reload • c clear status • q quit"
+            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • o outline • l links • i images • t tables • r reload • c clear status • q quit"
         )?;
     }
     Ok(())
@@ -2370,6 +2440,11 @@ const KEYBINDINGS: &[KeybindingInfo] = &[
         action: "images",
         keys: &["i"],
         description: "Toggle the interactive document images screen.",
+    },
+    KeybindingInfo {
+        action: "tables",
+        keys: &["t"],
+        description: "Toggle the interactive document tables screen.",
     },
     KeybindingInfo {
         action: "reload",
@@ -4694,6 +4769,7 @@ mod tests {
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Outline), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Links), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Images), 4);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Tables), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Reload), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::ClearStatus), 4);
     }
@@ -4717,6 +4793,12 @@ mod tests {
     fn pager_reads_images_key() {
         let mut cursor = std::io::Cursor::new(b"i".as_slice());
         assert_eq!(read_pager_action(&mut cursor).unwrap(), PagerAction::Images);
+    }
+
+    #[test]
+    fn pager_reads_tables_key() {
+        let mut cursor = std::io::Cursor::new(b"t".as_slice());
+        assert_eq!(read_pager_action(&mut cursor).unwrap(), PagerAction::Tables);
     }
 
     #[test]
@@ -4755,6 +4837,7 @@ mod tests {
         assert!(rendered.contains("outline: o"), "{rendered}");
         assert!(rendered.contains("links: l"), "{rendered}");
         assert!(rendered.contains("images: i"), "{rendered}");
+        assert!(rendered.contains("tables: t"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
@@ -4878,9 +4961,46 @@ mod tests {
     }
 
     #[test]
+    fn interactive_tables_lists_table_summaries() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![MarkdownTable::with_alignments(
+                vec![
+                    vec!["Name".to_string(), "Value".to_string()],
+                    vec!["Alpha".to_string(), "1".to_string()],
+                ],
+                vec![MarkdownTableAlignment::Left, MarkdownTableAlignment::Right],
+            )],
+            images: vec![],
+            outline: vec![],
+            footnotes: vec![],
+            footnote_references: vec![],
+            definitions: vec![],
+            math: vec![],
+            html: vec![],
+            code_blocks: vec![],
+            metadata_blocks: vec![],
+        };
+        let mut out = Vec::new();
+        write_interactive_tables(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md tables — 1 tables"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("table #0: rows=2 columns=2"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("alignments=left,right"), "{rendered}");
+    }
+
+    #[test]
     fn interactive_footer_writes_reload_status() {
         let mut out = Vec::new();
         write_interactive_footer(
+            false,
             false,
             false,
             false,
@@ -4904,6 +5024,7 @@ mod tests {
         assert!(rendered.contains("o outline"), "{rendered}");
         assert!(rendered.contains("l links"), "{rendered}");
         assert!(rendered.contains("i images"), "{rendered}");
+        assert!(rendered.contains("t tables"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
@@ -4911,7 +5032,7 @@ mod tests {
     fn interactive_footer_omits_status_when_cleared() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -4925,6 +5046,7 @@ mod tests {
         let mut out = Vec::new();
         write_interactive_footer(
             true,
+            false,
             false,
             false,
             false,
@@ -4949,7 +5071,7 @@ mod tests {
     fn interactive_footer_writes_outline_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, true, false, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, true, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -4963,7 +5085,7 @@ mod tests {
     fn interactive_footer_writes_links_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, true, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, true, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -4977,13 +5099,29 @@ mod tests {
     fn interactive_footer_writes_images_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, false, true, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, false, true, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("i close images"), "{rendered}");
         assert!(rendered.contains("o outline"), "{rendered}");
         assert!(rendered.contains("l links"), "{rendered}");
+        assert!(rendered.contains("t tables"), "{rendered}");
+        assert!(rendered.contains("h/? help"), "{rendered}");
+    }
+
+    #[test]
+    fn interactive_footer_writes_tables_controls() {
+        let mut out = Vec::new();
+        write_interactive_footer(
+            false, false, false, false, true, None, "doc.md", 0, 10, 30, &mut out,
+        )
+        .unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("t close tables"), "{rendered}");
+        assert!(rendered.contains("o outline"), "{rendered}");
+        assert!(rendered.contains("l links"), "{rendered}");
+        assert!(rendered.contains("i images"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
@@ -6201,6 +6339,7 @@ mod tests {
         assert!(rendered.contains("scroll-up: k, w, Up"), "{rendered}");
         assert!(rendered.contains("links: l"), "{rendered}");
         assert!(rendered.contains("images: i"), "{rendered}");
+        assert!(rendered.contains("tables: t"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
@@ -6244,6 +6383,17 @@ mod tests {
                         .as_array()
                         .unwrap()
                         .contains(&serde_json::json!("i"))
+            }));
+        assert!(value["keybindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|binding| {
+                binding["action"] == "tables"
+                    && binding["keys"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("t"))
             }));
         assert!(value["keybindings"]
             .as_array()
