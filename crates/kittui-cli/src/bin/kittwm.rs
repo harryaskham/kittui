@@ -996,6 +996,14 @@ fn serve_cmd(_cli: Cli) -> Result<()> {
     Ok(())
 }
 
+fn normalize_daemon_command(cmd: &str) -> String {
+    let trimmed = cmd.trim();
+    let Some((verb, rest)) = trimmed.split_once(char::is_whitespace) else {
+        return trimmed.to_ascii_uppercase();
+    };
+    format!("{} {}", verb.to_ascii_uppercase(), rest.trim_start())
+}
+
 fn status_cmd() -> Result<()> {
     use kittui_cli::daemon::{client_request, default_socket_path};
     let path = default_socket_path();
@@ -1034,7 +1042,7 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
     let probe = client_request_multi(&path, "PING")
         .map_err(|e| anyhow!("no daemon at {}: {e}", path.display()))?;
     if let Some(command) = command {
-        let reply = client_request_multi(&path, &command.to_ascii_uppercase())?;
+        let reply = client_request_multi(&path, &normalize_daemon_command(command))?;
         print!("{reply}");
         if !reply.ends_with('\n') {
             println!();
@@ -1049,7 +1057,9 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
         path.display(),
         probe.trim()
     );
-    eprintln!("Commands: PING STATUS WINDOWS DISPLAYS HELP QUIT (Ctrl-D to detach)");
+    eprintln!(
+        "Commands: PING STATUS PANES SPAWN <argv> WINDOWS DISPLAYS HELP QUIT (Ctrl-D to detach)"
+    );
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     loop {
@@ -1071,7 +1081,7 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
         if cmd.eq_ignore_ascii_case("detach") || cmd.eq_ignore_ascii_case("exit") {
             break;
         }
-        match client_request_multi(&path, &cmd.to_ascii_uppercase()) {
+        match client_request_multi(&path, &normalize_daemon_command(cmd)) {
             Ok(reply) => {
                 print!("{reply}");
                 if !reply.ends_with('\n') {
@@ -1414,10 +1424,7 @@ fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
 }
 
 fn replace_cmd(cli: &Cli) -> Result<()> {
-    match resolve_replace_action(
-        &cli.replace_args,
-        std::env::var("KITTWM_WINDOW").is_ok(),
-    )? {
+    match resolve_replace_action(&cli.replace_args, std::env::var("KITTWM_WINDOW").is_ok())? {
         ReplaceAction::Spawn { request } => {
             let sock = std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<unset>".to_string());
             let path = std::path::PathBuf::from(sock.clone());
@@ -1476,7 +1483,10 @@ fn exec_replace_argv(argv: &[String]) -> Result<()> {
 fn argv_to_shell_words(args: &[String]) -> String {
     args.iter()
         .map(|arg| {
-            if arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_/.:".contains(c)) {
+            if arg
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_/.:".contains(c))
+            {
                 arg.clone()
             } else {
                 format!("'{}'", arg.replace('\'', "'\\''"))
@@ -1715,5 +1725,18 @@ mod tests {
     fn argv_to_shell_words_quotes_single_quotes() {
         let shell = argv_to_shell_words(&args(&["echo", "Bob's pane"]));
         assert_eq!(shell, "echo 'Bob'\\''s pane'");
+    }
+
+    #[test]
+    fn normalize_daemon_command_uppercases_only_verb() {
+        assert_eq!(normalize_daemon_command("status"), "STATUS");
+        assert_eq!(
+            normalize_daemon_command("spawn printf MixedCase"),
+            "SPAWN printf MixedCase"
+        );
+        assert_eq!(
+            normalize_daemon_command("apps_first Safari"),
+            "APPS_FIRST Safari"
+        );
     }
 }
