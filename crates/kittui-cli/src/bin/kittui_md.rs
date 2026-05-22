@@ -948,16 +948,18 @@ fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> St
     let viewport = cfg.height_rows.unwrap_or(total_rows);
     let max_offset = total_rows.saturating_sub(viewport);
     format!(
-        "kittui-md rich view — {} components, {} headings, {} links, {} images, {} footnote refs, {} footnotes, {} definitions, {} math, {} html, {} code blocks; offset={}/{} rows; viewport={}; total_rows={}",
+        "kittui-md rich view — {} components, {} headings, {} links, {} images, {} tables, {} footnote refs, {} footnotes, {} definitions, {} math, {} html, {} metadata blocks, {} code blocks; offset={}/{} rows; viewport={}; total_rows={}",
         doc.components.len(),
         doc.outline.len(),
         doc.links.len(),
         doc.images.len(),
+        doc.tables.len(),
         doc.footnote_references.len(),
         doc.footnotes.len(),
         doc.definitions.len(),
         doc.math.len(),
         doc.html.len(),
+        doc.metadata_blocks.len(),
         doc.code_blocks.len(),
         cfg.offset_rows.min(max_offset),
         max_offset,
@@ -1359,7 +1361,7 @@ mod tests {
         let doc = MarkdownDocument {
             components: vec![h1("One", 40), h1("Two", 40)],
             links: vec![],
-            tables: vec![],
+            tables: vec![MarkdownTable::new(vec![vec!["A".into()]])],
             images: vec![MarkdownImage {
                 alt: "logo".to_string(),
                 url: "logo.png".to_string(),
@@ -1374,7 +1376,10 @@ mod tests {
             math: vec![],
             html: vec![],
             code_blocks: vec![],
-            metadata_blocks: vec![],
+            metadata_blocks: vec![MarkdownMetadataBlock {
+                kind: MarkdownMetadataBlockKind::Yaml,
+                source: "title: Proof".to_string(),
+            }],
         };
         let cfg = Config {
             mode: Mode::Rich,
@@ -1389,7 +1394,7 @@ mod tests {
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
         assert!(
-            status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 0 code blocks"),
+            status.contains("1 headings, 0 links, 1 images, 1 tables, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 1 metadata blocks, 0 code blocks"),
             "{status}"
         );
     }
