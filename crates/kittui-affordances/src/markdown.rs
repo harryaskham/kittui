@@ -299,6 +299,37 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     buf.push('`');
                 }
             }
+            Event::InlineHtml(html) => {
+                let html = html.trim();
+                let placeholder = if html.starts_with("</") {
+                    html.to_string()
+                } else {
+                    format!("html:{html}")
+                };
+                if link_target.is_some() {
+                    link_label.push_str(&placeholder);
+                }
+                if in_table {
+                    table_cell.push_str(&placeholder);
+                } else {
+                    buf.push_str(&placeholder);
+                }
+            }
+            Event::Html(html) => {
+                if in_table {
+                    table_cell.push_str(&format!("html:{}", html.trim()));
+                } else {
+                    flush_paragraph(&mut out, &mut buf, width_cells);
+                    let text = html.trim();
+                    if !text.is_empty() {
+                        out.components.push(textbox(
+                            format!("html:\n{text}"),
+                            width_cells,
+                            Tone::Tool,
+                        ));
+                    }
+                }
+            }
             Event::SoftBreak | Event::HardBreak => {
                 if in_table {
                     table_cell.push(' ');
@@ -516,5 +547,18 @@ mod tests {
         assert_eq!(doc.components.len(), 1);
         assert_eq!(doc.components[0].kind, ComponentKind::Banner);
         assert_eq!(doc.components[0].text, "quoted callout");
+    }
+
+    #[test]
+    fn markdown_preserves_inline_and_block_html_placeholders() {
+        let doc = render_markdown("hello <kbd>x</kbd>\n\n<div>block</div>", 60);
+        let text = doc
+            .components
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        assert!(text.contains("hello html:<kbd>x</kbd>"), "{text}");
+        assert!(text.contains("html:\n<div>block</div>"), "{text}");
     }
 }
