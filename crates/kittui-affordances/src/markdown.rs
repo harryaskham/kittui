@@ -29,6 +29,8 @@ pub struct MarkdownDocument {
     pub math: Vec<MarkdownMath>,
     /// HTML placeholders in encounter order.
     pub html: Vec<MarkdownHtml>,
+    /// Code blocks in encounter order.
+    pub code_blocks: Vec<MarkdownCodeBlock>,
 }
 
 /// Link rendered as a highlighted chip plus accessible URL metadata.
@@ -130,6 +132,15 @@ pub struct MarkdownHtml {
     pub kind: MarkdownHtmlKind,
     /// Source HTML text.
     pub source: String,
+}
+
+/// One rendered Markdown code block.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkdownCodeBlock {
+    /// Optional language/info label from fenced code.
+    pub language: Option<String>,
+    /// Code block source text.
+    pub text: String,
 }
 
 #[derive(Clone, Debug)]
@@ -307,9 +318,12 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             Event::End(TagEnd::CodeBlock) => {
                 let text = take_trimmed(&mut buf);
                 if !text.is_empty() {
-                    let rendered = code_label
-                        .take()
-                        .filter(|label| !label.is_empty())
+                    let language = code_label.take().filter(|label| !label.is_empty());
+                    out.code_blocks.push(MarkdownCodeBlock {
+                        language: language.clone(),
+                        text: text.clone(),
+                    });
+                    let rendered = language
                         .map(|label| format!("code:{label}\n{text}"))
                         .unwrap_or(text);
                     out.components
@@ -784,6 +798,19 @@ mod tests {
             .join("\n---\n");
         assert!(text.contains("code:rust\nfn main() {}"), "{text}");
         assert!(text.contains("\n---\nplain"), "{text}");
+        assert_eq!(
+            doc.code_blocks,
+            vec![
+                MarkdownCodeBlock {
+                    language: Some("rust".to_string()),
+                    text: "fn main() {}".to_string(),
+                },
+                MarkdownCodeBlock {
+                    language: None,
+                    text: "plain".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]

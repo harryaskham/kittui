@@ -354,6 +354,10 @@ fn write_metadata_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<(
             "kind": html.kind.as_str(),
             "source": html.source,
         })).collect::<Vec<_>>(),
+        "code_blocks": doc.code_blocks.iter().map(|code| serde_json::json!({
+            "language": code.language,
+            "text": code.text,
+        })).collect::<Vec<_>>(),
         "outline": doc.outline.iter().map(|heading| serde_json::json!({
             "level": heading.level,
             "text": heading.text,
@@ -456,6 +460,17 @@ fn write_metadata_sections(doc: &MarkdownDocument, out: &mut impl Write) -> Resu
             writeln!(out, "  {} {}", html.kind.as_str(), html.source)?;
         }
     }
+    if !doc.code_blocks.is_empty() {
+        writeln!(out, "\ncode blocks:")?;
+        for code in &doc.code_blocks {
+            writeln!(
+                out,
+                "  {} {}",
+                code.language.as_deref().unwrap_or("<plain>"),
+                code.text.lines().next().unwrap_or("")
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -553,6 +568,16 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
             writeln!(out, "  HTML {} — {}", html.kind.as_str(), html.source)?;
         }
     }
+    if !doc.code_blocks.is_empty() {
+        for code in &doc.code_blocks {
+            writeln!(
+                out,
+                "  code {} — {}",
+                code.language.as_deref().unwrap_or("<plain>"),
+                code.text.lines().next().unwrap_or("")
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -573,7 +598,7 @@ fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> St
     let viewport = cfg.height_rows.unwrap_or(total_rows);
     let max_offset = total_rows.saturating_sub(viewport);
     format!(
-        "kittui-md rich view — {} components, {} headings, {} links, {} images, {} footnote refs, {} footnotes, {} definitions, {} math, {} html; offset={}/{} rows; viewport={}; total_rows={}",
+        "kittui-md rich view — {} components, {} headings, {} links, {} images, {} footnote refs, {} footnotes, {} definitions, {} math, {} html, {} code blocks; offset={}/{} rows; viewport={}; total_rows={}",
         doc.components.len(),
         doc.outline.len(),
         doc.links.len(),
@@ -583,6 +608,7 @@ fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> St
         doc.definitions.len(),
         doc.math.len(),
         doc.html.len(),
+        doc.code_blocks.len(),
         cfg.offset_rows.min(max_offset),
         max_offset,
         viewport,
@@ -949,6 +975,7 @@ mod tests {
             definitions: vec![],
             math: vec![],
             html: vec![],
+            code_blocks: vec![],
         };
         assert_eq!(document_rows(&doc, 80), 7);
     }
@@ -972,6 +999,7 @@ mod tests {
             definitions: vec![],
             math: vec![],
             html: vec![],
+            code_blocks: vec![],
         };
         let cfg = Config {
             mode: Mode::Rich,
@@ -986,7 +1014,7 @@ mod tests {
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
         assert!(
-            status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html"),
+            status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 0 code blocks"),
             "{status}"
         );
     }
@@ -994,7 +1022,7 @@ mod tests {
     #[test]
     fn metadata_json_mode_reports_stable_shape() {
         let doc = render_markdown(
-            "# Title\n\nSee [site](https://example.com) and note[^n] plus $x + y$ and <kbd>x</kbd>.\n\n![logo](logo.png)\n\n| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n\nTerm\n: Definition text\n\n[^n]: note text",
+            "# Title\n\nSee [site](https://example.com) and note[^n] plus $x + y$ and <kbd>x</kbd>.\n\n```rust\nfn main() {}\n```\n\n![logo](logo.png)\n\n| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n\nTerm\n: Definition text\n\n[^n]: note text",
             80,
         );
         let mut out = Vec::new();
@@ -1026,6 +1054,8 @@ mod tests {
         assert_eq!(value["math"][0]["source"], "x + y");
         assert_eq!(value["html"][0]["kind"], "inline");
         assert_eq!(value["html"][0]["source"], "<kbd>");
+        assert_eq!(value["code_blocks"][0]["language"], "rust");
+        assert_eq!(value["code_blocks"][0]["text"], "fn main() {}");
         assert_eq!(value["tables"][0]["rows"][1][0], "1");
         assert_eq!(value["tables"][0]["alignments"][0], "left");
         assert_eq!(value["tables"][0]["alignments"][1], "center");
@@ -1060,6 +1090,7 @@ mod tests {
             definitions: vec![],
             math: vec![],
             html: vec![],
+            code_blocks: vec![],
         };
         let mut out = Vec::new();
         write_outline(&doc, &mut out).unwrap();
@@ -1105,6 +1136,7 @@ mod tests {
             definitions: vec![],
             math: vec![],
             html: vec![],
+            code_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1132,6 +1164,7 @@ mod tests {
             definitions: vec![],
             math: vec![],
             html: vec![],
+            code_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1162,6 +1195,7 @@ mod tests {
             }],
             math: vec![],
             html: vec![],
+            code_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1188,6 +1222,7 @@ mod tests {
                 source: "x + y".to_string(),
             }],
             html: vec![],
+            code_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1211,11 +1246,39 @@ mod tests {
                 kind: kittui_affordances::MarkdownHtmlKind::Inline,
                 source: "<kbd>".to_string(),
             }],
+            code_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("html:\n  inline <kbd>"), "{rendered}");
+    }
+
+    #[test]
+    fn plain_metadata_sections_include_code_blocks() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![],
+            images: vec![],
+            outline: vec![],
+            footnotes: vec![],
+            footnote_references: vec![],
+            definitions: vec![],
+            math: vec![],
+            html: vec![],
+            code_blocks: vec![kittui_affordances::MarkdownCodeBlock {
+                language: Some("rust".to_string()),
+                text: "fn main() {}".to_string(),
+            }],
+        };
+        let mut out = Vec::new();
+        write_plain(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("code blocks:\n  rust fn main() {}"),
+            "{rendered}"
+        );
     }
 
     #[test]
@@ -1240,6 +1303,7 @@ mod tests {
             definitions: vec![],
             math: vec![],
             html: vec![],
+            code_blocks: vec![],
         };
         assert_eq!(
             outline_lines(&doc),
@@ -1269,6 +1333,7 @@ mod tests {
             definitions: vec![],
             math: vec![],
             html: vec![],
+            code_blocks: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
