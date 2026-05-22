@@ -15,6 +15,8 @@ pub struct MarkdownDocument {
     pub links: Vec<LinkChip>,
     /// Parsed markdown tables in document order.
     pub tables: Vec<MarkdownTable>,
+    /// Image placeholders discovered while rendering.
+    pub images: Vec<MarkdownImage>,
 }
 
 /// Link rendered as a highlighted chip plus accessible URL metadata.
@@ -23,6 +25,15 @@ pub struct LinkChip {
     /// Visible label.
     pub label: String,
     /// Target URL.
+    pub url: String,
+}
+
+/// Image rendered as an inline placeholder plus accessible URL metadata.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkdownImage {
+    /// Alt text, or the URL when the alt text is empty.
+    pub alt: String,
+    /// Target image URL/path.
     pub url: String,
 }
 
@@ -56,6 +67,8 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let mut code_label: Option<String> = None;
     let mut link_target: Option<String> = None;
     let mut link_label = String::new();
+    let mut image_target: Option<String> = None;
+    let mut image_alt = String::new();
     let mut in_table = false;
     let mut table_rows: Vec<Vec<String>> = Vec::new();
     let mut table_row: Vec<String> = Vec::new();
@@ -140,6 +153,26 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 link_target = Some(dest_url.to_string());
                 link_label.clear();
             }
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                image_target = Some(dest_url.to_string());
+                image_alt.clear();
+            }
+            Event::End(TagEnd::Image) => {
+                if let Some(url) = image_target.take() {
+                    let alt = if image_alt.trim().is_empty() {
+                        url.clone()
+                    } else {
+                        image_alt.trim().to_string()
+                    };
+                    let placeholder = format!("image: {alt} -> {url}");
+                    out.images.push(MarkdownImage { alt, url });
+                    if in_table {
+                        table_cell.push_str(&placeholder);
+                    } else {
+                        buf.push_str(&placeholder);
+                    }
+                }
+            }
             Event::End(TagEnd::Link) => {
                 if let Some(url) = link_target.take() {
                     let label = if link_label.trim().is_empty() {
@@ -217,6 +250,10 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 );
             }
             Event::Text(t) => {
+                if image_target.is_some() {
+                    image_alt.push_str(&t);
+                    continue;
+                }
                 if link_target.is_some() {
                     link_label.push_str(&t);
                 }
@@ -227,6 +264,10 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 }
             }
             Event::Code(t) => {
+                if image_target.is_some() {
+                    image_alt.push_str(&t);
+                    continue;
+                }
                 if link_target.is_some() {
                     link_label.push_str(&t);
                 }
@@ -410,5 +451,16 @@ mod tests {
         assert!(text.contains("*em*"), "{text}");
         assert!(text.contains("**strong**"), "{text}");
         assert!(text.contains("~~gone~~"), "{text}");
+    }
+
+    #[test]
+    fn markdown_renders_image_placeholders_and_metadata() {
+        let doc = render_markdown("Logo: ![kittui logo](assets/logo.png)", 60);
+        assert_eq!(doc.images.len(), 1);
+        assert_eq!(doc.images[0].alt, "kittui logo");
+        assert_eq!(doc.images[0].url, "assets/logo.png");
+        assert!(doc.components.iter().any(|c| c
+            .text
+            .contains("Logo: image: kittui logo -> assets/logo.png")));
     }
 }

@@ -672,6 +672,7 @@ mod tests {
             components: vec![h1("One", 40), h1("Two", 40)],
             links: vec![],
             tables: vec![],
+            images: vec![],
         };
         assert_eq!(document_rows(&doc, 80), 7);
     }
@@ -682,6 +683,7 @@ mod tests {
             components: vec![h1("One", 40), h1("Two", 40)],
             links: vec![],
             tables: vec![],
+            images: vec![],
         };
         let cfg = Config {
             mode: Mode::Rich,
