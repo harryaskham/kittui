@@ -131,6 +131,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--images" => set_mode(&mut mode, &mut mode_flag, "--images", Mode::Images)?,
             "--pictures" => set_mode(&mut mode, &mut mode_flag, "--pictures", Mode::Images)?,
             "--tables" => set_mode(&mut mode, &mut mode_flag, "--tables", Mode::Tables)?,
+            "--grid" => set_mode(&mut mode, &mut mode_flag, "--grid", Mode::Tables)?,
             "--code-blocks" => {
                 set_mode(&mut mode, &mut mode_flag, "--code-blocks", Mode::CodeBlocks)?
             }
@@ -224,7 +225,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1392,6 +1393,21 @@ mod tests {
         let cfg = parse_args(["--pictures".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Images);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_grid_alias() {
+        let cfg = parse_args(["--grid".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Tables);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_tables_plus_grid() {
+        let err = parse_args(["--tables".to_string(), "--grid".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--tables"), "{err}");
+        assert!(err.to_string().contains("--grid"), "{err}");
     }
 
     #[test]
