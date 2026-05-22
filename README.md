@@ -118,6 +118,7 @@ cargo run -p kittui-cli --bin kittui-md -- --components-json docs/examples/kittu
 cargo run -p kittui-cli --bin kittui-md -- --outline docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --toc docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --headings docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --outline-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --anchors docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --slugs docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --anchors-json docs/examples/kittui-md-proof.md
@@ -173,7 +174,8 @@ Modes:
   keys, PageUp/PageDown, Home/End, `g/G`, and `q`.
 - `--outline` prints only the heading outline plus stable `#anchor` slugs for
   quick document scanning; `--toc` and `--headings` are friendly aliases for the
-  same mode.
+  same mode. `--outline-json` emits the same heading outline records as
+  machine-readable JSON.
 - `--anchors` prints only heading levels, stable anchor slugs, and heading text
   for navigation/indexing tools; `--slugs` is a concise alias for the same mode.
   `--anchors-json` emits the same anchor records as machine-readable JSON.

@@ -18,6 +18,7 @@ enum Mode {
     Components,
     ComponentsJson,
     Outline,
+    OutlineJson,
     Anchors,
     AnchorsJson,
     References,
@@ -88,6 +89,7 @@ fn real_main() -> Result<()> {
         Mode::Components => write_components(&doc, &mut std::io::stdout().lock()),
         Mode::ComponentsJson => write_components_json(&doc, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
+        Mode::OutlineJson => write_outline_json(&doc, &mut std::io::stdout().lock()),
         Mode::Anchors => write_anchors(&doc, &mut std::io::stdout().lock()),
         Mode::AnchorsJson => write_anchors_json(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
@@ -157,6 +159,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--outline" => set_mode(&mut mode, &mut mode_flag, "--outline", Mode::Outline)?,
             "--toc" => set_mode(&mut mode, &mut mode_flag, "--toc", Mode::Outline)?,
             "--headings" => set_mode(&mut mode, &mut mode_flag, "--headings", Mode::Outline)?,
+            "--outline-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--outline-json",
+                Mode::OutlineJson,
+            )?,
             "--anchors" => set_mode(&mut mode, &mut mode_flag, "--anchors", Mode::Anchors)?,
             "--slugs" => set_mode(&mut mode, &mut mode_flag, "--slugs", Mode::Anchors)?,
             "--anchors-json" => set_mode(
@@ -321,7 +329,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -548,6 +556,21 @@ fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
             writeln!(out, "{line}")?;
         }
     }
+    Ok(())
+}
+
+fn write_outline_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "outline": doc.outline.iter().enumerate().map(|(index, heading)| serde_json::json!({
+            "index": index,
+            "level": heading.level,
+            "text": heading.text,
+            "anchor": heading.anchor,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -1747,6 +1770,21 @@ mod tests {
         let cfg = parse_args(["--headings".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Outline);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_outline_json_mode() {
+        let cfg = parse_args(["--outline-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::OutlineJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_outline_plus_outline_json() {
+        let err = parse_args(["--outline".to_string(), "--outline-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--outline"), "{err}");
+        assert!(err.to_string().contains("--outline-json"), "{err}");
     }
 
     #[test]
@@ -3060,6 +3098,22 @@ mod tests {
         write_outline(&doc, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert_eq!(rendered, "kittui-md outline — 0 headings\n<empty>\n");
+    }
+
+    #[test]
+    fn outline_json_mode_writes_heading_outline() {
+        let doc = render_markdown("# Title\n\n## Section", 80);
+        let mut out = Vec::new();
+        write_outline_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["outline"][0]["index"], 0);
+        assert_eq!(value["outline"][0]["level"], 1);
+        assert_eq!(value["outline"][0]["text"], "Title");
+        assert_eq!(value["outline"][0]["anchor"], "title");
+        assert_eq!(value["outline"][1]["index"], 1);
+        assert_eq!(value["outline"][1]["level"], 2);
+        assert_eq!(value["outline"][1]["anchor"], "section");
     }
 
     #[test]
