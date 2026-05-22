@@ -345,10 +345,18 @@ fn write_metadata_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<(
             "level": heading.level,
             "text": heading.text,
         })).collect::<Vec<_>>(),
-        "tables": doc.tables.iter().map(|table| serde_json::json!({
-            "rows": table.rows,
-            "alignments": table.alignments.iter().map(|alignment| alignment.as_str()).collect::<Vec<_>>(),
-        })).collect::<Vec<_>>(),
+        "tables": doc.tables.iter().map(|table| {
+            let footprint = table.footprint();
+            serde_json::json!({
+                "rows": table.rows,
+                "alignments": table.alignments.iter().map(|alignment| alignment.as_str()).collect::<Vec<_>>(),
+                "column_widths": table.column_widths(),
+                "footprint": {
+                    "cols": footprint.cols,
+                    "rows": footprint.rows,
+                },
+            })
+        }).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -946,6 +954,12 @@ mod tests {
         assert_eq!(value["tables"][0]["alignments"][0], "left");
         assert_eq!(value["tables"][0]["alignments"][1], "center");
         assert_eq!(value["tables"][0]["alignments"][2], "right");
+        assert_eq!(
+            value["tables"][0]["column_widths"],
+            serde_json::json!([1, 1, 1])
+        );
+        assert!(value["tables"][0]["footprint"]["cols"].as_u64().unwrap() >= 10);
+        assert_eq!(value["tables"][0]["footprint"]["rows"], 5);
     }
 
     #[test]
