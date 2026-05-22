@@ -112,6 +112,7 @@ program outside kittwm, or from inside a kittwm native terminal.
 ```sh
 cargo run -p kittui-cli --bin kittui-md -- docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --plain docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --components docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --outline docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --references docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --metadata-json docs/examples/kittui-md-proof.md
@@ -122,6 +123,7 @@ Modes:
 
 - `--rich` (default) renders kittui/kitty graphics components with text overlays.
 - `--plain` prints component records and metadata sections for text-only logs.
+- `--components` prints only generated component records for conversion inspection.
 - `--interactive` opens a raw-mode rich pager for file inputs; use `j/k`, arrow
   keys, PageUp/PageDown, Home/End, `g/G`, and `q`.
 - `--outline` prints only the heading outline for quick document scanning.
