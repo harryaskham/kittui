@@ -627,13 +627,21 @@ fn write_references(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> 
     if !doc.links.is_empty() {
         writeln!(out, "links:")?;
         for link in &doc.links {
-            writeln!(out, "  [{}] {}", link.label, link.url)?;
+            if let Some(title) = &link.title {
+                writeln!(out, "  [{}] {} \"{}\"", link.label, link.url, title)?;
+            } else {
+                writeln!(out, "  [{}] {}", link.label, link.url)?;
+            }
         }
     }
     if !doc.images.is_empty() {
         writeln!(out, "images:")?;
         for image in &doc.images {
-            writeln!(out, "  [{}] {}", image.alt, image.url)?;
+            if let Some(title) = &image.title {
+                writeln!(out, "  [{}] {} \"{}\"", image.alt, image.url, title)?;
+            } else {
+                writeln!(out, "  [{}] {}", image.alt, image.url)?;
+            }
         }
     }
     if !doc.footnote_references.is_empty() {
@@ -1717,7 +1725,7 @@ mod tests {
     #[test]
     fn references_mode_writes_links_images_and_footnotes() {
         let doc = render_markdown(
-            "See [site](https://example.com) and ![logo](logo.png)[^n].\n\n[^n]: note text",
+            "See [site](https://example.com \"Example title\") and ![logo](logo.png \"Logo title\")[^n].\n\n[^n]: note text",
             80,
         );
         let mut out = Vec::new();
@@ -1728,11 +1736,11 @@ mod tests {
             "{rendered}"
         );
         assert!(
-            rendered.contains("links:\n  [site] https://example.com"),
+            rendered.contains("links:\n  [site] https://example.com \"Example title\""),
             "{rendered}"
         );
         assert!(
-            rendered.contains("images:\n  [logo] logo.png"),
+            rendered.contains("images:\n  [logo] logo.png \"Logo title\""),
             "{rendered}"
         );
         assert!(

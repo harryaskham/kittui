@@ -141,7 +141,8 @@ Modes:
 - `--links` prints only parsed Markdown links with labels, URLs, and optional
   title attributes.
 - `--references` prints only links, image references, footnote references, and
-  footnote definitions for a human-readable reference audit.
+  footnote definitions for a human-readable reference audit, including optional
+  link/image title attributes when present.
 - `--footnotes` prints only footnote references and definitions.
 - `--images` prints only parsed image references with alt text, URLs, and
   optional title attributes.
