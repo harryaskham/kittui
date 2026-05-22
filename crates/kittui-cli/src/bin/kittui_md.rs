@@ -273,7 +273,7 @@ fn real_main() -> Result<()> {
             cfg.path.as_deref(),
             &mut std::io::stdout().lock(),
         ),
-        Mode::Rich if cfg.interactive => run_interactive(&doc, cfg),
+        Mode::Rich if cfg.interactive => run_interactive(&markdown, cfg),
         Mode::Rich => write_rich(&doc, &cfg, &mut std::io::stdout().lock()),
     }
 }
@@ -746,12 +746,11 @@ fn print_help() {
     );
 }
 
-fn run_interactive(doc: &MarkdownDocument, mut cfg: Config) -> Result<()> {
-    if cfg.path.is_none() {
-        return Err(anyhow!(
-            "--interactive requires an input file so stdin can be used for keys"
-        ));
-    }
+fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
+    let path = cfg.path.clone().ok_or_else(|| {
+        anyhow!("--interactive requires an input file so stdin can be used for keys")
+    })?;
+    let mut doc = render_markdown(markdown, cfg.width);
     let _raw = RawTerminal::enter()?;
     let mut stdout = std::io::stdout().lock();
     let mut stdin = std::io::stdin().lock();
@@ -759,18 +758,18 @@ fn run_interactive(doc: &MarkdownDocument, mut cfg: Config) -> Result<()> {
         .height_rows
         .unwrap_or_else(|| terminal_rows().unwrap_or(24).saturating_sub(2).max(1));
     cfg.height_rows = Some(viewport);
-    let total_rows = document_rows(doc, cfg.width);
+    let mut total_rows = document_rows(&doc, cfg.width);
     let mut show_help = false;
     loop {
         write!(stdout, "\x1b[2J\x1b[H")?;
         if show_help {
             write_interactive_help(viewport, &mut stdout)?;
-            writeln!(stdout, "h/? close help • q quit")?;
+            writeln!(stdout, "h/? close help • r reload • q quit")?;
         } else {
-            write_rich(doc, &cfg, &mut stdout)?;
+            write_rich(&doc, &cfg, &mut stdout)?;
             writeln!(
                 stdout,
-                "j/k scroll • space/page down • b/page up • g/G ends • h/? help • q quit"
+                "j/k scroll • space/page down • b/page up • g/G ends • h/? help • r reload • q quit"
             )?;
         }
         stdout.flush()?;
@@ -780,6 +779,13 @@ fn run_interactive(doc: &MarkdownDocument, mut cfg: Config) -> Result<()> {
         }
         if action == PagerAction::Help {
             show_help = !show_help;
+            continue;
+        }
+        if action == PagerAction::Reload {
+            doc = reload_interactive_document(&path, cfg.width)?;
+            total_rows = document_rows(&doc, cfg.width);
+            cfg.offset_rows = cfg.offset_rows.min(total_rows.saturating_sub(viewport));
+            show_help = false;
             continue;
         }
         if show_help {
@@ -803,6 +809,7 @@ enum PagerAction {
     Home,
     End,
     Help,
+    Reload,
 }
 
 fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
@@ -817,6 +824,7 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
         b'g' => PagerAction::Home,
         b'G' => PagerAction::End,
         b'h' | b'?' => PagerAction::Help,
+        b'r' => PagerAction::Reload,
         27 => read_escape_action(input)?,
         _ => PagerAction::Noop,
     })
@@ -896,7 +904,7 @@ fn apply_pager_action(
         PagerAction::PageDown => offset.saturating_add(viewport_rows.max(1)).min(max_offset),
         PagerAction::Home => 0,
         PagerAction::End => max_offset,
-        PagerAction::Help => offset.min(max_offset),
+        PagerAction::Help | PagerAction::Reload => offset.min(max_offset),
     }
 }
 
@@ -916,6 +924,11 @@ fn write_interactive_help(viewport_rows: u16, out: &mut impl Write) -> Result<()
         )?;
     }
     Ok(())
+}
+
+fn reload_interactive_document(path: &str, width: u16) -> Result<MarkdownDocument> {
+    let markdown = std::fs::read_to_string(path)?;
+    Ok(render_markdown(&markdown, width))
 }
 
 fn document_rows(doc: &MarkdownDocument, width: u16) -> u16 {
@@ -2142,6 +2155,11 @@ const KEYBINDINGS: &[KeybindingInfo] = &[
         action: "help",
         keys: &["h", "?"],
         description: "Toggle the interactive help screen.",
+    },
+    KeybindingInfo {
+        action: "reload",
+        keys: &["r"],
+        description: "Reload the Markdown file from disk.",
     },
     KeybindingInfo {
         action: "quit",
@@ -3444,6 +3462,13 @@ mod tests {
         MarkdownMetadataBlock, MarkdownMetadataBlockKind, Tone,
     };
 
+    fn unique_test_suffix() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    }
+
     #[test]
     fn parse_args_rejects_multiple_output_modes() {
         let err = parse_args(["--plain".to_string(), "--outline".to_string()]).unwrap_err();
@@ -4446,6 +4471,13 @@ mod tests {
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Home), 0);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::End), 20);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Help), 4);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Reload), 4);
+    }
+
+    #[test]
+    fn pager_reads_reload_key() {
+        let mut cursor = std::io::Cursor::new(b"r".as_slice());
+        assert_eq!(read_pager_action(&mut cursor).unwrap(), PagerAction::Reload);
     }
 
     #[test]
@@ -4466,7 +4498,24 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("help: h, ?"), "{rendered}");
+        assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
+    }
+
+    #[test]
+    fn reload_interactive_document_reads_latest_file() {
+        let path = std::env::temp_dir().join(format!(
+            "kittui-md-reload-{}-{}.md",
+            std::process::id(),
+            unique_test_suffix()
+        ));
+        std::fs::write(&path, "# First\n").unwrap();
+        let first = reload_interactive_document(path.to_str().unwrap(), 80).unwrap();
+        assert_eq!(first.outline[0].text, "First");
+        std::fs::write(&path, "# Second\n").unwrap();
+        let second = reload_interactive_document(path.to_str().unwrap(), 80).unwrap();
+        assert_eq!(second.outline[0].text, "Second");
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -5665,6 +5714,7 @@ mod tests {
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("kittui-md keybindings"), "{rendered}");
         assert!(rendered.contains("scroll-up: k, w, Up"), "{rendered}");
+        assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
     }
 
@@ -5684,6 +5734,17 @@ mod tests {
                         .as_array()
                         .unwrap()
                         .contains(&serde_json::json!("Space"))
+            }));
+        assert!(value["keybindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|binding| {
+                binding["action"] == "reload"
+                    && binding["keys"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("r"))
             }));
         assert!(value["keybindings"]
             .as_array()
