@@ -762,6 +762,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
     let mut show_help = false;
     let mut show_outline = false;
     let mut show_links = false;
+    let mut show_images = false;
     let mut status: Option<String> = None;
     loop {
         write!(stdout, "\x1b[2J\x1b[H")?;
@@ -771,6 +772,8 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             write_interactive_outline(&doc, viewport, &mut stdout)?;
         } else if show_links {
             write_interactive_links(&doc, viewport, &mut stdout)?;
+        } else if show_images {
+            write_interactive_images(&doc, viewport, &mut stdout)?;
         } else {
             write_rich(&doc, &cfg, &mut stdout)?;
         }
@@ -778,6 +781,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             show_help,
             show_outline,
             show_links,
+            show_images,
             status.as_deref(),
             &path,
             cfg.offset_rows,
@@ -795,6 +799,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             if show_help {
                 show_outline = false;
                 show_links = false;
+                show_images = false;
             }
             continue;
         }
@@ -803,6 +808,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             if show_outline {
                 show_help = false;
                 show_links = false;
+                show_images = false;
             }
             continue;
         }
@@ -811,6 +817,16 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             if show_links {
                 show_help = false;
                 show_outline = false;
+                show_images = false;
+            }
+            continue;
+        }
+        if action == PagerAction::Images {
+            show_images = !show_images;
+            if show_images {
+                show_help = false;
+                show_outline = false;
+                show_links = false;
             }
             continue;
         }
@@ -822,6 +838,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                     cfg.offset_rows = cfg.offset_rows.min(total_rows.saturating_sub(viewport));
                     show_outline = false;
                     show_links = false;
+                    show_images = false;
                     status = Some(format!("reloaded {path} — {total_rows} rows"));
                 }
                 Err(err) => {
@@ -835,7 +852,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             status = None;
             continue;
         }
-        if show_help || show_outline || show_links {
+        if show_help || show_outline || show_links || show_images {
             continue;
         }
         cfg.offset_rows = apply_pager_action(cfg.offset_rows, viewport, total_rows, action);
@@ -858,6 +875,7 @@ enum PagerAction {
     Help,
     Outline,
     Links,
+    Images,
     Reload,
     ClearStatus,
 }
@@ -876,6 +894,7 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
         b'h' | b'?' => PagerAction::Help,
         b'o' => PagerAction::Outline,
         b'l' => PagerAction::Links,
+        b'i' => PagerAction::Images,
         b'r' => PagerAction::Reload,
         b'c' => PagerAction::ClearStatus,
         27 => read_escape_action(input)?,
@@ -960,6 +979,7 @@ fn apply_pager_action(
         PagerAction::Help
         | PagerAction::Outline
         | PagerAction::Links
+        | PagerAction::Images
         | PagerAction::Reload
         | PagerAction::ClearStatus => offset.min(max_offset),
     }
@@ -1028,10 +1048,36 @@ fn write_interactive_links(
     Ok(())
 }
 
+fn write_interactive_images(
+    doc: &MarkdownDocument,
+    viewport_rows: u16,
+    out: &mut impl Write,
+) -> Result<()> {
+    writeln!(out, "kittui-md images — {} images", doc.images.len())?;
+    writeln!(out)?;
+    if doc.images.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for image in doc
+        .images
+        .iter()
+        .take(viewport_rows.saturating_sub(3) as usize)
+    {
+        if let Some(title) = &image.title {
+            writeln!(out, "![{}] {} \"{}\"", image.alt, image.url, title)?;
+        } else {
+            writeln!(out, "![{}] {}", image.alt, image.url)?;
+        }
+    }
+    Ok(())
+}
+
 fn write_interactive_footer(
     show_help: bool,
     show_outline: bool,
     show_links: bool,
+    show_images: bool,
     status: Option<&str>,
     path: &str,
     offset_rows: u16,
@@ -1054,22 +1100,27 @@ fn write_interactive_footer(
     if show_help {
         writeln!(
             out,
-            "h/? close help • o outline • l links • r reload • c clear status • q quit"
+            "h/? close help • o outline • l links • i images • r reload • c clear status • q quit"
         )?;
     } else if show_outline {
         writeln!(
             out,
-            "o close outline • l links • h/? help • r reload • c clear status • q quit"
+            "o close outline • l links • i images • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_links {
         writeln!(
             out,
-            "l close links • o outline • h/? help • r reload • c clear status • q quit"
+            "l close links • o outline • i images • h/? help • r reload • c clear status • q quit"
+        )?;
+    } else if show_images {
+        writeln!(
+            out,
+            "i close images • o outline • l links • h/? help • r reload • c clear status • q quit"
         )?;
     } else {
         writeln!(
             out,
-            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • o outline • l links • r reload • c clear status • q quit"
+            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • o outline • l links • i images • r reload • c clear status • q quit"
         )?;
     }
     Ok(())
@@ -2314,6 +2365,11 @@ const KEYBINDINGS: &[KeybindingInfo] = &[
         action: "links",
         keys: &["l"],
         description: "Toggle the interactive document links screen.",
+    },
+    KeybindingInfo {
+        action: "images",
+        keys: &["i"],
+        description: "Toggle the interactive document images screen.",
     },
     KeybindingInfo {
         action: "reload",
@@ -4637,6 +4693,7 @@ mod tests {
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Help), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Outline), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Links), 4);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Images), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Reload), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::ClearStatus), 4);
     }
@@ -4654,6 +4711,12 @@ mod tests {
     fn pager_reads_links_key() {
         let mut cursor = std::io::Cursor::new(b"l".as_slice());
         assert_eq!(read_pager_action(&mut cursor).unwrap(), PagerAction::Links);
+    }
+
+    #[test]
+    fn pager_reads_images_key() {
+        let mut cursor = std::io::Cursor::new(b"i".as_slice());
+        assert_eq!(read_pager_action(&mut cursor).unwrap(), PagerAction::Images);
     }
 
     #[test]
@@ -4691,6 +4754,7 @@ mod tests {
         assert!(rendered.contains("help: h, ?"), "{rendered}");
         assert!(rendered.contains("outline: o"), "{rendered}");
         assert!(rendered.contains("links: l"), "{rendered}");
+        assert!(rendered.contains("images: i"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
@@ -4773,9 +4837,51 @@ mod tests {
     }
 
     #[test]
+    fn interactive_images_lists_images() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![],
+            images: vec![
+                MarkdownImage {
+                    alt: "diagram".to_string(),
+                    url: "diagram.png".to_string(),
+                    title: Some("System diagram".to_string()),
+                },
+                MarkdownImage {
+                    alt: "logo".to_string(),
+                    url: "logo.svg".to_string(),
+                    title: None,
+                },
+            ],
+            outline: vec![],
+            footnotes: vec![],
+            footnote_references: vec![],
+            definitions: vec![],
+            math: vec![],
+            html: vec![],
+            code_blocks: vec![],
+            metadata_blocks: vec![],
+        };
+        let mut out = Vec::new();
+        write_interactive_images(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md images — 2 images"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("![diagram] diagram.png \"System diagram\""),
+            "{rendered}"
+        );
+        assert!(rendered.contains("![logo] logo.svg"), "{rendered}");
+    }
+
+    #[test]
     fn interactive_footer_writes_reload_status() {
         let mut out = Vec::new();
         write_interactive_footer(
+            false,
             false,
             false,
             false,
@@ -4797,13 +4903,17 @@ mod tests {
         assert!(rendered.contains("c clear status"), "{rendered}");
         assert!(rendered.contains("o outline"), "{rendered}");
         assert!(rendered.contains("l links"), "{rendered}");
+        assert!(rendered.contains("i images"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
     #[test]
     fn interactive_footer_omits_status_when_cleared() {
         let mut out = Vec::new();
-        write_interactive_footer(false, false, false, None, "doc.md", 0, 10, 30, &mut out).unwrap();
+        write_interactive_footer(
+            false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
+        )
+        .unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(!rendered.contains("status:"), "{rendered}");
         assert!(rendered.contains("source: doc.md"), "{rendered}");
@@ -4815,6 +4925,7 @@ mod tests {
         let mut out = Vec::new();
         write_interactive_footer(
             true,
+            false,
             false,
             false,
             Some("reload failed: missing"),
@@ -4837,20 +4948,42 @@ mod tests {
     #[test]
     fn interactive_footer_writes_outline_controls() {
         let mut out = Vec::new();
-        write_interactive_footer(false, true, false, None, "doc.md", 0, 10, 30, &mut out).unwrap();
+        write_interactive_footer(
+            false, true, false, false, None, "doc.md", 0, 10, 30, &mut out,
+        )
+        .unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("o close outline"), "{rendered}");
         assert!(rendered.contains("l links"), "{rendered}");
+        assert!(rendered.contains("i images"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
     #[test]
     fn interactive_footer_writes_links_controls() {
         let mut out = Vec::new();
-        write_interactive_footer(false, false, true, None, "doc.md", 0, 10, 30, &mut out).unwrap();
+        write_interactive_footer(
+            false, false, true, false, None, "doc.md", 0, 10, 30, &mut out,
+        )
+        .unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("l close links"), "{rendered}");
         assert!(rendered.contains("o outline"), "{rendered}");
+        assert!(rendered.contains("i images"), "{rendered}");
+        assert!(rendered.contains("h/? help"), "{rendered}");
+    }
+
+    #[test]
+    fn interactive_footer_writes_images_controls() {
+        let mut out = Vec::new();
+        write_interactive_footer(
+            false, false, false, true, None, "doc.md", 0, 10, 30, &mut out,
+        )
+        .unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("i close images"), "{rendered}");
+        assert!(rendered.contains("o outline"), "{rendered}");
+        assert!(rendered.contains("l links"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
@@ -6067,6 +6200,7 @@ mod tests {
         assert!(rendered.contains("kittui-md keybindings"), "{rendered}");
         assert!(rendered.contains("scroll-up: k, w, Up"), "{rendered}");
         assert!(rendered.contains("links: l"), "{rendered}");
+        assert!(rendered.contains("images: i"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
@@ -6099,6 +6233,17 @@ mod tests {
                         .as_array()
                         .unwrap()
                         .contains(&serde_json::json!("l"))
+            }));
+        assert!(value["keybindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|binding| {
+                binding["action"] == "images"
+                    && binding["keys"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("i"))
             }));
         assert!(value["keybindings"]
             .as_array()
