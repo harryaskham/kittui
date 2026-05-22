@@ -23,6 +23,8 @@ pub struct MarkdownDocument {
     pub footnotes: Vec<MarkdownFootnote>,
     /// Footnote reference labels in encounter order.
     pub footnote_references: Vec<String>,
+    /// Definition-list entries in document order.
+    pub definitions: Vec<MarkdownDefinition>,
 }
 
 /// Link rendered as a highlighted chip plus accessible URL metadata.
@@ -59,6 +61,15 @@ pub struct MarkdownFootnote {
     pub label: String,
     /// Rendered footnote text.
     pub text: String,
+}
+
+/// One rendered Markdown definition-list entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkdownDefinition {
+    /// Definition term/title.
+    pub term: String,
+    /// Rendered definition body.
+    pub definition: String,
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +190,10 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 let definition = take_trimmed(&mut buf);
                 let term = definition_term.take().unwrap_or_default();
                 if !term.is_empty() || !definition.is_empty() {
+                    out.definitions.push(MarkdownDefinition {
+                        term: term.clone(),
+                        definition: definition.clone(),
+                    });
                     out.components.push(textbox(
                         format!("definition: {term}\n: {definition}"),
                         width_cells,
@@ -764,6 +779,13 @@ mod tests {
         assert!(
             text.contains("definition: Term\n: Definition text"),
             "{text}"
+        );
+        assert_eq!(
+            doc.definitions[0],
+            MarkdownDefinition {
+                term: "Term".to_string(),
+                definition: "Definition text".to_string(),
+            }
         );
     }
 }
