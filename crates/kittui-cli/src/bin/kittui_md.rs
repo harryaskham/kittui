@@ -572,12 +572,6 @@ fn write_component_text(
     } else {
         2
     };
-    let y = rect.y.saturating_add(rect.rows / 2);
-    write!(
-        out,
-        "{}",
-        kittui_kitty::cursor_move(rect.x.saturating_add(x), y, Transport::Direct)
-    )?;
     let style = match component.kind {
         ComponentKind::H1 | ComponentKind::Title => "\x1b[1;97m",
         ComponentKind::H2 | ComponentKind::Header => "\x1b[1;96m",
@@ -586,13 +580,66 @@ fn write_component_text(
         ComponentKind::Banner => "\x1b[1;93m",
         ComponentKind::TextBox => "\x1b[37m",
     };
-    let max = rect.cols.saturating_sub(x + 1) as usize;
-    write!(
-        out,
-        "{style}{}\x1b[0m",
-        truncate_cells(&component.text, max)
-    )?;
+    let max_cols = rect.cols.saturating_sub(x + 1) as usize;
+    let max_rows = if matches!(component.kind, ComponentKind::TextChip) {
+        1
+    } else {
+        rect.rows.saturating_sub(1).max(1) as usize
+    };
+    let start_y = if max_rows == 1 {
+        rect.y.saturating_add(rect.rows / 2)
+    } else {
+        rect.y.saturating_add(1)
+    };
+    for (i, line) in wrap_text_lines(&component.text, max_cols, max_rows)
+        .iter()
+        .enumerate()
+    {
+        write!(
+            out,
+            "{}{style}{}\x1b[0m",
+            kittui_kitty::cursor_move(
+                rect.x.saturating_add(x),
+                start_y.saturating_add(i as u16),
+                Transport::Direct
+            ),
+            line
+        )?;
+    }
     Ok(())
+}
+
+fn wrap_text_lines(text: &str, max_cols: usize, max_rows: usize) -> Vec<String> {
+    if max_cols == 0 || max_rows == 0 {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    for raw in text.lines() {
+        let mut current = String::new();
+        for word in raw.split_whitespace() {
+            let word_len = word.chars().count();
+            let current_len = current.chars().count();
+            if current_len == 0 {
+                current = truncate_cells(word, max_cols);
+            } else if current_len + 1 + word_len <= max_cols {
+                current.push(' ');
+                current.push_str(word);
+            } else {
+                lines.push(current);
+                if lines.len() == max_rows {
+                    return lines;
+                }
+                current = truncate_cells(word, max_cols);
+            }
+        }
+        if !current.is_empty() || raw.is_empty() {
+            lines.push(current);
+            if lines.len() == max_rows {
+                return lines;
+            }
+        }
+    }
+    lines
 }
 
 fn truncate_cells(s: &str, max: usize) -> String {
@@ -739,6 +786,26 @@ mod tests {
         assert!(
             rendered.contains("images:\n  [logo] logo.png"),
             "{rendered}"
+        );
+    }
+
+    #[test]
+    fn wrap_text_lines_wraps_and_respects_row_limit() {
+        assert_eq!(
+            wrap_text_lines("one two three four", 9, 3),
+            vec![
+                "one two".to_string(),
+                "three".to_string(),
+                "four".to_string()
+            ]
+        );
+        assert_eq!(
+            wrap_text_lines("one two three four", 9, 2),
+            vec!["one two".to_string(), "three".to_string()]
+        );
+        assert_eq!(
+            wrap_text_lines("abcdefghij", 4, 2),
+            vec!["abcd".to_string()]
         );
     }
 
