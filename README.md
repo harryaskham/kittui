@@ -115,6 +115,7 @@ cargo run -p kittui-cli --bin kittui-md -- --plain docs/examples/kittui-md-proof
 cargo run -p kittui-cli --bin kittui-md -- --components docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --outline docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --references docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --stats docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --metadata-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --interactive docs/examples/kittui-md-proof.md
 ```
@@ -129,6 +130,7 @@ Modes:
 - `--outline` prints only the heading outline for quick document scanning.
 - `--references` prints only links, image references, footnote references, and
   footnote definitions for a human-readable reference audit.
+- `--stats` prints concise source/component/metadata counts for quick checks.
 - `--metadata-json` emits schema-versioned JSON for tools. It includes source
   byte/line counts, component details, outline, links, images, footnotes,
   definitions, math, HTML placeholders, code blocks, and table layout metrics.
