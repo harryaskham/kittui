@@ -20,6 +20,7 @@ enum Mode {
     References,
     Tables,
     CodeBlocks,
+    Definitions,
     Stats,
     MetadataJson,
 }
@@ -68,6 +69,7 @@ fn real_main() -> Result<()> {
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
+        Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(&doc, &markdown, &mut std::io::stdout().lock()),
         Mode::MetadataJson => write_metadata_json(
             &doc,
@@ -98,6 +100,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--references" => mode = Mode::References,
             "--tables" => mode = Mode::Tables,
             "--code-blocks" => mode = Mode::CodeBlocks,
+            "--definitions" => mode = Mode::Definitions,
             "--stats" => mode = Mode::Stats,
             "--metadata-json" => mode = Mode::MetadataJson,
             "--width" => {
@@ -143,7 +146,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--code-blocks|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--code-blocks|--definitions|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -400,6 +403,24 @@ fn write_tables(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
         for row in &table.rows {
             writeln!(out, "  | {} |", row.join(" | "))?;
         }
+    }
+    Ok(())
+}
+
+fn write_definitions(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(
+        out,
+        "kittui-md definitions — {} definitions",
+        doc.definitions.len()
+    )?;
+    if doc.definitions.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for (i, definition) in doc.definitions.iter().enumerate() {
+        writeln!(out, "definition #{}", i + 1)?;
+        writeln!(out, "  term={}", definition.term)?;
+        writeln!(out, "  definition={}", definition.definition)?;
     }
     Ok(())
 }
@@ -1175,6 +1196,35 @@ mod tests {
         assert!(
             status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 0 code blocks"),
             "{status}"
+        );
+    }
+
+    #[test]
+    fn definitions_mode_writes_terms_and_definitions() {
+        let doc = render_markdown("Term\n: Definition text", 80);
+        let mut out = Vec::new();
+        write_definitions(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md definitions — 1 definitions"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("definition #1"), "{rendered}");
+        assert!(rendered.contains("term=Term"), "{rendered}");
+        assert!(
+            rendered.contains("definition=Definition text"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn definitions_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_definitions(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md definitions — 0 definitions\n<empty>\n"
         );
     }
 
