@@ -755,12 +755,14 @@ fn write_metadata_json(
             "width_cells": component.width_cells,
             "height_cells": component.height_cells,
         })).collect::<Vec<_>>(),
-        "links": doc.links.iter().map(|link| serde_json::json!({
+        "links": doc.links.iter().enumerate().map(|(index, link)| serde_json::json!({
+            "index": index,
             "label": link.label,
             "url": link.url,
             "title": link.title,
         })).collect::<Vec<_>>(),
-        "images": doc.images.iter().map(|image| serde_json::json!({
+        "images": doc.images.iter().enumerate().map(|(index, image)| serde_json::json!({
+            "index": index,
             "alt": image.alt,
             "url": image.url,
             "title": image.title,
@@ -2154,8 +2156,10 @@ mod tests {
         assert_eq!(value["outline"][0]["level"], 1);
         assert_eq!(value["outline"][0]["text"], "Title");
         assert_eq!(value["outline"][0]["anchor"], "title");
+        assert_eq!(value["links"][0]["index"], 0);
         assert_eq!(value["links"][0]["url"], "https://example.com");
         assert_eq!(value["links"][0]["title"], serde_json::Value::Null);
+        assert_eq!(value["images"][0]["index"], 0);
         assert_eq!(value["images"][0]["url"], "logo.png");
         assert_eq!(value["images"][0]["title"], serde_json::Value::Null);
         assert_eq!(value["footnote_references"][0], "n");
