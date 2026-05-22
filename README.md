@@ -162,7 +162,8 @@ Modes:
 - `--math` prints only inline/display math expressions with kind and source.
 - `--html` prints only preserved inline/block HTML placeholders with kind and
   source.
-- `--stats` prints concise source/component/metadata counts for quick checks.
+- `--stats` prints concise source path/size/component/metadata counts for quick
+  checks.
 - `--metadata-json` emits schema-versioned JSON for tools; `--json` is a
   concise alias for the same mode. It includes source
   byte/line/path data, render mode/width, component details, outline, links,

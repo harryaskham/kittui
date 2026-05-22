@@ -82,7 +82,12 @@ fn real_main() -> Result<()> {
         Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
         Mode::Math => write_math(&doc, &mut std::io::stdout().lock()),
         Mode::Html => write_html(&doc, &mut std::io::stdout().lock()),
-        Mode::Stats => write_stats(&doc, &markdown, &mut std::io::stdout().lock()),
+        Mode::Stats => write_stats(
+            &doc,
+            &markdown,
+            cfg.path.as_deref(),
+            &mut std::io::stdout().lock(),
+        ),
         Mode::MetadataJson => write_metadata_json(
             &doc,
             &markdown,
@@ -424,10 +429,16 @@ fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
-fn write_stats(doc: &MarkdownDocument, source: &str, out: &mut impl Write) -> Result<()> {
+fn write_stats(
+    doc: &MarkdownDocument,
+    source: &str,
+    source_path: Option<&str>,
+    out: &mut impl Write,
+) -> Result<()> {
     writeln!(out, "kittui-md stats")?;
     writeln!(out, "source.bytes={}", source.len())?;
     writeln!(out, "source.lines={}", source.lines().count())?;
+    writeln!(out, "source.path={}", source_path.unwrap_or("<stdin>"))?;
     writeln!(out, "components={}", doc.components.len())?;
     writeln!(out, "headings={}", doc.outline.len())?;
     writeln!(out, "links={}", doc.links.len())?;
@@ -1752,14 +1763,25 @@ mod tests {
         let source = "# Title\n\nSee [site](https://example.com) and ![logo](logo.png).";
         let doc = render_markdown(source, 80);
         let mut out = Vec::new();
-        write_stats(&doc, source, &mut out).unwrap();
+        write_stats(&doc, source, None, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("kittui-md stats\n"), "{rendered}");
         assert!(rendered.contains("source.bytes="), "{rendered}");
         assert!(rendered.contains("source.lines=3"), "{rendered}");
+        assert!(rendered.contains("source.path=<stdin>"), "{rendered}");
         assert!(rendered.contains("headings=1"), "{rendered}");
         assert!(rendered.contains("links=1"), "{rendered}");
         assert!(rendered.contains("images=1"), "{rendered}");
+    }
+
+    #[test]
+    fn stats_mode_reports_source_path_when_present() {
+        let source = "# Title";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_stats(&doc, source, Some("docs/proof.md"), &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("source.path=docs/proof.md"), "{rendered}");
     }
 
     #[test]
@@ -1901,7 +1923,7 @@ mod tests {
         let source = "---\ntitle: Proof\n---\n\n# Body";
         let doc = render_markdown(source, 80);
         let mut out = Vec::new();
-        write_stats(&doc, source, &mut out).unwrap();
+        write_stats(&doc, source, None, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("metadata_blocks=1"), "{rendered}");
     }
