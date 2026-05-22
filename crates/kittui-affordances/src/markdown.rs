@@ -75,6 +75,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let mut table_cell = String::new();
     let mut list_stack: Vec<ListState> = Vec::new();
     let mut in_list_item = false;
+    let mut blockquote_depth = 0usize;
 
     for ev in parser {
         match ev {
@@ -94,7 +95,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             }
             Event::Start(Tag::Paragraph) => {}
             Event::End(TagEnd::Paragraph) => {
-                if !in_list_item {
+                if !in_list_item && blockquote_depth == 0 {
                     flush_paragraph(&mut out, &mut buf, width_cells);
                 }
             }
@@ -119,8 +120,10 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             }
             Event::Start(Tag::BlockQuote(_)) => {
                 flush_paragraph(&mut out, &mut buf, width_cells);
+                blockquote_depth = blockquote_depth.saturating_add(1);
             }
             Event::End(TagEnd::BlockQuote(_)) => {
+                blockquote_depth = blockquote_depth.saturating_sub(1);
                 let text = take_trimmed(&mut buf);
                 if !text.is_empty() {
                     out.components.push(banner(text, width_cells, Tone::Tool));
@@ -462,5 +465,13 @@ mod tests {
         assert!(doc.components.iter().any(|c| c
             .text
             .contains("Logo: image: kittui logo -> assets/logo.png")));
+    }
+
+    #[test]
+    fn markdown_renders_blockquote_as_banner_not_textbox() {
+        let doc = render_markdown("> quoted callout", 60);
+        assert_eq!(doc.components.len(), 1);
+        assert_eq!(doc.components[0].kind, ComponentKind::Banner);
+        assert_eq!(doc.components[0].text, "quoted callout");
     }
 }
