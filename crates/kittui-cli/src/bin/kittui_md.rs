@@ -323,6 +323,12 @@ fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
 fn write_metadata_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
     let value = serde_json::json!({
         "components": doc.components.len(),
+        "components_detail": doc.components.iter().map(|component| serde_json::json!({
+            "kind": format!("{:?}", component.kind),
+            "text": component.text,
+            "width_cells": component.width_cells,
+            "height_cells": component.height_cells,
+        })).collect::<Vec<_>>(),
         "links": doc.links.iter().map(|link| serde_json::json!({
             "label": link.label,
             "url": link.url,
@@ -868,6 +874,15 @@ mod tests {
         assert_eq!(
             value["components"].as_u64().unwrap(),
             doc.components.len() as u64
+        );
+        assert_eq!(value["components_detail"][0]["kind"], "H1");
+        assert_eq!(value["components_detail"][0]["text"], "Title");
+        assert_eq!(value["components_detail"][0]["width_cells"], 80);
+        assert!(
+            value["components_detail"][0]["height_cells"]
+                .as_u64()
+                .unwrap()
+                >= 1
         );
         assert_eq!(value["outline"][0]["level"], 1);
         assert_eq!(value["outline"][0]["text"], "Title");
