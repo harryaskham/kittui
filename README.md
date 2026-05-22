@@ -103,6 +103,36 @@ KITTWM_TERMINAL_CMD=htop cargo run -p kittui-cli --bin kittwm
 cargo run -p kittui-cli --bin kittwm-browser -- https://example.com
 ```
 
+### kittui-md Markdown viewer
+
+`kittui-md` is the standalone Markdown viewer built on the optional
+`kittui-affordances` component layer. It can be used as a normal terminal
+program outside kittwm, or from inside a kittwm native terminal.
+
+```sh
+cargo run -p kittui-cli --bin kittui-md -- docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --plain docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --outline docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --metadata-json docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --interactive docs/examples/kittui-md-proof.md
+```
+
+Modes:
+
+- `--rich` (default) renders kittui/kitty graphics components with text overlays.
+- `--plain` prints component records and metadata sections for text-only logs.
+- `--interactive` opens a raw-mode rich pager for file inputs; use `j/k`, arrow
+  keys, PageUp/PageDown, Home/End, `g/G`, and `q`.
+- `--outline` prints only the heading outline for quick document scanning.
+- `--metadata-json` emits schema-versioned JSON for tools. It includes source
+  byte/line counts, component details, outline, links, images, footnotes,
+  definitions, math, HTML placeholders, code blocks, and table layout metrics.
+
+The proof gallery at `docs/examples/kittui-md-proof.md` exercises headings,
+paragraphs, links, images, blockquotes, lists, task lists, fenced code,
+definition lists, aligned tables, math, HTML placeholders, footnotes, and the
+metadata surfaces above.
+
 v0.2: kitty graphics protocol now spec-conformant and **proven visually**
 in Ghostty (and any other kitty-compatible terminal):
 
