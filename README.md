@@ -154,8 +154,9 @@ Modes:
   `--widgets` is a friendly alias for the same mode.
 - `--interactive` opens a raw-mode rich pager for file inputs; use `j/k`, arrow
   keys, PageUp/PageDown, Home/End, `g/G`, and `q`.
-- `--outline` prints only the heading outline for quick document scanning;
-  `--toc` and `--headings` are friendly aliases for the same mode.
+- `--outline` prints only the heading outline plus stable `#anchor` slugs for
+  quick document scanning; `--toc` and `--headings` are friendly aliases for the
+  same mode.
 - `--links` prints only parsed Markdown links with labels, URLs, and optional
   title attributes; `--urls` is a friendly alias for the same mode.
 - `--references` prints only links, image references, footnote references, and
@@ -186,7 +187,8 @@ Modes:
   for the same mode.
 - `--metadata-json` emits schema-versioned JSON for tools; `--json` is a
   concise alias for the same mode. It includes source
-  byte/line/path data, render mode/width, component details, outline, links,
+  byte/line/path data, render mode/width, component details, outline entries
+  with stable anchors, links,
   images (including optional link/image title attributes), footnotes,
   definitions, math, HTML placeholders, metadata blocks, code blocks, and table
   layout metrics.

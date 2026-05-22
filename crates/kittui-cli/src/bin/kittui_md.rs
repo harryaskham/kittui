@@ -756,6 +756,7 @@ fn write_metadata_json(
         "outline": doc.outline.iter().map(|heading| serde_json::json!({
             "level": heading.level,
             "text": heading.text,
+            "anchor": heading.anchor,
         })).collect::<Vec<_>>(),
         "tables": doc.tables.iter().map(|table| {
             let footprint = table.footprint();
@@ -1002,7 +1003,7 @@ fn outline_lines(doc: &MarkdownDocument) -> Vec<String> {
             format!(
                 "{}{}",
                 "  ".repeat(heading.level.saturating_sub(1) as usize),
-                heading.text
+                format!("{} #{}", heading.text, heading.anchor)
             )
         })
         .collect()
@@ -1676,6 +1677,7 @@ mod tests {
             outline: vec![HeadingOutline {
                 level: 1,
                 text: "Title".to_string(),
+                anchor: "title".to_string(),
             }],
             footnotes: vec![],
             footnote_references: vec![],
@@ -2076,6 +2078,7 @@ mod tests {
         );
         assert_eq!(value["outline"][0]["level"], 1);
         assert_eq!(value["outline"][0]["text"], "Title");
+        assert_eq!(value["outline"][0]["anchor"], "title");
         assert_eq!(value["links"][0]["url"], "https://example.com");
         assert_eq!(value["links"][0]["title"], serde_json::Value::Null);
         assert_eq!(value["images"][0]["url"], "logo.png");
@@ -2198,10 +2201,12 @@ mod tests {
                 HeadingOutline {
                     level: 1,
                     text: "Title".to_string(),
+                    anchor: "title".to_string(),
                 },
                 HeadingOutline {
                     level: 2,
                     text: "Section".to_string(),
+                    anchor: "section".to_string(),
                 },
             ],
             footnotes: vec![],
@@ -2217,7 +2222,7 @@ mod tests {
         let rendered = String::from_utf8(out).unwrap();
         assert_eq!(
             rendered,
-            "kittui-md outline — 2 headings\nTitle\n  Section\n"
+            "kittui-md outline — 2 headings\nTitle #title\n  Section #section\n"
         );
         assert!(!rendered.contains("[H1]"));
     }
@@ -2409,10 +2414,12 @@ mod tests {
                 HeadingOutline {
                     level: 1,
                     text: "Title".to_string(),
+                    anchor: "title".to_string(),
                 },
                 HeadingOutline {
                     level: 3,
                     text: "Deep".to_string(),
+                    anchor: "deep".to_string(),
                 },
             ],
             footnotes: vec![],
@@ -2425,7 +2432,7 @@ mod tests {
         };
         assert_eq!(
             outline_lines(&doc),
-            vec!["Title".to_string(), "    Deep".to_string()]
+            vec!["Title #title".to_string(), "    Deep #deep".to_string()]
         );
     }
 
@@ -2440,10 +2447,12 @@ mod tests {
                 HeadingOutline {
                     level: 1,
                     text: "Title".to_string(),
+                    anchor: "title".to_string(),
                 },
                 HeadingOutline {
                     level: 2,
                     text: "Section".to_string(),
+                    anchor: "section".to_string(),
                 },
             ],
             footnotes: vec![],
@@ -2458,7 +2467,7 @@ mod tests {
         write_plain(&doc, 20, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
         assert!(
-            rendered.contains("outline:\n  Title\n    Section"),
+            rendered.contains("outline:\n  Title #title\n    Section #section"),
             "{rendered}"
         );
     }

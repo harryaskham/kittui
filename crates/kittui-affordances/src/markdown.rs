@@ -1,5 +1,7 @@
 //! Markdown-to-kittui component rendering.
 
+use std::collections::HashMap;
+
 use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, HeadingLevel, MetadataBlockKind, Options, Parser, Tag, TagEnd,
 };
@@ -66,6 +68,8 @@ pub struct HeadingOutline {
     pub level: u8,
     /// Plain rendered heading text.
     pub text: String,
+    /// Stable slug anchor derived from the heading text.
+    pub anchor: String,
 }
 
 /// One rendered Markdown footnote definition.
@@ -212,6 +216,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let mut out = MarkdownDocument::default();
     let mut buf = String::new();
     let mut heading: Option<HeadingLevel> = None;
+    let mut heading_anchors: HashMap<String, usize> = HashMap::new();
     let mut in_code = false;
     let mut code_label: Option<String> = None;
     let mut metadata_block: Option<MarkdownMetadataBlockKind> = None;
@@ -262,9 +267,11 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             }
             Event::End(TagEnd::Heading(level)) => {
                 let text = take_trimmed(&mut buf);
+                let anchor = unique_heading_anchor(&text, &mut heading_anchors);
                 out.outline.push(HeadingOutline {
                     level: heading_level_number(level),
                     text: text.clone(),
+                    anchor,
                 });
                 let comp = match level {
                     HeadingLevel::H1 => h1(text, width_cells),
@@ -670,6 +677,38 @@ fn markdown_alignment(alignment: Alignment) -> MarkdownTableAlignment {
     }
 }
 
+fn unique_heading_anchor(text: &str, seen: &mut HashMap<String, usize>) -> String {
+    let base = heading_anchor(text);
+    let count = seen.entry(base.clone()).or_insert(0);
+    *count += 1;
+    if *count == 1 {
+        base
+    } else {
+        format!("{base}-{}", *count)
+    }
+}
+
+fn heading_anchor(text: &str) -> String {
+    let mut anchor = String::new();
+    let mut pending_dash = false;
+    for ch in text.chars().flat_map(char::to_lowercase) {
+        if ch.is_alphanumeric() {
+            if pending_dash && !anchor.is_empty() {
+                anchor.push('-');
+            }
+            anchor.push(ch);
+            pending_dash = false;
+        } else {
+            pending_dash = true;
+        }
+    }
+    if anchor.is_empty() {
+        "section".to_string()
+    } else {
+        anchor
+    }
+}
+
 fn heading_level_number(level: HeadingLevel) -> u8 {
     match level {
         HeadingLevel::H1 => 1,
@@ -795,14 +834,16 @@ mod tests {
             doc.outline[0],
             HeadingOutline {
                 level: 1,
-                text: "Title".to_string()
+                text: "Title".to_string(),
+                anchor: "title".to_string(),
             }
         );
         assert_eq!(
             doc.outline[1],
             HeadingOutline {
                 level: 2,
-                text: "Section".to_string()
+                text: "Section".to_string(),
+                anchor: "section".to_string(),
             }
         );
         assert!(doc
@@ -824,6 +865,14 @@ mod tests {
         assert_eq!(doc.links[0].label, "site");
         assert_eq!(doc.links[0].url, "https://example.com");
         assert_eq!(doc.links[0].title.as_deref(), Some("Example title"));
+    }
+
+    #[test]
+    fn markdown_generates_stable_unique_heading_anchors() {
+        let doc = render_markdown("# Hello, World!\n\n## Hello World\n\n## !!!", 60);
+        assert_eq!(doc.outline[0].anchor, "hello-world");
+        assert_eq!(doc.outline[1].anchor, "hello-world-2");
+        assert_eq!(doc.outline[2].anchor, "section");
     }
 
     #[test]
