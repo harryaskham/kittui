@@ -125,6 +125,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             }
             "--refs" => set_mode(&mut mode, &mut mode_flag, "--refs", Mode::References)?,
             "--links" => set_mode(&mut mode, &mut mode_flag, "--links", Mode::Links)?,
+            "--urls" => set_mode(&mut mode, &mut mode_flag, "--urls", Mode::Links)?,
             "--footnotes" => set_mode(&mut mode, &mut mode_flag, "--footnotes", Mode::Footnotes)?,
             "--images" => set_mode(&mut mode, &mut mode_flag, "--images", Mode::Images)?,
             "--pictures" => set_mode(&mut mode, &mut mode_flag, "--pictures", Mode::Images)?,
@@ -222,7 +223,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--footnotes|--images|--pictures|--tables|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--images|--pictures|--tables|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1390,6 +1391,21 @@ mod tests {
         let cfg = parse_args(["--pictures".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Images);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_urls_alias() {
+        let cfg = parse_args(["--urls".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Links);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_links_plus_urls() {
+        let err = parse_args(["--links".to_string(), "--urls".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--links"), "{err}");
+        assert!(err.to_string().contains("--urls"), "{err}");
     }
 
     #[test]
