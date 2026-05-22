@@ -764,6 +764,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
     let mut show_links = false;
     let mut show_images = false;
     let mut show_tables = false;
+    let mut show_code_blocks = false;
     let mut status: Option<String> = None;
     loop {
         write!(stdout, "\x1b[2J\x1b[H")?;
@@ -777,6 +778,8 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             write_interactive_images(&doc, viewport, &mut stdout)?;
         } else if show_tables {
             write_interactive_tables(&doc, viewport, &mut stdout)?;
+        } else if show_code_blocks {
+            write_interactive_code_blocks(&doc, viewport, &mut stdout)?;
         } else {
             write_rich(&doc, &cfg, &mut stdout)?;
         }
@@ -786,6 +789,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             show_links,
             show_images,
             show_tables,
+            show_code_blocks,
             status.as_deref(),
             &path,
             cfg.offset_rows,
@@ -805,6 +809,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_links = false;
                 show_images = false;
                 show_tables = false;
+                show_code_blocks = false;
             }
             continue;
         }
@@ -815,6 +820,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_links = false;
                 show_images = false;
                 show_tables = false;
+                show_code_blocks = false;
             }
             continue;
         }
@@ -825,6 +831,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_outline = false;
                 show_images = false;
                 show_tables = false;
+                show_code_blocks = false;
             }
             continue;
         }
@@ -835,6 +842,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_outline = false;
                 show_links = false;
                 show_tables = false;
+                show_code_blocks = false;
             }
             continue;
         }
@@ -845,6 +853,18 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                 show_outline = false;
                 show_links = false;
                 show_images = false;
+                show_code_blocks = false;
+            }
+            continue;
+        }
+        if action == PagerAction::CodeBlocks {
+            show_code_blocks = !show_code_blocks;
+            if show_code_blocks {
+                show_help = false;
+                show_outline = false;
+                show_links = false;
+                show_images = false;
+                show_tables = false;
             }
             continue;
         }
@@ -858,6 +878,7 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
                     show_links = false;
                     show_images = false;
                     show_tables = false;
+                    show_code_blocks = false;
                     status = Some(format!("reloaded {path} — {total_rows} rows"));
                 }
                 Err(err) => {
@@ -871,7 +892,8 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             status = None;
             continue;
         }
-        if show_help || show_outline || show_links || show_images || show_tables {
+        if show_help || show_outline || show_links || show_images || show_tables || show_code_blocks
+        {
             continue;
         }
         cfg.offset_rows = apply_pager_action(cfg.offset_rows, viewport, total_rows, action);
@@ -896,6 +918,7 @@ enum PagerAction {
     Links,
     Images,
     Tables,
+    CodeBlocks,
     Reload,
     ClearStatus,
 }
@@ -906,7 +929,7 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
     Ok(match buf[0] {
         b'q' | 3 => PagerAction::Quit,
         b'k' | b'w' => PagerAction::Up,
-        b'j' | b's' | b'\n' | b'\r' => PagerAction::Down,
+        b'j' | b'\n' | b'\r' => PagerAction::Down,
         b' ' => PagerAction::PageDown,
         b'b' => PagerAction::PageUp,
         b'g' => PagerAction::Home,
@@ -916,6 +939,7 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
         b'l' => PagerAction::Links,
         b'i' => PagerAction::Images,
         b't' => PagerAction::Tables,
+        b's' => PagerAction::CodeBlocks,
         b'r' => PagerAction::Reload,
         b'c' => PagerAction::ClearStatus,
         27 => read_escape_action(input)?,
@@ -1002,6 +1026,7 @@ fn apply_pager_action(
         | PagerAction::Links
         | PagerAction::Images
         | PagerAction::Tables
+        | PagerAction::CodeBlocks
         | PagerAction::Reload
         | PagerAction::ClearStatus => offset.min(max_offset),
     }
@@ -1137,12 +1162,45 @@ fn write_interactive_tables(
     Ok(())
 }
 
+fn write_interactive_code_blocks(
+    doc: &MarkdownDocument,
+    viewport_rows: u16,
+    out: &mut impl Write,
+) -> Result<()> {
+    writeln!(
+        out,
+        "kittui-md code blocks — {} blocks",
+        doc.code_blocks.len()
+    )?;
+    writeln!(out)?;
+    if doc.code_blocks.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for (index, block) in doc
+        .code_blocks
+        .iter()
+        .enumerate()
+        .take(viewport_rows.saturating_sub(3) as usize)
+    {
+        let language = block.language.as_deref().unwrap_or("plain");
+        let lines = block.text.lines().count().max(1);
+        let preview = block.text.lines().next().unwrap_or("");
+        writeln!(
+            out,
+            "code #{index}: language={language} lines={lines} preview={preview}"
+        )?;
+    }
+    Ok(())
+}
+
 fn write_interactive_footer(
     show_help: bool,
     show_outline: bool,
     show_links: bool,
     show_images: bool,
     show_tables: bool,
+    show_code_blocks: bool,
     status: Option<&str>,
     path: &str,
     offset_rows: u16,
@@ -1165,32 +1223,37 @@ fn write_interactive_footer(
     if show_help {
         writeln!(
             out,
-            "h/? close help • o outline • l links • i images • t tables • r reload • c clear status • q quit"
+            "h/? close help • o outline • l links • i images • t tables • s code • r reload • c clear status • q quit"
         )?;
     } else if show_outline {
         writeln!(
             out,
-            "o close outline • l links • i images • t tables • h/? help • r reload • c clear status • q quit"
+            "o close outline • l links • i images • t tables • s code • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_links {
         writeln!(
             out,
-            "l close links • o outline • i images • t tables • h/? help • r reload • c clear status • q quit"
+            "l close links • o outline • i images • t tables • s code • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_images {
         writeln!(
             out,
-            "i close images • o outline • l links • t tables • h/? help • r reload • c clear status • q quit"
+            "i close images • o outline • l links • t tables • s code • h/? help • r reload • c clear status • q quit"
         )?;
     } else if show_tables {
         writeln!(
             out,
-            "t close tables • o outline • l links • i images • h/? help • r reload • c clear status • q quit"
+            "t close tables • o outline • l links • i images • s code • h/? help • r reload • c clear status • q quit"
+        )?;
+    } else if show_code_blocks {
+        writeln!(
+            out,
+            "s close code • o outline • l links • i images • t tables • h/? help • r reload • c clear status • q quit"
         )?;
     } else {
         writeln!(
             out,
-            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • o outline • l links • i images • t tables • r reload • c clear status • q quit"
+            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • o outline • l links • i images • t tables • s code • r reload • c clear status • q quit"
         )?;
     }
     Ok(())
@@ -2445,6 +2508,11 @@ const KEYBINDINGS: &[KeybindingInfo] = &[
         action: "tables",
         keys: &["t"],
         description: "Toggle the interactive document tables screen.",
+    },
+    KeybindingInfo {
+        action: "code-blocks",
+        keys: &["s"],
+        description: "Toggle the interactive document code blocks screen.",
     },
     KeybindingInfo {
         action: "reload",
@@ -3753,8 +3821,8 @@ fn terminal_cols() -> Option<u16> {
 mod tests {
     use super::*;
     use kittui_affordances::{
-        h1, h2, textbox, HeadingOutline, LinkChip, MarkdownDefinition, MarkdownFootnote,
-        MarkdownImage, MarkdownMetadataBlock, MarkdownMetadataBlockKind, Tone,
+        h1, h2, textbox, HeadingOutline, LinkChip, MarkdownCodeBlock, MarkdownDefinition,
+        MarkdownFootnote, MarkdownImage, MarkdownMetadataBlock, MarkdownMetadataBlockKind, Tone,
     };
 
     fn unique_test_suffix() -> u128 {
@@ -4770,6 +4838,7 @@ mod tests {
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Links), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Images), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Tables), 4);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::CodeBlocks), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Reload), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::ClearStatus), 4);
     }
@@ -4799,6 +4868,15 @@ mod tests {
     fn pager_reads_tables_key() {
         let mut cursor = std::io::Cursor::new(b"t".as_slice());
         assert_eq!(read_pager_action(&mut cursor).unwrap(), PagerAction::Tables);
+    }
+
+    #[test]
+    fn pager_reads_code_blocks_key() {
+        let mut cursor = std::io::Cursor::new(b"s".as_slice());
+        assert_eq!(
+            read_pager_action(&mut cursor).unwrap(),
+            PagerAction::CodeBlocks
+        );
     }
 
     #[test]
@@ -4838,6 +4916,7 @@ mod tests {
         assert!(rendered.contains("links: l"), "{rendered}");
         assert!(rendered.contains("images: i"), "{rendered}");
         assert!(rendered.contains("tables: t"), "{rendered}");
+        assert!(rendered.contains("code-blocks: s"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
@@ -4997,9 +5076,52 @@ mod tests {
     }
 
     #[test]
+    fn interactive_code_blocks_lists_snippet_summaries() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![],
+            images: vec![],
+            outline: vec![],
+            footnotes: vec![],
+            footnote_references: vec![],
+            definitions: vec![],
+            math: vec![],
+            html: vec![],
+            code_blocks: vec![
+                MarkdownCodeBlock {
+                    language: Some("rust".to_string()),
+                    text: "fn main() {}".to_string(),
+                },
+                MarkdownCodeBlock {
+                    language: None,
+                    text: "line one\nline two".to_string(),
+                },
+            ],
+            metadata_blocks: vec![],
+        };
+        let mut out = Vec::new();
+        write_interactive_code_blocks(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md code blocks — 2 blocks"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("code #0: language=rust lines=1 preview=fn main() {}"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("code #1: language=plain lines=2 preview=line one"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
     fn interactive_footer_writes_reload_status() {
         let mut out = Vec::new();
         write_interactive_footer(
+            false,
             false,
             false,
             false,
@@ -5025,6 +5147,7 @@ mod tests {
         assert!(rendered.contains("l links"), "{rendered}");
         assert!(rendered.contains("i images"), "{rendered}");
         assert!(rendered.contains("t tables"), "{rendered}");
+        assert!(rendered.contains("s code"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
@@ -5032,7 +5155,7 @@ mod tests {
     fn interactive_footer_omits_status_when_cleared() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5046,6 +5169,7 @@ mod tests {
         let mut out = Vec::new();
         write_interactive_footer(
             true,
+            false,
             false,
             false,
             false,
@@ -5071,7 +5195,7 @@ mod tests {
     fn interactive_footer_writes_outline_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, true, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, true, false, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5085,7 +5209,7 @@ mod tests {
     fn interactive_footer_writes_links_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, true, false, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, true, false, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5099,7 +5223,7 @@ mod tests {
     fn interactive_footer_writes_images_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, false, true, false, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, false, true, false, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5114,7 +5238,7 @@ mod tests {
     fn interactive_footer_writes_tables_controls() {
         let mut out = Vec::new();
         write_interactive_footer(
-            false, false, false, false, true, None, "doc.md", 0, 10, 30, &mut out,
+            false, false, false, false, true, false, None, "doc.md", 0, 10, 30, &mut out,
         )
         .unwrap();
         let rendered = String::from_utf8(out).unwrap();
@@ -5122,6 +5246,23 @@ mod tests {
         assert!(rendered.contains("o outline"), "{rendered}");
         assert!(rendered.contains("l links"), "{rendered}");
         assert!(rendered.contains("i images"), "{rendered}");
+        assert!(rendered.contains("s code"), "{rendered}");
+        assert!(rendered.contains("h/? help"), "{rendered}");
+    }
+
+    #[test]
+    fn interactive_footer_writes_code_blocks_controls() {
+        let mut out = Vec::new();
+        write_interactive_footer(
+            false, false, false, false, false, true, None, "doc.md", 0, 10, 30, &mut out,
+        )
+        .unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("s close code"), "{rendered}");
+        assert!(rendered.contains("o outline"), "{rendered}");
+        assert!(rendered.contains("l links"), "{rendered}");
+        assert!(rendered.contains("i images"), "{rendered}");
+        assert!(rendered.contains("t tables"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
     }
 
@@ -6340,6 +6481,7 @@ mod tests {
         assert!(rendered.contains("links: l"), "{rendered}");
         assert!(rendered.contains("images: i"), "{rendered}");
         assert!(rendered.contains("tables: t"), "{rendered}");
+        assert!(rendered.contains("code-blocks: s"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
         assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
@@ -6394,6 +6536,17 @@ mod tests {
                         .as_array()
                         .unwrap()
                         .contains(&serde_json::json!("t"))
+            }));
+        assert!(value["keybindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|binding| {
+                binding["action"] == "code-blocks"
+                    && binding["keys"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("s"))
             }));
         assert!(value["keybindings"]
             .as_array()
