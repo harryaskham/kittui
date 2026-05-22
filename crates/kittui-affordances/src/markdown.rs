@@ -69,7 +69,10 @@ impl ListState {
 pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let parser = Parser::new_ext(
         src,
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+        Options::ENABLE_TABLES
+            | Options::ENABLE_STRIKETHROUGH
+            | Options::ENABLE_TASKLISTS
+            | Options::ENABLE_FOOTNOTES,
     );
     let mut out = MarkdownDocument::default();
     let mut buf = String::new();
@@ -330,6 +333,17 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     }
                 }
             }
+            Event::FootnoteReference(label) => {
+                let marker = format!("[^{label}]");
+                if link_target.is_some() {
+                    link_label.push_str(&marker);
+                }
+                if in_table {
+                    table_cell.push_str(&marker);
+                } else {
+                    buf.push_str(&marker);
+                }
+            }
             Event::SoftBreak | Event::HardBreak => {
                 if in_table {
                     table_cell.push(' ');
@@ -560,5 +574,17 @@ mod tests {
             .join("\n---\n");
         assert!(text.contains("hello html:<kbd>x</kbd>"), "{text}");
         assert!(text.contains("html:\n<div>block</div>"), "{text}");
+    }
+
+    #[test]
+    fn markdown_preserves_footnote_references() {
+        let doc = render_markdown("see this[^note]\n\n[^note]: details", 60);
+        let text = doc
+            .components
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("see this[^note]"), "{text}");
     }
 }
