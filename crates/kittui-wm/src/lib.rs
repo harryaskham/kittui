@@ -13,6 +13,9 @@
 
 use kittui::CellRect;
 
+/// Backend-independent native app surfaces (PTY terminal, headless browser).
+pub mod native;
+
 /// Stable window id allocated by the WM.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WindowId(pub u32);

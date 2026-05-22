@@ -73,6 +73,10 @@ struct Cli {
     keymap: bool,
     keymap_path: Option<String>,
     keymap_check: bool,
+    native_terminal: bool,
+    native_browser: bool,
+    native_url: Option<String>,
+    native_out: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -109,6 +113,8 @@ fn parse_args() -> Result<Cli> {
             "launcher" => out.launcher_preview = true,
             "keymap" => out.keymap = true,
             "apps" => out.apps = true,
+            "native-terminal" => out.native_terminal = true,
+            "native-browser" => out.native_browser = true,
             "--limit" => {
                 let v = args.next().ok_or_else(|| anyhow!("--limit N"))?;
                 out.apps_limit = Some(v.parse().map_err(|_| anyhow!("--limit expects integer"))?);
@@ -132,7 +138,9 @@ fn parse_args() -> Result<Cli> {
                 out.record_frames = Some(v.parse().map_err(|_| anyhow!("--frames expects integer"))?);
             }
             "--out" => {
-                out.record_out = Some(args.next().ok_or_else(|| anyhow!("--out DIR"))?);
+                let v = args.next().ok_or_else(|| anyhow!("--out PATH"))?;
+                out.record_out = Some(v.clone());
+                out.native_out = Some(v);
             }
             "--apng" => out.record_apng = true,
             "--delay-ms" => {
@@ -152,6 +160,9 @@ fn parse_args() -> Result<Cli> {
             "--launch-on-f12" => out.launch_on_f12 = true,
             "--launcher-query" => {
                 out.launcher_query = Some(args.next().ok_or_else(|| anyhow!("--launcher-query QUERY"))?);
+            }
+            "--url" => {
+                out.native_url = Some(args.next().ok_or_else(|| anyhow!("--url URL"))?);
             }
             "--launcher-overlay" => out.launcher_overlay = true,
             "--no-launcher-overlay" => out.no_launcher_overlay = true,
@@ -265,6 +276,10 @@ SUBCOMMANDS\n\
                          launch actions; type filters, Enter launches, Esc closes.\n\
                          Enabled by default. Pass --no-launcher-overlay or\n\
                          set KITTUI_WM_LAUNCHER_OVERLAY=0 to keep immediate-spawn.\n\
+         native-terminal run a backend-independent PTY proof: spawn `cat`,\n\
+                         type through the PTY, render an RGBA terminal frame.\n\
+         native-browser  run a backend-independent headless Chrome proof.\n\
+                         Pass --url URL (default: data: page) and --out PNG.\n\
          keymap          print resolved keybinding config. Defaults to the\n\
                          built-in tmux-like Ctrl-A prefix map; pass\n\
                          --keymap PATH to parse and print a custom file.\n\
@@ -349,6 +364,12 @@ fn real_main() -> Result<()> {
     }
     if cli.keymap {
         return keymap_cmd(&cli);
+    }
+    if cli.native_terminal {
+        return native_terminal_cmd();
+    }
+    if cli.native_browser {
+        return native_browser_cmd(&cli);
     }
     if cli.apps {
         return apps_cmd(&cli);
@@ -1352,6 +1373,57 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
     println!("├{}┤", "─".repeat(width));
     println!("│ {:<w$}│", "Enter launches selection · Esc closes · type filters", w = width - 1);
     println!("└{}┘", "─".repeat(width));
+    Ok(())
+}
+
+fn native_terminal_cmd() -> Result<()> {
+    use kittui_wm::native::{NativeApp, NativeFrame, PtyTerminalApp};
+
+    let mut term = PtyTerminalApp::spawn("cat", 40, 6)?;
+    term.send_text("hello from kittwm native pty\n")?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while std::time::Instant::now() < deadline
+        && !term.text_snapshot().contains("hello from kittwm native pty")
+    {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let text = term.text_snapshot();
+    let frame = term.capture()?;
+    let NativeFrame::Rgba { width, height, rgba } = frame else {
+        return Err(anyhow!("native terminal returned non-RGBA frame"));
+    };
+    println!("kittwm native-terminal");
+    println!("=======================");
+    println!("text_contains_hello: {}", text.contains("hello from kittwm native pty"));
+    println!("frame: {width}x{height} rgba_bytes={}", rgba.len());
+    print!("{text}");
+    Ok(())
+}
+
+fn native_browser_cmd(cli: &Cli) -> Result<()> {
+    use kittui_wm::native::{HeadlessBrowserApp, NativeApp, NativeFrame};
+
+    let url = cli.native_url.as_deref().unwrap_or(
+        "data:text/html,<html><body><h1>kittwm native browser</h1><input autofocus value='ready'></body></html>",
+    );
+    let mut browser = HeadlessBrowserApp::launch(url, 640, 360)?;
+    browser.send_text(" typed")?;
+    browser.click(20, 20)?;
+    let frame = browser.capture()?;
+    let NativeFrame::Png { width, height, bytes } = frame else {
+        return Err(anyhow!("native browser returned non-PNG frame"));
+    };
+    let out = cli.native_out.clone().unwrap_or_else(|| {
+        format!(
+            "/tmp/kittwm-native-browser-{}.png",
+            std::process::id()
+        )
+    });
+    std::fs::write(&out, &bytes)?;
+    println!("kittwm native-browser");
+    println!("======================");
+    println!("url: {url}");
+    println!("screenshot: {width}x{height} bytes={} path={out}", bytes.len());
     Ok(())
 }
 
