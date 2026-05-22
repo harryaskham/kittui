@@ -21,6 +21,8 @@ pub struct MarkdownDocument {
     pub outline: Vec<HeadingOutline>,
     /// Footnote definitions in document order.
     pub footnotes: Vec<MarkdownFootnote>,
+    /// Footnote reference labels in encounter order.
+    pub footnote_references: Vec<String>,
 }
 
 /// Link rendered as a highlighted chip plus accessible URL metadata.
@@ -369,6 +371,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 }
             }
             Event::FootnoteReference(label) => {
+                out.footnote_references.push(label.to_string());
                 let marker = format!("[^{label}]");
                 if link_target.is_some() {
                     link_label.push_str(&marker);
@@ -687,6 +690,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("see this[^note]"), "{text}");
+        assert_eq!(doc.footnote_references, vec!["note".to_string()]);
     }
 
     #[test]

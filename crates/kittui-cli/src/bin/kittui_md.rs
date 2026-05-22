@@ -337,6 +337,7 @@ fn write_metadata_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<(
             "alt": image.alt,
             "url": image.url,
         })).collect::<Vec<_>>(),
+        "footnote_references": doc.footnote_references,
         "footnotes": doc.footnotes.iter().map(|footnote| serde_json::json!({
             "label": footnote.label,
             "text": footnote.text,
@@ -411,6 +412,12 @@ fn write_metadata_sections(doc: &MarkdownDocument, out: &mut impl Write) -> Resu
         writeln!(out, "\nimages:")?;
         for image in &doc.images {
             writeln!(out, "  [{}] {}", image.alt, image.url)?;
+        }
+    }
+    if !doc.footnote_references.is_empty() {
+        writeln!(out, "\nfootnote references:")?;
+        for label in &doc.footnote_references {
+            writeln!(out, "  [^{label}]")?;
         }
     }
     if !doc.footnotes.is_empty() {
@@ -491,6 +498,11 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
             writeln!(out, "  🖼  {} — {}", image.alt, image.url)?;
         }
     }
+    if !doc.footnote_references.is_empty() {
+        for label in &doc.footnote_references {
+            writeln!(out, "  ↩ [^{label}]")?;
+        }
+    }
     if !doc.footnotes.is_empty() {
         for footnote in &doc.footnotes {
             writeln!(out, "  [^{}] {}", footnote.label, footnote.text)?;
@@ -516,11 +528,12 @@ fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> St
     let viewport = cfg.height_rows.unwrap_or(total_rows);
     let max_offset = total_rows.saturating_sub(viewport);
     format!(
-        "kittui-md rich view — {} components, {} headings, {} links, {} images, {} footnotes; offset={}/{} rows; viewport={}; total_rows={}",
+        "kittui-md rich view — {} components, {} headings, {} links, {} images, {} footnote refs, {} footnotes; offset={}/{} rows; viewport={}; total_rows={}",
         doc.components.len(),
         doc.outline.len(),
         doc.links.len(),
         doc.images.len(),
+        doc.footnote_references.len(),
         doc.footnotes.len(),
         cfg.offset_rows.min(max_offset),
         max_offset,
@@ -884,6 +897,7 @@ mod tests {
             images: vec![],
             outline: vec![],
             footnotes: vec![],
+            footnote_references: vec![],
         };
         assert_eq!(document_rows(&doc, 80), 7);
     }
@@ -903,6 +917,7 @@ mod tests {
                 text: "Title".to_string(),
             }],
             footnotes: vec![],
+            footnote_references: vec![],
         };
         let cfg = Config {
             mode: Mode::Rich,
@@ -917,7 +932,7 @@ mod tests {
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
         assert!(
-            status.contains("1 headings, 0 links, 1 images, 0 footnotes"),
+            status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes"),
             "{status}"
         );
     }
@@ -925,7 +940,7 @@ mod tests {
     #[test]
     fn metadata_json_mode_reports_stable_shape() {
         let doc = render_markdown(
-            "# Title\n\nSee [site](https://example.com).\n\n![logo](logo.png)\n\n| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n\n[^n]: note text",
+            "# Title\n\nSee [site](https://example.com) and note[^n].\n\n![logo](logo.png)\n\n| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n\n[^n]: note text",
             80,
         );
         let mut out = Vec::new();
@@ -948,6 +963,7 @@ mod tests {
         assert_eq!(value["outline"][0]["text"], "Title");
         assert_eq!(value["links"][0]["url"], "https://example.com");
         assert_eq!(value["images"][0]["url"], "logo.png");
+        assert_eq!(value["footnote_references"][0], "n");
         assert_eq!(value["footnotes"][0]["label"], "n");
         assert_eq!(value["footnotes"][0]["text"], "note text");
         assert_eq!(value["tables"][0]["rows"][1][0], "1");
@@ -980,6 +996,7 @@ mod tests {
                 },
             ],
             footnotes: vec![],
+            footnote_references: vec![],
         };
         let mut out = Vec::new();
         write_outline(&doc, &mut out).unwrap();
@@ -1021,6 +1038,7 @@ mod tests {
             }],
             outline: vec![],
             footnotes: vec![],
+            footnote_references: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
@@ -1044,10 +1062,15 @@ mod tests {
                 label: "note".to_string(),
                 text: "details".to_string(),
             }],
+            footnote_references: vec!["note".to_string()],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("footnote references:\n  [^note]"),
+            "{rendered}"
+        );
         assert!(
             rendered.contains("footnotes:\n  [^note] details"),
             "{rendered}"
@@ -1072,6 +1095,7 @@ mod tests {
                 },
             ],
             footnotes: vec![],
+            footnote_references: vec![],
         };
         assert_eq!(
             outline_lines(&doc),
@@ -1097,6 +1121,7 @@ mod tests {
                 },
             ],
             footnotes: vec![],
+            footnote_references: vec![],
         };
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
