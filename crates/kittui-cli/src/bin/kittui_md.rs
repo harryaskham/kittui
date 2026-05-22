@@ -124,6 +124,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--toc" => set_mode(&mut mode, &mut mode_flag, "--toc", Mode::Outline)?,
             "--headings" => set_mode(&mut mode, &mut mode_flag, "--headings", Mode::Outline)?,
             "--anchors" => set_mode(&mut mode, &mut mode_flag, "--anchors", Mode::Anchors)?,
+            "--slugs" => set_mode(&mut mode, &mut mode_flag, "--slugs", Mode::Anchors)?,
             "--references" => {
                 set_mode(&mut mode, &mut mode_flag, "--references", Mode::References)?
             }
@@ -237,7 +238,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1402,6 +1403,21 @@ mod tests {
         let cfg = parse_args(["--anchors".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Anchors);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_slugs_alias() {
+        let cfg = parse_args(["--slugs".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Anchors);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_anchors_plus_slugs() {
+        let err = parse_args(["--anchors".to_string(), "--slugs".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--anchors"), "{err}");
+        assert!(err.to_string().contains("--slugs"), "{err}");
     }
 
     #[test]
