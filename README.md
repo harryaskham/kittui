@@ -190,7 +190,7 @@ Modes:
   component/metadata counts (including heading-anchor count) for quick checks;
   `--summary` is a friendly alias for the same mode.
 - `--metadata-json` emits schema-versioned JSON for tools; `--json` is a
-  concise alias for the same mode. It includes source
+  concise alias for the same mode. It includes top-level document counts, source
   byte/line/path data, render mode/width, component details, outline entries
   with stable anchors, links,
   images (including optional link/image title attributes), footnotes,

@@ -732,6 +732,21 @@ fn write_metadata_json(
             "mode": "metadata-json",
             "width_cells": width_cells,
         },
+        "counts": {
+            "components": doc.components.len(),
+            "headings": doc.outline.len(),
+            "heading_anchors": doc.outline.len(),
+            "links": doc.links.len(),
+            "images": doc.images.len(),
+            "tables": doc.tables.len(),
+            "footnote_references": doc.footnote_references.len(),
+            "footnotes": doc.footnotes.len(),
+            "definitions": doc.definitions.len(),
+            "math": doc.math.len(),
+            "html": doc.html.len(),
+            "metadata_blocks": doc.metadata_blocks.len(),
+            "code_blocks": doc.code_blocks.len(),
+        },
         "components": doc.components.len(),
         "components_detail": doc.components.iter().map(|component| serde_json::json!({
             "kind": format!("{:?}", component.kind),
@@ -2112,6 +2127,19 @@ mod tests {
             value["components"].as_u64().unwrap(),
             doc.components.len() as u64
         );
+        assert_eq!(value["counts"]["components"], doc.components.len());
+        assert_eq!(value["counts"]["headings"], 1);
+        assert_eq!(value["counts"]["heading_anchors"], 1);
+        assert_eq!(value["counts"]["links"], 1);
+        assert_eq!(value["counts"]["images"], 1);
+        assert_eq!(value["counts"]["tables"], 1);
+        assert_eq!(value["counts"]["footnote_references"], 1);
+        assert_eq!(value["counts"]["footnotes"], 1);
+        assert_eq!(value["counts"]["definitions"], 1);
+        assert_eq!(value["counts"]["math"], 1);
+        assert_eq!(value["counts"]["html"], 2);
+        assert_eq!(value["counts"]["metadata_blocks"], 0);
+        assert_eq!(value["counts"]["code_blocks"], 1);
         assert_eq!(value["components_detail"][0]["kind"], "H1");
         assert_eq!(value["components_detail"][0]["text"], "Title");
         assert_eq!(value["components_detail"][0]["width_cells"], 80);
