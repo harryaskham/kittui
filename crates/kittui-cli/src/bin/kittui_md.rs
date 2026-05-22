@@ -122,6 +122,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--references" => {
                 set_mode(&mut mode, &mut mode_flag, "--references", Mode::References)?
             }
+            "--refs" => set_mode(&mut mode, &mut mode_flag, "--refs", Mode::References)?,
             "--links" => set_mode(&mut mode, &mut mode_flag, "--links", Mode::Links)?,
             "--footnotes" => set_mode(&mut mode, &mut mode_flag, "--footnotes", Mode::Footnotes)?,
             "--images" => set_mode(&mut mode, &mut mode_flag, "--images", Mode::Images)?,
@@ -217,7 +218,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--references|--links|--footnotes|--images|--tables|--code-blocks|--metadata-blocks|--frontmatter|--definitions|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--references|--refs|--links|--footnotes|--images|--tables|--code-blocks|--metadata-blocks|--frontmatter|--definitions|--math|--html|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1350,6 +1351,21 @@ mod tests {
         let cfg = parse_args(["--summary".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Stats);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_refs_alias() {
+        let cfg = parse_args(["--refs".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::References);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_references_plus_refs() {
+        let err = parse_args(["--references".to_string(), "--refs".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--references"), "{err}");
+        assert!(err.to_string().contains("--refs"), "{err}");
     }
 
     #[test]

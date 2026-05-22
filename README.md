@@ -117,6 +117,7 @@ cargo run -p kittui-cli --bin kittui-md -- --outline docs/examples/kittui-md-pro
 cargo run -p kittui-cli --bin kittui-md -- --toc docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --links docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --references docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --refs docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --footnotes docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --images docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --tables docs/examples/kittui-md-proof.md
@@ -147,7 +148,8 @@ Modes:
   title attributes.
 - `--references` prints only links, image references, footnote references, and
   footnote definitions for a human-readable reference audit, including optional
-  link/image title attributes when present.
+  link/image title attributes when present; `--refs` is a concise alias for the
+  same mode.
 - `--footnotes` prints only footnote references and definitions.
 - `--images` prints only parsed image references with alt text, URLs, and
   optional title attributes.
