@@ -305,18 +305,30 @@ impl Drop for RawTerminal {
 fn write_plain(doc: &MarkdownDocument, width: u16, out: &mut impl Write) -> Result<()> {
     writeln!(
         out,
-        "kittui-md — {} components, {} links",
+        "kittui-md — {} components, {} links, {} images",
         doc.components.len(),
-        doc.links.len()
+        doc.links.len(),
+        doc.images.len()
     )?;
     writeln!(out, "{}", "═".repeat(width as usize))?;
     for comp in &doc.components {
         writeln!(out, "[{:?}] {}", comp.kind, comp.text)?;
     }
+    write_metadata_sections(doc, out)?;
+    Ok(())
+}
+
+fn write_metadata_sections(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
     if !doc.links.is_empty() {
         writeln!(out, "\nlinks:")?;
         for link in &doc.links {
             writeln!(out, "  [{}] {}", link.label, link.url)?;
+        }
+    }
+    if !doc.images.is_empty() {
+        writeln!(out, "\nimages:")?;
+        for image in &doc.images {
+            writeln!(out, "  [{}] {}", image.alt, image.url)?;
         }
     }
     Ok(())
@@ -380,6 +392,11 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
             writeln!(out, "  🔗 {} — {}", link.label, link.url)?;
         }
     }
+    if !doc.images.is_empty() {
+        for image in &doc.images {
+            writeln!(out, "  🖼  {} — {}", image.alt, image.url)?;
+        }
+    }
     Ok(())
 }
 
@@ -387,9 +404,10 @@ fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> St
     let viewport = cfg.height_rows.unwrap_or(total_rows);
     let max_offset = total_rows.saturating_sub(viewport);
     format!(
-        "kittui-md rich view — {} components, {} links; offset={}/{} rows; viewport={}; total_rows={}",
+        "kittui-md rich view — {} components, {} links, {} images; offset={}/{} rows; viewport={}; total_rows={}",
         doc.components.len(),
         doc.links.len(),
+        doc.images.len(),
         cfg.offset_rows.min(max_offset),
         max_offset,
         viewport,
@@ -618,7 +636,7 @@ fn terminal_cols() -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kittui_affordances::{h1, textbox, Tone};
+    use kittui_affordances::{h1, textbox, MarkdownImage, Tone};
 
     #[test]
     fn layout_stacks_components_with_gaps() {
@@ -683,7 +701,10 @@ mod tests {
             components: vec![h1("One", 40), h1("Two", 40)],
             links: vec![],
             tables: vec![],
-            images: vec![],
+            images: vec![MarkdownImage {
+                alt: "logo".to_string(),
+                url: "logo.png".to_string(),
+            }],
         };
         let cfg = Config {
             mode: Mode::Rich,
@@ -697,6 +718,28 @@ mod tests {
         assert!(status.contains("offset=4/4 rows"), "{status}");
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
+        assert!(status.contains("0 links, 1 images"), "{status}");
+    }
+
+    #[test]
+    fn plain_metadata_sections_include_images() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![],
+            images: vec![MarkdownImage {
+                alt: "logo".to_string(),
+                url: "logo.png".to_string(),
+            }],
+        };
+        let mut out = Vec::new();
+        write_plain(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("0 links, 1 images"), "{rendered}");
+        assert!(
+            rendered.contains("images:\n  [logo] logo.png"),
+            "{rendered}"
+        );
     }
 
     #[test]
