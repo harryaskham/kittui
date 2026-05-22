@@ -31,6 +31,7 @@ enum Mode {
     CodeBlocks,
     CodeBlocksJson,
     MetadataBlocks,
+    MetadataBlocksJson,
     Definitions,
     DefinitionsJson,
     Math,
@@ -98,6 +99,7 @@ fn real_main() -> Result<()> {
         Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::CodeBlocksJson => write_code_blocks_json(&doc, &mut std::io::stdout().lock()),
         Mode::MetadataBlocks => write_metadata_blocks(&doc, &mut std::io::stdout().lock()),
+        Mode::MetadataBlocksJson => write_metadata_blocks_json(&doc, &mut std::io::stdout().lock()),
         Mode::Definitions => write_definitions(&doc, &mut std::io::stdout().lock()),
         Mode::DefinitionsJson => write_definitions_json(&doc, &mut std::io::stdout().lock()),
         Mode::Math => write_math(&doc, &mut std::io::stdout().lock()),
@@ -206,6 +208,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--frontmatter",
                 Mode::MetadataBlocks,
             )?,
+            "--metadata-blocks-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--metadata-blocks-json",
+                Mode::MetadataBlocksJson,
+            )?,
             "--definitions" => set_mode(
                 &mut mode,
                 &mut mode_flag,
@@ -297,7 +305,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -877,6 +885,20 @@ fn write_metadata_blocks(doc: &MarkdownDocument, out: &mut impl Write) -> Result
         writeln!(out, "{}", metadata.source)?;
         writeln!(out, "---")?;
     }
+    Ok(())
+}
+
+fn write_metadata_blocks_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "metadata_blocks": doc.metadata_blocks.iter().enumerate().map(|(index, metadata)| serde_json::json!({
+            "index": index,
+            "kind": metadata.kind.as_str(),
+            "source": metadata.source,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -2048,6 +2070,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_metadata_blocks_json_mode() {
+        let cfg = parse_args(["--metadata-blocks-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::MetadataBlocksJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_metadata_blocks_plus_metadata_blocks_json() {
+        let err = parse_args([
+            "--metadata-blocks".to_string(),
+            "--metadata-blocks-json".to_string(),
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--metadata-blocks"), "{err}");
+        assert!(err.to_string().contains("--metadata-blocks-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_rejects_frontmatter_plus_metadata_blocks() {
         let err =
             parse_args(["--metadata-blocks".to_string(), "--frontmatter".to_string()]).unwrap_err();
@@ -2390,6 +2431,18 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "kittui-md metadata blocks — 0 metadata blocks\n<empty>\n"
         );
+    }
+
+    #[test]
+    fn metadata_blocks_json_mode_writes_metadata_block_records() {
+        let doc = render_markdown("---\ntitle: Proof\n---\n\n# Body", 80);
+        let mut out = Vec::new();
+        write_metadata_blocks_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["metadata_blocks"][0]["index"], 0);
+        assert_eq!(value["metadata_blocks"][0]["kind"], "yaml");
+        assert_eq!(value["metadata_blocks"][0]["source"], "title: Proof");
     }
 
     #[test]

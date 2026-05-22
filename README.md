@@ -140,6 +140,7 @@ cargo run -p kittui-cli --bin kittui-md -- --code-blocks-json docs/examples/kitt
 cargo run -p kittui-cli --bin kittui-md -- --metadata-blocks docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --metadata docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --frontmatter docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --metadata-blocks-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --definitions docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --glossary docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --definitions-json docs/examples/kittui-md-proof.md
@@ -195,7 +196,8 @@ Modes:
   machine-readable JSON.
 - `--metadata-blocks` prints only YAML/pluses metadata/frontmatter blocks with
   delimiter kind and source; `--metadata` and `--frontmatter` are friendly
-  aliases for the same inspection mode.
+  aliases for the same inspection mode. `--metadata-blocks-json` emits the same
+  metadata/frontmatter block records as machine-readable JSON.
 - `--definitions` prints only definition-list term/body pairs for glossary
   inspection; `--glossary` is a friendly alias for the same mode.
   `--definitions-json` emits the same definition records as machine-readable JSON.
