@@ -119,6 +119,7 @@ cargo run -p kittui-cli --bin kittui-md -- --tables docs/examples/kittui-md-proo
 cargo run -p kittui-cli --bin kittui-md -- --code-blocks docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --definitions docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --math docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --html docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --stats docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --metadata-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --interactive docs/examples/kittui-md-proof.md
@@ -141,6 +142,8 @@ Modes:
 - `--definitions` prints only definition-list term/body pairs for glossary
   inspection.
 - `--math` prints only inline/display math expressions with kind and source.
+- `--html` prints only preserved inline/block HTML placeholders with kind and
+  source.
 - `--stats` prints concise source/component/metadata counts for quick checks.
 - `--metadata-json` emits schema-versioned JSON for tools. It includes source
   byte/line counts, component details, outline, links, images, footnotes,
