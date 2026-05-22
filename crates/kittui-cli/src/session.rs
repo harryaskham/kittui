@@ -154,9 +154,15 @@ pub fn run_loop_with<S: XServer>(
                                     last_keymap_action = Some(format!("launcher.launch {}:{}", sel.kind_name(), sel.command));
                                     dbg.log(&format!("launcher overlay selected {:?} {:?} spawned pid={pid}", sel.kind, sel.command));
                                 }
-                                Err(e) => dbg.log(&format!("launcher overlay launch failed: {e}")),
+                                Err(e) => {
+                                    last_keymap_action = Some(format!("launcher.error {e}"));
+                                    dbg.log(&format!("launcher overlay launch failed: {e}"));
+                                }
                             },
-                            None => dbg.log("launcher overlay launch requested with no candidate"),
+                            None => {
+                                last_keymap_action = Some("launcher.error no candidate".to_string());
+                                dbg.log("launcher overlay launch requested with no candidate");
+                            }
                         }
                         launcher_overlay.active = false;
                         continue;
@@ -192,7 +198,10 @@ pub fn run_loop_with<S: XServer>(
                                                 last_launch_pid = Some(pid);
                                                 dbg.log(&format!("keymap launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
                                             }
-                                            Err(e) => dbg.log(&format!("keymap launcher failed: {e}")),
+                                            Err(e) => {
+                                                last_keymap_action = Some(format!("launcher.error {e}"));
+                                                dbg.log(&format!("keymap launcher failed: {e}"));
+                                            }
                                         }
                                     }
                                 }
@@ -210,7 +219,10 @@ pub fn run_loop_with<S: XServer>(
                                                 last_launch_pid = Some(pid);
                                                 dbg.log(&format!("split launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
                                             }
-                                            Err(e) => dbg.log(&format!("split launcher failed: {e}")),
+                                            Err(e) => {
+                                                last_keymap_action = Some(format!("launcher.error {e}"));
+                                                dbg.log(&format!("split launcher failed: {e}"));
+                                            }
                                         }
                                     }
                                 }
@@ -320,6 +332,7 @@ pub fn run_loop_with<S: XServer>(
                                 dbg.log(&format!("launcher F12 selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
                             }
                             Err(e) => {
+                                last_keymap_action = Some(format!("launcher.error {e}"));
                                 dbg.log(&format!("launcher F12 failed: {e}"));
                             }
                         }
