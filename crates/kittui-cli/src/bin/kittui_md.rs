@@ -801,6 +801,10 @@ fn run_interactive(markdown: &str, mut cfg: Config) -> Result<()> {
             show_help = false;
             continue;
         }
+        if action == PagerAction::ClearStatus {
+            status = None;
+            continue;
+        }
         if show_help {
             continue;
         }
@@ -823,6 +827,7 @@ enum PagerAction {
     End,
     Help,
     Reload,
+    ClearStatus,
 }
 
 fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
@@ -838,6 +843,7 @@ fn read_pager_action(input: &mut impl Read) -> Result<PagerAction> {
         b'G' => PagerAction::End,
         b'h' | b'?' => PagerAction::Help,
         b'r' => PagerAction::Reload,
+        b'c' => PagerAction::ClearStatus,
         27 => read_escape_action(input)?,
         _ => PagerAction::Noop,
     })
@@ -917,7 +923,9 @@ fn apply_pager_action(
         PagerAction::PageDown => offset.saturating_add(viewport_rows.max(1)).min(max_offset),
         PagerAction::Home => 0,
         PagerAction::End => max_offset,
-        PagerAction::Help | PagerAction::Reload => offset.min(max_offset),
+        PagerAction::Help | PagerAction::Reload | PagerAction::ClearStatus => {
+            offset.min(max_offset)
+        }
     }
 }
 
@@ -961,11 +969,11 @@ fn write_interactive_footer(
         writeln!(out, "status: {status}")?;
     }
     if show_help {
-        writeln!(out, "h/? close help • r reload • q quit")?;
+        writeln!(out, "h/? close help • r reload • c clear status • q quit")?;
     } else {
         writeln!(
             out,
-            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • r reload • q quit"
+            "j/k scroll • space/page down • b/page up • g/G ends • h/? help • r reload • c clear status • q quit"
         )?;
     }
     Ok(())
@@ -2205,6 +2213,11 @@ const KEYBINDINGS: &[KeybindingInfo] = &[
         action: "reload",
         keys: &["r"],
         description: "Reload the Markdown file from disk.",
+    },
+    KeybindingInfo {
+        action: "clear-status",
+        keys: &["c"],
+        description: "Clear the current interactive status message.",
     },
     KeybindingInfo {
         action: "quit",
@@ -4517,6 +4530,16 @@ mod tests {
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::End), 20);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Help), 4);
         assert_eq!(apply_pager_action(4, 10, 30, PagerAction::Reload), 4);
+        assert_eq!(apply_pager_action(4, 10, 30, PagerAction::ClearStatus), 4);
+    }
+
+    #[test]
+    fn pager_reads_clear_status_key() {
+        let mut cursor = std::io::Cursor::new(b"c".as_slice());
+        assert_eq!(
+            read_pager_action(&mut cursor).unwrap(),
+            PagerAction::ClearStatus
+        );
     }
 
     #[test]
@@ -4544,6 +4567,7 @@ mod tests {
         );
         assert!(rendered.contains("help: h, ?"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
+        assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
     }
 
@@ -4567,7 +4591,18 @@ mod tests {
         assert!(rendered.contains("rows 30"), "{rendered}");
         assert!(rendered.contains("status: reloaded doc.md"), "{rendered}");
         assert!(rendered.contains("r reload"), "{rendered}");
+        assert!(rendered.contains("c clear status"), "{rendered}");
         assert!(rendered.contains("h/? help"), "{rendered}");
+    }
+
+    #[test]
+    fn interactive_footer_omits_status_when_cleared() {
+        let mut out = Vec::new();
+        write_interactive_footer(false, None, "doc.md", 0, 10, 30, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(!rendered.contains("status:"), "{rendered}");
+        assert!(rendered.contains("source: doc.md"), "{rendered}");
+        assert!(rendered.contains("c clear status"), "{rendered}");
     }
 
     #[test]
@@ -5805,6 +5840,7 @@ mod tests {
         assert!(rendered.contains("kittui-md keybindings"), "{rendered}");
         assert!(rendered.contains("scroll-up: k, w, Up"), "{rendered}");
         assert!(rendered.contains("reload: r"), "{rendered}");
+        assert!(rendered.contains("clear-status: c"), "{rendered}");
         assert!(rendered.contains("quit: q, Ctrl-C"), "{rendered}");
     }
 
@@ -5835,6 +5871,17 @@ mod tests {
                         .as_array()
                         .unwrap()
                         .contains(&serde_json::json!("r"))
+            }));
+        assert!(value["keybindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|binding| {
+                binding["action"] == "clear-status"
+                    && binding["keys"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("c"))
             }));
         assert!(value["keybindings"]
             .as_array()
