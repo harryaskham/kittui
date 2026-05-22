@@ -20,12 +20,12 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use kittui::{CellRect, Runtime};
-use kittui_wm::native::{NativeApp, NativeFrame, PtyTerminalApp};
 use kittui_input::{InputEvent, Key};
 use kittui_wm::compositor::{Compositor, Layout};
+use kittui_wm::native::{NativeApp, NativeFrame, PtyTerminalApp};
 use kittui_xvfb::XServer;
 
-use crate::keymap::{Action, KeySpec, KeyMods, Keymap};
+use crate::keymap::{Action, KeyMods, KeySpec, Keymap};
 
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
@@ -39,7 +39,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     install_signal_restore();
 
     let (mut cols, mut rows) = native_terminal_size();
-    let sock = crate::daemon::default_socket_path().to_string_lossy().to_string();
+    let sock = crate::daemon::default_socket_path()
+        .to_string_lossy()
+        .to_string();
     let window = "native-1".to_string();
     let cmd = std::env::var("KITTWM_TERMINAL_CMD")
         .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
@@ -54,7 +56,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             ("KITTWM_WINDOW", window.as_str()),
         ],
     )?;
-    let fps = std::env::var("KITTUI_WM_FPS").ok().and_then(|s| s.parse().ok()).unwrap_or(30u32).clamp(1, 120);
+    let fps = std::env::var("KITTUI_WM_FPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30u32)
+        .clamp(1, 120);
     let frame_target = Duration::from_micros(1_000_000 / fps as u64);
     let mut stdin = io::stdin();
     let mut frame = 0u64;
@@ -64,7 +70,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         let mut chunk = [0u8; 1024];
         while poll_stdin(Duration::ZERO) {
             let n = stdin.read(&mut chunk).unwrap_or(0);
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             if chunk[..n].contains(&0x1d) {
                 dbg.log("native terminal loop: Ctrl-] exit");
                 return Ok(());
@@ -82,7 +90,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
 
         match app.capture()? {
-            NativeFrame::Rgba { width, height, rgba } => {
+            NativeFrame::Rgba {
+                width,
+                height,
+                rgba,
+            } => {
                 let footprint = CellRect::new(0, 0, cols, rows);
                 let p = runtime.place_raw_frame(1, &rgba, width, height, footprint);
                 let stdout = io::stdout();
@@ -158,7 +170,9 @@ pub fn run_loop<S: XServer>(
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false),
         launcher_overlay: std::env::var("KITTUI_WM_LAUNCHER_OVERLAY")
-            .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
+            .map(|v| {
+                !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off"))
+            })
             .unwrap_or(true),
     };
     run_loop_with(runtime, compositor, layout, opts)
@@ -178,7 +192,11 @@ pub struct RunOptions {
 
 impl Default for RunOptions {
     fn default() -> Self {
-        Self { fps: 60, launch_on_f12: false, launcher_overlay: true }
+        Self {
+            fps: 60,
+            launch_on_f12: false,
+            launcher_overlay: true,
+        }
     }
 }
 
@@ -264,8 +282,15 @@ pub fn run_loop_with<S: XServer>(
                             Some(sel) => match launch_selection(&sel) {
                                 Ok(pid) => {
                                     last_launch_pid = Some(pid);
-                                    last_keymap_action = Some(format!("launcher.launch {}:{}", sel.kind_name(), sel.command));
-                                    dbg.log(&format!("launcher overlay selected {:?} {:?} spawned pid={pid}", sel.kind, sel.command));
+                                    last_keymap_action = Some(format!(
+                                        "launcher.launch {}:{}",
+                                        sel.kind_name(),
+                                        sel.command
+                                    ));
+                                    dbg.log(&format!(
+                                        "launcher overlay selected {:?} {:?} spawned pid={pid}",
+                                        sel.kind, sel.command
+                                    ));
                                 }
                                 Err(e) => {
                                     last_keymap_action = Some(format!("launcher.error {e}"));
@@ -273,7 +298,8 @@ pub fn run_loop_with<S: XServer>(
                                 }
                             },
                             None => {
-                                last_keymap_action = Some("launcher.error no candidate".to_string());
+                                last_keymap_action =
+                                    Some("launcher.error no candidate".to_string());
                                 dbg.log("launcher overlay launch requested with no candidate");
                             }
                         }
@@ -297,13 +323,23 @@ pub fn run_loop_with<S: XServer>(
                         if let Some(action) = keymap.action_for_chord(&chord).cloned() {
                             let action_name = action.to_string();
                             last_keymap_action = Some(action_name.clone());
-                            dbg.log(&format!("keymap action: {} -> {action_name}", chord.iter().map(ToString::to_string).collect::<Vec<_>>().join(" ")));
+                            dbg.log(&format!(
+                                "keymap action: {} -> {action_name}",
+                                chord
+                                    .iter()
+                                    .map(ToString::to_string)
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            ));
                             match action {
                                 Action::Launch => {
                                     if opts.launcher_overlay {
                                         launcher_overlay.open_from_env();
                                         last_keymap_action = Some("launcher.open".to_string());
-                                        dbg.log(&format!("launcher overlay opened query={:?}", launcher_overlay.query));
+                                        dbg.log(&format!(
+                                            "launcher overlay opened query={:?}",
+                                            launcher_overlay.query
+                                        ));
                                     } else {
                                         let selection = launcher_selection();
                                         match spawn_launcher_command() {
@@ -312,7 +348,8 @@ pub fn run_loop_with<S: XServer>(
                                                 dbg.log(&format!("keymap launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
                                             }
                                             Err(e) => {
-                                                last_keymap_action = Some(format!("launcher.error {e}"));
+                                                last_keymap_action =
+                                                    Some(format!("launcher.error {e}"));
                                                 dbg.log(&format!("keymap launcher failed: {e}"));
                                             }
                                         }
@@ -324,7 +361,10 @@ pub fn run_loop_with<S: XServer>(
                                     dbg.log(&format!("split action: {msg}"));
                                     if opts.launcher_overlay {
                                         launcher_overlay.open_from_env();
-                                        dbg.log(&format!("split opened launcher overlay query={:?}", launcher_overlay.query));
+                                        dbg.log(&format!(
+                                            "split opened launcher overlay query={:?}",
+                                            launcher_overlay.query
+                                        ));
                                     } else {
                                         let selection = launcher_selection();
                                         match spawn_launcher_command() {
@@ -333,23 +373,32 @@ pub fn run_loop_with<S: XServer>(
                                                 dbg.log(&format!("split launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
                                             }
                                             Err(e) => {
-                                                last_keymap_action = Some(format!("launcher.error {e}"));
+                                                last_keymap_action =
+                                                    Some(format!("launcher.error {e}"));
                                                 dbg.log(&format!("split launcher failed: {e}"));
                                             }
                                         }
                                     }
                                 }
-                                Action::WorkspaceNew | Action::WorkspaceNext | Action::WorkspacePrev => {
+                                Action::WorkspaceNew
+                                | Action::WorkspaceNext
+                                | Action::WorkspacePrev => {
                                     let msg = workspaces.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("workspace action: {msg}"));
                                 }
-                                Action::FocusLeft | Action::FocusDown | Action::FocusUp | Action::FocusRight => {
+                                Action::FocusLeft
+                                | Action::FocusDown
+                                | Action::FocusUp
+                                | Action::FocusRight => {
                                     let msg = focus_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("focus action: {msg}"));
                                 }
-                                Action::SwapLeft | Action::SwapDown | Action::SwapUp | Action::SwapRight => {
+                                Action::SwapLeft
+                                | Action::SwapDown
+                                | Action::SwapUp
+                                | Action::SwapRight => {
                                     let msg = swap_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("swap action: {msg}"));
@@ -432,17 +481,25 @@ pub fn run_loop_with<S: XServer>(
                     dbg.log(&format!("char event: {:?}", ch));
                     let _ = compositor.route_key(&ev);
                 }
-                InputEvent::Key { key: Key::F(12), .. } if opts.launch_on_f12 => {
+                InputEvent::Key {
+                    key: Key::F(12), ..
+                } if opts.launch_on_f12 => {
                     if opts.launcher_overlay {
                         launcher_overlay.open_from_env();
                         last_keymap_action = Some("launcher.open".to_string());
-                        dbg.log(&format!("launcher F12 opened overlay query={:?}", launcher_overlay.query));
+                        dbg.log(&format!(
+                            "launcher F12 opened overlay query={:?}",
+                            launcher_overlay.query
+                        ));
                     } else {
                         let selection = launcher_selection();
                         match spawn_launcher_command() {
                             Ok(pid) => {
                                 last_launch_pid = Some(pid);
-                                dbg.log(&format!("launcher F12 selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
+                                dbg.log(&format!(
+                                    "launcher F12 selected {:?} {:?} spawned pid={pid}",
+                                    selection.kind, selection.command
+                                ));
                             }
                             Err(e) => {
                                 last_keymap_action = Some(format!("launcher.error {e}"));
@@ -473,10 +530,7 @@ pub fn run_loop_with<S: XServer>(
             Ok(frames) => {
                 let last_window_count = frames.len();
                 if frame % 30 == 0 {
-                    dbg.log(&format!(
-                        "frame {frame}: {} raw frames",
-                        frames.len()
-                    ));
+                    dbg.log(&format!("frame {frame}: {} raw frames", frames.len()));
                 }
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
@@ -505,9 +559,7 @@ pub fn run_loop_with<S: XServer>(
                         .unwrap_or(true);
                     if footprint_changed {
                         if last_placed.contains_key(&f.image_id) {
-                            handle.write_all(
-                                runtime.unplace(f.image_id).as_bytes(),
-                            )?;
+                            handle.write_all(runtime.unplace(f.image_id).as_bytes())?;
                         }
                     }
                     let p = runtime.place_raw_frame(
@@ -521,21 +573,12 @@ pub fn run_loop_with<S: XServer>(
                     // image at the same id; no flicker because no clear).
                     handle.write_all(p.upload.as_bytes())?;
                     if footprint_changed {
-                        write!(
-                            handle,
-                            "\x1b[{};{}H",
-                            f.footprint.y + 1,
-                            f.footprint.x + 1
-                        )?;
+                        write!(handle, "\x1b[{};{}H", f.footprint.y + 1, f.footprint.x + 1)?;
                         handle.write_all(p.placement.as_bytes())?;
                         handle.write_all(p.embed.as_bytes())?;
                         last_placed.insert(
                             f.image_id,
-                            (
-                                f.footprint,
-                                p.placement.clone(),
-                                p.embed.clone(),
-                            ),
+                            (f.footprint, p.placement.clone(), p.embed.clone()),
                         );
                     }
                     footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
@@ -624,8 +667,12 @@ pub fn run_loop_with<S: XServer>(
             // responsiveness on a backgrounded stdin).
             loop {
                 let used = frame_start.elapsed();
-                let Some(slack) = frame_target.checked_sub(used) else { break };
-                if slack < Duration::from_micros(500) { break; }
+                let Some(slack) = frame_target.checked_sub(used) else {
+                    break;
+                };
+                if slack < Duration::from_micros(500) {
+                    break;
+                }
                 std::thread::sleep(slack);
             }
         } else {
@@ -662,8 +709,8 @@ pub struct Debugger {
 impl Debugger {
     /// Open the log file (truncating on each session).
     pub fn open() -> Self {
-        let path = std::env::var("KITTUI_WM_LOG")
-            .unwrap_or_else(|_| "/tmp/kittui-wm.log".to_string());
+        let path =
+            std::env::var("KITTUI_WM_LOG").unwrap_or_else(|_| "/tmp/kittui-wm.log".to_string());
         let file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -672,12 +719,7 @@ impl Debugger {
             .ok();
         if let Some(mut f) = file.as_ref() {
             use std::io::Write;
-            let _ = writeln!(
-                f,
-                "kittui-wm log {} (pid {})",
-                clock(),
-                std::process::id()
-            );
+            let _ = writeln!(f, "kittui-wm log {} (pid {})", clock(), std::process::id());
         }
         Self {
             file: std::sync::Mutex::new(file),
@@ -753,9 +795,8 @@ fn restore_terminal() {
         }
     }
     let mut out = io::stdout();
-    let _ = out.write_all(
-        b"\x1b[?1006l\x1b[?1004l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l",
-    );
+    let _ = out
+        .write_all(b"\x1b[?1006l\x1b[?1004l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l");
     let _ = out.flush();
     #[cfg(unix)]
     unsafe {
@@ -877,25 +918,33 @@ fn launcher_selection() -> LauncherSelection {
             return sel;
         }
     }
-    LauncherSelection { kind: LauncherKind::Shell, command: launcher_command() }
+    LauncherSelection {
+        kind: LauncherKind::Shell,
+        command: launcher_command(),
+    }
 }
 
 fn first_launcher_candidate(query: &str) -> Option<LauncherSelection> {
     let q = query.to_ascii_lowercase();
     for cmd in path_commands(5000) {
         if cmd.to_ascii_lowercase().contains(&q) {
-            return Some(LauncherSelection { kind: LauncherKind::Path, command: cmd });
+            return Some(LauncherSelection {
+                kind: LauncherKind::Path,
+                command: cmd,
+            });
         }
     }
     #[cfg(target_os = "macos")]
     for app in macos_apps(5000) {
         if app.to_ascii_lowercase().contains(&q) {
-            return Some(LauncherSelection { kind: LauncherKind::MacOsApp, command: app });
+            return Some(LauncherSelection {
+                kind: LauncherKind::MacOsApp,
+                command: app,
+            });
         }
     }
     None
 }
-
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum OverlayEvent {
@@ -926,7 +975,10 @@ impl LauncherOverlay {
                 self.selected = 0;
                 OverlayEvent::Consumed
             }
-            InputEvent::Key { key: Key::Backspace, .. } => {
+            InputEvent::Key {
+                key: Key::Backspace,
+                ..
+            } => {
                 self.query.pop();
                 self.selected = 0;
                 OverlayEvent::Consumed
@@ -940,21 +992,35 @@ impl LauncherOverlay {
                 self.selected = (self.selected + 1).min(max);
                 OverlayEvent::Consumed
             }
-            InputEvent::Key { key: Key::Enter, .. } => OverlayEvent::Launch,
-            InputEvent::Key { key: Key::Escape, .. } => OverlayEvent::Close,
+            InputEvent::Key {
+                key: Key::Enter, ..
+            } => OverlayEvent::Launch,
+            InputEvent::Key {
+                key: Key::Escape, ..
+            } => OverlayEvent::Close,
             _ => OverlayEvent::NotHandled,
         }
     }
 
     fn candidates(&self) -> Vec<LauncherSelection> {
         let mut out = Vec::new();
-        let query = if self.query.is_empty() { None } else { Some(self.query.as_str()) };
+        let query = if self.query.is_empty() {
+            None
+        } else {
+            Some(self.query.as_str())
+        };
         for cmd in filter_launcher_candidates(path_commands(5000), query, 8) {
-            out.push(LauncherSelection { kind: LauncherKind::Path, command: cmd });
+            out.push(LauncherSelection {
+                kind: LauncherKind::Path,
+                command: cmd,
+            });
         }
         #[cfg(target_os = "macos")]
         for app in filter_launcher_candidates(macos_apps(5000), query, 8) {
-            out.push(LauncherSelection { kind: LauncherKind::MacOsApp, command: app });
+            out.push(LauncherSelection {
+                kind: LauncherKind::MacOsApp,
+                command: app,
+            });
         }
         out.truncate(8);
         out
@@ -962,28 +1028,56 @@ impl LauncherOverlay {
 
     fn selection(&self) -> Option<LauncherSelection> {
         let candidates = self.candidates();
-        candidates.get(self.selected.min(candidates.len().saturating_sub(1))).cloned()
+        candidates
+            .get(self.selected.min(candidates.len().saturating_sub(1)))
+            .cloned()
     }
 
     fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
         let candidates = self.candidates();
         let width = 58usize;
         write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
-        write!(handle, "\x1b[3;2H│{:^width$}│", "kittwm launcher", width = width)?;
+        write!(
+            handle,
+            "\x1b[3;2H│{:^width$}│",
+            "kittwm launcher",
+            width = width
+        )?;
         write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
-        write!(handle, "\x1b[5;2H│ query: {:<qwidth$}│", truncate_cells(&self.query, width - 8), qwidth = width - 8)?;
+        write!(
+            handle,
+            "\x1b[5;2H│ query: {:<qwidth$}│",
+            truncate_cells(&self.query, width - 8),
+            qwidth = width - 8
+        )?;
         write!(handle, "\x1b[6;2H├{}┤", "─".repeat(width))?;
         for row in 0..8usize {
             let line = if let Some(c) = candidates.get(row) {
                 let marker = if row == self.selected { "▶" } else { " " };
-                format!("{marker} {:>2}. [{:<5}] {}", row + 1, c.kind_name(), c.command)
+                format!(
+                    "{marker} {:>2}. [{:<5}] {}",
+                    row + 1,
+                    c.kind_name(),
+                    c.command
+                )
             } else {
                 String::new()
             };
-            write!(handle, "\x1b[{};2H│{:<width$}│", 7 + row as u16, truncate_cells(&line, width), width = width)?;
+            write!(
+                handle,
+                "\x1b[{};2H│{:<width$}│",
+                7 + row as u16,
+                truncate_cells(&line, width),
+                width = width
+            )?;
         }
         write!(handle, "\x1b[15;2H├{}┤", "─".repeat(width))?;
-        write!(handle, "\x1b[16;2H│ {:<w$}│", "Enter launch · Esc close · type filter · ↑/↓ select", w = width - 1)?;
+        write!(
+            handle,
+            "\x1b[16;2H│ {:<w$}│",
+            "Enter launch · Esc close · type filter · ↑/↓ select",
+            w = width - 1
+        )?;
         write!(handle, "\x1b[17;2H└{}┘", "─".repeat(width))?;
         Ok(())
     }
@@ -999,15 +1093,25 @@ fn clear_launcher_overlay_area<W: Write>(handle: &mut W) -> Result<()> {
     Ok(())
 }
 
-fn filter_launcher_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> Vec<String> {
-    let Some(query) = query else { return items.into_iter().take(limit).collect(); };
+fn filter_launcher_candidates(
+    items: Vec<String>,
+    query: Option<&str>,
+    limit: usize,
+) -> Vec<String> {
+    let Some(query) = query else {
+        return items.into_iter().take(limit).collect();
+    };
     let q = query.to_ascii_lowercase();
     let mut scored: Vec<(u8, String)> = items
         .into_iter()
         .filter_map(|item| launcher_match_score(&item, &q).map(|score| (score, item)))
         .collect();
     scored.sort_by(|(a_score, a), (b_score, b)| a_score.cmp(b_score).then_with(|| a.cmp(b)));
-    scored.into_iter().map(|(_, item)| item).take(limit).collect()
+    scored
+        .into_iter()
+        .map(|(_, item)| item)
+        .take(limit)
+        .collect()
 }
 
 fn launcher_match_score(item: &str, lower_query: &str) -> Option<u8> {
@@ -1024,7 +1128,9 @@ fn launcher_match_score(item: &str, lower_query: &str) -> Option<u8> {
 }
 
 fn truncate_cells(s: &str, n: usize) -> String {
-    if s.chars().count() <= n { s.to_string() } else {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
         let mut out: String = s.chars().take(n.saturating_sub(1)).collect();
         out.push('…');
         out
@@ -1035,16 +1141,28 @@ fn path_commands(limit: usize) -> Vec<String> {
     let mut out = std::collections::BTreeSet::new();
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
-            let Ok(read) = std::fs::read_dir(dir) else { continue };
+            let Ok(read) = std::fs::read_dir(dir) else {
+                continue;
+            };
             for ent in read.flatten() {
                 let path = ent.path();
-                if !path.is_file() { continue; }
-                let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
-                if name.starts_with('.') { continue; }
+                if !path.is_file() {
+                    continue;
+                }
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if name.starts_with('.') {
+                    continue;
+                }
                 out.insert(name.to_string());
-                if out.len() >= limit { break; }
+                if out.len() >= limit {
+                    break;
+                }
             }
-            if out.len() >= limit { break; }
+            if out.len() >= limit {
+                break;
+            }
         }
     }
     out.into_iter().take(limit).collect()
@@ -1054,15 +1172,25 @@ fn path_commands(limit: usize) -> Vec<String> {
 fn macos_apps(limit: usize) -> Vec<String> {
     let mut out = std::collections::BTreeSet::new();
     for root in ["/Applications", "/System/Applications"] {
-        let Ok(read) = std::fs::read_dir(root) else { continue };
+        let Ok(read) = std::fs::read_dir(root) else {
+            continue;
+        };
         for ent in read.flatten() {
             let path = ent.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("app") { continue; }
-            let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+            if path.extension().and_then(|s| s.to_str()) != Some("app") {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
             out.insert(name.trim_end_matches(".app").to_string());
-            if out.len() >= limit { break; }
+            if out.len() >= limit {
+                break;
+            }
         }
-        if out.len() >= limit { break; }
+        if out.len() >= limit {
+            break;
+        }
     }
     out.into_iter().take(limit).collect()
 }
@@ -1137,7 +1265,9 @@ fn load_runtime_keymap(dbg: &Debugger) -> Keymap {
     match load_runtime_keymap_result(dbg) {
         Ok(km) => km,
         Err(e) => {
-            dbg.log(&format!("failed to load runtime keymap: {e}; using defaults"));
+            dbg.log(&format!(
+                "failed to load runtime keymap: {e}; using defaults"
+            ));
             crate::keymap::default_keymap()
         }
     }
@@ -1157,14 +1287,22 @@ fn load_runtime_keymap_result(dbg: &Debugger) -> Result<Keymap> {
 fn key_spec_for_event(ev: &InputEvent) -> Option<KeySpec> {
     match ev {
         InputEvent::Char { ch, mods } => Some(KeySpec {
-            mods: KeyMods { ctrl: mods.ctrl, alt: mods.alt, shift: mods.shift },
+            mods: KeyMods {
+                ctrl: mods.ctrl,
+                alt: mods.alt,
+                shift: mods.shift,
+            },
             key: match ch {
                 ' ' => "space".to_string(),
                 other => other.to_ascii_lowercase().to_string(),
             },
         }),
         InputEvent::Key { key, mods } => Some(KeySpec {
-            mods: KeyMods { ctrl: mods.ctrl, alt: mods.alt, shift: mods.shift },
+            mods: KeyMods {
+                ctrl: mods.ctrl,
+                alt: mods.alt,
+                shift: mods.shift,
+            },
             key: match key {
                 Key::Up => "up".to_string(),
                 Key::Down => "down".to_string(),
@@ -1196,13 +1334,19 @@ mod runtime_keymap_tests {
     fn event_to_keyspec_maps_ctrl_a_and_enter() {
         let ctrl_a = key_spec_for_event(&InputEvent::Char {
             ch: 'a',
-            mods: Modifiers { ctrl: true, alt: false, shift: false },
-        }).unwrap();
+            mods: Modifiers {
+                ctrl: true,
+                alt: false,
+                shift: false,
+            },
+        })
+        .unwrap();
         assert_eq!(ctrl_a.to_string(), "C-a");
         let enter = key_spec_for_event(&InputEvent::Key {
             key: Key::Enter,
             mods: Modifiers::default(),
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!(enter.to_string(), "enter");
     }
 }
@@ -1215,7 +1359,10 @@ struct WorkspaceState {
 
 impl Default for WorkspaceState {
     fn default() -> Self {
-        Self { current: 0, count: 1 }
+        Self {
+            current: 0,
+            count: 1,
+        }
     }
 }
 
@@ -1267,7 +1414,10 @@ struct FocusState {
 
 impl Default for FocusState {
     fn default() -> Self {
-        Self { last_direction: "none", moves: 0 }
+        Self {
+            last_direction: "none",
+            moves: 0,
+        }
     }
 }
 
@@ -1312,7 +1462,10 @@ struct SplitState {
 
 impl Default for SplitState {
     fn default() -> Self {
-        Self { panes: 1, last_orientation: "none" }
+        Self {
+            panes: 1,
+            last_orientation: "none",
+        }
     }
 }
 
@@ -1324,7 +1477,11 @@ impl SplitState {
             _ => self.last_orientation,
         };
         self.panes += 1;
-        format!("split.{}.launcher -> {}", self.last_orientation, self.label())
+        format!(
+            "split.{}.launcher -> {}",
+            self.last_orientation,
+            self.label()
+        )
     }
 
     fn label(&self) -> String {
@@ -1340,8 +1497,14 @@ mod split_state_tests {
     fn split_state_tracks_panes_and_orientation() {
         let mut s = SplitState::default();
         assert_eq!(s.label(), "1:none");
-        assert_eq!(s.apply(&Action::SplitVerticalLauncher), "split.vertical.launcher -> 2:vertical");
-        assert_eq!(s.apply(&Action::SplitHorizontalLauncher), "split.horizontal.launcher -> 3:horizontal");
+        assert_eq!(
+            s.apply(&Action::SplitVerticalLauncher),
+            "split.vertical.launcher -> 2:vertical"
+        );
+        assert_eq!(
+            s.apply(&Action::SplitHorizontalLauncher),
+            "split.horizontal.launcher -> 3:horizontal"
+        );
     }
 }
 
@@ -1353,7 +1516,10 @@ struct SwapState {
 
 impl Default for SwapState {
     fn default() -> Self {
-        Self { last_direction: "none", swaps: 0 }
+        Self {
+            last_direction: "none",
+            swaps: 0,
+        }
     }
 }
 
@@ -1414,19 +1580,56 @@ mod launcher_overlay_tests {
     fn overlay_edits_query_and_tracks_selection() {
         let mut overlay = LauncherOverlay::default();
         overlay.active = true;
-        assert_eq!(overlay.handle_event(&InputEvent::Char { ch: 'e', mods: Modifiers::default() }), OverlayEvent::Consumed);
-        assert_eq!(overlay.handle_event(&InputEvent::Char { ch: 'c', mods: Modifiers::default() }), OverlayEvent::Consumed);
+        assert_eq!(
+            overlay.handle_event(&InputEvent::Char {
+                ch: 'e',
+                mods: Modifiers::default()
+            }),
+            OverlayEvent::Consumed
+        );
+        assert_eq!(
+            overlay.handle_event(&InputEvent::Char {
+                ch: 'c',
+                mods: Modifiers::default()
+            }),
+            OverlayEvent::Consumed
+        );
         assert_eq!(overlay.query, "ec");
-        assert_eq!(overlay.handle_event(&InputEvent::Key { key: Key::Backspace, mods: Modifiers::default() }), OverlayEvent::Consumed);
+        assert_eq!(
+            overlay.handle_event(&InputEvent::Key {
+                key: Key::Backspace,
+                mods: Modifiers::default()
+            }),
+            OverlayEvent::Consumed
+        );
         assert_eq!(overlay.query, "e");
-        assert_eq!(overlay.handle_event(&InputEvent::Key { key: Key::Enter, mods: Modifiers::default() }), OverlayEvent::Launch);
-        assert_eq!(overlay.handle_event(&InputEvent::Key { key: Key::Escape, mods: Modifiers::default() }), OverlayEvent::Close);
+        assert_eq!(
+            overlay.handle_event(&InputEvent::Key {
+                key: Key::Enter,
+                mods: Modifiers::default()
+            }),
+            OverlayEvent::Launch
+        );
+        assert_eq!(
+            overlay.handle_event(&InputEvent::Key {
+                key: Key::Escape,
+                mods: Modifiers::default()
+            }),
+            OverlayEvent::Close
+        );
     }
 
     #[test]
     fn filter_launcher_candidates_is_case_insensitive() {
-        let items = vec!["Echo".to_string(), "cat".to_string(), "lessecho".to_string()];
-        assert_eq!(filter_launcher_candidates(items, Some("ECHO"), 10), vec!["Echo".to_string(), "lessecho".to_string()]);
+        let items = vec![
+            "Echo".to_string(),
+            "cat".to_string(),
+            "lessecho".to_string(),
+        ];
+        assert_eq!(
+            filter_launcher_candidates(items, Some("ECHO"), 10),
+            vec!["Echo".to_string(), "lessecho".to_string()]
+        );
     }
 
     #[test]
@@ -1438,7 +1641,11 @@ mod launcher_overlay_tests {
         ];
         assert_eq!(
             filter_launcher_candidates(items, Some("xterm"), 10),
-            vec!["xterm".to_string(), "xtermcontrol".to_string(), "multixterm".to_string()]
+            vec![
+                "xterm".to_string(),
+                "xtermcontrol".to_string(),
+                "multixterm".to_string()
+            ]
         );
     }
 }
@@ -1522,9 +1729,18 @@ mod toggle_state_tests {
     fn toggle_state_tracks_fullscreen_and_float() {
         let mut t = ToggleState::default();
         assert_eq!(t.label(), "full=false float=false");
-        assert_eq!(t.apply(&Action::FullscreenToggle), "fullscreen.toggle -> full=true float=false");
-        assert_eq!(t.apply(&Action::FloatToggle), "float.toggle -> full=true float=true");
-        assert_eq!(t.apply(&Action::FullscreenToggle), "fullscreen.toggle -> full=false float=true");
+        assert_eq!(
+            t.apply(&Action::FullscreenToggle),
+            "fullscreen.toggle -> full=true float=false"
+        );
+        assert_eq!(
+            t.apply(&Action::FloatToggle),
+            "float.toggle -> full=true float=true"
+        );
+        assert_eq!(
+            t.apply(&Action::FullscreenToggle),
+            "fullscreen.toggle -> full=false float=true"
+        );
     }
 }
 
@@ -1536,7 +1752,10 @@ struct LayoutState {
 
 impl Default for LayoutState {
     fn default() -> Self {
-        Self { split_axis: "vertical", balances: 0 }
+        Self {
+            split_axis: "vertical",
+            balances: 0,
+        }
     }
 }
 
@@ -1544,7 +1763,11 @@ impl LayoutState {
     fn apply(&mut self, action: &Action) -> String {
         match action {
             Action::ToggleSplit => {
-                self.split_axis = if self.split_axis == "vertical" { "horizontal" } else { "vertical" };
+                self.split_axis = if self.split_axis == "vertical" {
+                    "horizontal"
+                } else {
+                    "vertical"
+                };
                 format!("toggle.split -> {}", self.label())
             }
             Action::BalanceWindows => {
@@ -1568,9 +1791,18 @@ mod layout_state_tests {
     fn layout_state_toggles_axis_and_counts_balance() {
         let mut s = LayoutState::default();
         assert_eq!(s.label(), "axis=vertical balanced#0");
-        assert_eq!(s.apply(&Action::ToggleSplit), "toggle.split -> axis=horizontal balanced#0");
-        assert_eq!(s.apply(&Action::ToggleSplit), "toggle.split -> axis=vertical balanced#0");
-        assert_eq!(s.apply(&Action::BalanceWindows), "balance.windows -> axis=vertical balanced#1");
+        assert_eq!(
+            s.apply(&Action::ToggleSplit),
+            "toggle.split -> axis=horizontal balanced#0"
+        );
+        assert_eq!(
+            s.apply(&Action::ToggleSplit),
+            "toggle.split -> axis=vertical balanced#0"
+        );
+        assert_eq!(
+            s.apply(&Action::BalanceWindows),
+            "balance.windows -> axis=vertical balanced#1"
+        );
     }
 }
 

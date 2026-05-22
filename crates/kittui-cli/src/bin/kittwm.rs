@@ -32,9 +32,9 @@ use anyhow::{anyhow, Result};
 use kittui::{CellSize, Runtime, TerminalInfo};
 use kittui_core::geom::PxRect;
 use kittui_wm::compositor::{Compositor, Layout, WindowMode};
-use kittui_xvfb::{FakeServer, XWindowId};
 #[cfg(all(target_os = "macos", feature = "quartz"))]
 use kittui_xvfb::XServer;
+use kittui_xvfb::{FakeServer, XWindowId};
 
 #[derive(Debug, Default)]
 struct Cli {
@@ -57,6 +57,8 @@ struct Cli {
     bench_seconds: Option<u32>,
     attach_command: Option<String>,
     launch: bool,
+    replace: bool,
+    replace_args: Vec<String>,
     launcher_preview: bool,
     launcher_select: Option<usize>,
     launcher_launch_selection: bool,
@@ -110,6 +112,11 @@ fn parse_args() -> Result<Cli> {
                 out.launch_args = args.by_ref().collect();
                 break;
             }
+            "replace" => {
+                out.replace = true;
+                out.replace_args = args.by_ref().collect();
+                break;
+            }
             "launcher" => out.launcher_preview = true,
             "keymap" => out.keymap = true,
             "apps" => out.apps = true,
@@ -126,16 +133,21 @@ fn parse_args() -> Result<Cli> {
             "--launch-first" => out.apps_launch_first = true,
             "--select" => {
                 let v = args.next().ok_or_else(|| anyhow!("--select N"))?;
-                out.launcher_select = Some(v.parse().map_err(|_| anyhow!("--select expects integer"))?);
+                out.launcher_select =
+                    Some(v.parse().map_err(|_| anyhow!("--select expects integer"))?);
             }
             "--launch-selection" => out.launcher_launch_selection = true,
             "--seconds" => {
                 let v = args.next().ok_or_else(|| anyhow!("--seconds N"))?;
-                out.bench_seconds = Some(v.parse().map_err(|_| anyhow!("--seconds expects integer"))?);
+                out.bench_seconds = Some(
+                    v.parse()
+                        .map_err(|_| anyhow!("--seconds expects integer"))?,
+                );
             }
             "--frames" => {
                 let v = args.next().ok_or_else(|| anyhow!("--frames N"))?;
-                out.record_frames = Some(v.parse().map_err(|_| anyhow!("--frames expects integer"))?);
+                out.record_frames =
+                    Some(v.parse().map_err(|_| anyhow!("--frames expects integer"))?);
             }
             "--out" => {
                 let v = args.next().ok_or_else(|| anyhow!("--out PATH"))?;
@@ -145,7 +157,10 @@ fn parse_args() -> Result<Cli> {
             "--apng" => out.record_apng = true,
             "--delay-ms" => {
                 let v = args.next().ok_or_else(|| anyhow!("--delay-ms N"))?;
-                out.record_delay_ms = Some(v.parse().map_err(|_| anyhow!("--delay-ms expects integer"))?);
+                out.record_delay_ms = Some(
+                    v.parse()
+                        .map_err(|_| anyhow!("--delay-ms expects integer"))?,
+                );
             }
             "--json" => out.json = true,
             "--keymap" => {
@@ -159,7 +174,10 @@ fn parse_args() -> Result<Cli> {
             "--attach" => out.mode = Mode::Attach,
             "--launch-on-f12" => out.launch_on_f12 = true,
             "--launcher-query" => {
-                out.launcher_query = Some(args.next().ok_or_else(|| anyhow!("--launcher-query QUERY"))?);
+                out.launcher_query = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("--launcher-query QUERY"))?,
+                );
             }
             "--url" => {
                 out.native_url = Some(args.next().ok_or_else(|| anyhow!("--url URL"))?);
@@ -192,7 +210,9 @@ fn parse_args() -> Result<Cli> {
                 let v = args
                     .next()
                     .ok_or_else(|| anyhow!("--fps requires an integer (1..=240)"))?;
-                let n: u32 = v.parse().map_err(|_| anyhow!("--fps expects an integer, got {v:?}"))?;
+                let n: u32 = v
+                    .parse()
+                    .map_err(|_| anyhow!("--fps expects an integer, got {v:?}"))?;
                 out.fps = Some(n);
             }
             "--help" | "-h" => {
@@ -257,6 +277,8 @@ SUBCOMMANDS\n\
                          latency + MB/s. --json for machine-readable output.\n\
          launch          spawn xterm by default, or run CMD ARGS after\n\
                          'kittwm launch -- CMD ARGS'. Prints pid + argv.\n\
+         replace         when inside KITTWM_WINDOW, exec a command in-place.\n\
+                         'kittwm replace browser URL' execs kittwm-browser.\n\
          launcher        render a boxed, numbered launcher preview using\n\
                          the same --filter/--limit candidate source. Use\n\
                          --select N to highlight a row and --launch-selection\n\
@@ -304,10 +326,7 @@ fn pick_backend(forced: Option<Backend>) -> Backend {
     {
         return Backend::Xvfb;
     }
-    #[cfg(not(any(
-        all(target_os = "macos", feature = "quartz"),
-        feature = "xvfb"
-    )))]
+    #[cfg(not(any(all(target_os = "macos", feature = "quartz"), feature = "xvfb")))]
     {
         Backend::Fake
     }
@@ -359,6 +378,9 @@ fn real_main() -> Result<()> {
     }
     if cli.launch {
         return launch_cmd(&cli);
+    }
+    if cli.replace {
+        return replace_cmd(&cli);
     }
     if cli.launcher_preview {
         return launcher_preview_cmd(&cli);
@@ -413,7 +435,9 @@ fn list_windows_cmd() -> Result<()> {
 
 #[cfg(not(all(target_os = "macos", feature = "quartz")))]
 fn list_windows_cmd() -> Result<()> {
-    Err(anyhow!("--list-windows requires --features quartz on macOS"))
+    Err(anyhow!(
+        "--list-windows requires --features quartz on macOS"
+    ))
 }
 
 #[cfg(all(target_os = "macos", feature = "quartz"))]
@@ -424,12 +448,7 @@ fn list_displays_cmd() -> Result<()> {
     for d in displays {
         println!(
             "{:>3}  {:>10}  ({:.0},{:.0}) {:.0}x{:.0}",
-            d.index,
-            d.id,
-            d.bounds.origin.0,
-            d.bounds.origin.1,
-            d.bounds.width,
-            d.bounds.height,
+            d.index, d.id, d.bounds.origin.0, d.bounds.origin.1, d.bounds.width, d.bounds.height,
         );
     }
     Ok(())
@@ -437,7 +456,9 @@ fn list_displays_cmd() -> Result<()> {
 
 #[cfg(not(all(target_os = "macos", feature = "quartz")))]
 fn list_displays_cmd() -> Result<()> {
-    Err(anyhow!("--list-displays requires --features quartz on macOS"))
+    Err(anyhow!(
+        "--list-displays requires --features quartz on macOS"
+    ))
 }
 
 fn truncate(s: &str, n: usize) -> String {
@@ -495,10 +516,7 @@ fn run_with_fake(runtime: &Runtime, cell: CellSize) -> Result<()> {
     let compositor = Compositor::new(server, cell);
     compositor.set_mode(XWindowId(1), WindowMode::Tiled);
     let mut layout = Layout::all_floating();
-    layout.tile(
-        XWindowId(1),
-        PxRect::new(8.0, 16.0, 320.0, 192.0),
-    );
+    layout.tile(XWindowId(1), PxRect::new(8.0, 16.0, 320.0, 192.0));
     kittui_cli::session::run_loop(runtime, &compositor, &layout)
 }
 
@@ -675,8 +693,8 @@ fn doctor_cmd(json: bool) -> Result<()> {
     let feat_quartz = cfg!(feature = "quartz");
     let feat_xvfb = cfg!(feature = "xvfb");
 
-    let log_path = std::env::var("KITTUI_WM_LOG")
-        .unwrap_or_else(|_| "/tmp/kittui-wm.log".to_string());
+    let log_path =
+        std::env::var("KITTUI_WM_LOG").unwrap_or_else(|_| "/tmp/kittui-wm.log".to_string());
     let log_meta = std::fs::metadata(&log_path).ok();
     let log_size = log_meta.as_ref().map(|m| m.len()).unwrap_or(0);
     let log_present = log_meta.is_some();
@@ -706,7 +724,10 @@ fn doctor_cmd(json: bool) -> Result<()> {
         buf.push_str(&format!("  \"term\": {:?},\n", term));
         buf.push_str(&format!("  \"colorterm\": {:?},\n", colorterm));
         buf.push_str(&format!("  \"term_program\": {:?},\n", term_program));
-        buf.push_str(&format!("  \"kitty_graphics_likely\": {},\n", kitty_graphics));
+        buf.push_str(&format!(
+            "  \"kitty_graphics_likely\": {},\n",
+            kitty_graphics
+        ));
         buf.push_str(&format!("  \"display_count\": {},\n", display_count));
         buf.push_str(&format!("  \"log_path\": {:?},\n", log_path));
         buf.push_str(&format!("  \"log_present\": {},\n", log_present));
@@ -727,7 +748,11 @@ fn doctor_cmd(json: bool) -> Result<()> {
         println!("  TERM_PROGRAM   : {term_program}");
         println!(
             "  kitty graphics : {}",
-            if kitty_graphics { "likely yes" } else { "unknown" }
+            if kitty_graphics {
+                "likely yes"
+            } else {
+                "unknown"
+            }
         );
         println!("  displays       : {display_count}");
         println!(
@@ -742,12 +767,8 @@ fn doctor_cmd(json: bool) -> Result<()> {
         );
         if cfg!(target_os = "macos") {
             println!();
-            println!(
-                "Hint: SCK + CGEventPost both require Screen Recording + Accessibility"
-            );
-            println!(
-                "      permissions on the terminal hosting kittwm (System Settings >"
-            );
+            println!("Hint: SCK + CGEventPost both require Screen Recording + Accessibility");
+            println!("      permissions on the terminal hosting kittwm (System Settings >");
             println!("      Privacy & Security).");
         }
     }
@@ -761,16 +782,13 @@ fn record_cmd(cli: &Cli) -> Result<()> {
     use kittui_wm::compositor::{Compositor, Layout};
 
     let frames_target = cli.record_frames.unwrap_or(30);
-    let out_dir = cli
-        .record_out
-        .clone()
-        .unwrap_or_else(|| {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            format!("/tmp/kittwm-record-{ts}")
-        });
+    let out_dir = cli.record_out.clone().unwrap_or_else(|| {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        format!("/tmp/kittwm-record-{ts}")
+    });
     std::fs::create_dir_all(&out_dir)?;
 
     // Resolve capture spec (reuses --capture/--pick-window logic).
@@ -890,7 +908,9 @@ fn bench_cmd(cli: &Cli) -> Result<()> {
     let wall = started.elapsed();
     latencies_us.sort_unstable();
     let pct = |p: f64| -> u64 {
-        if latencies_us.is_empty() { return 0; }
+        if latencies_us.is_empty() {
+            return 0;
+        }
         let idx = ((latencies_us.len() as f64 - 1.0) * p).round() as usize;
         latencies_us[idx]
     };
@@ -927,7 +947,10 @@ fn bench_cmd(cli: &Cli) -> Result<()> {
         println!("  captures       : {}", iters);
         println!("  captures/s     : {:.1}", captures_per_s);
         println!("  surface        : {}x{} RGBA", first_dims.0, first_dims.1);
-        println!("  bytes captured : {:.1} MB", total_bytes as f64 / 1_048_576.0);
+        println!(
+            "  bytes captured : {:.1} MB",
+            total_bytes as f64 / 1_048_576.0
+        );
         println!("  throughput     : {:.1} MB/s", mb_per_s);
         println!("  mean latency   : {:.2} ms", mean as f64 / 1000.0);
         println!("  p50 latency    : {:.2} ms", pct(0.50) as f64 / 1000.0);
@@ -949,8 +972,7 @@ fn bench_cmd(_cli: &Cli) -> Result<()> {
 fn serve_cmd(_cli: Cli) -> Result<()> {
     use kittui_cli::daemon::{default_socket_path, DaemonServer};
     let path = default_socket_path();
-    let server = DaemonServer::bind(path)
-        .map_err(|e| anyhow!("kittwm --serve: {e}"))?;
+    let server = DaemonServer::bind(path).map_err(|e| anyhow!("kittwm --serve: {e}"))?;
     eprintln!(
         "kittwm: daemon listening on {} (pid={}). Send QUIT or SIGINT to exit.",
         server.path().display(),
@@ -983,7 +1005,10 @@ fn status_cmd() -> Result<()> {
             Ok(())
         }
         Err(_) => {
-            println!("kittwm: no daemon listening on {} (try `kittwm --serve` to start one).", path.display());
+            println!(
+                "kittwm: no daemon listening on {} (try `kittwm --serve` to start one).",
+                path.display()
+            );
             std::process::exit(1);
         }
     }
@@ -1011,13 +1036,16 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
     if let Some(command) = command {
         let reply = client_request_multi(&path, &command.to_ascii_uppercase())?;
         print!("{reply}");
-        if !reply.ends_with('\n') { println!(); }
+        if !reply.ends_with('\n') {
+            println!();
+        }
         if reply.starts_with("ERR ") {
             std::process::exit(2);
         }
         return Ok(());
     }
-    eprintln!("kittwm --attach: connected to {} ({})",
+    eprintln!(
+        "kittwm --attach: connected to {} ({})",
         path.display(),
         probe.trim()
     );
@@ -1032,16 +1060,23 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
         }
         let mut line = String::new();
         let n = stdin.lock().read_line(&mut line)?;
-        if n == 0 { eprintln!(); break; }
+        if n == 0 {
+            eprintln!();
+            break;
+        }
         let cmd = line.trim();
-        if cmd.is_empty() { continue; }
+        if cmd.is_empty() {
+            continue;
+        }
         if cmd.eq_ignore_ascii_case("detach") || cmd.eq_ignore_ascii_case("exit") {
             break;
         }
         match client_request_multi(&path, &cmd.to_ascii_uppercase()) {
             Ok(reply) => {
                 print!("{reply}");
-                if !reply.ends_with('\n') { println!(); }
+                if !reply.ends_with('\n') {
+                    println!();
+                }
             }
             Err(e) => {
                 eprintln!("(daemon error: {e})");
@@ -1052,7 +1087,9 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
                 }
             }
         }
-        if cmd.eq_ignore_ascii_case("QUIT") { break; }
+        if cmd.eq_ignore_ascii_case("QUIT") {
+            break;
+        }
     }
     Ok(())
 }
@@ -1093,7 +1130,9 @@ fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
     let mut custom = Vec::<String>::new();
     for binding in &km.bindings {
         let chord = binding.chord_string();
-        seen.entry(chord).or_default().push(binding.action.to_string());
+        seen.entry(chord)
+            .or_default()
+            .push(binding.action.to_string());
         if binding.action.to_string().contains('.')
             && !matches!(
                 binding.action,
@@ -1127,7 +1166,13 @@ fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
         .collect();
     println!("kittwm keymap check");
     println!("==================");
-    println!("prefix: {}", km.prefix.as_ref().map(ToString::to_string).unwrap_or_else(|| "<none>".to_string()));
+    println!(
+        "prefix: {}",
+        km.prefix
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "<none>".to_string())
+    );
     println!("bindings: {}", km.bindings.len());
     println!("duplicate_chords: {}", duplicates.len());
     for (chord, actions) in duplicates {
@@ -1232,16 +1277,28 @@ fn path_commands(limit: usize) -> Vec<String> {
     let mut out = std::collections::BTreeSet::new();
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
-            let Ok(read) = std::fs::read_dir(dir) else { continue };
+            let Ok(read) = std::fs::read_dir(dir) else {
+                continue;
+            };
             for ent in read.flatten() {
                 let path = ent.path();
-                if !path.is_file() { continue; }
-                let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
-                if name.starts_with('.') { continue; }
+                if !path.is_file() {
+                    continue;
+                }
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if name.starts_with('.') {
+                    continue;
+                }
                 out.insert(name.to_string());
-                if out.len() >= limit { break; }
+                if out.len() >= limit {
+                    break;
+                }
             }
-            if out.len() >= limit { break; }
+            if out.len() >= limit {
+                break;
+            }
         }
     }
     out.into_iter().take(limit).collect()
@@ -1251,15 +1308,25 @@ fn path_commands(limit: usize) -> Vec<String> {
 fn macos_apps(limit: usize) -> Vec<String> {
     let mut out = std::collections::BTreeSet::new();
     for root in ["/Applications", "/System/Applications"] {
-        let Ok(read) = std::fs::read_dir(root) else { continue };
+        let Ok(read) = std::fs::read_dir(root) else {
+            continue;
+        };
         for ent in read.flatten() {
             let path = ent.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("app") { continue; }
-            let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+            if path.extension().and_then(|s| s.to_str()) != Some("app") {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
             out.insert(name.trim_end_matches(".app").to_string());
-            if out.len() >= limit { break; }
+            if out.len() >= limit {
+                break;
+            }
         }
-        if out.len() >= limit { break; }
+        if out.len() >= limit {
+            break;
+        }
     }
     out.into_iter().take(limit).collect()
 }
@@ -1282,7 +1349,11 @@ fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> V
         .filter_map(|item| candidate_match_score(&item, &q).map(|score| (score, item)))
         .collect();
     scored.sort_by(|(a_score, a), (b_score, b)| a_score.cmp(b_score).then_with(|| a.cmp(b)));
-    scored.into_iter().map(|(_, item)| item).take(limit).collect()
+    scored
+        .into_iter()
+        .map(|(_, item)| item)
+        .take(limit)
+        .collect()
 }
 
 fn candidate_match_score(item: &str, lower_query: &str) -> Option<u8> {
@@ -1307,11 +1378,15 @@ struct AppCandidate {
 fn first_app_candidate(path_cmds: &[String], mac_apps: &[String]) -> Option<AppCandidate> {
     path_cmds
         .first()
-        .map(|name| AppCandidate { kind: "path", name: name.clone() })
+        .map(|name| AppCandidate {
+            kind: "path",
+            name: name.clone(),
+        })
         .or_else(|| {
-            mac_apps
-                .first()
-                .map(|name| AppCandidate { kind: "macos", name: name.clone() })
+            mac_apps.first().map(|name| AppCandidate {
+                kind: "macos",
+                name: name.clone(),
+            })
         })
 }
 
@@ -1328,8 +1403,43 @@ fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| anyhow!("launch candidate {}:{}: {e}", candidate.kind, candidate.name))?;
+        .map_err(|e| {
+            anyhow!(
+                "launch candidate {}:{}: {e}",
+                candidate.kind,
+                candidate.name
+            )
+        })?;
     Ok(child.id())
+}
+
+fn replace_cmd(cli: &Cli) -> Result<()> {
+    if cli.replace_args.is_empty() {
+        return Err(anyhow!("usage: kittwm replace <command|browser> [args...]"));
+    }
+    if std::env::var("KITTWM_WINDOW").is_err() {
+        let sock = std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<unset>".to_string());
+        return Err(anyhow!(
+            "replace requires KITTWM_WINDOW in the current pane; socket-only spawn via {sock} is tracked by bd-cddcf2"
+        ));
+    }
+    let mut argv = cli.replace_args.clone();
+    if argv[0] == "browser" {
+        argv[0] = "kittwm-browser".to_string();
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(&argv[0]).args(&argv[1..]).exec();
+        Err(anyhow!("exec {:?}: {err}", argv))
+    }
+    #[cfg(not(unix))]
+    {
+        let status = std::process::Command::new(&argv[0])
+            .args(&argv[1..])
+            .status()?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
 }
 
 fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
@@ -1343,15 +1453,25 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
     let mut candidates: Vec<AppCandidate> = path_cmds
         .into_iter()
         .map(|name| AppCandidate { kind: "path", name })
-        .chain(mac_app_candidates.into_iter().map(|name| AppCandidate { kind: "macos", name }))
+        .chain(mac_app_candidates.into_iter().map(|name| AppCandidate {
+            kind: "macos",
+            name,
+        }))
         .take(limit)
         .collect();
     if candidates.is_empty() {
-        candidates.push(AppCandidate { kind: "none", name: "<no matches>".to_string() });
+        candidates.push(AppCandidate {
+            kind: "none",
+            name: "<no matches>".to_string(),
+        });
     }
     let mut selected = cli.launcher_select.unwrap_or(1);
-    if selected == 0 { selected = 1; }
-    if selected > candidates.len() { selected = candidates.len(); }
+    if selected == 0 {
+        selected = 1;
+    }
+    if selected > candidates.len() {
+        selected = candidates.len();
+    }
     let selected_idx = selected - 1;
     if cli.launcher_launch_selection {
         let candidate = &candidates[selected_idx];
@@ -1359,7 +1479,10 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
             return Err(anyhow!("no launcher candidate selected"));
         }
         let pid = launch_app_candidate(candidate)?;
-        println!("kittwm launcher: launched selection={} pid={} kind={} name={}", selected, pid, candidate.kind, candidate.name);
+        println!(
+            "kittwm launcher: launched selection={} pid={} kind={} name={}",
+            selected, pid, candidate.kind, candidate.name
+        );
         return Ok(());
     }
 
@@ -1375,7 +1498,11 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
         println!("│{:<width$}│", truncate(&text, width), width = width);
     }
     println!("├{}┤", "─".repeat(width));
-    println!("│ {:<w$}│", "Enter launches selection · Esc closes · type filters", w = width - 1);
+    println!(
+        "│ {:<w$}│",
+        "Enter launches selection · Esc closes · type filters",
+        w = width - 1
+    );
     println!("└{}┘", "─".repeat(width));
     Ok(())
 }
@@ -1387,18 +1514,28 @@ fn native_terminal_cmd() -> Result<()> {
     term.send_text("hello from kittwm native pty\n")?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     while std::time::Instant::now() < deadline
-        && !term.text_snapshot().contains("hello from kittwm native pty")
+        && !term
+            .text_snapshot()
+            .contains("hello from kittwm native pty")
     {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     let text = term.text_snapshot();
     let frame = term.capture()?;
-    let NativeFrame::Rgba { width, height, rgba } = frame else {
+    let NativeFrame::Rgba {
+        width,
+        height,
+        rgba,
+    } = frame
+    else {
         return Err(anyhow!("native terminal returned non-RGBA frame"));
     };
     println!("kittwm native-terminal");
     println!("=======================");
-    println!("text_contains_hello: {}", text.contains("hello from kittwm native pty"));
+    println!(
+        "text_contains_hello: {}",
+        text.contains("hello from kittwm native pty")
+    );
     println!("frame: {width}x{height} rgba_bytes={}", rgba.len());
     print!("{text}");
     Ok(())
@@ -1414,20 +1551,26 @@ fn native_browser_cmd(cli: &Cli) -> Result<()> {
     browser.send_text(" typed")?;
     browser.click(20, 20)?;
     let frame = browser.capture()?;
-    let NativeFrame::Png { width, height, bytes } = frame else {
+    let NativeFrame::Png {
+        width,
+        height,
+        bytes,
+    } = frame
+    else {
         return Err(anyhow!("native browser returned non-PNG frame"));
     };
-    let out = cli.native_out.clone().unwrap_or_else(|| {
-        format!(
-            "/tmp/kittwm-native-browser-{}.png",
-            std::process::id()
-        )
-    });
+    let out = cli
+        .native_out
+        .clone()
+        .unwrap_or_else(|| format!("/tmp/kittwm-native-browser-{}.png", std::process::id()));
     std::fs::write(&out, &bytes)?;
     println!("kittwm native-browser");
     println!("======================");
     println!("url: {url}");
-    println!("screenshot: {width}x{height} bytes={} path={out}", bytes.len());
+    println!(
+        "screenshot: {width}x{height} bytes={} path={out}",
+        bytes.len()
+    );
     Ok(())
 }
 
@@ -1441,14 +1584,40 @@ fn config_cmd(_cli: &Cli) -> Result<()> {
     let duplicates = keymap_duplicate_count(&keymap);
     println!("kittwm config");
     println!("============");
-    println!("KITTUI_WM_KEYMAP       : {}", keymap_path.as_deref().unwrap_or("<default>"));
-    println!("KITTUI_WM_LAUNCH_CMD   : {}", std::env::var("KITTUI_WM_LAUNCH_CMD").unwrap_or_else(|_| "<default: xterm>".to_string()));
-    println!("KITTUI_WM_LAUNCH_QUERY : {}", std::env::var("KITTUI_WM_LAUNCH_QUERY").unwrap_or_else(|_| "<unset>".to_string()));
-    println!("KITTUI_WM_LAUNCHER_OVERLAY: {}", std::env::var("KITTUI_WM_LAUNCHER_OVERLAY").unwrap_or_else(|_| "<unset>".to_string()));
-    println!("prefix                 : {}", keymap.prefix.as_ref().map(ToString::to_string).unwrap_or_else(|| "<none>".to_string()));
+    println!(
+        "KITTUI_WM_KEYMAP       : {}",
+        keymap_path.as_deref().unwrap_or("<default>")
+    );
+    println!(
+        "KITTUI_WM_LAUNCH_CMD   : {}",
+        std::env::var("KITTUI_WM_LAUNCH_CMD").unwrap_or_else(|_| "<default: xterm>".to_string())
+    );
+    println!(
+        "KITTUI_WM_LAUNCH_QUERY : {}",
+        std::env::var("KITTUI_WM_LAUNCH_QUERY").unwrap_or_else(|_| "<unset>".to_string())
+    );
+    println!(
+        "KITTUI_WM_LAUNCHER_OVERLAY: {}",
+        std::env::var("KITTUI_WM_LAUNCHER_OVERLAY").unwrap_or_else(|_| "<unset>".to_string())
+    );
+    println!(
+        "prefix                 : {}",
+        keymap
+            .prefix
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "<none>".to_string())
+    );
     println!("bindings               : {}", keymap.bindings.len());
     println!("duplicate_chords       : {duplicates}");
-    println!("status                 : {}", if duplicates == 0 { "ok" } else { "duplicate chords found" });
+    println!(
+        "status                 : {}",
+        if duplicates == 0 {
+            "ok"
+        } else {
+            "duplicate chords found"
+        }
+    );
     Ok(())
 }
 

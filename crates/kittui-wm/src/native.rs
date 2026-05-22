@@ -667,7 +667,10 @@ mod tests {
             "printf \"$KITTWM_WINDOW/$KITTWM_SOCKET\"",
             60,
             4,
-            [("KITTWM_WINDOW", "native-1"), ("KITTWM_SOCKET", "/tmp/kittwm-test.sock")],
+            [
+                ("KITTWM_WINDOW", "native-1"),
+                ("KITTWM_SOCKET", "/tmp/kittwm-test.sock"),
+            ],
         )
         .expect("spawn pty env probe");
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -675,7 +678,10 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         let text = term.text_snapshot();
-        assert!(text.contains("native-1//tmp/kittwm-test.sock"), "snapshot was:\n{text}");
+        assert!(
+            text.contains("native-1//tmp/kittwm-test.sock"),
+            "snapshot was:\n{text}"
+        );
     }
 
     #[test]
