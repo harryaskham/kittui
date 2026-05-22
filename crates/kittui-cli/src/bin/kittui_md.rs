@@ -6,7 +6,10 @@ use std::process::ExitCode;
 use anyhow::{anyhow, Result};
 use kittui::scene::{background_linear, rounded_rect, scene};
 use kittui::{CellRect, CellSize, Direction, RendererKind, Rgba, Runtime, Scene, Transport};
-use kittui_affordances::{render_markdown, ComponentKind, MarkdownDocument, UiComponent};
+use kittui_affordances::{
+    box_glyph_scene, render_markdown, ComponentKind, MarkdownDocument, MarkdownTable,
+    TableGlyphLayout, UiComponent,
+};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum Mode {
@@ -27,6 +30,7 @@ struct Config {
 struct LaidOutComponent<'a> {
     component: &'a UiComponent,
     rect: CellRect,
+    table_index: Option<usize>,
 }
 
 fn main() -> ExitCode {
@@ -134,7 +138,7 @@ fn write_plain(doc: &MarkdownDocument, width: u16, out: &mut impl Write) -> Resu
 }
 
 fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Result<()> {
-    let layout = layout_components(&doc.components, cfg.width);
+    let layout = layout_components(&doc.components, &doc.tables, cfg.width);
     let visible = visible_components(&layout, cfg.offset_rows, cfg.height_rows);
     let cell = CellSize::default();
     let runtime = Runtime::builder().renderer(RendererKind::Cpu).build()?;
@@ -157,6 +161,13 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
             kittui_kitty::cursor_move(local_rect.x, local_rect.y, Transport::Direct)
         )?;
         write!(out, "{}", placed.embed)?;
+        if let Some(table_index) = item.table_index {
+            if let Some(table) = doc.tables.get(table_index) {
+                write_table_glyphs(out, &runtime, table, placed.image_id, local_rect, cell)?;
+                write_table_text(out, table, local_rect)?;
+                continue;
+            }
+        }
         write_component_text(out, item.component, local_rect)?;
     }
     let footer_y = visible
@@ -189,15 +200,33 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
     Ok(())
 }
 
-fn layout_components(components: &[UiComponent], width: u16) -> Vec<LaidOutComponent<'_>> {
+fn layout_components<'a>(
+    components: &'a [UiComponent],
+    tables: &'a [MarkdownTable],
+    width: u16,
+) -> Vec<LaidOutComponent<'a>> {
     let mut y = 0;
+    let mut table_index = 0usize;
     let mut out = Vec::with_capacity(components.len());
     for component in components {
-        let rows = component.height_cells.max(1);
+        let is_table =
+            component.kind == ComponentKind::TextBox && component.text.starts_with("table\n");
+        let current_table = if is_table {
+            let idx = table_index;
+            table_index += 1;
+            Some(idx)
+        } else {
+            None
+        };
+        let table_rows = current_table
+            .and_then(|idx| tables.get(idx))
+            .map(|table| table.footprint().rows.saturating_add(2));
+        let rows = table_rows.unwrap_or_else(|| component.height_cells.max(1));
         let cols = component.width_cells.min(width).max(1);
         out.push(LaidOutComponent {
             component,
             rect: CellRect::new(0, y, cols, rows),
+            table_index: current_table,
         });
         y = y.saturating_add(rows).saturating_add(1);
     }
@@ -268,6 +297,56 @@ fn component_scene(component: &UiComponent, rect: CellRect, cell: CellSize) -> S
     scene(rect, cell, layers)
 }
 
+fn write_table_glyphs(
+    out: &mut impl Write,
+    runtime: &Runtime,
+    table: &MarkdownTable,
+    anchor_image_id: u32,
+    rect: CellRect,
+    cell: CellSize,
+) -> Result<()> {
+    let layout =
+        TableGlyphLayout::from_table(anchor_image_id, table).with_background(anchor_image_id);
+    let fg = Rgba::rgba(176, 220, 255, 245);
+    for (i, glyph_cell) in layout.cells.iter().enumerate() {
+        let scene = box_glyph_scene(glyph_cell.glyph, fg, cell);
+        let placed = runtime.place(&scene)?;
+        let mut options = glyph_cell.placement.clone();
+        options.placement_id = Some(10_000 + i as u32);
+        if let Some(relative) = &mut options.relative {
+            relative.image_id = anchor_image_id;
+        }
+        let command = kittui_kitty::placement_command_ex(
+            placed.image_id,
+            CellRect::new(rect.x, rect.y, 1, 1),
+            &options,
+            Transport::Direct,
+        );
+        write!(out, "{}{}", placed.upload, command)?;
+    }
+    Ok(())
+}
+
+fn write_table_text(out: &mut impl Write, table: &MarkdownTable, rect: CellRect) -> Result<()> {
+    let widths = table.column_widths();
+    for (row_idx, row) in table.rows.iter().enumerate() {
+        let y = rect.y.saturating_add(1 + row_idx as u16 * 2);
+        let mut x = rect.x.saturating_add(2);
+        for (col_idx, cell) in row.iter().enumerate() {
+            write!(
+                out,
+                "{}\x1b[37m{}\x1b[0m",
+                kittui_kitty::cursor_move(x, y, Transport::Direct),
+                truncate_cells(cell, widths.get(col_idx).copied().unwrap_or(1) as usize)
+            )?;
+            x = x
+                .saturating_add(widths.get(col_idx).copied().unwrap_or(1))
+                .saturating_add(3);
+        }
+    }
+    Ok(())
+}
+
 fn write_component_text(
     out: &mut impl Write,
     component: &UiComponent,
@@ -327,20 +406,29 @@ fn terminal_cols() -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kittui_affordances::h1;
+    use kittui_affordances::{h1, textbox, Tone};
 
     #[test]
     fn layout_stacks_components_with_gaps() {
         let comps = vec![h1("Title", 40), h1("Next", 40)];
-        let layout = layout_components(&comps, 80);
+        let layout = layout_components(&comps, &[], 80);
         assert_eq!(layout[0].rect.y, 0);
         assert_eq!(layout[1].rect.y, 4);
     }
 
     #[test]
+    fn layout_marks_table_components() {
+        let tables = vec![MarkdownTable::new(vec![vec!["A".into(), "B".into()]])];
+        let comps = vec![textbox("table\nA | B", 40, Tone::Assistant)];
+        let layout = layout_components(&comps, &tables, 80);
+        assert_eq!(layout[0].table_index, Some(0));
+        assert!(layout[0].rect.rows > 2);
+    }
+
+    #[test]
     fn viewport_filters_by_offset_and_height() {
         let comps = vec![h1("One", 40), h1("Two", 40), h1("Three", 40)];
-        let layout = layout_components(&comps, 80);
+        let layout = layout_components(&comps, &[], 80);
         let visible = visible_components(&layout, 4, Some(3));
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].component.text, "Two");

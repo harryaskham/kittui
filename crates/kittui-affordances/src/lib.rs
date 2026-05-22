@@ -18,21 +18,23 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
+pub mod components;
+pub mod inline;
+pub mod markdown;
 pub mod palette;
 pub mod panel;
-pub mod inline;
-pub mod components;
-pub mod markdown;
 pub mod table;
 
-pub use palette::{Palette, Tone};
-pub use panel::{panel_chrome, PanelOptions};
-pub use inline::{chip_chrome, divider_chrome, title_chrome};
 pub use components::{
     banner, footer, h1, h2, h3, header, textbox, textchip, title, ComponentKind, UiComponent,
 };
+pub use inline::{chip_chrome, divider_chrome, title_chrome};
 pub use markdown::{render_markdown, LinkChip, MarkdownDocument};
-pub use table::{relative_cell_options, BoxGlyphCell, TableGlyphLayout};
+pub use palette::{Palette, Tone};
+pub use panel::{panel_chrome, PanelOptions};
+pub use table::{
+    box_glyph_scene, relative_cell_options, BoxGlyphCell, MarkdownTable, TableGlyphLayout,
+};
 
 #[cfg(test)]
 mod tests {
