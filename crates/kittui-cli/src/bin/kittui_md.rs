@@ -117,6 +117,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--components" => {
                 set_mode(&mut mode, &mut mode_flag, "--components", Mode::Components)?
             }
+            "--widgets" => set_mode(&mut mode, &mut mode_flag, "--widgets", Mode::Components)?,
             "--outline" => set_mode(&mut mode, &mut mode_flag, "--outline", Mode::Outline)?,
             "--toc" => set_mode(&mut mode, &mut mode_flag, "--toc", Mode::Outline)?,
             "--headings" => set_mode(&mut mode, &mut mode_flag, "--headings", Mode::Outline)?,
@@ -227,7 +228,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1339,6 +1340,21 @@ mod tests {
         let cfg = parse_args(["--components".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Components);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_widgets_alias() {
+        let cfg = parse_args(["--widgets".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Components);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_components_plus_widgets() {
+        let err = parse_args(["--components".to_string(), "--widgets".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--components"), "{err}");
+        assert!(err.to_string().contains("--widgets"), "{err}");
     }
 
     #[test]
