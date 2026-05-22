@@ -122,6 +122,7 @@ cargo run -p kittui-cli --bin kittui-md -- --slugs docs/examples/kittui-md-proof
 cargo run -p kittui-cli --bin kittui-md -- --anchors-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --links docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --urls docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --links-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --references docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --refs docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --footnotes docs/examples/kittui-md-proof.md
@@ -167,6 +168,7 @@ Modes:
   `--anchors-json` emits the same anchor records as machine-readable JSON.
 - `--links` prints only parsed Markdown links with labels, URLs, and optional
   title attributes; `--urls` is a friendly alias for the same mode.
+  `--links-json` emits the same link records as machine-readable JSON.
 - `--references` prints only links, image references, footnote references, and
   footnote definitions for a human-readable reference audit, including optional
   link/image title attributes when present; `--refs` is a concise alias for the

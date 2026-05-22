@@ -21,6 +21,7 @@ enum Mode {
     AnchorsJson,
     References,
     Links,
+    LinksJson,
     Footnotes,
     Images,
     Tables,
@@ -80,6 +81,7 @@ fn real_main() -> Result<()> {
         Mode::AnchorsJson => write_anchors_json(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
         Mode::Links => write_links(&doc, &mut std::io::stdout().lock()),
+        Mode::LinksJson => write_links_json(&doc, &mut std::io::stdout().lock()),
         Mode::Footnotes => write_footnotes(&doc, &mut std::io::stdout().lock()),
         Mode::Images => write_images(&doc, &mut std::io::stdout().lock()),
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
@@ -143,6 +145,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--refs" => set_mode(&mut mode, &mut mode_flag, "--refs", Mode::References)?,
             "--links" => set_mode(&mut mode, &mut mode_flag, "--links", Mode::Links)?,
             "--urls" => set_mode(&mut mode, &mut mode_flag, "--urls", Mode::Links)?,
+            "--links-json" => set_mode(&mut mode, &mut mode_flag, "--links-json", Mode::LinksJson)?,
             "--footnotes" => set_mode(&mut mode, &mut mode_flag, "--footnotes", Mode::Footnotes)?,
             "--notes" => set_mode(&mut mode, &mut mode_flag, "--notes", Mode::Footnotes)?,
             "--images" => set_mode(&mut mode, &mut mode_flag, "--images", Mode::Images)?,
@@ -254,7 +257,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--links|--urls|--links-json|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -550,6 +553,21 @@ fn write_links(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
             writeln!(out, "  title={title}")?;
         }
     }
+    Ok(())
+}
+
+fn write_links_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "links": doc.links.iter().enumerate().map(|(index, link)| serde_json::json!({
+            "index": index,
+            "label": link.label,
+            "url": link.url,
+            "title": link.title,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -1642,6 +1660,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_links_json_mode() {
+        let cfg = parse_args(["--links-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::LinksJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_links_plus_links_json() {
+        let err = parse_args(["--links".to_string(), "--links-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--links"), "{err}");
+        assert!(err.to_string().contains("--links-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_accepts_notes_alias() {
         let cfg = parse_args(["--notes".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Footnotes);
@@ -2059,6 +2092,19 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "kittui-md links — 0 links\n<empty>\n"
         );
+    }
+
+    #[test]
+    fn links_json_mode_writes_link_records() {
+        let doc = render_markdown("See [site](https://example.com \"Example title\")", 80);
+        let mut out = Vec::new();
+        write_links_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["links"][0]["index"], 0);
+        assert_eq!(value["links"][0]["label"], "site");
+        assert_eq!(value["links"][0]["url"], "https://example.com");
+        assert_eq!(value["links"][0]["title"], "Example title");
     }
 
     #[test]
