@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -46,12 +46,60 @@ pub fn display_to_socket_path(display: &str) -> PathBuf {
     }
 }
 
+/// Metadata for a process spawned through the daemon protocol.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrackedPane {
+    /// Monotonic pane id assigned by the daemon.
+    pub pane_id: u32,
+    /// Window token exported to the child via `KITTWM_WINDOW`.
+    pub window: String,
+    /// OS process id.
+    pub pid: u32,
+    /// Original shell argv string.
+    pub argv: String,
+    /// Layout slot/orientation label.
+    pub layout: String,
+    /// Whether this pane is currently focused.
+    pub focused: bool,
+}
+
+#[derive(Debug, Default)]
+struct PaneRegistry {
+    next_id: u32,
+    panes: Vec<TrackedPane>,
+    focused: Option<u32>,
+}
+
+impl PaneRegistry {
+    fn track_spawn(&mut self, pid: u32, argv: &str) -> TrackedPane {
+        self.next_id = self.next_id.saturating_add(1).max(1);
+        let pane_id = self.next_id;
+        for pane in &mut self.panes {
+            pane.focused = false;
+        }
+        self.focused = Some(pane_id);
+        let pane = TrackedPane {
+            pane_id,
+            window: format!("daemon-{pane_id}"),
+            pid,
+            argv: argv.to_string(),
+            layout: format!("tile:{pane_id}"),
+            focused: true,
+        };
+        self.panes.push(pane.clone());
+        pane
+    }
+}
+
+type SharedPanes = Arc<Mutex<PaneRegistry>>;
+
 /// Accept-loop daemon that answers `PING` / `STATUS` / `QUIT`.
 pub struct DaemonServer {
     path: PathBuf,
     started: Instant,
     quit: Arc<AtomicBool>,
     accept_thread: Option<JoinHandle<()>>,
+    panes: SharedPanes,
 }
 
 impl std::fmt::Debug for DaemonServer {
@@ -60,6 +108,10 @@ impl std::fmt::Debug for DaemonServer {
             .field("path", &self.path)
             .field("uptime", &self.started.elapsed())
             .field("quit_requested", &self.quit.load(Ordering::SeqCst))
+            .field(
+                "panes",
+                &self.panes.lock().map(|p| p.panes.len()).unwrap_or(0),
+            )
             .finish()
     }
 }
@@ -81,14 +133,16 @@ impl DaemonServer {
                 }
             }
         }
-        let listener = UnixListener::bind(&path)
-            .map_err(|e| anyhow!("bind {}: {e}", path.display()))?;
+        let listener =
+            UnixListener::bind(&path).map_err(|e| anyhow!("bind {}: {e}", path.display()))?;
         listener
             .set_nonblocking(false)
             .map_err(|e| anyhow!("set_nonblocking: {e}"))?;
         let started = Instant::now();
         let quit = Arc::new(AtomicBool::new(false));
+        let panes = Arc::new(Mutex::new(PaneRegistry::default()));
         let quit_t = quit.clone();
+        let panes_t = panes.clone();
         let path_t = path.clone();
         let accept_thread = std::thread::spawn(move || {
             for stream in listener.incoming() {
@@ -97,7 +151,7 @@ impl DaemonServer {
                 }
                 let Ok(stream) = stream else { continue };
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                let _ = handle_request(stream, started, &path_t, &quit_t);
+                let _ = handle_request(stream, started, &path_t, &quit_t, &panes_t);
             }
             let _ = std::fs::remove_file(&path_t);
         });
@@ -106,6 +160,7 @@ impl DaemonServer {
             started,
             quit,
             accept_thread: Some(accept_thread),
+            panes,
         })
     }
 
@@ -120,6 +175,14 @@ impl DaemonServer {
 
     pub fn uptime(&self) -> Duration {
         self.started.elapsed()
+    }
+
+    /// Snapshot of panes spawned through this daemon.
+    pub fn panes(&self) -> Vec<TrackedPane> {
+        self.panes
+            .lock()
+            .map(|p| p.panes.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -140,6 +203,7 @@ fn handle_request(
     started: Instant,
     path: &Path,
     quit: &AtomicBool,
+    panes: &SharedPanes,
 ) -> Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
@@ -151,22 +215,25 @@ fn handle_request(
     } else if let Some(query) = cmd.strip_prefix("APPS_LAUNCH_FIRST ") {
         apps_first_reply(query, true)
     } else if let Some(argv) = cmd.strip_prefix("SPAWN ") {
-        spawn_reply(argv)
+        spawn_reply(argv, path, panes)
     } else {
         match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => format!(
-            "pid={} uptime_s={} sock={}\n",
+            "pid={} uptime_s={} sock={} panes={} focus={}\n",
             std::process::id(),
             started.elapsed().as_secs(),
-            path.display()
+            path.display(),
+            panes.lock().map(|p| p.panes.len()).unwrap_or(0),
+            panes.lock().ok().and_then(|p| p.focused).map(|id| id.to_string()).unwrap_or_else(|| "-".to_string())
         ),
         "WINDOWS" => windows_reply(),
         "DISPLAYS" => displays_reply(),
         "APPS" => apps_reply(50),
         "APPS_JSON" => apps_json_reply(50),
+        "PANES" => panes_reply(panes),
         "HELP" | "?" => {
-            "PING | STATUS | WINDOWS | DISPLAYS | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | SPAWN <argv> | QUIT | HELP\n".to_string()
+            "PING | STATUS | WINDOWS | DISPLAYS | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | SPAWN <argv> | PANES | QUIT | HELP\n".to_string()
         }
         "QUIT" => {
             quit.store(true, Ordering::SeqCst);
@@ -182,8 +249,8 @@ fn handle_request(
 
 /// Send a single-line request and return the reply line.
 pub fn client_request(path: &Path, cmd: &str) -> Result<String> {
-    let mut stream = UnixStream::connect(path)
-        .map_err(|e| anyhow!("connect {}: {e}", path.display()))?;
+    let mut stream =
+        UnixStream::connect(path).map_err(|e| anyhow!("connect {}: {e}", path.display()))?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.write_all(cmd.as_bytes())?;
     stream.write_all(b"\n")?;
@@ -199,17 +266,23 @@ mod tests {
     use super::*;
 
     fn tmp_sock() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "kittwm-test-{}.sock",
-            std::process::id()
-        ))
+        std::env::temp_dir().join(format!("kittwm-test-{}.sock", std::process::id()))
     }
 
     #[test]
     fn display_to_socket_path_supports_colon_display() {
-        assert_eq!(display_to_socket_path(":7"), PathBuf::from("/tmp/kittui-wm-7.sock"));
-        assert_eq!(display_to_socket_path(":7.0"), PathBuf::from("/tmp/kittui-wm-7.sock"));
-        assert_eq!(display_to_socket_path("/tmp/custom.sock"), PathBuf::from("/tmp/custom.sock"));
+        assert_eq!(
+            display_to_socket_path(":7"),
+            PathBuf::from("/tmp/kittui-wm-7.sock")
+        );
+        assert_eq!(
+            display_to_socket_path(":7.0"),
+            PathBuf::from("/tmp/kittui-wm-7.sock")
+        );
+        assert_eq!(
+            display_to_socket_path("/tmp/custom.sock"),
+            PathBuf::from("/tmp/custom.sock")
+        );
     }
 
     #[test]
@@ -223,10 +296,8 @@ mod tests {
 
     #[test]
     fn status_includes_pid_and_uptime() {
-        let p = std::env::temp_dir().join(format!(
-            "kittwm-test-status-{}.sock",
-            std::process::id()
-        ));
+        let p =
+            std::env::temp_dir().join(format!("kittwm-test-status-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&p);
         let server = DaemonServer::bind(p.clone()).unwrap();
         std::thread::sleep(Duration::from_millis(50));
@@ -238,10 +309,7 @@ mod tests {
 
     #[test]
     fn quit_sets_flag() {
-        let p = std::env::temp_dir().join(format!(
-            "kittwm-test-quit-{}.sock",
-            std::process::id()
-        ));
+        let p = std::env::temp_dir().join(format!("kittwm-test-quit-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&p);
         let server = DaemonServer::bind(p.clone()).unwrap();
         let reply = client_request(server.path(), "QUIT").unwrap();
@@ -252,24 +320,26 @@ mod tests {
     }
 
     #[test]
-    fn spawn_command_returns_pid() {
-        let p = std::env::temp_dir().join(format!(
-            "kittwm-test-spawn-{}.sock",
-            std::process::id()
-        ));
+    fn spawn_command_returns_tracked_pane() {
+        let p = std::env::temp_dir().join(format!("kittwm-test-spawn-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&p);
         let server = DaemonServer::bind(p.clone()).unwrap();
         let reply = client_request(server.path(), "SPAWN /bin/echo daemon-spawn-ok").unwrap();
-        assert!(reply.starts_with("SPAWNED pid="), "{reply}");
+        assert!(
+            reply.starts_with("SPAWNED pane=1 window=daemon-1 pid="),
+            "{reply}"
+        );
         assert!(reply.contains("daemon-spawn-ok"), "{reply}");
+        assert!(reply.contains("layout=tile:1"), "{reply}");
+        let panes = client_request_multi(server.path(), "PANES").unwrap();
+        assert!(panes.contains("PANES 1"), "{panes}");
+        assert!(panes.contains("pane=1 window=daemon-1"), "{panes}");
+        assert_eq!(server.panes().len(), 1);
     }
 
     #[test]
     fn double_bind_detects_existing_daemon() {
-        let p = std::env::temp_dir().join(format!(
-            "kittwm-test-dup-{}.sock",
-            std::process::id()
-        ));
+        let p = std::env::temp_dir().join(format!("kittwm-test-dup-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&p);
         let _a = DaemonServer::bind(p.clone()).unwrap();
         let err = DaemonServer::bind(p.clone()).unwrap_err();
@@ -331,8 +401,8 @@ fn displays_reply() -> String {
 /// containing exactly "END" arrives (so multi-line replies like WINDOWS
 /// don't drop after the first line).
 pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
-    let mut stream = UnixStream::connect(path)
-        .map_err(|e| anyhow!("connect {}: {e}", path.display()))?;
+    let mut stream =
+        UnixStream::connect(path).map_err(|e| anyhow!("connect {}: {e}", path.display()))?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.write_all(cmd.as_bytes())?;
     stream.write_all(b"\n")?;
@@ -352,26 +422,74 @@ pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
         // Single-line replies don't send END; break after one if it
         // doesn't look like a known multi-line header.
         let first = out.lines().next().unwrap_or("");
-        if !first.starts_with("WINDOWS ") && !first.starts_with("DISPLAYS ") && !first.starts_with("APPS ") {
+        if !first.starts_with("WINDOWS ")
+            && !first.starts_with("DISPLAYS ")
+            && !first.starts_with("APPS ")
+            && !first.starts_with("PANES ")
+        {
             break;
         }
     }
     Ok(out)
 }
 
-fn spawn_reply(argv: &str) -> String {
+fn panes_reply(panes: &SharedPanes) -> String {
+    use std::fmt::Write;
+    let Ok(registry) = panes.lock() else {
+        return "ERR PANES registry poisoned\n".to_string();
+    };
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "PANES {} focus={}",
+        registry.panes.len(),
+        registry
+            .focused
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    for pane in &registry.panes {
+        let _ = writeln!(
+            out,
+            "  pane={} window={} pid={} layout={} focused={} argv={:?}",
+            pane.pane_id, pane.window, pane.pid, pane.layout, pane.focused, pane.argv
+        );
+    }
+    out.push_str("END\n");
+    out
+}
+
+fn spawn_reply(argv: &str, path: &Path, panes: &SharedPanes) -> String {
     if argv.trim().is_empty() {
         return "ERR SPAWN requires argv\n".to_string();
     }
+    let next_window = panes
+        .lock()
+        .map(|p| format!("daemon-{}", p.next_id.saturating_add(1).max(1)))
+        .unwrap_or_else(|_| "daemon-unknown".to_string());
     match std::process::Command::new("/bin/sh")
         .arg("-lc")
         .arg(argv)
+        .env("KITTWM_SOCKET", path)
+        .env("KITTWM_SOCK", path)
+        .env("KITTUI_WM_DISPLAY", path)
+        .env("KITTWM_DISPLAY", path)
+        .env("KITTWM_WINDOW", &next_window)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
     {
-        Ok(child) => format!("SPAWNED pid={} argv={argv}\n", child.id()),
+        Ok(child) => match panes.lock() {
+            Ok(mut registry) => {
+                let pane = registry.track_spawn(child.id(), argv);
+                format!(
+                    "SPAWNED pane={} window={} pid={} layout={} focused={} argv={argv}\n",
+                    pane.pane_id, pane.window, pane.pid, pane.layout, pane.focused
+                )
+            }
+            Err(_) => format!("ERR SPAWN registry poisoned after pid={}\n", child.id()),
+        },
         Err(e) => format!("ERR SPAWN {argv}: {e}\n"),
     }
 }
@@ -390,7 +508,10 @@ fn apps_reply(limit: usize) -> String {
     let mac_apps: Vec<String> = Vec::new();
 
     let mut out = String::new();
-    let _ = writeln!(out, "APPS default={default_cmd:?} resolved={default_path:?}");
+    let _ = writeln!(
+        out,
+        "APPS default={default_cmd:?} resolved={default_path:?}"
+    );
     let _ = writeln!(out, "PATH_COMMANDS {}", path_cmds.len());
     for cmd in path_cmds {
         let _ = writeln!(out, "  {cmd}");
@@ -443,16 +564,28 @@ fn path_commands(limit: usize) -> Vec<String> {
     let mut out = std::collections::BTreeSet::new();
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
-            let Ok(read) = std::fs::read_dir(dir) else { continue };
+            let Ok(read) = std::fs::read_dir(dir) else {
+                continue;
+            };
             for ent in read.flatten() {
                 let path = ent.path();
-                if !path.is_file() { continue; }
-                let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
-                if name.starts_with('.') { continue; }
+                if !path.is_file() {
+                    continue;
+                }
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if name.starts_with('.') {
+                    continue;
+                }
                 out.insert(name.to_string());
-                if out.len() >= limit { break; }
+                if out.len() >= limit {
+                    break;
+                }
             }
-            if out.len() >= limit { break; }
+            if out.len() >= limit {
+                break;
+            }
         }
     }
     out.into_iter().take(limit).collect()
@@ -462,15 +595,25 @@ fn path_commands(limit: usize) -> Vec<String> {
 fn macos_apps(limit: usize) -> Vec<String> {
     let mut out = std::collections::BTreeSet::new();
     for root in ["/Applications", "/System/Applications"] {
-        let Ok(read) = std::fs::read_dir(root) else { continue };
+        let Ok(read) = std::fs::read_dir(root) else {
+            continue;
+        };
         for ent in read.flatten() {
             let path = ent.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("app") { continue; }
-            let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+            if path.extension().and_then(|s| s.to_str()) != Some("app") {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
             out.insert(name.trim_end_matches(".app").to_string());
-            if out.len() >= limit { break; }
+            if out.len() >= limit {
+                break;
+            }
         }
-        if out.len() >= limit { break; }
+        if out.len() >= limit {
+            break;
+        }
     }
     out.into_iter().take(limit).collect()
 }
@@ -511,18 +654,25 @@ fn apps_first_reply(query: &str, launch: bool) -> String {
             Err(e) => format!("ERR launch {}:{}: {e}\n", candidate.kind, candidate.name),
         }
     } else {
-        format!("APPS_FIRST kind={} name={}\n", candidate.kind, candidate.name)
+        format!(
+            "APPS_FIRST kind={} name={}\n",
+            candidate.kind, candidate.name
+        )
     }
 }
 
 fn first_app_candidate(path_cmds: &[String], mac_apps: &[String]) -> Option<AppCandidate> {
     path_cmds
         .first()
-        .map(|name| AppCandidate { kind: "path", name: name.clone() })
+        .map(|name| AppCandidate {
+            kind: "path",
+            name: name.clone(),
+        })
         .or_else(|| {
-            mac_apps
-                .first()
-                .map(|name| AppCandidate { kind: "macos", name: name.clone() })
+            mac_apps.first().map(|name| AppCandidate {
+                kind: "macos",
+                name: name.clone(),
+            })
         })
 }
 
