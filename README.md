@@ -76,6 +76,8 @@ v0.3: kittwm now includes backend-independent native app foundations:
 - `kittwm replace ...` can exec in the current window context or ask a socket context to spawn.
 - `kittwm-browser` is a first-class native browser app backed by local headless Chrome screenshots and DevTools input.
 - X backends include FakeServer, Xvfb, Quartz/SCK, and XQuartz wrapper support.
+  On macOS, XQuartz proof runs require host-installed XQuartz and xterm
+  (`brew install --cask xquartz && brew install xterm`); see `docs/wm.md`.
 
 Try:
 

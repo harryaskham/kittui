@@ -127,6 +127,40 @@ the routed `XPointerEvent`s the real-Xvfb backend would inject.
 | `kittui-xvfb::xquartz::XQuartzServer` | macOS | spawns or attaches XQuartz and reuses x11rb capture/input | `--features xquartz` |
 | `kittui-quartz::QuartzServer` | macOS | captures the main display via `CGDisplayCreateImage`/ScreenCaptureKit, posts pointer/key events via `CGEventPost` | `--features quartz` / `sck` |
 
+### macOS XQuartz backend prerequisites
+
+`kittui-xvfb::xquartz::XQuartzServer` is a macOS proof harness for X11 apps
+inside kittwm. It is separate from the native Quartz/SCK capture backend: it
+expects a real XQuartz server and X11 client tools to exist on the host.
+
+Install the host-level prerequisites before running the `xquartz` feature lane:
+
+```sh
+brew install --cask xquartz
+brew install xterm
+```
+
+After installing XQuartz, log out/in (or reboot) so launch services and the
+`DISPLAY`/socket environment are refreshed. The expected binary locations on a
+standard install are:
+
+- `/opt/X11/bin/Xquartz`
+- `/opt/X11/bin/xterm`
+
+Useful smoke commands:
+
+```sh
+/opt/X11/bin/Xquartz :99 -nolisten tcp &
+DISPLAY=:99 /opt/X11/bin/xterm &
+cargo test -p kittui-xvfb --features xquartz xquartz -- --nocapture
+```
+
+If the binaries are missing, the XQuartz round-trip tests compile and skip
+rather than failing; that means the Rust path is buildable but the host is not
+ready for interactive XQuartz proof work. The Nix dev shell currently provides
+Linux Xvfb/xterm tools, but macOS XQuartz itself is a host application and is
+not supplied by the flake.
+
 ### macOS Quartz backend notes
 
 The public macOS path is what kittui-quartz ships in v1. Private headless
