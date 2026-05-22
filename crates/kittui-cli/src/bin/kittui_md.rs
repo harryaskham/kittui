@@ -29,6 +29,7 @@ enum Mode {
     Math,
     Html,
     Counts,
+    CountsJson,
     Stats,
     MetadataJson,
 }
@@ -86,6 +87,7 @@ fn real_main() -> Result<()> {
         Mode::Math => write_math(&doc, &mut std::io::stdout().lock()),
         Mode::Html => write_html(&doc, &mut std::io::stdout().lock()),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
+        Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
             &doc,
             &markdown,
@@ -173,6 +175,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--html" => set_mode(&mut mode, &mut mode_flag, "--html", Mode::Html)?,
             "--markup" => set_mode(&mut mode, &mut mode_flag, "--markup", Mode::Html)?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
+            "--counts-json" => {
+                set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
+            }
             "--stats" => set_mode(&mut mode, &mut mode_flag, "--stats", Mode::Stats)?,
             "--summary" => set_mode(&mut mode, &mut mode_flag, "--summary", Mode::Stats)?,
             "--metadata-json" => set_mode(
@@ -241,7 +246,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--references|--refs|--links|--urls|--footnotes|--notes|--images|--pictures|--tables|--grid|--code-blocks|--snippets|--metadata-blocks|--metadata|--frontmatter|--definitions|--glossary|--math|--equations|--html|--markup|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -726,6 +731,34 @@ fn write_references(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> 
     Ok(())
 }
 
+fn metadata_counts(doc: &MarkdownDocument) -> serde_json::Value {
+    serde_json::json!({
+        "components": doc.components.len(),
+        "headings": doc.outline.len(),
+        "heading_anchors": doc.outline.len(),
+        "links": doc.links.len(),
+        "images": doc.images.len(),
+        "tables": doc.tables.len(),
+        "footnote_references": doc.footnote_references.len(),
+        "footnotes": doc.footnotes.len(),
+        "definitions": doc.definitions.len(),
+        "math": doc.math.len(),
+        "html": doc.html.len(),
+        "metadata_blocks": doc.metadata_blocks.len(),
+        "code_blocks": doc.code_blocks.len(),
+    })
+}
+
+fn write_counts_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "counts": metadata_counts(doc),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
 fn write_metadata_json(
     doc: &MarkdownDocument,
     source: &str,
@@ -744,21 +777,7 @@ fn write_metadata_json(
             "mode": "metadata-json",
             "width_cells": width_cells,
         },
-        "counts": {
-            "components": doc.components.len(),
-            "headings": doc.outline.len(),
-            "heading_anchors": doc.outline.len(),
-            "links": doc.links.len(),
-            "images": doc.images.len(),
-            "tables": doc.tables.len(),
-            "footnote_references": doc.footnote_references.len(),
-            "footnotes": doc.footnotes.len(),
-            "definitions": doc.definitions.len(),
-            "math": doc.math.len(),
-            "html": doc.html.len(),
-            "metadata_blocks": doc.metadata_blocks.len(),
-            "code_blocks": doc.code_blocks.len(),
-        },
+        "counts": metadata_counts(doc),
         "components": doc.components.len(),
         "components_detail": doc.components.iter().enumerate().map(|(index, component)| serde_json::json!({
             "index": index,
@@ -1482,6 +1501,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_counts_json_mode() {
+        let cfg = parse_args(["--counts-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::CountsJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_counts_plus_counts_json() {
+        let err = parse_args(["--counts".to_string(), "--counts-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--counts"), "{err}");
+        assert!(err.to_string().contains("--counts-json"), "{err}");
+    }
+
+    #[test]
     fn parse_args_rejects_counts_plus_stats() {
         let err = parse_args(["--counts".to_string(), "--stats".to_string()]).unwrap_err();
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
@@ -2117,6 +2151,22 @@ mod tests {
         assert!(rendered.contains("images=1"), "{rendered}");
         assert!(!rendered.contains("source.path="), "{rendered}");
         assert!(!rendered.contains("render.width_cells="), "{rendered}");
+    }
+
+    #[test]
+    fn counts_json_mode_reports_machine_readable_counts() {
+        let source = "# Title\n\nSee [site](https://example.com) and ![logo](logo.png).";
+        let doc = render_markdown(source, 80);
+        let mut out = Vec::new();
+        write_counts_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["counts"]["headings"], 1);
+        assert_eq!(value["counts"]["heading_anchors"], 1);
+        assert_eq!(value["counts"]["links"], 1);
+        assert_eq!(value["counts"]["images"], 1);
+        assert!(value.get("source").is_none());
+        assert!(value.get("components_detail").is_none());
     }
 
     #[test]
