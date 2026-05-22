@@ -1,11 +1,32 @@
-# kittui-wm v1 — architecture and operator guide
+# kittui-wm v3 — native apps, X backends, and operator guide
 
-kittui-wm v1 is a real terminal window manager. It hosts X applications
-inside the agent process tree, captures their framebuffers, and composites
-them as floating or tiled kittui chrome inside the user's terminal — the
-same terminal the operator already has open over SSH. PATH and environment
-inherit, so anything spawned inside the nested X session picks up
-everything the SSH session has. The terminal becomes the graphics target.
+kittui-wm is a terminal-native window manager. Its default surface is now a native PTY terminal: running `kittwm` with no backend flags starts a real shell in a nested PTY, renders it through kitty graphics, resizes it with the host terminal, and injects `KITTWM_SOCKET`, `KITTWM_DISPLAY`, `KITTUI_WM_DISPLAY`, and `KITTWM_WINDOW` into the child environment.
+
+The WM can also host kittwm-native apps (for example `kittwm-browser`, backed by headless Chrome screenshots + DevTools input) and X/Quartz capture backends. The long-term model is DISPLAY-like: native apps are ordinary binaries that inherit a kittwm socket/window context, can `kittwm replace ...` their current container, or can ask the socket to spawn a new app when not already inside a window.
+
+
+## Quick start
+
+```sh
+# Default: native PTY terminal sized to your current terminal.
+cargo run -p kittui-cli --bin kittwm
+
+# Run a specific terminal app in that native PTY.
+KITTWM_TERMINAL_CMD=htop cargo run -p kittui-cli --bin kittwm
+
+# Launch a first-class native browser app (headless Chrome based).
+cargo run -p kittui-cli --bin kittwm-browser -- https://example.com
+
+# Inside a kittwm PTY, replace the current container with another app.
+kittwm replace browser https://example.com
+kittwm replace htop
+
+# Socket/display style context. :7 maps to /tmp/kittui-wm-7.sock.
+KITTUI_WM_DISPLAY=:7 kittwm --serve
+KITTUI_WM_DISPLAY=:7 kittwm --status
+```
+
+Use `Ctrl-]` to exit the current native PTY/browser viewer. Explicit capture-backed demos remain available with `--backend fake|quartz|xvfb`.
 
 ## Architecture
 
@@ -99,9 +120,12 @@ the routed `XPointerEvent`s the real-Xvfb backend would inject.
 
 | backend | host | scope | feature |
 |---|---|---|---|
-| `kittui-xvfb::FakeServer` | any | deterministic in-memory; tests + portable demo | (default) |
+| `kittui_wm::native::PtyTerminalApp` | any Unix | real nested PTY; default `kittwm` surface; terminal apps like htop/vim run normally | default |
+| `kittui_wm::native::HeadlessBrowserApp` / `kittwm-browser` | local Chrome/Chromium | browser surface via DevTools screenshots + mouse/keyboard input | default (requires Chrome) |
+| `kittui-xvfb::FakeServer` | any | deterministic in-memory; tests + portable demo | default |
 | `kittui-xvfb::xvfb::XvfbServer` | Linux | spawns Xvfb, captures via XCB GetImage, routes input via XTest | `--features xvfb` |
-| `kittui-quartz::QuartzServer` | macOS | captures the main display via `CGDisplayCreateImage`, posts pointer/key events via `CGEventPost` | `--features quartz` |
+| `kittui-xvfb::xquartz::XQuartzServer` | macOS | spawns or attaches XQuartz and reuses x11rb capture/input | `--features xquartz` |
+| `kittui-quartz::QuartzServer` | macOS | captures the main display via `CGDisplayCreateImage`/ScreenCaptureKit, posts pointer/key events via `CGEventPost` | `--features quartz` / `sck` |
 
 ### macOS Quartz backend notes
 
@@ -135,7 +159,7 @@ Three working topologies:
 3. **Local `XvfbServer::attach(":N")`.** Attach to an already-running
    X server inside the current SSH session.
 
-## Roadmap to v2
+## Remaining roadmap
 
 - Finish the XCB + MIT-SHM wiring inside `kittui-xvfb::xvfb::XvfbServer`.
 - Reintroduce private-API headless displays on macOS via `dlsym` + a

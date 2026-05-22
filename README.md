@@ -63,11 +63,27 @@ a flag, env var, YAML, or a built-in default.
 | `kittui-kitty`       | kitty graphics protocol encoder + placeholder generation |
 | `kittui-cache`       | Content-addressed PNG/APNG cache                         |
 | `kittui`             | Public facade: `Runtime`, `Placement`, builders          |
-| `kittui-cli`         | `kittui` binary + `examples/showcase`                    |
+| `kittui-cli`         | `kittui`, `kittwm`, `kittwm-browser` binaries + examples  |
 | `kittui-ffi`         | `libkittui_ffi` cdylib + staticlib                       |
 | `ratakittui`         | ratatui adapter (decoration + lifecycle scaffold)        |
 
 ## Status
+
+v0.3: kittwm now includes backend-independent native app foundations:
+
+- `kittwm` with no backend flags starts a native PTY terminal sized to the host terminal.
+- PTY children inherit `KITTWM_SOCKET`, `KITTWM_DISPLAY`, `KITTUI_WM_DISPLAY`, and `KITTWM_WINDOW`.
+- `kittwm replace ...` can exec in the current window context or ask a socket context to spawn.
+- `kittwm-browser` is a first-class native browser app backed by local headless Chrome screenshots and DevTools input.
+- X backends include FakeServer, Xvfb, Quartz/SCK, and XQuartz wrapper support.
+
+Try:
+
+```sh
+cargo run -p kittui-cli --bin kittwm
+KITTWM_TERMINAL_CMD=htop cargo run -p kittui-cli --bin kittwm
+cargo run -p kittui-cli --bin kittwm-browser -- https://example.com
+```
 
 v0.2: kitty graphics protocol now spec-conformant and **proven visually**
 in Ghostty (and any other kitty-compatible terminal):
