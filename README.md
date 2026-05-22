@@ -133,6 +133,7 @@ cargo run -p kittui-cli --bin kittui-md -- --frontmatter docs/examples/kittui-md
 cargo run -p kittui-cli --bin kittui-md -- --definitions docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --glossary docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --math docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --equations docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --html docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --markup docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --stats docs/examples/kittui-md-proof.md
@@ -173,7 +174,8 @@ Modes:
   inspection mode.
 - `--definitions` prints only definition-list term/body pairs for glossary
   inspection; `--glossary` is a friendly alias for the same mode.
-- `--math` prints only inline/display math expressions with kind and source.
+- `--math` prints only inline/display math expressions with kind and source;
+  `--equations` is a friendly alias for the same mode.
 - `--html` prints only preserved inline/block HTML placeholders with kind and
   source; `--markup` is a friendly alias for the same mode.
 - `--stats` prints concise source path/size, render width,
