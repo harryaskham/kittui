@@ -85,7 +85,8 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
         Options::ENABLE_TABLES
             | Options::ENABLE_STRIKETHROUGH
             | Options::ENABLE_TASKLISTS
-            | Options::ENABLE_FOOTNOTES,
+            | Options::ENABLE_FOOTNOTES
+            | Options::ENABLE_DEFINITION_LIST,
     );
     let mut out = MarkdownDocument::default();
     let mut buf = String::new();
@@ -97,6 +98,9 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
     let mut image_target: Option<String> = None;
     let mut image_alt = String::new();
     let mut footnote_definition: Option<String> = None;
+    let mut definition_term: Option<String> = None;
+    let mut in_definition_title = false;
+    let mut in_definition_body = false;
     let mut in_table = false;
     let mut table_rows: Vec<Vec<String>> = Vec::new();
     let mut table_alignments: Vec<MarkdownTableAlignment> = Vec::new();
@@ -128,7 +132,12 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             }
             Event::Start(Tag::Paragraph) => {}
             Event::End(TagEnd::Paragraph) => {
-                if !in_list_item && blockquote_depth == 0 && footnote_definition.is_none() {
+                if !in_list_item
+                    && blockquote_depth == 0
+                    && footnote_definition.is_none()
+                    && !in_definition_title
+                    && !in_definition_body
+                {
                     flush_paragraph(&mut out, &mut buf, width_cells);
                 }
             }
@@ -150,6 +159,33 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             Event::End(TagEnd::Item) => {
                 flush_list_item(&mut out, &mut buf, width_cells, &mut list_stack);
                 in_list_item = false;
+            }
+            Event::Start(Tag::DefinitionList) => {
+                flush_paragraph(&mut out, &mut buf, width_cells);
+            }
+            Event::Start(Tag::DefinitionListTitle) => {
+                buf.clear();
+                in_definition_title = true;
+            }
+            Event::End(TagEnd::DefinitionListTitle) => {
+                definition_term = Some(take_trimmed(&mut buf));
+                in_definition_title = false;
+            }
+            Event::Start(Tag::DefinitionListDefinition) => {
+                buf.clear();
+                in_definition_body = true;
+            }
+            Event::End(TagEnd::DefinitionListDefinition) => {
+                let definition = take_trimmed(&mut buf);
+                let term = definition_term.take().unwrap_or_default();
+                if !term.is_empty() || !definition.is_empty() {
+                    out.components.push(textbox(
+                        format!("definition: {term}\n: {definition}"),
+                        width_cells,
+                        Tone::Assistant,
+                    ));
+                }
+                in_definition_body = false;
             }
             Event::Start(Tag::FootnoteDefinition(label)) => {
                 flush_paragraph(&mut out, &mut buf, width_cells);
@@ -714,5 +750,20 @@ mod tests {
             .components
             .iter()
             .any(|c| c.kind == ComponentKind::TextBox && c.text.starts_with("footnote")));
+    }
+
+    #[test]
+    fn markdown_renders_definition_lists() {
+        let doc = render_markdown("Term\n: Definition text", 60);
+        let text = doc
+            .components
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+        assert!(
+            text.contains("definition: Term\n: Definition text"),
+            "{text}"
+        );
     }
 }
