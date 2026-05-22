@@ -48,6 +48,8 @@ enum Mode {
     ModeInfoJson,
     ModeSearch,
     ModeSearchJson,
+    About,
+    AboutJson,
     Counts,
     CountsJson,
     Stats,
@@ -118,6 +120,8 @@ fn real_main() -> Result<()> {
                 .ok_or_else(|| anyhow!("--mode-search-json requires a value"))?;
             return write_mode_search_json(query, &mut std::io::stdout().lock());
         }
+        Mode::About => return write_about(&mut std::io::stdout().lock()),
+        Mode::AboutJson => return write_about_json(&mut std::io::stdout().lock()),
         _ => {}
     }
     let markdown = if let Some(path) = &cfg.path {
@@ -163,6 +167,8 @@ fn real_main() -> Result<()> {
         Mode::ModeInfoJson => unreachable!("mode info returns before reading input"),
         Mode::ModeSearch => unreachable!("mode search returns before reading input"),
         Mode::ModeSearchJson => unreachable!("mode search returns before reading input"),
+        Mode::About => unreachable!("about returns before reading input"),
+        Mode::AboutJson => unreachable!("about returns before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -363,6 +369,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                     Mode::ModeSearchJson,
                 )?;
             }
+            "--about" => set_mode(&mut mode, &mut mode_flag, "--about", Mode::About)?,
+            "--about-json" => set_mode(&mut mode, &mut mode_flag, "--about-json", Mode::AboutJson)?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -497,6 +505,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "mode-info-json" => Ok((Mode::ModeInfoJson, "--mode-info-json")),
         "mode-search" => Ok((Mode::ModeSearch, "--mode-search")),
         "mode-search-json" => Ok((Mode::ModeSearchJson, "--mode-search-json")),
+        "about" => Ok((Mode::About, "--about")),
+        "about-json" => Ok((Mode::AboutJson, "--about-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
         "counts-json" => Ok((Mode::CountsJson, "--counts-json")),
         "stats" => Ok((Mode::Stats, "--stats")),
@@ -509,7 +519,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--about|--about-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -878,6 +888,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit output mode search results as JSON",
     },
     ModeInfo {
+        flag: "--about",
+        aliases: &[],
+        description: "print binary version and capability summary",
+    },
+    ModeInfo {
+        flag: "--about-json",
+        aliases: &[],
+        description: "emit binary version and capability summary as JSON",
+    },
+    ModeInfo {
         flag: "--counts",
         aliases: &[],
         description: "print compact structural counts",
@@ -1001,6 +1021,17 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         mode: "--mode-search-json",
         top_level_keys: &["schema_version", "query", "matches"],
         description: "Output mode search results.",
+    },
+    JsonSchemaInfo {
+        mode: "--about-json",
+        top_level_keys: &[
+            "schema_version",
+            "binary",
+            "package_version",
+            "default_mode",
+            "capabilities",
+        ],
+        description: "Binary version and capability summary.",
     },
     JsonSchemaInfo {
         mode: "--counts-json",
@@ -1207,6 +1238,37 @@ fn write_mode_search_json(query: &str, out: &mut impl Write) -> Result<()> {
                 "json_schema": schema,
             })
         }).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+const ABOUT_CAPABILITIES: &[&str] = &[
+    "rich-kitty-graphics-rendering",
+    "plain-text-rendering",
+    "interactive-pager",
+    "focused-inspection-modes",
+    "machine-readable-json-outputs",
+    "mode-discovery",
+];
+
+fn write_about(out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md about")?;
+    writeln!(out, "binary=kittui-md")?;
+    writeln!(out, "package_version={}", env!("CARGO_PKG_VERSION"))?;
+    writeln!(out, "default_mode=rich")?;
+    writeln!(out, "capabilities={}", ABOUT_CAPABILITIES.join(","))?;
+    Ok(())
+}
+
+fn write_about_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "binary": "kittui-md",
+        "package_version": env!("CARGO_PKG_VERSION"),
+        "default_mode": "rich",
+        "capabilities": ABOUT_CAPABILITIES,
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -2616,6 +2678,32 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--mode-search"), "{err}");
         assert!(err.to_string().contains("--modes"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_about_mode() {
+        let cfg = parse_args(["--about".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::About);
+    }
+
+    #[test]
+    fn parse_args_accepts_about_json_mode() {
+        let cfg = parse_args(["--about-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::AboutJson);
+    }
+
+    #[test]
+    fn parse_args_rejects_about_plus_about_json() {
+        let err = parse_args(["--about".to_string(), "--about-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--about"), "{err}");
+        assert!(err.to_string().contains("--about-json"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_mode_selector_for_about_json() {
+        let cfg = parse_args(["--mode".to_string(), "about-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::AboutJson);
     }
 
     #[test]
@@ -4086,6 +4174,32 @@ mod tests {
                 && mode["json_schema"]["top_level_keys"]
                     == serde_json::json!(["schema_version", "tables"])
         }));
+    }
+
+    #[test]
+    fn about_mode_reports_version_and_capabilities() {
+        let mut out = Vec::new();
+        write_about(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("kittui-md about"), "{rendered}");
+        assert!(rendered.contains("binary=kittui-md"), "{rendered}");
+        assert!(rendered.contains("package_version="), "{rendered}");
+        assert!(rendered.contains("default_mode=rich"), "{rendered}");
+        assert!(rendered.contains("mode-discovery"), "{rendered}");
+    }
+
+    #[test]
+    fn about_json_mode_reports_version_and_capabilities() {
+        let mut out = Vec::new();
+        write_about_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["binary"], "kittui-md");
+        assert_eq!(value["default_mode"], "rich");
+        assert!(value["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("mode-discovery")));
     }
 
     #[test]
