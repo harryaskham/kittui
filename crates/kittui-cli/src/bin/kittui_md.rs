@@ -93,6 +93,7 @@ fn real_main() -> Result<()> {
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
     let mut mode = Mode::Rich;
+    let mut mode_flag: Option<&'static str> = None;
     let mut width = terminal_cols().unwrap_or(80).clamp(20, 120);
     let mut offset_rows = 0;
     let mut height_rows = None;
@@ -101,20 +102,36 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--plain" => mode = Mode::Plain,
-            "--rich" => mode = Mode::Rich,
-            "--components" => mode = Mode::Components,
-            "--outline" => mode = Mode::Outline,
-            "--references" => mode = Mode::References,
-            "--footnotes" => mode = Mode::Footnotes,
-            "--images" => mode = Mode::Images,
-            "--tables" => mode = Mode::Tables,
-            "--code-blocks" => mode = Mode::CodeBlocks,
-            "--definitions" => mode = Mode::Definitions,
-            "--math" => mode = Mode::Math,
-            "--html" => mode = Mode::Html,
-            "--stats" => mode = Mode::Stats,
-            "--metadata-json" => mode = Mode::MetadataJson,
+            "--plain" => set_mode(&mut mode, &mut mode_flag, "--plain", Mode::Plain)?,
+            "--rich" => set_mode(&mut mode, &mut mode_flag, "--rich", Mode::Rich)?,
+            "--components" => {
+                set_mode(&mut mode, &mut mode_flag, "--components", Mode::Components)?
+            }
+            "--outline" => set_mode(&mut mode, &mut mode_flag, "--outline", Mode::Outline)?,
+            "--references" => {
+                set_mode(&mut mode, &mut mode_flag, "--references", Mode::References)?
+            }
+            "--footnotes" => set_mode(&mut mode, &mut mode_flag, "--footnotes", Mode::Footnotes)?,
+            "--images" => set_mode(&mut mode, &mut mode_flag, "--images", Mode::Images)?,
+            "--tables" => set_mode(&mut mode, &mut mode_flag, "--tables", Mode::Tables)?,
+            "--code-blocks" => {
+                set_mode(&mut mode, &mut mode_flag, "--code-blocks", Mode::CodeBlocks)?
+            }
+            "--definitions" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--definitions",
+                Mode::Definitions,
+            )?,
+            "--math" => set_mode(&mut mode, &mut mode_flag, "--math", Mode::Math)?,
+            "--html" => set_mode(&mut mode, &mut mode_flag, "--html", Mode::Html)?,
+            "--stats" => set_mode(&mut mode, &mut mode_flag, "--stats", Mode::Stats)?,
+            "--metadata-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--metadata-json",
+                Mode::MetadataJson,
+            )?,
             "--width" => {
                 width = args
                     .next()
@@ -155,6 +172,22 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
         interactive,
         path,
     })
+}
+
+fn set_mode(
+    mode: &mut Mode,
+    seen: &mut Option<&'static str>,
+    flag: &'static str,
+    next: Mode,
+) -> Result<()> {
+    if let Some(prev) = *seen {
+        return Err(anyhow!(
+            "output modes are mutually exclusive: {prev} and {flag}"
+        ));
+    }
+    *mode = next;
+    *seen = Some(flag);
+    Ok(())
 }
 
 fn print_help() {
@@ -1171,6 +1204,21 @@ mod tests {
     use kittui_affordances::{
         h1, h2, textbox, HeadingOutline, MarkdownDefinition, MarkdownFootnote, MarkdownImage, Tone,
     };
+
+    #[test]
+    fn parse_args_rejects_multiple_output_modes() {
+        let err = parse_args(["--plain".to_string(), "--outline".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--plain"), "{err}");
+        assert!(err.to_string().contains("--outline"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_single_output_mode() {
+        let cfg = parse_args(["--components".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Components);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
 
     #[test]
     fn layout_stacks_components_with_gaps() {
