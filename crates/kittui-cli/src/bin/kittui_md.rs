@@ -336,13 +336,8 @@ fn write_plain_component(out: &mut impl Write, comp: &UiComponent) -> Result<()>
 fn write_metadata_sections(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
     if !doc.outline.is_empty() {
         writeln!(out, "\noutline:")?;
-        for heading in &doc.outline {
-            writeln!(
-                out,
-                "  {}{}",
-                "  ".repeat(heading.level.saturating_sub(1) as usize),
-                heading.text
-            )?;
+        for line in outline_lines(doc) {
+            writeln!(out, "  {line}")?;
         }
     }
     if !doc.links.is_empty() {
@@ -413,6 +408,12 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
         "\x1b[0m\x1b[?25h{}",
         rich_status_line(doc, cfg, document_rows(doc, cfg.width))
     )?;
+    if !doc.outline.is_empty() {
+        writeln!(out, "  outline:")?;
+        for line in outline_lines(doc) {
+            writeln!(out, "    {line}")?;
+        }
+    }
     if !doc.links.is_empty() {
         for link in &doc.links {
             writeln!(out, "  🔗 {} — {}", link.label, link.url)?;
@@ -426,12 +427,26 @@ fn write_rich(doc: &MarkdownDocument, cfg: &Config, out: &mut impl Write) -> Res
     Ok(())
 }
 
+fn outline_lines(doc: &MarkdownDocument) -> Vec<String> {
+    doc.outline
+        .iter()
+        .map(|heading| {
+            format!(
+                "{}{}",
+                "  ".repeat(heading.level.saturating_sub(1) as usize),
+                heading.text
+            )
+        })
+        .collect()
+}
+
 fn rich_status_line(doc: &MarkdownDocument, cfg: &Config, total_rows: u16) -> String {
     let viewport = cfg.height_rows.unwrap_or(total_rows);
     let max_offset = total_rows.saturating_sub(viewport);
     format!(
-        "kittui-md rich view — {} components, {} links, {} images; offset={}/{} rows; viewport={}; total_rows={}",
+        "kittui-md rich view — {} components, {} headings, {} links, {} images; offset={}/{} rows; viewport={}; total_rows={}",
         doc.components.len(),
+        doc.outline.len(),
         doc.links.len(),
         doc.images.len(),
         cfg.offset_rows.min(max_offset),
@@ -779,7 +794,10 @@ mod tests {
                 alt: "logo".to_string(),
                 url: "logo.png".to_string(),
             }],
-            outline: vec![],
+            outline: vec![HeadingOutline {
+                level: 1,
+                text: "Title".to_string(),
+            }],
         };
         let cfg = Config {
             mode: Mode::Rich,
@@ -793,7 +811,7 @@ mod tests {
         assert!(status.contains("offset=4/4 rows"), "{status}");
         assert!(status.contains("viewport=3"), "{status}");
         assert!(status.contains("total_rows=7"), "{status}");
-        assert!(status.contains("0 links, 1 images"), "{status}");
+        assert!(status.contains("1 headings, 0 links, 1 images"), "{status}");
     }
 
     #[test]
@@ -824,6 +842,30 @@ mod tests {
         assert!(
             rendered.contains("images:\n  [logo] logo.png"),
             "{rendered}"
+        );
+    }
+
+    #[test]
+    fn rich_outline_lines_mirror_plain_indentation() {
+        let doc = MarkdownDocument {
+            components: vec![],
+            links: vec![],
+            tables: vec![],
+            images: vec![],
+            outline: vec![
+                HeadingOutline {
+                    level: 1,
+                    text: "Title".to_string(),
+                },
+                HeadingOutline {
+                    level: 3,
+                    text: "Deep".to_string(),
+                },
+            ],
+        };
+        assert_eq!(
+            outline_lines(&doc),
+            vec!["Title".to_string(), "    Deep".to_string()]
         );
     }
 
