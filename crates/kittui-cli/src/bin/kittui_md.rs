@@ -43,6 +43,7 @@ enum Mode {
     HtmlJson,
     Modes,
     ModesJson,
+    SchemasJson,
     Counts,
     CountsJson,
     Stats,
@@ -82,6 +83,7 @@ fn real_main() -> Result<()> {
     match cfg.mode {
         Mode::Modes => return write_modes(&mut std::io::stdout().lock()),
         Mode::ModesJson => return write_modes_json(&mut std::io::stdout().lock()),
+        Mode::SchemasJson => return write_schemas_json(&mut std::io::stdout().lock()),
         _ => {}
     }
     let markdown = if let Some(path) = &cfg.path {
@@ -122,6 +124,7 @@ fn real_main() -> Result<()> {
         Mode::HtmlJson => write_html_json(&doc, &mut std::io::stdout().lock()),
         Mode::Modes => unreachable!("mode listing returns before reading input"),
         Mode::ModesJson => unreachable!("mode listing returns before reading input"),
+        Mode::SchemasJson => unreachable!("schema listing returns before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -276,6 +279,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--html-json" => set_mode(&mut mode, &mut mode_flag, "--html-json", Mode::HtmlJson)?,
             "--modes" => set_mode(&mut mode, &mut mode_flag, "--modes", Mode::Modes)?,
             "--modes-json" => set_mode(&mut mode, &mut mode_flag, "--modes-json", Mode::ModesJson)?,
+            "--schemas-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--schemas-json",
+                Mode::SchemasJson,
+            )?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -349,7 +358,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -693,6 +702,11 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit available output modes as JSON",
     },
     ModeInfo {
+        flag: "--schemas-json",
+        aliases: &[],
+        description: "emit JSON output schema summaries",
+    },
+    ModeInfo {
         flag: "--counts",
         aliases: &[],
         description: "print compact structural counts",
@@ -716,6 +730,129 @@ const MODE_INFOS: &[ModeInfo] = &[
         flag: "--metadata-json",
         aliases: &["--json"],
         description: "emit full document metadata as JSON",
+    },
+];
+
+struct JsonSchemaInfo {
+    mode: &'static str,
+    top_level_keys: &'static [&'static str],
+    description: &'static str,
+}
+
+const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
+    JsonSchemaInfo {
+        mode: "--components-json",
+        top_level_keys: &["schema_version", "components"],
+        description: "Generated UI component records.",
+    },
+    JsonSchemaInfo {
+        mode: "--outline-json",
+        top_level_keys: &["schema_version", "outline"],
+        description: "Heading outline records.",
+    },
+    JsonSchemaInfo {
+        mode: "--anchors-json",
+        top_level_keys: &["schema_version", "anchors"],
+        description: "Heading anchor records.",
+    },
+    JsonSchemaInfo {
+        mode: "--references-json",
+        top_level_keys: &[
+            "schema_version",
+            "links",
+            "images",
+            "footnote_references",
+            "footnotes",
+        ],
+        description: "Combined reference records.",
+    },
+    JsonSchemaInfo {
+        mode: "--links-json",
+        top_level_keys: &["schema_version", "links"],
+        description: "Markdown link records.",
+    },
+    JsonSchemaInfo {
+        mode: "--footnotes-json",
+        top_level_keys: &["schema_version", "references", "definitions"],
+        description: "Footnote references and definitions.",
+    },
+    JsonSchemaInfo {
+        mode: "--images-json",
+        top_level_keys: &["schema_version", "images"],
+        description: "Markdown image records.",
+    },
+    JsonSchemaInfo {
+        mode: "--tables-json",
+        top_level_keys: &["schema_version", "tables"],
+        description: "Markdown table layout records.",
+    },
+    JsonSchemaInfo {
+        mode: "--code-blocks-json",
+        top_level_keys: &["schema_version", "code_blocks"],
+        description: "Markdown code block records.",
+    },
+    JsonSchemaInfo {
+        mode: "--metadata-blocks-json",
+        top_level_keys: &["schema_version", "metadata_blocks"],
+        description: "YAML/pluses metadata block records.",
+    },
+    JsonSchemaInfo {
+        mode: "--definitions-json",
+        top_level_keys: &["schema_version", "definitions"],
+        description: "Definition-list records.",
+    },
+    JsonSchemaInfo {
+        mode: "--math-json",
+        top_level_keys: &["schema_version", "math"],
+        description: "Math expression records.",
+    },
+    JsonSchemaInfo {
+        mode: "--html-json",
+        top_level_keys: &["schema_version", "html"],
+        description: "HTML placeholder records.",
+    },
+    JsonSchemaInfo {
+        mode: "--modes-json",
+        top_level_keys: &["schema_version", "modes"],
+        description: "Available output mode catalog.",
+    },
+    JsonSchemaInfo {
+        mode: "--schemas-json",
+        top_level_keys: &["schema_version", "schemas"],
+        description: "JSON output schema summary catalog.",
+    },
+    JsonSchemaInfo {
+        mode: "--counts-json",
+        top_level_keys: &["schema_version", "counts"],
+        description: "Compact structural counts.",
+    },
+    JsonSchemaInfo {
+        mode: "--stats-json",
+        top_level_keys: &["schema_version", "source", "render", "counts"],
+        description: "Source, render, and count summary.",
+    },
+    JsonSchemaInfo {
+        mode: "--metadata-json",
+        top_level_keys: &[
+            "schema_version",
+            "source",
+            "render",
+            "counts",
+            "components",
+            "components_detail",
+            "outline",
+            "links",
+            "images",
+            "footnote_references",
+            "footnotes",
+            "definitions",
+            "math",
+            "html",
+            "metadata_blocks",
+            "code_blocks",
+            "tables",
+        ],
+        description: "Full document metadata payload.",
     },
 ];
 
@@ -744,6 +881,21 @@ fn write_modes_json(out: &mut impl Write) -> Result<()> {
             "index": index,
             "flag": info.flag,
             "aliases": info.aliases,
+            "description": info.description,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+fn write_schemas_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "schemas": JSON_SCHEMA_INFOS.iter().enumerate().map(|(index, info)| serde_json::json!({
+            "index": index,
+            "mode": info.mode,
+            "top_level_keys": info.top_level_keys,
             "description": info.description,
         })).collect::<Vec<_>>(),
     });
@@ -2032,6 +2184,21 @@ mod tests {
         let cfg = parse_args(["--modes-json".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::ModesJson);
         assert_eq!(cfg.path.as_deref(), None);
+    }
+
+    #[test]
+    fn parse_args_accepts_schemas_json_mode() {
+        let cfg = parse_args(["--schemas-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::SchemasJson);
+        assert_eq!(cfg.path.as_deref(), None);
+    }
+
+    #[test]
+    fn parse_args_rejects_modes_plus_schemas_json() {
+        let err = parse_args(["--modes".to_string(), "--schemas-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--modes"), "{err}");
+        assert!(err.to_string().contains("--schemas-json"), "{err}");
     }
 
     #[test]
@@ -3397,6 +3564,30 @@ mod tests {
         assert!(modes
             .iter()
             .any(|mode| mode["description"] == "emit full document metadata as JSON"));
+    }
+
+    #[test]
+    fn schemas_json_mode_lists_json_output_shapes() {
+        let mut out = Vec::new();
+        write_schemas_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        let schemas = value["schemas"].as_array().unwrap();
+        assert!(schemas.iter().any(|schema| {
+            schema["mode"] == "--metadata-json"
+                && schema["top_level_keys"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!("components_detail"))
+        }));
+        assert!(schemas.iter().any(|schema| {
+            schema["mode"] == "--stats-json"
+                && schema["top_level_keys"]
+                    == serde_json::json!(["schema_version", "source", "render", "counts"])
+        }));
+        assert!(schemas
+            .iter()
+            .any(|schema| schema["mode"] == "--schemas-json"));
     }
 
     #[test]
