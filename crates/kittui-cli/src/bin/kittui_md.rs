@@ -59,7 +59,7 @@ fn real_main() -> Result<()> {
     match cfg.mode {
         Mode::Plain => write_plain(&doc, cfg.width, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
-        Mode::MetadataJson => write_metadata_json(&doc, &mut std::io::stdout().lock()),
+        Mode::MetadataJson => write_metadata_json(&doc, &markdown, &mut std::io::stdout().lock()),
         Mode::Rich if cfg.interactive => run_interactive(&doc, cfg),
         Mode::Rich => write_rich(&doc, &cfg, &mut std::io::stdout().lock()),
     }
@@ -320,9 +320,13 @@ fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
-fn write_metadata_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+fn write_metadata_json(doc: &MarkdownDocument, source: &str, out: &mut impl Write) -> Result<()> {
     let value = serde_json::json!({
         "schema_version": 1,
+        "source": {
+            "bytes": source.len(),
+            "lines": source.lines().count(),
+        },
         "components": doc.components.len(),
         "components_detail": doc.components.iter().map(|component| serde_json::json!({
             "kind": format!("{:?}", component.kind),
@@ -1027,9 +1031,12 @@ mod tests {
             80,
         );
         let mut out = Vec::new();
-        write_metadata_json(&doc, &mut out).unwrap();
+        let source = "# Title\n\nSee [site](https://example.com) and note[^n] plus $x + y$ and <kbd>x</kbd>.\n\n```rust\nfn main() {}\n```\n\n![logo](logo.png)\n\n| a | b | c |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n\nTerm\n: Definition text\n\n[^n]: note text";
+        write_metadata_json(&doc, source, &mut out).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["source"]["bytes"], source.len());
+        assert_eq!(value["source"]["lines"], source.lines().count());
         assert_eq!(
             value["components"].as_u64().unwrap(),
             doc.components.len() as u64
