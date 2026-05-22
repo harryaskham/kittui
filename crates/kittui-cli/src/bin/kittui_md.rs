@@ -15,6 +15,7 @@ use kittui_affordances::{
 enum Mode {
     Rich,
     Plain,
+    Components,
     Outline,
     References,
     MetadataJson,
@@ -59,6 +60,7 @@ fn real_main() -> Result<()> {
     let doc = render_markdown(&markdown, cfg.width);
     match cfg.mode {
         Mode::Plain => write_plain(&doc, cfg.width, &mut std::io::stdout().lock()),
+        Mode::Components => write_components(&doc, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
         Mode::MetadataJson => {
@@ -81,6 +83,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
         match arg.as_str() {
             "--plain" => mode = Mode::Plain,
             "--rich" => mode = Mode::Rich,
+            "--components" => mode = Mode::Components,
             "--outline" => mode = Mode::Outline,
             "--references" => mode = Mode::References,
             "--metadata-json" => mode = Mode::MetadataJson,
@@ -127,7 +130,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--outline|--references|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -311,6 +314,22 @@ impl Drop for RawTerminal {
     fn drop(&mut self) {
         let _ = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.original) };
     }
+}
+
+fn write_components(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(
+        out,
+        "kittui-md components — {} components",
+        doc.components.len()
+    )?;
+    if doc.components.is_empty() {
+        writeln!(out, "<empty>")?;
+    } else {
+        for component in &doc.components {
+            write_plain_component(out, component)?;
+        }
+    }
+    Ok(())
 }
 
 fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
@@ -1168,6 +1187,33 @@ mod tests {
         );
         assert!(value["tables"][0]["footprint"]["cols"].as_u64().unwrap() >= 10);
         assert_eq!(value["tables"][0]["footprint"]["rows"], 5);
+    }
+
+    #[test]
+    fn components_mode_writes_only_component_records() {
+        let doc = render_markdown("# Title\n\nSee [site](https://example.com)", 40);
+        let mut out = Vec::new();
+        write_components(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.starts_with("kittui-md components — "),
+            "{rendered}"
+        );
+        assert!(rendered.contains("[H1] Title"), "{rendered}");
+        assert!(rendered.contains("[TextChip] site"), "{rendered}");
+        assert!(!rendered.contains("links:"), "{rendered}");
+        assert!(!rendered.contains("outline:"), "{rendered}");
+    }
+
+    #[test]
+    fn components_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_components(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md components — 0 components\n<empty>\n"
+        );
     }
 
     #[test]
