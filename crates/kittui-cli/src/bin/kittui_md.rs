@@ -16,6 +16,7 @@ enum Mode {
     Rich,
     Plain,
     Outline,
+    References,
     MetadataJson,
 }
 
@@ -59,6 +60,7 @@ fn real_main() -> Result<()> {
     match cfg.mode {
         Mode::Plain => write_plain(&doc, cfg.width, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
+        Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
         Mode::MetadataJson => write_metadata_json(&doc, &markdown, &mut std::io::stdout().lock()),
         Mode::Rich if cfg.interactive => run_interactive(&doc, cfg),
         Mode::Rich => write_rich(&doc, &cfg, &mut std::io::stdout().lock()),
@@ -78,6 +80,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--plain" => mode = Mode::Plain,
             "--rich" => mode = Mode::Rich,
             "--outline" => mode = Mode::Outline,
+            "--references" => mode = Mode::References,
             "--metadata-json" => mode = Mode::MetadataJson,
             "--width" => {
                 width = args
@@ -122,7 +125,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--outline|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--outline|--references|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -315,6 +318,41 @@ fn write_outline(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
     } else {
         for line in outline_lines(doc) {
             writeln!(out, "{line}")?;
+        }
+    }
+    Ok(())
+}
+
+fn write_references(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let total =
+        doc.links.len() + doc.images.len() + doc.footnote_references.len() + doc.footnotes.len();
+    writeln!(out, "kittui-md references — {total} entries")?;
+    if total == 0 {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    if !doc.links.is_empty() {
+        writeln!(out, "links:")?;
+        for link in &doc.links {
+            writeln!(out, "  [{}] {}", link.label, link.url)?;
+        }
+    }
+    if !doc.images.is_empty() {
+        writeln!(out, "images:")?;
+        for image in &doc.images {
+            writeln!(out, "  [{}] {}", image.alt, image.url)?;
+        }
+    }
+    if !doc.footnote_references.is_empty() {
+        writeln!(out, "footnote references:")?;
+        for label in &doc.footnote_references {
+            writeln!(out, "  [^{label}]")?;
+        }
+    }
+    if !doc.footnotes.is_empty() {
+        writeln!(out, "footnotes:")?;
+        for footnote in &doc.footnotes {
+            writeln!(out, "  [^{}] {}", footnote.label, footnote.text)?;
         }
     }
     Ok(())
@@ -1021,6 +1059,48 @@ mod tests {
         assert!(
             status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 0 code blocks"),
             "{status}"
+        );
+    }
+
+    #[test]
+    fn references_mode_writes_links_images_and_footnotes() {
+        let doc = render_markdown(
+            "See [site](https://example.com) and ![logo](logo.png)[^n].\n\n[^n]: note text",
+            80,
+        );
+        let mut out = Vec::new();
+        write_references(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md references — 4 entries"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("links:\n  [site] https://example.com"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("images:\n  [logo] logo.png"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("footnote references:\n  [^n]"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("footnotes:\n  [^n] note text"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn references_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_references(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md references — 0 entries\n<empty>\n"
         );
     }
 
