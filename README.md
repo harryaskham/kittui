@@ -177,6 +177,8 @@ cargo run -p kittui-cli --bin kittui-md -- --output-formats
 cargo run -p kittui-cli --bin kittui-md -- --output-formats-json
 cargo run -p kittui-cli --bin kittui-md -- --defaults
 cargo run -p kittui-cli --bin kittui-md -- --defaults-json
+cargo run -p kittui-cli --bin kittui-md -- --examples
+cargo run -p kittui-cli --bin kittui-md -- --examples-json
 cargo run -p kittui-cli --bin kittui-md -- --counts docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --counts-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --stats docs/examples/kittui-md-proof.md
@@ -257,7 +259,8 @@ Modes:
   and `--version-json` report just the binary/package version. `--input-formats`
   and `--input-formats-json` list supported input formats and extensions;
   `--output-formats` and `--output-formats-json` list supported output families;
-  `--defaults` and `--defaults-json` report default mode/input/width settings.
+  `--defaults` and `--defaults-json` report default mode/input/width settings;
+  `--examples` and `--examples-json` list common invocations.
 - `--counts` prints only concise component/metadata counts; `--counts-json`
   emits the same counts as a minimal machine-readable JSON object.
 - `--stats` prints concise source path/size, render width,

@@ -64,6 +64,8 @@ enum Mode {
     OutputFormatsJson,
     Defaults,
     DefaultsJson,
+    Examples,
+    ExamplesJson,
     Counts,
     CountsJson,
     Stats,
@@ -165,6 +167,8 @@ fn real_main() -> Result<()> {
         Mode::OutputFormatsJson => return write_output_formats_json(&mut std::io::stdout().lock()),
         Mode::Defaults => return write_defaults(&mut std::io::stdout().lock()),
         Mode::DefaultsJson => return write_defaults_json(&mut std::io::stdout().lock()),
+        Mode::Examples => return write_examples(&mut std::io::stdout().lock()),
+        Mode::ExamplesJson => return write_examples_json(&mut std::io::stdout().lock()),
         _ => {}
     }
     let markdown = if let Some(path) = &cfg.path {
@@ -226,6 +230,8 @@ fn real_main() -> Result<()> {
         Mode::OutputFormatsJson => unreachable!("output formats return before reading input"),
         Mode::Defaults => unreachable!("defaults return before reading input"),
         Mode::DefaultsJson => unreachable!("defaults return before reading input"),
+        Mode::Examples => unreachable!("examples return before reading input"),
+        Mode::ExamplesJson => unreachable!("examples return before reading input"),
         Mode::Counts => write_counts(&doc, &mut std::io::stdout().lock()),
         Mode::CountsJson => write_counts_json(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(
@@ -515,6 +521,13 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 "--defaults-json",
                 Mode::DefaultsJson,
             )?,
+            "--examples" => set_mode(&mut mode, &mut mode_flag, "--examples", Mode::Examples)?,
+            "--examples-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--examples-json",
+                Mode::ExamplesJson,
+            )?,
             "--counts" => set_mode(&mut mode, &mut mode_flag, "--counts", Mode::Counts)?,
             "--counts-json" => {
                 set_mode(&mut mode, &mut mode_flag, "--counts-json", Mode::CountsJson)?
@@ -666,6 +679,8 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
         "output-formats-json" => Ok((Mode::OutputFormatsJson, "--output-formats-json")),
         "defaults" => Ok((Mode::Defaults, "--defaults")),
         "defaults-json" => Ok((Mode::DefaultsJson, "--defaults-json")),
+        "examples" => Ok((Mode::Examples, "--examples")),
+        "examples-json" => Ok((Mode::ExamplesJson, "--examples-json")),
         "counts" => Ok((Mode::Counts, "--counts")),
         "counts-json" => Ok((Mode::CountsJson, "--counts-json")),
         "stats" => Ok((Mode::Stats, "--stats")),
@@ -678,7 +693,7 @@ fn mode_from_name(name: &str) -> Result<(Mode, &'static str)> {
 }
 
 fn print_help() {
-    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--output-formats|--output-formats-json|--defaults|--defaults-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--mode NAME|--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--outline-json|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--modes|--modes-json|--schemas-json|--mode-info NAME|--mode-info-json NAME|--mode-search QUERY|--mode-search-json QUERY|--mode-category CATEGORY|--mode-category-json CATEGORY|--mode-categories|--mode-categories-json|--about|--about-json|--capabilities|--capabilities-json|--version|--version-json|--input-formats|--input-formats-json|--output-formats|--output-formats-json|--defaults|--defaults-json|--examples|--examples-json|--counts|--counts-json|--stats|--summary|--stats-json|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -1127,6 +1142,16 @@ const MODE_INFOS: &[ModeInfo] = &[
         description: "emit default viewer settings as JSON",
     },
     ModeInfo {
+        flag: "--examples",
+        aliases: &[],
+        description: "print common invocation examples",
+    },
+    ModeInfo {
+        flag: "--examples-json",
+        aliases: &[],
+        description: "emit common invocation examples as JSON",
+    },
+    ModeInfo {
         flag: "--counts",
         aliases: &[],
         description: "print compact structural counts",
@@ -1298,6 +1323,11 @@ const JSON_SCHEMA_INFOS: &[JsonSchemaInfo] = &[
         description: "Default viewer settings.",
     },
     JsonSchemaInfo {
+        mode: "--examples-json",
+        top_level_keys: &["schema_version", "examples"],
+        description: "Common invocation examples.",
+    },
+    JsonSchemaInfo {
         mode: "--counts-json",
         top_level_keys: &["schema_version", "counts"],
         description: "Compact structural counts.",
@@ -1379,7 +1409,9 @@ fn mode_category(flag: &str) -> &'static str {
         | "--output-formats"
         | "--output-formats-json"
         | "--defaults"
-        | "--defaults-json" => "discovery",
+        | "--defaults-json"
+        | "--examples"
+        | "--examples-json" => "discovery",
         _ if flag.ends_with("-json") || flag == "--json" => "json",
         _ => "other",
     }
@@ -1839,6 +1871,68 @@ fn write_defaults_json(out: &mut impl Write) -> Result<()> {
             "interactive": false,
             "input": "stdin-or-one-file",
         },
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+struct ExampleInfo {
+    name: &'static str,
+    argv: &'static [&'static str],
+    description: &'static str,
+}
+
+const EXAMPLES: &[ExampleInfo] = &[
+    ExampleInfo {
+        name: "rich-file",
+        argv: &["kittui-md", "docs/examples/kittui-md-proof.md"],
+        description: "Render a Markdown file in rich kitty graphics mode.",
+    },
+    ExampleInfo {
+        name: "plain-file",
+        argv: &["kittui-md", "--plain", "docs/examples/kittui-md-proof.md"],
+        description: "Render a Markdown file as plain text records.",
+    },
+    ExampleInfo {
+        name: "component-json",
+        argv: &[
+            "kittui-md",
+            "--components-json",
+            "docs/examples/kittui-md-proof.md",
+        ],
+        description: "Emit generated component records as JSON.",
+    },
+    ExampleInfo {
+        name: "mode-search",
+        argv: &["kittui-md", "--mode-search-json", "table"],
+        description: "Search the mode catalog for table-related outputs.",
+    },
+];
+
+fn write_examples(out: &mut impl Write) -> Result<()> {
+    writeln!(out, "kittui-md examples — {} examples", EXAMPLES.len())?;
+    for example in EXAMPLES {
+        writeln!(
+            out,
+            "{}: {} — {}",
+            example.name,
+            example.argv.join(" "),
+            example.description
+        )?;
+    }
+    Ok(())
+}
+
+fn write_examples_json(out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "examples": EXAMPLES.iter().enumerate().map(|(index, example)| serde_json::json!({
+            "index": index,
+            "name": example.name,
+            "argv": example.argv,
+            "description": example.description,
+        })).collect::<Vec<_>>(),
     });
     serde_json::to_writer_pretty(&mut *out, &value)?;
     writeln!(out)?;
@@ -3437,6 +3531,27 @@ mod tests {
         assert!(err.to_string().contains("mutually exclusive"), "{err}");
         assert!(err.to_string().contains("--defaults"), "{err}");
         assert!(err.to_string().contains("--defaults-json"), "{err}");
+    }
+
+    #[test]
+    fn parse_args_accepts_examples_mode() {
+        let cfg = parse_args(["--examples".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::Examples);
+    }
+
+    #[test]
+    fn parse_args_accepts_examples_json_mode() {
+        let cfg = parse_args(["--examples-json".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ExamplesJson);
+    }
+
+    #[test]
+    fn parse_args_rejects_examples_plus_examples_json() {
+        let err =
+            parse_args(["--examples".to_string(), "--examples-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--examples"), "{err}");
+        assert!(err.to_string().contains("--examples-json"), "{err}");
     }
 
     #[test]
@@ -5125,6 +5240,31 @@ mod tests {
         assert_eq!(value["defaults"]["width"]["max"], 200);
         assert_eq!(value["defaults"]["interactive"], false);
         assert_eq!(value["defaults"]["input"], "stdin-or-one-file");
+    }
+
+    #[test]
+    fn examples_mode_lists_common_invocations() {
+        let mut out = Vec::new();
+        write_examples(&mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("kittui-md examples"), "{rendered}");
+        assert!(rendered.contains("rich-file"), "{rendered}");
+        assert!(rendered.contains("--components-json"), "{rendered}");
+    }
+
+    #[test]
+    fn examples_json_mode_lists_common_invocations() {
+        let mut out = Vec::new();
+        write_examples_json(&mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert!(value["examples"].as_array().unwrap().iter().any(|example| {
+            example["name"] == "component-json"
+                && example["argv"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!("--components-json"))
+        }));
     }
 
     #[test]
