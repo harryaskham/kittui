@@ -458,6 +458,108 @@ pub mod xvfb {
     }
 }
 
+/// XQuartz-backed X11 server for macOS.
+///
+/// This is a thin wrapper around the same x11rb/XServer implementation used
+/// by [`xvfb::XvfbServer`]. `spawn` starts a private XQuartz display in
+/// `-nolisten tcp` mode and then attaches to it; `attach` connects to an
+/// already-running XQuartz/X11 display.
+#[cfg(all(target_os = "macos", feature = "xquartz"))]
+pub mod xquartz {
+    use super::*;
+    use std::path::PathBuf;
+    use std::process::{Child, Command, Stdio};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    /// A live XQuartz display plus x11rb capture/input adapter.
+    pub struct XQuartzServer {
+        inner: crate::xvfb::XvfbServer,
+        _xquartz: Option<Child>,
+    }
+
+    impl XQuartzServer {
+        /// Spawn `Xquartz :<display> -nolisten tcp` and connect to it.
+        pub fn spawn(display: u32) -> Result<Self, XError> {
+            let bin = find_xquartz().ok_or_else(|| {
+                XError::Unavailable(
+                    "XQuartz not found; install it or set KITTUI_XQUARTZ_BIN".into(),
+                )
+            })?;
+            let display_str = format!(":{display}");
+            let child = Command::new(&bin)
+                .arg(&display_str)
+                .args(["-nolisten", "tcp"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| XError::Unavailable(format!("spawn {}: {e}", bin.display())))?;
+            let started = Instant::now();
+            loop {
+                match crate::xvfb::XvfbServer::attach(&display_str) {
+                    Ok(inner) => {
+                        return Ok(Self {
+                            inner,
+                            _xquartz: Some(child),
+                        })
+                    }
+                    Err(e) if started.elapsed() < Duration::from_secs(10) => {
+                        let _ = e;
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+
+        /// Attach to an already-running XQuartz/X11 display.
+        pub fn attach(display: &str) -> Result<Self, XError> {
+            Ok(Self {
+                inner: crate::xvfb::XvfbServer::attach(display)?,
+                _xquartz: None,
+            })
+        }
+
+        /// DISPLAY string for this server.
+        pub fn display(&self) -> &str {
+            self.inner.display()
+        }
+    }
+
+    impl XServer for XQuartzServer {
+        fn windows(&self) -> Result<Vec<XWindow>, XError> {
+            self.inner.windows()
+        }
+
+        fn capture(&self, id: XWindowId) -> Result<XCapture, XError> {
+            self.inner.capture(id)
+        }
+
+        fn inject_pointer(&self, event: XPointerEvent) -> Result<(), XError> {
+            self.inner.inject_pointer(event)
+        }
+
+        fn inject_key(&self, sym: u32, pressed: bool) -> Result<(), XError> {
+            self.inner.inject_key(sym, pressed)
+        }
+    }
+
+    fn find_xquartz() -> Option<PathBuf> {
+        std::env::var_os("KITTUI_XQUARTZ_BIN")
+            .map(PathBuf::from)
+            .filter(|p| p.exists())
+            .or_else(|| first_existing(&[
+                "/opt/X11/bin/Xquartz",
+                "/Applications/Utilities/XQuartz.app/Contents/MacOS/X11.bin",
+                "/Library/Apple/System/Library/CoreServices/X11.app/Contents/MacOS/X11.bin",
+            ]))
+    }
+
+    fn first_existing(paths: &[&str]) -> Option<PathBuf> {
+        paths.iter().map(PathBuf::from).find(|p| p.exists())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
