@@ -16,6 +16,7 @@ enum Mode {
     Rich,
     Plain,
     Components,
+    ComponentsJson,
     Outline,
     Anchors,
     AnchorsJson,
@@ -85,6 +86,7 @@ fn real_main() -> Result<()> {
     match cfg.mode {
         Mode::Plain => write_plain(&doc, cfg.width, &mut std::io::stdout().lock()),
         Mode::Components => write_components(&doc, &mut std::io::stdout().lock()),
+        Mode::ComponentsJson => write_components_json(&doc, &mut std::io::stdout().lock()),
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::Anchors => write_anchors(&doc, &mut std::io::stdout().lock()),
         Mode::AnchorsJson => write_anchors_json(&doc, &mut std::io::stdout().lock()),
@@ -146,6 +148,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
                 set_mode(&mut mode, &mut mode_flag, "--components", Mode::Components)?
             }
             "--widgets" => set_mode(&mut mode, &mut mode_flag, "--widgets", Mode::Components)?,
+            "--components-json" => set_mode(
+                &mut mode,
+                &mut mode_flag,
+                "--components-json",
+                Mode::ComponentsJson,
+            )?,
             "--outline" => set_mode(&mut mode, &mut mode_flag, "--outline", Mode::Outline)?,
             "--toc" => set_mode(&mut mode, &mut mode_flag, "--toc", Mode::Outline)?,
             "--headings" => set_mode(&mut mode, &mut mode_flag, "--headings", Mode::Outline)?,
@@ -313,7 +321,7 @@ fn set_mode(
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--widgets|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--widgets|--components-json|--outline|--toc|--headings|--anchors|--slugs|--anchors-json|--references|--refs|--references-json|--links|--urls|--links-json|--footnotes|--notes|--footnotes-json|--images|--pictures|--images-json|--tables|--grid|--tables-json|--code-blocks|--snippets|--code-blocks-json|--metadata-blocks|--metadata|--frontmatter|--metadata-blocks-json|--definitions|--glossary|--definitions-json|--math|--equations|--math-json|--html|--markup|--html-json|--counts|--counts-json|--stats|--summary|--metadata-json|--json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -512,6 +520,22 @@ fn write_components(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> 
             write_plain_component(out, component)?;
         }
     }
+    Ok(())
+}
+
+fn write_components_json(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "components": doc.components.iter().enumerate().map(|(index, component)| serde_json::json!({
+            "index": index,
+            "kind": format!("{:?}", component.kind),
+            "text": component.text,
+            "width_cells": component.width_cells,
+            "height_cells": component.height_cells,
+        })).collect::<Vec<_>>(),
+    });
+    serde_json::to_writer_pretty(&mut *out, &value)?;
+    writeln!(out)?;
     Ok(())
 }
 
@@ -1685,6 +1709,22 @@ mod tests {
         let cfg = parse_args(["--widgets".to_string(), "doc.md".to_string()]).unwrap();
         assert_eq!(cfg.mode, Mode::Components);
         assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_accepts_components_json_mode() {
+        let cfg = parse_args(["--components-json".to_string(), "doc.md".to_string()]).unwrap();
+        assert_eq!(cfg.mode, Mode::ComponentsJson);
+        assert_eq!(cfg.path.as_deref(), Some("doc.md"));
+    }
+
+    #[test]
+    fn parse_args_rejects_components_plus_components_json() {
+        let err =
+            parse_args(["--components".to_string(), "--components-json".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
+        assert!(err.to_string().contains("--components"), "{err}");
+        assert!(err.to_string().contains("--components-json"), "{err}");
     }
 
     #[test]
@@ -2955,6 +2995,25 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "kittui-md components — 0 components\n<empty>\n"
         );
+    }
+
+    #[test]
+    fn components_json_mode_writes_component_records() {
+        let doc = render_markdown("# Title\n\nSee [site](https://example.com)", 40);
+        let mut out = Vec::new();
+        write_components_json(&doc, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["components"][0]["index"], 0);
+        assert_eq!(value["components"][0]["kind"], "H1");
+        assert_eq!(value["components"][0]["text"], "Title");
+        assert_eq!(value["components"][0]["width_cells"], 40);
+        assert_eq!(value["components"][0]["height_cells"], 3);
+        assert!(value["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|component| { component["kind"] == "TextChip" && component["text"] == "site" }));
     }
 
     #[test]
