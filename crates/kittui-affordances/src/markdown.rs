@@ -19,6 +19,8 @@ pub struct MarkdownDocument {
     pub images: Vec<MarkdownImage>,
     /// Heading outline entries in document order.
     pub outline: Vec<HeadingOutline>,
+    /// Footnote definitions in document order.
+    pub footnotes: Vec<MarkdownFootnote>,
 }
 
 /// Link rendered as a highlighted chip plus accessible URL metadata.
@@ -45,6 +47,15 @@ pub struct HeadingOutline {
     /// Heading level, 1 through 6.
     pub level: u8,
     /// Plain rendered heading text.
+    pub text: String,
+}
+
+/// One rendered Markdown footnote definition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkdownFootnote {
+    /// Footnote label without surrounding `[^...]`.
+    pub label: String,
+    /// Rendered footnote text.
     pub text: String,
 }
 
@@ -145,6 +156,10 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 if let Some(label) = footnote_definition.take() {
                     let text = take_trimmed(&mut buf);
                     if !text.is_empty() {
+                        out.footnotes.push(MarkdownFootnote {
+                            label: label.clone(),
+                            text: text.clone(),
+                        });
                         out.components.push(textbox(
                             format!("footnote [^{label}]: {text}"),
                             width_cells,
@@ -615,6 +630,13 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("footnote [^note]: details here"), "{text}");
+        assert_eq!(
+            doc.footnotes[0],
+            MarkdownFootnote {
+                label: "note".to_string(),
+                text: "details here".to_string(),
+            }
+        );
         assert!(doc
             .components
             .iter()
