@@ -445,11 +445,47 @@ fn push_inline_marker(
 
 fn table_text(table: &MarkdownTable) -> String {
     let mut out = String::from("table\n");
+    let widths = table.column_widths();
     for row in &table.rows {
-        out.push_str(&row.join(" | "));
+        let cells = row
+            .iter()
+            .enumerate()
+            .map(|(idx, cell)| {
+                align_table_cell_text(
+                    cell,
+                    widths.get(idx).copied().unwrap_or(1) as usize,
+                    table
+                        .alignments
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(MarkdownTableAlignment::None),
+                )
+            })
+            .collect::<Vec<_>>();
+        out.push_str(&cells.join(" | "));
         out.push('\n');
     }
     out.trim_end().to_string()
+}
+
+fn align_table_cell_text(text: &str, width: usize, alignment: MarkdownTableAlignment) -> String {
+    let truncated = text.chars().take(width).collect::<String>();
+    let len = truncated.chars().count();
+    if len >= width {
+        return truncated;
+    }
+    let pad = width - len;
+    match alignment {
+        MarkdownTableAlignment::Right => format!("{}{}", " ".repeat(pad), truncated),
+        MarkdownTableAlignment::Center => {
+            let left = pad / 2;
+            let right = pad - left;
+            format!("{}{}{}", " ".repeat(left), truncated, " ".repeat(right))
+        }
+        MarkdownTableAlignment::None | MarkdownTableAlignment::Left => {
+            format!("{}{}", truncated, " ".repeat(pad))
+        }
+    }
 }
 
 fn flush_paragraph(out: &mut MarkdownDocument, buf: &mut String, width_cells: u16) {
@@ -527,15 +563,21 @@ mod tests {
     #[test]
     fn markdown_renders_table_as_textbox_and_metadata() {
         let doc = render_markdown(
-            "| a | b | c | d |\n|---|:---|:---:|---:|\n| 1 | 2 | 3 | 4 |",
+            "| aa | b | c | dd |\n|---|:---|:---:|---:|\n| 1 | 2 | 3 | 4 |",
             60,
         );
-        assert!(doc
+        let table_component = doc
             .components
             .iter()
-            .any(|c| c.text.contains("1 | 2 | 3 | 4")));
+            .find(|c| c.text.starts_with("table\n"))
+            .expect("table component");
+        assert!(
+            table_component.text.contains("1  | 2 | 3 |  4"),
+            "{}",
+            table_component.text
+        );
         assert_eq!(doc.tables.len(), 1);
-        assert_eq!(doc.tables[0].rows[0], vec!["a", "b", "c", "d"]);
+        assert_eq!(doc.tables[0].rows[0], vec!["aa", "b", "c", "dd"]);
         assert_eq!(doc.tables[0].rows[1], vec!["1", "2", "3", "4"]);
         assert_eq!(
             doc.tables[0].alignments,
