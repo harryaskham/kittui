@@ -133,7 +133,8 @@ cargo run -p kittui-cli --bin kittui-md -- --interactive docs/examples/kittui-md
 Modes:
 
 - `--rich` (default) renders kittui/kitty graphics components with text overlays.
-- `--plain` prints component records and metadata sections for text-only logs.
+- `--plain` prints component records and metadata sections for text-only logs,
+  including optional link/image title attributes when present.
 - `--components` prints only generated component records for conversion inspection.
 - `--interactive` opens a raw-mode rich pager for file inputs; use `j/k`, arrow
   keys, PageUp/PageDown, Home/End, `g/G`, and `q`.

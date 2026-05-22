@@ -782,13 +782,21 @@ fn write_metadata_sections(doc: &MarkdownDocument, out: &mut impl Write) -> Resu
     if !doc.links.is_empty() {
         writeln!(out, "\nlinks:")?;
         for link in &doc.links {
-            writeln!(out, "  [{}] {}", link.label, link.url)?;
+            if let Some(title) = &link.title {
+                writeln!(out, "  [{}] {} \"{}\"", link.label, link.url, title)?;
+            } else {
+                writeln!(out, "  [{}] {}", link.label, link.url)?;
+            }
         }
     }
     if !doc.images.is_empty() {
         writeln!(out, "\nimages:")?;
         for image in &doc.images {
-            writeln!(out, "  [{}] {}", image.alt, image.url)?;
+            if let Some(title) = &image.title {
+                writeln!(out, "  [{}] {} \"{}\"", image.alt, image.url, title)?;
+            } else {
+                writeln!(out, "  [{}] {}", image.alt, image.url)?;
+            }
         }
     }
     if !doc.footnote_references.is_empty() {
@@ -1960,31 +1968,21 @@ mod tests {
     }
 
     #[test]
-    fn plain_metadata_sections_include_images() {
-        let doc = MarkdownDocument {
-            components: vec![],
-            links: vec![],
-            tables: vec![],
-            images: vec![MarkdownImage {
-                alt: "logo".to_string(),
-                url: "logo.png".to_string(),
-                title: None,
-            }],
-            outline: vec![],
-            footnotes: vec![],
-            footnote_references: vec![],
-            definitions: vec![],
-            math: vec![],
-            html: vec![],
-            code_blocks: vec![],
-            metadata_blocks: vec![],
-        };
+    fn plain_metadata_sections_include_links_and_images_with_titles() {
+        let doc = render_markdown(
+            "[site](https://example.com \"Example title\")\n\n![logo](logo.png \"Logo title\")",
+            80,
+        );
         let mut out = Vec::new();
         write_plain(&doc, 20, &mut out).unwrap();
         let rendered = String::from_utf8(out).unwrap();
-        assert!(rendered.contains("0 links, 1 images"), "{rendered}");
+        assert!(rendered.contains("1 links, 1 images"), "{rendered}");
         assert!(
-            rendered.contains("images:\n  [logo] logo.png"),
+            rendered.contains("links:\n  [site] https://example.com \"Example title\""),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("images:\n  [logo] logo.png \"Logo title\""),
             "{rendered}"
         );
     }
