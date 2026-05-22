@@ -373,6 +373,7 @@ fn write_metadata_json(
             "lines": source.lines().count(),
         },
         "render": {
+            "mode": "metadata-json",
             "width_cells": width_cells,
         },
         "components": doc.components.len(),
@@ -1127,6 +1128,7 @@ mod tests {
         assert_eq!(value["schema_version"], 1);
         assert_eq!(value["source"]["bytes"], source.len());
         assert_eq!(value["source"]["lines"], source.lines().count());
+        assert_eq!(value["render"]["mode"], "metadata-json");
         assert_eq!(value["render"]["width_cells"], 80);
         assert_eq!(
             value["components"].as_u64().unwrap(),
