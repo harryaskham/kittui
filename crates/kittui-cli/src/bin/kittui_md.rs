@@ -19,6 +19,7 @@ enum Mode {
     Outline,
     References,
     Tables,
+    CodeBlocks,
     Stats,
     MetadataJson,
 }
@@ -66,6 +67,7 @@ fn real_main() -> Result<()> {
         Mode::Outline => write_outline(&doc, &mut std::io::stdout().lock()),
         Mode::References => write_references(&doc, &mut std::io::stdout().lock()),
         Mode::Tables => write_tables(&doc, &mut std::io::stdout().lock()),
+        Mode::CodeBlocks => write_code_blocks(&doc, &mut std::io::stdout().lock()),
         Mode::Stats => write_stats(&doc, &markdown, &mut std::io::stdout().lock()),
         Mode::MetadataJson => write_metadata_json(
             &doc,
@@ -95,6 +97,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
             "--outline" => mode = Mode::Outline,
             "--references" => mode = Mode::References,
             "--tables" => mode = Mode::Tables,
+            "--code-blocks" => mode = Mode::CodeBlocks,
             "--stats" => mode = Mode::Stats,
             "--metadata-json" => mode = Mode::MetadataJson,
             "--width" => {
@@ -140,7 +143,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Config> {
 }
 
 fn print_help() {
-    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
+    println!("kittui-md [--rich|--plain|--components|--outline|--references|--tables|--code-blocks|--stats|--metadata-json] [--interactive] [--width N] [--offset ROWS] [--height ROWS] [file]");
     println!(
         "Render Markdown as kittui/kitty graphics components. Reads stdin when file is omitted."
     );
@@ -397,6 +400,30 @@ fn write_tables(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
         for row in &table.rows {
             writeln!(out, "  | {} |", row.join(" | "))?;
         }
+    }
+    Ok(())
+}
+
+fn write_code_blocks(doc: &MarkdownDocument, out: &mut impl Write) -> Result<()> {
+    writeln!(
+        out,
+        "kittui-md code blocks — {} code blocks",
+        doc.code_blocks.len()
+    )?;
+    if doc.code_blocks.is_empty() {
+        writeln!(out, "<empty>")?;
+        return Ok(());
+    }
+    for (i, block) in doc.code_blocks.iter().enumerate() {
+        writeln!(out, "code block #{}", i + 1)?;
+        writeln!(
+            out,
+            "  language={}",
+            block.language.as_deref().unwrap_or("<plain>")
+        )?;
+        writeln!(out, "---")?;
+        writeln!(out, "{}", block.text)?;
+        writeln!(out, "---")?;
     }
     Ok(())
 }
@@ -1148,6 +1175,39 @@ mod tests {
         assert!(
             status.contains("1 headings, 0 links, 1 images, 0 footnote refs, 0 footnotes, 0 definitions, 0 math, 0 html, 0 code blocks"),
             "{status}"
+        );
+    }
+
+    #[test]
+    fn code_blocks_mode_writes_language_and_source() {
+        let doc = render_markdown("```rust\nfn main() {}\n```\n\n```\nplain\n```", 80);
+        let mut out = Vec::new();
+        write_code_blocks(&doc, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md code blocks — 2 code blocks"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("code block #1\n  language=rust"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("fn main() {}"), "{rendered}");
+        assert!(
+            rendered.contains("code block #2\n  language=<plain>"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("plain"), "{rendered}");
+    }
+
+    #[test]
+    fn code_blocks_mode_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_code_blocks(&doc, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "kittui-md code blocks — 0 code blocks\n<empty>\n"
         );
     }
 
