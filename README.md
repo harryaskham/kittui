@@ -117,6 +117,7 @@ cargo run -p kittui-cli --bin kittui-md -- --outline docs/examples/kittui-md-pro
 cargo run -p kittui-cli --bin kittui-md -- --references docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --tables docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --code-blocks docs/examples/kittui-md-proof.md
+cargo run -p kittui-cli --bin kittui-md -- --definitions docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --stats docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --metadata-json docs/examples/kittui-md-proof.md
 cargo run -p kittui-cli --bin kittui-md -- --interactive docs/examples/kittui-md-proof.md
@@ -136,6 +137,8 @@ Modes:
   metrics for table layout debugging.
 - `--code-blocks` prints only parsed code blocks with language labels and source
   text for snippet extraction.
+- `--definitions` prints only definition-list term/body pairs for glossary
+  inspection.
 - `--stats` prints concise source/component/metadata counts for quick checks.
 - `--metadata-json` emits schema-versioned JSON for tools. It includes source
   byte/line counts, component details, outline, links, images, footnotes,
