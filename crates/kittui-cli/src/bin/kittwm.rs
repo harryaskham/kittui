@@ -32,7 +32,9 @@ use anyhow::{anyhow, Result};
 use kittui::{CellSize, Runtime, TerminalInfo};
 use kittui_core::geom::PxRect;
 use kittui_wm::compositor::{Compositor, Layout, WindowMode};
-use kittui_xvfb::{FakeServer, XServer, XWindowId};
+use kittui_xvfb::{FakeServer, XWindowId};
+#[cfg(all(target_os = "macos", feature = "quartz"))]
+use kittui_xvfb::XServer;
 
 #[derive(Debug, Default)]
 struct Cli {
@@ -870,7 +872,7 @@ fn bench_cmd(cli: &Cli) -> Result<()> {
     let mean = if latencies_us.is_empty() {
         0
     } else {
-        (latencies_us.iter().sum::<u64>() / latencies_us.len() as u64)
+        latencies_us.iter().sum::<u64>() / latencies_us.len() as u64
     };
     let captures_per_s = iters as f64 / wall.as_secs_f32() as f64;
     let mb_per_s = (total_bytes as f64 / 1_048_576.0) / wall.as_secs_f32() as f64;
@@ -937,7 +939,7 @@ fn serve_cmd(_cli: Cli) -> Result<()> {
     }
     unsafe {
         for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
-            libc::signal(sig, on_signal as libc::sighandler_t);
+            libc::signal(sig, on_signal as *const () as libc::sighandler_t);
         }
     }
     while !server.quit_requested() && !GOT_SIGNAL.load(Ordering::SeqCst) {
@@ -1250,11 +1252,25 @@ fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> V
         return items.into_iter().take(limit).collect();
     };
     let q = query.to_ascii_lowercase();
-    items
+    let mut scored: Vec<(u8, String)> = items
         .into_iter()
-        .filter(|item| item.to_ascii_lowercase().contains(&q))
-        .take(limit)
-        .collect()
+        .filter_map(|item| candidate_match_score(&item, &q).map(|score| (score, item)))
+        .collect();
+    scored.sort_by(|(a_score, a), (b_score, b)| a_score.cmp(b_score).then_with(|| a.cmp(b)));
+    scored.into_iter().map(|(_, item)| item).take(limit).collect()
+}
+
+fn candidate_match_score(item: &str, lower_query: &str) -> Option<u8> {
+    let lower_item = item.to_ascii_lowercase();
+    if lower_item == lower_query {
+        Some(0)
+    } else if lower_item.starts_with(lower_query) {
+        Some(1)
+    } else if lower_item.contains(lower_query) {
+        Some(2)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone)]

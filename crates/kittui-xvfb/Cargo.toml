@@ -17,3 +17,5 @@ x11rb = { version = "0.13", optional = true, features = ["xtest"] }
 [features]
 default = []
 xvfb = ["dep:x11rb"]
+# Attach to an XQuartz/X11 display on macOS using the same pure-Rust XCB backend.
+xquartz = ["dep:x11rb"]

@@ -204,9 +204,9 @@ impl XServer for FakeServer {
 // XCB) so no `unsafe` is needed in this crate. The backend spawns an Xvfb
 // child process, attaches to its display, enumerates toplevels, captures
 // window pixels via `GetImage`, and injects pointer/key events via XTest.
-/// Real Xvfb backend. Pure-Rust XCB via `x11rb`, no `unsafe`. Enabled with
-/// the `xvfb` cargo feature.
-#[cfg(feature = "xvfb")]
+/// Real Xvfb/XQuartz backend. Pure-Rust XCB via `x11rb`, no `unsafe`.
+/// Enabled with the `xvfb` or `xquartz` cargo feature.
+#[cfg(any(feature = "xvfb", feature = "xquartz"))]
 pub mod xvfb {
     use super::*;
 

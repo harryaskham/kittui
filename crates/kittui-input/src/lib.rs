@@ -188,9 +188,10 @@ pub fn parse(buf: &[u8]) -> Option<(InputEvent, usize)> {
     // Single byte: control or UTF-8 char.
     // ASCII Ctrl-A..Ctrl-Z arrive as bytes 0x01..0x1a. Surface these as
     // ctrl-modified characters so WM keymaps can bind tmux-like prefixes
-    // such as Ctrl-A and Ctrl-H/J/K/L. CR (Ctrl-M) remains Enter so a
-    // regular Return key still works for bindings like `C-a Enter`.
-    if (0x01..=0x1a).contains(&buf[0]) && buf[0] != b'\r' {
+    // such as Ctrl-A and Ctrl-H/J/K/L. CR (Ctrl-M) and LF (Ctrl-J) remain
+    // Enter so a regular Return key still works for bindings like `C-a Enter`
+    // across terminals/tmux variants that encode Return as either byte.
+    if (0x01..=0x1a).contains(&buf[0]) && buf[0] != b'\r' && buf[0] != b'\n' {
         let ch = (b'a' + (buf[0] - 1)) as char;
         return Some((
             InputEvent::Char {
@@ -509,6 +510,14 @@ mod ctrl_keymap_tests {
         );
 
         let (ev, _) = parse(b"\r").unwrap();
+        assert_eq!(
+            ev,
+            InputEvent::Key {
+                key: Key::Enter,
+                mods: Modifiers::default()
+            }
+        );
+        let (ev, _) = parse(b"\n").unwrap();
         assert_eq!(
             ev,
             InputEvent::Key {

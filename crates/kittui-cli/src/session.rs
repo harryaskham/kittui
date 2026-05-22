@@ -94,7 +94,6 @@ pub fn run_loop_with<S: XServer>(
     let mut frame = 0u64;
     let mut input_buf = Vec::<u8>::with_capacity(256);
     let mut stdin = io::stdin();
-    let mut last_window_count = 0usize;
     let mut last_launch_pid: Option<u32> = None;
     let mut keymap = load_runtime_keymap(&dbg);
     let mut prefix_active = false;
@@ -107,6 +106,7 @@ pub fn run_loop_with<S: XServer>(
     let mut split_state = SplitState::default();
     let mut config_state = ConfigState::default();
     let mut launcher_overlay = LauncherOverlay::default();
+    let mut launcher_overlay_was_active = false;
     // Triple-Ctrl-C kill switch (bd-2776ad): single Ctrl-C is forwarded to
     // the focused window like any other key; three within 1s exits cleanly.
     let mut ctrl_c_guard = CtrlCGuard::new();
@@ -345,7 +345,7 @@ pub fn run_loop_with<S: XServer>(
         // never leaks the terminal.
         match compositor.raw_frames(layout) {
             Ok(frames) => {
-                last_window_count = frames.len();
+                let last_window_count = frames.len();
                 if frame % 30 == 0 {
                     dbg.log(&format!(
                         "frame {frame}: {} raw frames",
@@ -354,6 +354,14 @@ pub fn run_loop_with<S: XServer>(
                 }
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
+                // If the launcher overlay just closed, erase its text rows
+                // and force image placeholders to be re-emitted underneath.
+                // Without this, the boxed menu remains burned into the
+                // terminal cells even though the overlay state is inactive.
+                if launcher_overlay_was_active && !launcher_overlay.active {
+                    clear_launcher_overlay_area(&mut handle)?;
+                    last_placed.clear();
+                }
                 // Track which windows are present this frame so we can
                 // delete the ones that have disappeared.
                 let mut current_ids: std::collections::HashSet<u32> =
@@ -448,6 +456,7 @@ pub fn run_loop_with<S: XServer>(
                     ctrl_c_guard.quit_hint(last_window_count > 0),
                     dbg.path_display()
                 )?;
+                launcher_overlay_was_active = launcher_overlay.active;
                 handle.flush()?;
             }
             Err(e) => {
@@ -461,6 +470,7 @@ pub fn run_loop_with<S: XServer>(
                     msg,
                     dbg.path_display()
                 )?;
+                launcher_overlay_was_active = launcher_overlay.active;
                 handle.flush()?;
             }
         }
@@ -853,14 +863,38 @@ impl LauncherOverlay {
     }
 }
 
+fn clear_launcher_overlay_area<W: Write>(handle: &mut W) -> Result<()> {
+    // LauncherOverlay::render currently owns rows 2..=17 and starts at
+    // column 2. Clear whole rows so stale box-drawing glyphs cannot remain
+    // when the overlay closes after launch/Esc.
+    for row in 2..=17u16 {
+        write!(handle, "\x1b[{};1H\x1b[K", row)?;
+    }
+    Ok(())
+}
+
 fn filter_launcher_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> Vec<String> {
     let Some(query) = query else { return items.into_iter().take(limit).collect(); };
     let q = query.to_ascii_lowercase();
-    items
+    let mut scored: Vec<(u8, String)> = items
         .into_iter()
-        .filter(|item| item.to_ascii_lowercase().contains(&q))
-        .take(limit)
-        .collect()
+        .filter_map(|item| launcher_match_score(&item, &q).map(|score| (score, item)))
+        .collect();
+    scored.sort_by(|(a_score, a), (b_score, b)| a_score.cmp(b_score).then_with(|| a.cmp(b)));
+    scored.into_iter().map(|(_, item)| item).take(limit).collect()
+}
+
+fn launcher_match_score(item: &str, lower_query: &str) -> Option<u8> {
+    let lower_item = item.to_ascii_lowercase();
+    if lower_item == lower_query {
+        Some(0)
+    } else if lower_item.starts_with(lower_query) {
+        Some(1)
+    } else if lower_item.contains(lower_query) {
+        Some(2)
+    } else {
+        None
+    }
 }
 
 fn truncate_cells(s: &str, n: usize) -> String {
@@ -1267,6 +1301,19 @@ mod launcher_overlay_tests {
     fn filter_launcher_candidates_is_case_insensitive() {
         let items = vec!["Echo".to_string(), "cat".to_string(), "lessecho".to_string()];
         assert_eq!(filter_launcher_candidates(items, Some("ECHO"), 10), vec!["Echo".to_string(), "lessecho".to_string()]);
+    }
+
+    #[test]
+    fn filter_launcher_candidates_prefers_exact_then_prefix_matches() {
+        let items = vec![
+            "multixterm".to_string(),
+            "xterm".to_string(),
+            "xtermcontrol".to_string(),
+        ];
+        assert_eq!(
+            filter_launcher_candidates(items, Some("xterm"), 10),
+            vec!["xterm".to_string(), "xtermcontrol".to_string(), "multixterm".to_string()]
+        );
     }
 }
 

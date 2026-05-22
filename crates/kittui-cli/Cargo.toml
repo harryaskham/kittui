@@ -40,5 +40,6 @@ libc = "0.2"
 [features]
 default = []
 xvfb = ["kittui-xvfb/xvfb"]
+xquartz = ["kittui-xvfb/xquartz"]
 quartz = ["kittui-quartz/quartz"]
 sck = ["quartz", "kittui-quartz/sck"]
