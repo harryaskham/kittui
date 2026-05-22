@@ -239,6 +239,7 @@ pub fn run_loop_with<S: XServer>(
     let mut split_state = SplitState::default();
     let mut config_state = ConfigState::default();
     let mut launcher_overlay = LauncherOverlay::default();
+    let mut picker_overlay = PickerOverlay::default();
     let mut launcher_overlay_was_active = false;
     // Triple-Ctrl-C kill switch (bd-2776ad): single Ctrl-C is forwarded to
     // the focused window like any other key; three within 1s exits cleanly.
@@ -269,6 +270,24 @@ pub fn run_loop_with<S: XServer>(
         let mut quit = false;
         while let Some((ev, consumed)) = kittui_input::parse(&input_buf) {
             input_buf.drain(..consumed);
+            if picker_overlay.active {
+                match picker_overlay.handle_event(&ev) {
+                    OverlayEvent::Consumed => continue,
+                    OverlayEvent::Close => {
+                        picker_overlay.active = false;
+                        last_keymap_action = Some("picker.close".to_string());
+                        dbg.log("picker overlay closed");
+                        continue;
+                    }
+                    OverlayEvent::Launch => {
+                        last_keymap_action = Some(format!("picker.select {}", picker_overlay.selection_label()));
+                        dbg.log(&format!("picker selected {}", picker_overlay.selection_label()));
+                        picker_overlay.active = false;
+                        continue;
+                    }
+                    OverlayEvent::NotHandled => {}
+                }
+            }
             if launcher_overlay.active {
                 match launcher_overlay.handle_event(&ev) {
                     OverlayEvent::Consumed => continue,
@@ -334,6 +353,11 @@ pub fn run_loop_with<S: XServer>(
                                     .join(" ")
                             ));
                             match action {
+                                Action::PickerOpen => {
+                                    picker_overlay.open();
+                                    last_keymap_action = Some("picker.open".to_string());
+                                    dbg.log("picker overlay opened");
+                                }
                                 Action::Launch => {
                                     if opts.launcher_overlay {
                                         launcher_overlay.open_from_env();
@@ -594,6 +618,10 @@ pub fn run_loop_with<S: XServer>(
                 if launcher_overlay.active {
                     launcher_overlay.render(&mut handle)?;
                     footer_row = footer_row.max(12);
+                }
+                if picker_overlay.active {
+                    picker_overlay.render(&mut handle)?;
+                    footer_row = footer_row.max(14);
                 }
                 let launch_note = last_launch_pid
                     .map(|pid| format!(" — last launch pid={pid}"))
@@ -961,6 +989,76 @@ struct LauncherOverlay {
     active: bool,
     query: String,
     selected: usize,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+struct PickerOverlay {
+    active: bool,
+    selected: usize,
+    entries: Vec<String>,
+}
+
+impl PickerOverlay {
+    fn open(&mut self) {
+        self.active = true;
+        self.selected = 0;
+        self.entries = vec![
+            "backend: native PTY terminal".to_string(),
+            "backend: kittwm-browser".to_string(),
+            "backend: fake gallery".to_string(),
+            "window: current native-1".to_string(),
+        ];
+        #[cfg(all(target_os = "macos", feature = "quartz"))]
+        {
+            for w in kittui_quartz::QuartzServer::list_app_windows().into_iter().take(8) {
+                self.entries.push(format!("mac: {} — {}", w.owner_name, w.title));
+            }
+        }
+    }
+
+    fn handle_event(&mut self, ev: &InputEvent) -> OverlayEvent {
+        match ev {
+            InputEvent::Key { key: Key::Up, .. } => {
+                self.selected = self.selected.saturating_sub(1);
+                OverlayEvent::Consumed
+            }
+            InputEvent::Key { key: Key::Down, .. } | InputEvent::Key { key: Key::Tab, .. } => {
+                let max = self.entries.len().saturating_sub(1);
+                self.selected = (self.selected + 1).min(max);
+                OverlayEvent::Consumed
+            }
+            InputEvent::Key { key: Key::Enter, .. } => OverlayEvent::Launch,
+            InputEvent::Key { key: Key::Escape, .. } => OverlayEvent::Close,
+            _ => OverlayEvent::NotHandled,
+        }
+    }
+
+    fn selection_label(&self) -> String {
+        self.entries
+            .get(self.selected.min(self.entries.len().saturating_sub(1)))
+            .cloned()
+            .unwrap_or_else(|| "<none>".to_string())
+    }
+
+    fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
+        let width = 64usize;
+        write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
+        write!(handle, "\x1b[3;2H│{:^width$}│", "kittwm picker", width = width)?;
+        write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
+        for row in 0..8usize {
+            let line = if let Some(entry) = self.entries.get(row) {
+                let marker = if row == self.selected { "▶" } else { " " };
+                format!("{marker} {}", entry)
+            } else {
+                String::new()
+            };
+            write!(handle, "\x1b[{};2H│{:<width$}│", 5 + row as u16, truncate_cells(&line, width), width = width)?;
+        }
+        write!(handle, "\x1b[13;2H├{}┤", "─".repeat(width))?;
+        write!(handle, "\x1b[14;2H│ {:<w$}│", "Enter select · Esc close · ↑/↓/Tab navigate", w = width - 1)?;
+        write!(handle, "\x1b[15;2H└{}┘", "─".repeat(width))?;
+        Ok(())
+    }
 }
 
 impl LauncherOverlay {

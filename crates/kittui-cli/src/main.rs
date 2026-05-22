@@ -679,6 +679,7 @@ fn run_proof(global: &GlobalConfig, args: &ProofArgs) -> Result<()> {
         quiet: Quiet::SuppressAll,
         unicode_placeholder: true,
         z_index: 1,
+        relative: None,
     };
     add(
         "placement with id=7, X=4, Y=2, z=1",

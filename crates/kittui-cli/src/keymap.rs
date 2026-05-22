@@ -101,6 +101,8 @@ pub enum Action {
     SplitHorizontalLauncher,
     /// Open launcher.
     Launch,
+    /// Open backend/window picker.
+    PickerOpen,
     /// Toggle fullscreen state for focused tile/window.
     FullscreenToggle,
     /// Toggle floating state for focused tile/window.
@@ -143,6 +145,7 @@ impl Action {
             "split.vertical.launcher" | "split-vertical-launcher" => Self::SplitVerticalLauncher,
             "split.horizontal.launcher" | "split-horizontal-launcher" => Self::SplitHorizontalLauncher,
             "launch" | "launcher.open" => Self::Launch,
+            "picker.open" | "window.picker" => Self::PickerOpen,
             "fullscreen" | "fullscreen.toggle" => Self::FullscreenToggle,
             "float.toggle" | "floating.toggle" => Self::FloatToggle,
             "toggle.split" | "split.toggle" => Self::ToggleSplit,
@@ -171,6 +174,7 @@ impl fmt::Display for Action {
             Self::SplitVerticalLauncher => "split.vertical.launcher",
             Self::SplitHorizontalLauncher => "split.horizontal.launcher",
             Self::Launch => "launch",
+            Self::PickerOpen => "picker.open",
             Self::FullscreenToggle => "fullscreen.toggle",
             Self::FloatToggle => "float.toggle",
             Self::ToggleSplit => "toggle.split",
@@ -295,6 +299,7 @@ bind | split.vertical.launcher
 bind - split.horizontal.launcher
 bind Enter launch
 bind d launch
+bind Space picker.open
 bind f fullscreen.toggle
 bind t float.toggle
 bind e toggle.split
