@@ -6,6 +6,7 @@
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
+use kittui_wm::native::SurfaceEvent;
 use kittwm_sdk::{
     ActionKind, ComponentAction, ComponentNode, ComponentRole, ComponentState, ComponentValue,
     SemanticComponentId, SemanticSurfaceSnapshot,
@@ -293,6 +294,16 @@ impl NativeSpawnQueue {
     pub fn update_panes(&self, panes: Vec<NativePaneStatus>) {
         if let Ok(mut state) = self.pending.lock() {
             publish_native_pane_events(&mut state, panes);
+        }
+    }
+
+    /// Publish drained native surface side-effect events for EVENTS requests.
+    pub fn publish_surface_events(&self, window: impl Into<String>, events: Vec<SurfaceEvent>) {
+        if events.is_empty() {
+            return;
+        }
+        if let Ok(mut state) = self.pending.lock() {
+            publish_native_surface_events(&mut state, window.into(), events);
         }
     }
 
@@ -830,6 +841,44 @@ fn native_spawn_help_json_reply() -> String {
         })
         .collect::<Vec<_>>();
     format!("{}\n", serde_json::json!({ "commands": commands }))
+}
+
+fn publish_native_surface_events(
+    state: &mut NativeSpawnQueueState,
+    window: String,
+    events: Vec<SurfaceEvent>,
+) {
+    for event in events {
+        match event {
+            SurfaceEvent::TitleChanged(title) => push_native_event(
+                state,
+                "surface_title_changed",
+                Some(window.clone()),
+                serde_json::json!({ "title": title }),
+            ),
+            SurfaceEvent::Bell { visual, audible } => push_native_event(
+                state,
+                "surface_bell",
+                Some(window.clone()),
+                serde_json::json!({ "visual": visual, "audible": audible }),
+            ),
+            SurfaceEvent::ClipboardSet {
+                selection,
+                payload_base64,
+            } => push_native_event(
+                state,
+                "surface_clipboard_set",
+                Some(window.clone()),
+                serde_json::json!({ "selection": selection, "payload_base64": payload_base64 }),
+            ),
+            SurfaceEvent::Notification { title, body } => push_native_event(
+                state,
+                "surface_notification",
+                Some(window.clone()),
+                serde_json::json!({ "title": title, "body": body }),
+            ),
+        }
+    }
 }
 
 fn publish_native_layout_event(state: &mut NativeSpawnQueueState, layout: String) {
@@ -2706,6 +2755,42 @@ mod tests {
             scrollback_snapshot: Some("secret scrollback is not serialized".to_string()),
             app_rows: None,
         }
+    }
+
+    #[test]
+    fn native_surface_events_publish_explicit_event_kinds() {
+        let mut state = NativeSpawnQueueState::default();
+        publish_native_surface_events(
+            &mut state,
+            "native-1".to_string(),
+            vec![
+                SurfaceEvent::TitleChanged("editor".to_string()),
+                SurfaceEvent::Bell {
+                    visual: true,
+                    audible: false,
+                },
+                SurfaceEvent::ClipboardSet {
+                    selection: "c".to_string(),
+                    payload_base64: "aGVsbG8=".to_string(),
+                },
+                SurfaceEvent::Notification {
+                    title: "build".to_string(),
+                    body: "done".to_string(),
+                },
+            ],
+        );
+        let events = state.events.into_iter().collect::<Vec<_>>();
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0]["kind"], "surface_title_changed");
+        assert_eq!(events[0]["window"], "native-1");
+        assert_eq!(events[0]["detail"]["title"], "editor");
+        assert_eq!(events[1]["kind"], "surface_bell");
+        assert_eq!(events[1]["detail"]["visual"], true);
+        assert_eq!(events[1]["detail"]["audible"], false);
+        assert_eq!(events[2]["kind"], "surface_clipboard_set");
+        assert_eq!(events[2]["detail"]["payload_base64"], "aGVsbG8=");
+        assert_eq!(events[3]["kind"], "surface_notification");
+        assert_eq!(events[3]["detail"]["body"], "done");
     }
 
     #[test]

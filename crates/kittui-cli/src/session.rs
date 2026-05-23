@@ -436,6 +436,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         let stdout = io::stdout();
         let mut handle = stdout.lock();
         for pane in &panes {
+            let surface_events = pane.app.take_surface_events();
+            if !surface_events.is_empty() {
+                queue.publish_surface_events(pane.window.clone(), surface_events);
+            }
             let sequences = pane.app.take_host_sequences();
             if !sequences.is_empty() {
                 handle.write_all(&sequences)?;
