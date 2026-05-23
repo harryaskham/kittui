@@ -35,7 +35,7 @@ Missing or immature:
 - The native event stream exists for status/pane/focus/layout changes, but resize/input/frame/clipboard/bell/title events are not yet promoted into a complete SDK event model.
 - Terminal engine extraction has started with `TerminalSurface`, but it still lives inside `kittui-wm::native` rather than a standalone `kittui-term`/`kittwm-terminal` crate.
 - GUI capture backends are only partially expressed through the new native surface abstraction; X/Quartz and scene/composite metadata still need concrete adapters.
-- External apps cannot yet create child surfaces, composite them, and present a merged window.
+- External apps can now dogfood the SDK with a composite example that spawns child surfaces and composes text snapshots side-by-side, but true child-surface frame capture/present is still immature.
 - Clipboard/bell/notification semantics are only partially modeled; OSC 52 set-clipboard forwarding exists, but policy and clipboard reads are not yet an SDK capability.
 - Capability/security policy has an initial client-side SDK shape, but runtime-issued credentials and per-client enforcement are still immature.
 - Semantic component surfaces are planned separately in [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md) so toolkit/browser/accessibility/native SDK adapters can expose controls and actions rather than pixels only.
@@ -254,7 +254,7 @@ Recommended beads:
 12. `kittwm-launch: add standalone app launcher skeleton`
 13. `kittwm: model clipboard/bell/notification events and policy`
 14. `kittwm: add capability scoping for SDK clients`
-15. `examples: add composite app spawning terminal plus browser surfaces`
+15. `examples: add composite app spawning terminal plus browser surfaces` — initial SDK example lives at `crates/kittui-cli/examples/kittwm_composite_app.rs`.
 16. `kittwm: plan semantic component surface protocol` — see [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md).
 17. `kittui-affordances: add first-party form and control components`
 18. `kittwm: render semantic component surfaces via kittui affordances`
