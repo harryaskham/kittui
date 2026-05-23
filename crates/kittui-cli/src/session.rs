@@ -51,13 +51,17 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let cmd = std::env::var("KITTWM_TERMINAL_CMD")
         .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
         .unwrap_or_else(|_| "/bin/sh -l".to_string());
-    let mut panes = vec![spawn_native_pane(
-        1,
-        &cmd,
-        &sock,
-        cols,
-        rows.saturating_sub(1).max(1),
-    )?];
+    let mut panes = if native_startup_terminal_enabled() {
+        vec![spawn_native_pane(
+            1,
+            &cmd,
+            &sock,
+            cols,
+            rows.saturating_sub(2).max(1),
+        )?]
+    } else {
+        Vec::new()
+    };
     let mut focused = 0usize;
     let mut layout_axis = NativePaneLayoutAxis::Columns;
     resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
@@ -74,7 +78,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut stdin = io::stdin();
     let mut prefix = false;
     let mut clear = true;
+    let mut help_overlay = false;
     let mut last_title_rows = Vec::<String>::new();
+    let mut last_top_bar = String::new();
     let mut last_footer = String::new();
     let pure_terminal_renderer = native_should_use_pure_terminal_renderer();
     let affordance_scene_chrome = native_should_use_affordance_scene_chrome();
@@ -103,7 +109,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         offset += consumed;
                         continue;
                     }
-                    if !prefix {
+                    if !prefix && !panes.is_empty() {
                         if let Some(payload) = native_key_event_payload(
                             &event,
                             panes[focused].app.application_cursor_keys_enabled(),
@@ -125,6 +131,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             cols,
                             rows,
                             &mut clear,
+                            &mut help_overlay,
                             &dbg,
                         )? {
                             return Ok(());
@@ -143,6 +150,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         cols,
                         rows,
                         &mut clear,
+                        &mut help_overlay,
                         &dbg,
                     )? {
                         return Ok(());
@@ -172,31 +180,30 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     }
                 }
                 crate::daemon::NativePaneCommand::FocusNext => {
-                    let new_focus = next_native_focus(focused, panes.len());
-                    native_set_focus(&mut panes, &mut focused, new_focus)?;
-                    clear = true;
-                    dbg.log(&format!(
-                        "native terminal socket focus next: {}",
-                        panes[focused].window
-                    ));
+                    if !panes.is_empty() {
+                        let new_focus = next_native_focus(focused, panes.len());
+                        native_set_focus(&mut panes, &mut focused, new_focus)?;
+                        clear = true;
+                        dbg.log(&format!(
+                            "native terminal socket focus next: {}",
+                            panes[focused].window
+                        ));
+                    }
                 }
                 crate::daemon::NativePaneCommand::FocusPrev => {
-                    let new_focus = prev_native_focus(focused, panes.len());
-                    native_set_focus(&mut panes, &mut focused, new_focus)?;
-                    clear = true;
-                    dbg.log(&format!(
-                        "native terminal socket focus prev: {}",
-                        panes[focused].window
-                    ));
+                    if !panes.is_empty() {
+                        let new_focus = prev_native_focus(focused, panes.len());
+                        native_set_focus(&mut panes, &mut focused, new_focus)?;
+                        clear = true;
+                        dbg.log(&format!(
+                            "native terminal socket focus prev: {}",
+                            panes[focused].window
+                        ));
+                    }
                 }
                 crate::daemon::NativePaneCommand::Close(window) => {
-                    if panes.len() > 1 {
-                        let target = if window == "focused" {
-                            Some(focused)
-                        } else {
-                            native_pane_index(&panes, &window)
-                        };
-                        if let Some(idx) = target {
+                    if !panes.is_empty() {
+                        if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                             let old_focused = focused;
                             let closing_focused = idx == old_focused;
                             if closing_focused {
@@ -204,11 +211,20 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             }
                             panes[idx].app.terminate()?;
                             panes.remove(idx);
-                            focused = focus_after_remove(old_focused, idx, panes.len() + 1);
-                            if closing_focused {
-                                native_send_focus_event(&mut panes[focused], true)?;
+                            if panes.is_empty() {
+                                focused = 0;
+                            } else {
+                                focused = focus_after_remove(old_focused, idx, panes.len() + 1);
+                                if closing_focused {
+                                    native_send_focus_event(&mut panes[focused], true)?;
+                                }
+                                resize_native_panes_for_layout(
+                                    &mut panes,
+                                    cols,
+                                    rows,
+                                    layout_axis,
+                                )?;
                             }
-                            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
                             clear = true;
                             dbg.log(&format!("native terminal socket close: {window}"));
                         }
@@ -226,12 +242,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     }
                 }
                 crate::daemon::NativePaneCommand::Move { window, direction } => {
-                    let target = if window == "focused" {
-                        Some(focused)
-                    } else {
-                        native_pane_index(&panes, &window)
-                    };
-                    if let Some(from) = target {
+                    if let Some(from) = native_target_pane_index(&panes, focused, &window) {
                         let to = native_move_target_index(from, panes.len(), &direction);
                         if to != from {
                             let pane = panes.remove(from);
@@ -246,12 +257,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     }
                 }
                 crate::daemon::NativePaneCommand::Resize { window, delta } => {
-                    let target = if window == "focused" {
-                        Some(focused)
-                    } else {
-                        native_pane_index(&panes, &window)
-                    };
-                    if let Some(idx) = target {
+                    if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         panes[idx].weight = native_adjust_weight(panes[idx].weight, delta);
                         resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
                         clear = true;
@@ -337,12 +343,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     mut text,
                     newline,
                 } => {
-                    let target = if window == "focused" {
-                        Some(focused)
-                    } else {
-                        native_pane_index(&panes, &window)
-                    };
-                    if let Some(idx) = target {
+                    if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         if newline {
                             text.push('\n');
                         }
@@ -358,12 +359,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     bytes,
                     label,
                 } => {
-                    let target = if window == "focused" {
-                        Some(focused)
-                    } else {
-                        native_pane_index(&panes, &window)
-                    };
-                    if let Some(idx) = target {
+                    if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         panes[idx].app.send_bytes(&bytes)?;
                         dbg.log(&format!(
                             "native terminal socket send key: {window} key={label} bytes={}",
@@ -372,12 +368,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     }
                 }
                 crate::daemon::NativePaneCommand::PasteBytes { window, bytes } => {
-                    let target = if window == "focused" {
-                        Some(focused)
-                    } else {
-                        native_pane_index(&panes, &window)
-                    };
-                    if let Some(idx) = target {
+                    if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         let bracketed = panes[idx].app.bracketed_paste_enabled();
                         let payload = native_paste_payload(&bytes, bracketed);
                         panes[idx].app.send_bytes(&payload)?;
@@ -394,12 +385,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     col,
                     row,
                 } => {
-                    let target = if window == "focused" {
-                        Some(focused)
-                    } else {
-                        native_pane_index(&panes, &window)
-                    };
-                    if let Some(idx) = target {
+                    if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         let modes = panes[idx].app.mouse_reporting_modes();
                         if let Some(payload) = native_mouse_event_payload(&event, col, row, modes) {
                             panes[idx].app.send_bytes(&payload)?;
@@ -430,8 +416,15 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
 
         let layouts = native_layouts_for_panes(cols, rows, &panes, layout_axis);
-        let shell_view =
-            native_shell_view(rows, &panes, focused, &layouts, &sock, dbg.path_display());
+        let shell_view = native_shell_view(
+            rows,
+            &panes,
+            focused,
+            &layouts,
+            &sock,
+            dbg.path_display(),
+            help_overlay,
+        );
         queue.update_panes(native_pane_statuses(&panes, focused, &layouts));
         let stdout = io::stdout();
         let mut handle = stdout.lock();
@@ -467,11 +460,24 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if clear {
             handle.write_all(b"\x1b[2J")?;
             last_title_rows.clear();
+            last_top_bar.clear();
             last_footer.clear();
             clear = false;
         }
         if last_title_rows.len() != shell_view.panes.len() {
             last_title_rows.resize(shell_view.panes.len(), String::new());
+        }
+        if redraw_static || shell_view.top_bar.text != last_top_bar {
+            write!(
+                handle,
+                "\x1b[{};1H\x1b[7m{}\x1b[0m",
+                shell_view.top_bar.row + 1,
+                clip_and_pad(&shell_view.top_bar.text, cols as usize)
+            )?;
+            last_top_bar = shell_view.top_bar.text.clone();
+        }
+        if shell_view.help_overlay {
+            write_native_help_overlay(&mut handle, cols, rows)?;
         }
         if affordance_scene_chrome {
             write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view)?;
@@ -536,7 +542,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 NativeFrame::Png { .. } => {}
             }
         }
-        if !affordance_scene_chrome && (redraw_static || shell_view.footer.text != last_footer) {
+        if !affordance_scene_chrome
+            && !shell_view.footer.text.is_empty()
+            && (redraw_static || shell_view.footer.text != last_footer)
+        {
             write!(
                 handle,
                 "\x1b[{};1H\x1b[K{}",
@@ -607,8 +616,16 @@ struct NativePaneLayout {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct NativeShellView {
+    top_bar: NativeTopBarChrome,
     panes: Vec<NativePaneChrome>,
     footer: NativeFooterChrome,
+    help_overlay: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct NativeTopBarChrome {
+    row: u16,
+    text: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -638,6 +655,7 @@ fn native_shell_view(
     layouts: &[NativePaneLayout],
     sock: &str,
     log_path: &str,
+    help_overlay: bool,
 ) -> NativeShellView {
     let pane_chrome = panes
         .iter()
@@ -661,20 +679,72 @@ fn native_shell_view(
             })
         })
         .collect();
-    let focused_pane = panes.get(focused).or_else(|| panes.first());
-    let (focused_window, focused_weight) = focused_pane
-        .map(|pane| (pane.window.as_str(), pane.weight))
-        .unwrap_or(("-", 0));
     NativeShellView {
+        top_bar: NativeTopBarChrome {
+            row: 0,
+            text: native_top_bar_text(1, panes.len(), sock),
+        },
         panes: pane_chrome,
         footer: NativeFooterChrome {
             row: rows.saturating_add(1),
-            text: format!(
-                "kittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a [] move — C-a b balance — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — log: {}",
-                panes.len(), focused_window, focused_weight, sock, log_path
-            ),
+            text: native_status_line_text(panes.len(), log_path),
         },
+        help_overlay,
     }
+}
+
+fn native_top_bar_text(workspace_id: u16, panes: usize, sock: &str) -> String {
+    let state = if panes == 0 { "empty" } else { "active" };
+    format!(
+        " kittui-bar  ws:{workspace_id}  {state}  {}  display={} ",
+        native_time_label(),
+        sock
+    )
+}
+
+fn native_status_line_text(panes: usize, log_path: &str) -> String {
+    if panes == 0 {
+        String::new()
+    } else {
+        format!(" C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: {log_path}")
+    }
+}
+
+fn native_time_label() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let day = secs % 86_400;
+    let hour = day / 3_600;
+    let minute = (day % 3_600) / 60;
+    format!("{hour:02}:{minute:02} UTC")
+}
+
+fn native_help_overlay_lines() -> &'static [&'static str] {
+    &[
+        "kittwm shortcuts",
+        "C-a Enter / C-a t  launch terminal",
+        "C-a ?              toggle this help",
+        "C-a % / C-a |      split columns",
+        "C-a -              split rows",
+        "C-a Tab            focus next pane",
+        "C-a x              close pane (last pane returns to empty workspace)",
+        "C-a +/-            resize focused pane",
+        "C-a [ / C-a ]      move focused pane",
+        "C-a b              balance panes",
+        "Ctrl-]             exit kittwm",
+    ]
+}
+
+fn native_startup_terminal_enabled() -> bool {
+    matches!(
+        std::env::var("KITTWM_STARTUP_TERMINAL")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 fn native_should_use_pure_terminal_renderer() -> bool {
@@ -822,6 +892,14 @@ fn native_pane_index(panes: &[NativePane], window: &str) -> Option<usize> {
     panes.iter().position(|pane| pane.window == window)
 }
 
+fn native_target_pane_index(panes: &[NativePane], focused: usize, window: &str) -> Option<usize> {
+    if window == "focused" {
+        (!panes.is_empty()).then_some(focused.min(panes.len().saturating_sub(1)))
+    } else {
+        native_pane_index(panes, window)
+    }
+}
+
 fn next_native_pane_id(panes: &[NativePane]) -> u32 {
     panes
         .iter()
@@ -866,6 +944,7 @@ fn process_native_terminal_byte(
     cols: u16,
     rows: u16,
     clear: &mut bool,
+    help_overlay: &mut bool,
     dbg: &Debugger,
 ) -> Result<bool> {
     if byte == 0x1d {
@@ -875,9 +954,13 @@ fn process_native_terminal_byte(
     if *prefix {
         *prefix = false;
         match byte {
-            b'%' | b'|' | b'v' | b'V' => {
-                *layout_axis = NativePaneLayoutAxis::Columns;
-                native_split_focused(
+            b'?' => {
+                *help_overlay = !*help_overlay;
+                *clear = true;
+                dbg.log(&format!("native terminal help overlay: {}", *help_overlay));
+            }
+            b'\r' | b'\n' | b't' | b'T' => {
+                native_launch_terminal_pane(
                     panes,
                     focused,
                     *layout_axis,
@@ -888,59 +971,111 @@ fn process_native_terminal_byte(
                     clear,
                     dbg,
                 )?;
+            }
+            b'%' | b'|' | b'v' | b'V' => {
+                *layout_axis = NativePaneLayoutAxis::Columns;
+                if panes.is_empty() {
+                    native_launch_terminal_pane(
+                        panes,
+                        focused,
+                        *layout_axis,
+                        cmd,
+                        sock,
+                        cols,
+                        rows,
+                        clear,
+                        dbg,
+                    )?;
+                } else {
+                    native_split_focused(
+                        panes,
+                        focused,
+                        *layout_axis,
+                        cmd,
+                        sock,
+                        cols,
+                        rows,
+                        clear,
+                        dbg,
+                    )?;
+                }
             }
             b'-' | b'\"' | b'h' | b'H' => {
                 *layout_axis = NativePaneLayoutAxis::Rows;
-                native_split_focused(
-                    panes,
-                    focused,
-                    *layout_axis,
-                    cmd,
-                    sock,
-                    cols,
-                    rows,
-                    clear,
-                    dbg,
-                )?;
+                if panes.is_empty() {
+                    native_launch_terminal_pane(
+                        panes,
+                        focused,
+                        *layout_axis,
+                        cmd,
+                        sock,
+                        cols,
+                        rows,
+                        clear,
+                        dbg,
+                    )?;
+                } else {
+                    native_split_focused(
+                        panes,
+                        focused,
+                        *layout_axis,
+                        cmd,
+                        sock,
+                        cols,
+                        rows,
+                        clear,
+                        dbg,
+                    )?;
+                }
             }
             b'\t' | b'n' | b'N' => {
-                let new_focus = next_native_focus(*focused, panes.len());
-                native_set_focus(panes, focused, new_focus)?;
-                *clear = true;
-                dbg.log(&format!(
-                    "native terminal focus: {}",
-                    panes[*focused].window
-                ));
+                if !panes.is_empty() {
+                    let new_focus = next_native_focus(*focused, panes.len());
+                    native_set_focus(panes, focused, new_focus)?;
+                    *clear = true;
+                    dbg.log(&format!(
+                        "native terminal focus: {}",
+                        panes[*focused].window
+                    ));
+                }
             }
             b'x' | b'X' => {
-                if panes.len() > 1 {
+                if !panes.is_empty() {
                     native_send_focus_event(&mut panes[*focused], false)?;
                     panes[*focused].app.terminate()?;
                     panes.remove(*focused);
-                    *focused = focus_after_remove(*focused, *focused, panes.len() + 1);
-                    native_send_focus_event(&mut panes[*focused], true)?;
-                    resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                    if panes.is_empty() {
+                        *focused = 0;
+                    } else {
+                        *focused = focus_after_remove(*focused, *focused, panes.len() + 1);
+                        native_send_focus_event(&mut panes[*focused], true)?;
+                        resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                    }
                     *clear = true;
                     dbg.log(&format!("native terminal close: panes={}", panes.len()));
                 }
             }
             b'+' | b'=' => {
-                panes[*focused].weight = native_adjust_weight(panes[*focused].weight, 1);
-                resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
-                *clear = true;
-                dbg.log(&format!(
-                    "native terminal resize grow: {} weight={}",
-                    panes[*focused].window, panes[*focused].weight
-                ));
+                if !panes.is_empty() {
+                    panes[*focused].weight = native_adjust_weight(panes[*focused].weight, 1);
+                    resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                    *clear = true;
+                    dbg.log(&format!(
+                        "native terminal resize grow: {} weight={}",
+                        panes[*focused].window, panes[*focused].weight
+                    ));
+                }
             }
             b'_' | b'<' => {
-                panes[*focused].weight = native_adjust_weight(panes[*focused].weight, -1);
-                resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
-                *clear = true;
-                dbg.log(&format!(
-                    "native terminal resize shrink: {} weight={}",
-                    panes[*focused].window, panes[*focused].weight
-                ));
+                if !panes.is_empty() {
+                    panes[*focused].weight = native_adjust_weight(panes[*focused].weight, -1);
+                    resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                    *clear = true;
+                    dbg.log(&format!(
+                        "native terminal resize shrink: {} weight={}",
+                        panes[*focused].window, panes[*focused].weight
+                    ));
+                }
             }
             b'b' | b'B' => {
                 balance_native_pane_weights(panes);
@@ -949,20 +1084,36 @@ fn process_native_terminal_byte(
                 dbg.log("native terminal balance pane weights");
             }
             b'[' | b',' => {
-                native_move_focused(panes, focused, *layout_axis, cols, rows, "left", clear, dbg)?
+                if !panes.is_empty() {
+                    native_move_focused(
+                        panes,
+                        focused,
+                        *layout_axis,
+                        cols,
+                        rows,
+                        "left",
+                        clear,
+                        dbg,
+                    )?
+                }
             }
-            b']' | b'.' => native_move_focused(
-                panes,
-                focused,
-                *layout_axis,
-                cols,
-                rows,
-                "right",
-                clear,
-                dbg,
-            )?,
-            0x01 => panes[*focused].app.send_bytes(&[0x01])?,
-            other => panes[*focused].app.send_bytes(&[other])?,
+            b']' | b'.' => {
+                if !panes.is_empty() {
+                    native_move_focused(
+                        panes,
+                        focused,
+                        *layout_axis,
+                        cols,
+                        rows,
+                        "right",
+                        clear,
+                        dbg,
+                    )?
+                }
+            }
+            0x01 if !panes.is_empty() => panes[*focused].app.send_bytes(&[0x01])?,
+            other if !panes.is_empty() => panes[*focused].app.send_bytes(&[other])?,
+            _ => {}
         }
         return Ok(false);
     }
@@ -970,8 +1121,36 @@ fn process_native_terminal_byte(
         *prefix = true;
         return Ok(false);
     }
-    panes[*focused].app.send_bytes(&[byte])?;
+    if !panes.is_empty() {
+        panes[*focused].app.send_bytes(&[byte])?;
+    }
     Ok(false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn native_launch_terminal_pane(
+    panes: &mut Vec<NativePane>,
+    focused: &mut usize,
+    axis: NativePaneLayoutAxis,
+    cmd: &str,
+    sock: &str,
+    cols: u16,
+    rows: u16,
+    clear: &mut bool,
+    dbg: &Debugger,
+) -> Result<()> {
+    let id = next_native_pane_id(panes);
+    panes.push(spawn_native_pane(id, cmd, sock, 1, 1)?);
+    let new_focus = panes.len() - 1;
+    native_set_focus(panes, focused, new_focus)?;
+    resize_native_panes_for_layout(panes, cols, rows, axis)?;
+    *clear = true;
+    dbg.log(&format!(
+        "native terminal launch: {} panes={}",
+        panes[*focused].window,
+        panes.len()
+    ));
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1041,12 +1220,22 @@ fn native_layouts_for_panes(
     panes: &[NativePane],
     axis: NativePaneLayoutAxis,
 ) -> Vec<NativePaneLayout> {
+    if panes.is_empty() {
+        return Vec::new();
+    }
     native_pane_layouts_weighted(
         cols,
-        rows,
+        rows.saturating_sub(1).max(1),
         &panes.iter().map(|pane| pane.weight).collect::<Vec<_>>(),
         axis,
     )
+    .into_iter()
+    .map(|mut layout| {
+        layout.y = layout.y.saturating_add(1);
+        layout.app_y = layout.app_y.saturating_add(1);
+        layout
+    })
+    .collect()
 }
 
 fn native_pane_layouts_weighted(
@@ -1476,6 +1665,11 @@ fn native_pane_title_text(pane: &NativePane, layout: NativePaneLayout, focused: 
 fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u16) -> String {
     let mut out = String::new();
     out.push_str("\x1b[H");
+    out.push_str(&format!(
+        "\x1b[{};1H\x1b[7m{}\x1b[0m",
+        view.top_bar.row + 1,
+        clip_and_pad(&view.top_bar.text, cols as usize)
+    ));
     for pane in &view.panes {
         let title_style = if pane.focused { "\x1b[7m" } else { "\x1b[2m" };
         out.push_str(&format!(
@@ -1500,12 +1694,27 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
             ));
         }
     }
-    let footer = clip_and_pad(&view.footer.text, cols as usize);
-    out.push_str(&format!(
-        "\x1b[{};1H\x1b[K{}",
-        view.footer.row.min(rows.saturating_add(1)) + 1,
-        footer
-    ));
+    if view.help_overlay {
+        for (idx, line) in native_help_overlay_lines().iter().enumerate() {
+            let row = 2 + idx as u16;
+            if row >= rows {
+                break;
+            }
+            out.push_str(&format!(
+                "\x1b[{};3H\x1b[7m {} \x1b[0m",
+                row + 1,
+                clip_and_pad(line, cols.saturating_sub(4) as usize)
+            ));
+        }
+    }
+    if !view.footer.text.is_empty() {
+        let footer = clip_and_pad(&view.footer.text, cols as usize);
+        out.push_str(&format!(
+            "\x1b[{};1H\x1b[K{}",
+            view.footer.row.min(rows.saturating_add(1)) + 1,
+            footer
+        ));
+    }
     out
 }
 
@@ -1599,6 +1808,22 @@ fn native_pane_title_key_from_text(text: &str, layout: NativePaneLayout, focused
     )
 }
 
+fn write_native_help_overlay<W: Write>(out: &mut W, cols: u16, rows: u16) -> Result<()> {
+    for (idx, line) in native_help_overlay_lines().iter().enumerate() {
+        let row = 2 + idx as u16;
+        if row >= rows {
+            break;
+        }
+        write!(
+            out,
+            "\x1b[{};3H\x1b[7m {} \x1b[0m",
+            row + 1,
+            clip_and_pad(line, cols.saturating_sub(4) as usize)
+        )?;
+    }
+    Ok(())
+}
+
 fn write_native_pane_chrome<W: Write>(out: &mut W, chrome: &NativePaneChrome) -> Result<()> {
     let style = if chrome.focused { "\x1b[7m" } else { "\x1b[2m" };
     write!(
@@ -1632,6 +1857,20 @@ mod native_pane_tests {
         assert!(native_should_use_pure_terminal_renderer());
         std::env::remove_var("TMUX");
         std::env::remove_var("KITTWM_NATIVE_RENDERER");
+    }
+
+    #[test]
+    fn native_startup_terminal_is_opt_in() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_STARTUP_TERMINAL");
+        assert!(!native_startup_terminal_enabled());
+        std::env::set_var("KITTWM_STARTUP_TERMINAL", "1");
+        assert!(native_startup_terminal_enabled());
+        std::env::set_var("KITTWM_STARTUP_TERMINAL", "true");
+        assert!(native_startup_terminal_enabled());
+        std::env::set_var("KITTWM_STARTUP_TERMINAL", "0");
+        assert!(!native_startup_terminal_enabled());
+        std::env::remove_var("KITTWM_STARTUP_TERMINAL");
     }
 
     #[test]
@@ -1871,14 +2110,18 @@ mod native_pane_tests {
     #[test]
     fn native_shell_terminal_renderer_draws_chrome_and_snapshots() {
         let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: " kittui-bar  ws:1  active  12:00 UTC ".to_string(),
+            },
             panes: vec![NativePaneChrome {
                 x: 0,
-                y: 0,
+                y: 1,
                 focused: true,
                 text: "* native-1 shell".to_string(),
                 cache_key: "key".to_string(),
                 app_x: 0,
-                app_y: 1,
+                app_y: 2,
                 app_cols: 8,
                 app_rows: 2,
                 text_snapshot: "hello\nworld\nignored\n".to_string(),
@@ -1887,21 +2130,49 @@ mod native_pane_tests {
                 row: 4,
                 text: "footer".to_string(),
             },
+            help_overlay: false,
         };
-        let rendered = render_native_shell_view_terminal(&view, 12, 4);
+        let rendered = render_native_shell_view_terminal(&view, 12, 5);
+        assert!(rendered.contains("kittui-bar"), "{rendered:?}");
         assert!(
-            rendered.contains("\x1b[1;1H\x1b[7m* native-1 shell\x1b[0m"),
+            rendered.contains("\x1b[2;1H\x1b[7m* native-1 shell\x1b[0m"),
             "{rendered:?}"
         );
-        assert!(rendered.contains("\x1b[2;1Hhello   "), "{rendered:?}");
-        assert!(rendered.contains("\x1b[3;1Hworld   "), "{rendered:?}");
+        assert!(rendered.contains("\x1b[3;1Hhello   "), "{rendered:?}");
+        assert!(rendered.contains("\x1b[4;1Hworld   "), "{rendered:?}");
         assert!(!rendered.contains("ignored"), "{rendered:?}");
         assert!(rendered.contains("footer"), "{rendered:?}");
     }
 
     #[test]
+    fn native_shell_terminal_renderer_draws_empty_workspace_top_bar_and_help() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: " kittui-bar  ws:1  empty  12:00 UTC ".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 4,
+                text: String::new(),
+            },
+            help_overlay: true,
+        };
+        let rendered = render_native_shell_view_terminal(&view, 40, 8);
+        assert!(rendered.contains("kittui-bar"), "{rendered:?}");
+        assert!(rendered.contains("ws:1"), "{rendered:?}");
+        assert!(rendered.contains("empty"), "{rendered:?}");
+        assert!(rendered.contains("kittwm shortcuts"), "{rendered:?}");
+        assert!(!rendered.contains("footer"), "{rendered:?}");
+    }
+
+    #[test]
     fn native_shell_affordance_renderer_builds_kittui_scenes() {
         let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: " kittui-bar  ws:1  active  12:00 UTC ".to_string(),
+            },
             panes: vec![
                 NativePaneChrome {
                     x: 0,
@@ -1932,6 +2203,7 @@ mod native_pane_tests {
                 row: 4,
                 text: "footer".to_string(),
             },
+            help_overlay: false,
         };
         let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16));
         assert_eq!(scenes.len(), 3);
@@ -1959,11 +2231,20 @@ mod native_pane_tests {
         };
         let key = native_pane_title_key_from_text("* native-1 sh", layout, true);
         assert!(key.contains("0,0,12x6:true:* native-1 sh"));
-        let footer =
-            native_shell_view(10, &[], 0, &[], "/tmp/kittwm.sock", "/tmp/kittwm.log").footer;
-        assert_eq!(footer.row, 11);
-        assert!(footer.text.contains("focused=-"));
-        assert!(footer.text.contains("KITTWM_SOCKET=/tmp/kittwm.sock"));
+        let view = native_shell_view(
+            10,
+            &[],
+            0,
+            &[],
+            "/tmp/kittwm.sock",
+            "/tmp/kittwm.log",
+            false,
+        );
+        assert_eq!(view.top_bar.row, 0);
+        assert!(view.top_bar.text.contains("kittui-bar"));
+        assert!(view.top_bar.text.contains("ws:1"));
+        assert!(view.top_bar.text.contains("empty"));
+        assert!(view.footer.text.is_empty());
     }
 
     #[test]
