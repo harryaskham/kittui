@@ -20,7 +20,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 
-use kittui::{CellRect, Runtime};
+use kittui::{CellRect, CellSize, Runtime, Scene};
+use kittui_affordances::{button, text_input, ControlState};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
@@ -1467,6 +1468,57 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
     out
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq)]
+struct NativeShellChromeScene {
+    id: String,
+    x: u16,
+    y: u16,
+    scene: Scene,
+}
+
+#[allow(dead_code)]
+fn render_native_shell_view_affordance_scenes(
+    view: &NativeShellView,
+    cell_size: CellSize,
+) -> Vec<NativeShellChromeScene> {
+    let mut scenes = Vec::new();
+    for (idx, pane) in view.panes.iter().enumerate() {
+        let state = ControlState::default().focused(pane.focused);
+        let scene = button(
+            format!("pane-{idx}"),
+            pane.text.clone(),
+            pane.app_cols.max(6),
+        )
+        .state(state)
+        .to_scene(cell_size);
+        scenes.push(NativeShellChromeScene {
+            id: format!("pane-{idx}-title"),
+            x: pane.x,
+            y: pane.y,
+            scene,
+        });
+    }
+    let footer = text_input(
+        "footer",
+        "status",
+        view.footer.text.clone(),
+        view.panes
+            .iter()
+            .map(|pane| pane.app_cols)
+            .sum::<u16>()
+            .max(20),
+    )
+    .to_scene(cell_size);
+    scenes.push(NativeShellChromeScene {
+        id: "footer".to_string(),
+        x: 0,
+        y: view.footer.row,
+        scene: footer,
+    });
+    scenes
+}
+
 fn clip_and_pad(text: &str, width: usize) -> String {
     let mut clipped = text.chars().take(width).collect::<String>();
     while clipped.chars().count() < width {
@@ -1771,6 +1823,53 @@ mod native_pane_tests {
         assert!(rendered.contains("\x1b[3;1Hworld   "), "{rendered:?}");
         assert!(!rendered.contains("ignored"), "{rendered:?}");
         assert!(rendered.contains("footer"), "{rendered:?}");
+    }
+
+    #[test]
+    fn native_shell_affordance_renderer_builds_kittui_scenes() {
+        let view = NativeShellView {
+            panes: vec![
+                NativePaneChrome {
+                    x: 0,
+                    y: 0,
+                    focused: true,
+                    text: "* native-1 shell".to_string(),
+                    cache_key: "key1".to_string(),
+                    app_x: 0,
+                    app_y: 1,
+                    app_cols: 8,
+                    app_rows: 2,
+                    text_snapshot: "hello".to_string(),
+                },
+                NativePaneChrome {
+                    x: 8,
+                    y: 0,
+                    focused: false,
+                    text: "  native-2 logs".to_string(),
+                    cache_key: "key2".to_string(),
+                    app_x: 8,
+                    app_y: 1,
+                    app_cols: 10,
+                    app_rows: 2,
+                    text_snapshot: "logs".to_string(),
+                },
+            ],
+            footer: NativeFooterChrome {
+                row: 4,
+                text: "footer".to_string(),
+            },
+        };
+        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16));
+        assert_eq!(scenes.len(), 3);
+        assert_eq!(scenes[0].id, "pane-0-title");
+        assert_eq!((scenes[1].x, scenes[1].y), (8, 0));
+        assert_eq!(scenes[2].id, "footer");
+        assert!(scenes[0]
+            .scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("control_background")));
+        assert!(scenes.iter().all(|chrome| !chrome.scene.layers.is_empty()));
     }
 
     #[test]
