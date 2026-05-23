@@ -399,8 +399,21 @@ impl Perform for TerminalState {
         match action {
             'A' => self.cursor_row = self.cursor_row.saturating_sub(first),
             'B' => self.cursor_row = (self.cursor_row + first).min(self.rows.saturating_sub(1)),
-            'C' => self.cursor_col = (self.cursor_col + first).min(self.cols.saturating_sub(1)),
+            'C' | 'a' => {
+                self.cursor_col = (self.cursor_col + first).min(self.cols.saturating_sub(1))
+            }
             'D' => self.cursor_col = self.cursor_col.saturating_sub(first),
+            'E' => {
+                self.cursor_row = (self.cursor_row + first).min(self.rows.saturating_sub(1));
+                self.cursor_col = 0;
+            }
+            'F' => {
+                self.cursor_row = self.cursor_row.saturating_sub(first);
+                self.cursor_col = 0;
+            }
+            'G' => self.cursor_col = first.saturating_sub(1).min(self.cols.saturating_sub(1)),
+            'd' => self.cursor_row = first.saturating_sub(1).min(self.rows.saturating_sub(1)),
+            'e' => self.cursor_row = (self.cursor_row + first).min(self.rows.saturating_sub(1)),
             'H' | 'f' => {
                 let mut iter = params.iter();
                 let row = iter.next().and_then(|p| p.first().copied()).unwrap_or(1) as u16;
@@ -763,6 +776,18 @@ mod tests {
         parser.advance(&mut state, b"a\tb");
         let text = state.text_snapshot();
         assert!(text.starts_with("a       b"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn terminal_state_honors_additional_cursor_csi_modes() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(12, 4);
+        parser.advance(&mut state, b"x\x1b[6Gy\x1b[2dz\x1b[2Ew\x1b[1Fk\x1b[2an");
+        let text = state.text_snapshot();
+        assert!(
+            text.starts_with("x    y\n      z\nk  n\nw"),
+            "snapshot was:\n{text}"
+        );
     }
 
     #[test]
