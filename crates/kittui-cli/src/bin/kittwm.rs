@@ -303,6 +303,18 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--rename-pane WINDOW TITLE"))?;
                 out.automation_request = Some(rename_pane_request(&window, &title)?);
             }
+            "--apps-json" => out.automation_request = Some("APPS_JSON".to_string()),
+            "--apps-first" => {
+                let query = args.next().ok_or_else(|| anyhow!("--apps-first QUERY"))?;
+                out.automation_request = Some(protocol_payload_request("APPS_FIRST", &query)?);
+            }
+            "--apps-launch-first" => {
+                let query = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--apps-launch-first QUERY"))?;
+                out.automation_request =
+                    Some(protocol_payload_request("APPS_LAUNCH_FIRST", &query)?);
+            }
             "--launcher-overlay" => out.launcher_overlay = true,
             "--no-launcher-overlay" => out.no_launcher_overlay = true,
             "--kill" => out.mode = Mode::Kill,
@@ -383,6 +395,9 @@ fn print_help() {
          --resize-pane WINDOW N   resize pane weight (grow/shrink/+N/-N).\n\
          --balance-panes          equalize native pane weights.\n\
          --rename-pane WINDOW TITLE set native pane display title.\n\
+         --apps-json              print native socket APPS_JSON.\n\
+         --apps-first QUERY       print first app candidate from socket discovery.\n\
+         --apps-launch-first QUERY launch first app candidate via socket discovery.\n\
          --backend fake|quartz|xvfb force a specific backend.\n\
          --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
                          one window, then run a kittwm session capturing only it.\n\
@@ -2058,6 +2073,14 @@ mod tests {
         assert_eq!(
             rename_pane_request("native-2", "Editor Pane").unwrap(),
             "RENAME_PANE native-2 Editor Pane"
+        );
+        assert_eq!(
+            protocol_payload_request("apps_first", "Safari Browser").unwrap(),
+            "APPS_FIRST Safari Browser"
+        );
+        assert_eq!(
+            protocol_payload_request("apps_launch_first", "Visual Studio Code").unwrap(),
+            "APPS_LAUNCH_FIRST Visual Studio Code"
         );
         assert!(layout_request("diagonal").is_err());
         assert!(move_pane_request("bad window", "last").is_err());
