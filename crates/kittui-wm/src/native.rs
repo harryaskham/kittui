@@ -558,16 +558,7 @@ impl PtyTerminalApp {
                 pixel_height: rows.saturating_mul(16),
             })
             .context("open PTY")?;
-        let shell = std::env::var("KITTWM_PTY_SHELL").unwrap_or_else(|_| {
-            std::env::var("SHELL").unwrap_or_else(|_| {
-                if std::path::Path::new("/bin/sh").exists() {
-                    "/bin/sh".to_string()
-                } else {
-                    "sh".to_string()
-                }
-            })
-        });
-        let mut builder = CommandBuilder::new(shell);
+        let mut builder = CommandBuilder::new(default_pty_shell());
         builder.arg("-lc");
         builder.arg(command);
         for (key, value) in envs {
@@ -2704,6 +2695,29 @@ fn create_target(port: u16, url: &str) -> Result<serde_json::Value> {
     let endpoint = format!("http://127.0.0.1:{port}/json/new?{}", percent_encode(url));
     let text = ureq::put(&endpoint).call()?.into_string()?;
     Ok(serde_json::from_str(&text)?)
+}
+
+fn default_pty_shell() -> String {
+    if let Ok(shell) = std::env::var("KITTWM_PTY_SHELL") {
+        if !shell.trim().is_empty() {
+            return shell;
+        }
+    }
+    if let Ok(shell) = std::env::var("SHELL") {
+        if !shell.trim().is_empty() && std::path::Path::new(&shell).exists() {
+            return shell;
+        }
+    }
+    find_on_path("sh")
+        .or_else(|| find_on_path("bash"))
+        .or_else(|| {
+            if std::path::Path::new("/bin/sh").exists() {
+                Some("/bin/sh".to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "sh".to_string())
 }
 
 fn find_chrome() -> Option<String> {
