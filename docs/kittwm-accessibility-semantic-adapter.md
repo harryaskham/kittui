@@ -147,5 +147,6 @@ Automation and renderers must tolerate partial semantics. They should not assume
   - Landed first slice: `kittui_wm::accessibility` provides the safe adapter core: platform/window association metadata, AX-style node input, bounded semantic snapshot mapping, sensitive value redaction, action descriptors, and macOS permission diagnostics. Direct AX FFI remains a follow-up once a safe platform binding is introduced.
 - `bd-dcb522`: Linux AT-SPI proof that finds an app/window tree, extracts roles/names/states/actions, and degrades cleanly when AT-SPI is unavailable.
 - `bd-eabe22`: route focus/activate/set value/insert text/select through resolved AX/AT-SPI objects with stale-component and permission errors.
+  - Landed first slice: `route_accessibility_action` resolves component ids in the latest accessibility tree and dispatches focus/activate/toggle/set value/insert text/select/scroll/expand/collapse to a platform backend trait, returning stale-component and unsupported-action errors from the safe core.
 
 These should stay separate because platform association/extraction and action routing have different risk profiles.

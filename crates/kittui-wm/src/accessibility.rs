@@ -323,6 +323,124 @@ fn accessibility_actions(role: &str, platform_actions: &[String]) -> Vec<Compone
     out
 }
 
+/// Error returned while routing a semantic action to a platform accessibility object.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AccessibilityActionError {
+    /// The component id did not resolve in the latest accessibility tree.
+    StaleComponent(String),
+    /// The requested semantic action is not supported for this node/backend.
+    UnsupportedAction(String),
+    /// Platform accessibility permission is missing or was revoked.
+    PermissionDenied(String),
+    /// Platform/backend operation failed.
+    Backend(String),
+}
+
+impl std::fmt::Display for AccessibilityActionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaleComponent(id) => write!(f, "stale accessibility component: {id}"),
+            Self::UnsupportedAction(action) => {
+                write!(f, "unsupported accessibility action: {action}")
+            }
+            Self::PermissionDenied(reason) => {
+                write!(f, "accessibility permission denied: {reason}")
+            }
+            Self::Backend(reason) => write!(f, "accessibility backend error: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for AccessibilityActionError {}
+
+/// Platform operation sink used by the safe routing core.
+///
+/// macOS AX and Linux AT-SPI bindings can implement this trait for their live
+/// object handles. Tests can use an in-memory recorder without platform
+/// permissions or desktop services.
+pub trait AccessibilityActionBackend {
+    /// Move platform accessibility focus to `node`.
+    fn focus(&mut self, node: &AccessibilityNode) -> Result<(), AccessibilityActionError>;
+    /// Invoke a named platform action such as press/click/activate/toggle.
+    fn perform_action(
+        &mut self,
+        node: &AccessibilityNode,
+        action: &str,
+    ) -> Result<(), AccessibilityActionError>;
+    /// Replace a node's value.
+    fn set_value(
+        &mut self,
+        node: &AccessibilityNode,
+        value: &str,
+    ) -> Result<(), AccessibilityActionError>;
+    /// Insert text into a node at the platform's current caret/selection.
+    fn insert_text(
+        &mut self,
+        node: &AccessibilityNode,
+        text: &str,
+    ) -> Result<(), AccessibilityActionError>;
+    /// Select a value/option in a node.
+    fn select(
+        &mut self,
+        node: &AccessibilityNode,
+        value: &str,
+    ) -> Result<(), AccessibilityActionError>;
+    /// Scroll the node into view or scroll within it.
+    fn scroll(&mut self, node: &AccessibilityNode) -> Result<(), AccessibilityActionError>;
+}
+
+/// Route one semantic action/focus request through the latest accessibility tree.
+pub fn route_accessibility_action(
+    root: &AccessibilityNode,
+    component_id: &str,
+    action: &str,
+    payload: &serde_json::Value,
+    backend: &mut impl AccessibilityActionBackend,
+) -> Result<(), AccessibilityActionError> {
+    let node = find_accessibility_node(root, component_id)
+        .ok_or_else(|| AccessibilityActionError::StaleComponent(component_id.to_string()))?;
+    match action {
+        "focus" => backend.focus(node),
+        "activate" => backend.perform_action(node, "activate"),
+        "toggle" => backend.perform_action(node, "toggle"),
+        "set_value" => backend.set_value(node, payload_text(payload).as_deref().unwrap_or("")),
+        "insert_text" => backend.insert_text(node, payload_text(payload).as_deref().unwrap_or("")),
+        "select" => backend.select(node, payload_text(payload).as_deref().unwrap_or("")),
+        "scroll" => backend.scroll(node),
+        "expand" => backend.perform_action(node, "expand"),
+        "collapse" => backend.perform_action(node, "collapse"),
+        other => Err(AccessibilityActionError::UnsupportedAction(
+            other.to_string(),
+        )),
+    }
+}
+
+fn find_accessibility_node<'a>(
+    root: &'a AccessibilityNode,
+    component_id: &str,
+) -> Option<&'a AccessibilityNode> {
+    if root.id == component_id {
+        return Some(root);
+    }
+    root.children
+        .iter()
+        .find_map(|child| find_accessibility_node(child, component_id))
+}
+
+fn payload_text(payload: &serde_json::Value) -> Option<String> {
+    payload
+        .get("value")
+        .or_else(|| payload.get("text"))
+        .or_else(|| payload.get("id"))
+        .or_else(|| payload.get("option"))
+        .and_then(|value| match value {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            serde_json::Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,6 +489,124 @@ mod tests {
             snapshot.root.children[3].value,
             Some(ComponentValue::Number(0.75))
         );
+    }
+
+    #[derive(Default)]
+    struct RecordingBackend {
+        calls: Vec<String>,
+    }
+
+    impl AccessibilityActionBackend for RecordingBackend {
+        fn focus(&mut self, node: &AccessibilityNode) -> Result<(), AccessibilityActionError> {
+            self.calls.push(format!("focus:{}", node.id));
+            Ok(())
+        }
+
+        fn perform_action(
+            &mut self,
+            node: &AccessibilityNode,
+            action: &str,
+        ) -> Result<(), AccessibilityActionError> {
+            self.calls.push(format!("{action}:{}", node.id));
+            Ok(())
+        }
+
+        fn set_value(
+            &mut self,
+            node: &AccessibilityNode,
+            value: &str,
+        ) -> Result<(), AccessibilityActionError> {
+            self.calls.push(format!("set_value:{}={value}", node.id));
+            Ok(())
+        }
+
+        fn insert_text(
+            &mut self,
+            node: &AccessibilityNode,
+            text: &str,
+        ) -> Result<(), AccessibilityActionError> {
+            self.calls.push(format!("insert_text:{}={text}", node.id));
+            Ok(())
+        }
+
+        fn select(
+            &mut self,
+            node: &AccessibilityNode,
+            value: &str,
+        ) -> Result<(), AccessibilityActionError> {
+            self.calls.push(format!("select:{}={value}", node.id));
+            Ok(())
+        }
+
+        fn scroll(&mut self, node: &AccessibilityNode) -> Result<(), AccessibilityActionError> {
+            self.calls.push(format!("scroll:{}", node.id));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn routes_accessibility_actions_to_backend_and_reports_stale_components() {
+        let root = AccessibilityNode::new("ax:window", "AXWindow").children(vec![
+            AccessibilityNode::new("ax:button", "AXButton"),
+            AccessibilityNode::new("ax:field", "AXTextField"),
+            AccessibilityNode::new("ax:list", "AXList"),
+        ]);
+        let mut backend = RecordingBackend::default();
+        route_accessibility_action(
+            &root,
+            "ax:button",
+            "activate",
+            &serde_json::json!({}),
+            &mut backend,
+        )
+        .unwrap();
+        route_accessibility_action(
+            &root,
+            "ax:field",
+            "set_value",
+            &serde_json::json!({"value":"Ada"}),
+            &mut backend,
+        )
+        .unwrap();
+        route_accessibility_action(
+            &root,
+            "ax:list",
+            "select",
+            &serde_json::json!({"id":"choice-1"}),
+            &mut backend,
+        )
+        .unwrap();
+        assert_eq!(
+            backend.calls,
+            vec![
+                "activate:ax:button",
+                "set_value:ax:field=Ada",
+                "select:ax:list=choice-1"
+            ]
+        );
+
+        let err = route_accessibility_action(
+            &root,
+            "missing",
+            "focus",
+            &serde_json::json!({}),
+            &mut backend,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            AccessibilityActionError::StaleComponent("missing".into())
+        );
+        assert!(matches!(
+            route_accessibility_action(
+                &root,
+                "ax:button",
+                "unsupported",
+                &serde_json::json!({}),
+                &mut backend,
+            ),
+            Err(AccessibilityActionError::UnsupportedAction(_))
+        ));
     }
 
     #[test]
