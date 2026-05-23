@@ -89,31 +89,34 @@ pub unsafe extern "C" fn kittui_runtime_new_config(json: *const c_char) -> *mut 
             Ok(s) => s,
             Err(_) => return ptr::null_mut(),
         };
-        let value: serde_json::Value = match serde_json::from_str(s) {
-            Ok(value) => value,
-            Err(_) => return ptr::null_mut(),
-        };
-        let renderer = match parse_renderer(
-            value
-                .get("renderer")
-                .and_then(|v| v.as_str())
-                .unwrap_or("cpu"),
-        ) {
-            Some(renderer) => renderer,
-            None => return ptr::null_mut(),
-        };
-        let mut builder = Runtime::builder().renderer(renderer);
-        if let Some(cache_dir) = value.get("cache_dir").and_then(|v| v.as_str()) {
-            builder = builder.cache_dir(PathBuf::from(cache_dir));
+        match runtime_from_config_str(s) {
+            Ok(runtime) => Box::into_raw(Box::new(KittuiRuntime {
+                inner: runtime,
+                last_error: Mutex::new(None),
+            })),
+            Err(_) => ptr::null_mut(),
         }
-        let terminal = match terminal_from_config(&value) {
-            Some(terminal) => terminal,
-            None => return ptr::null_mut(),
-        };
-        builder = builder.terminal(terminal);
-        runtime_ptr_from_builder(builder)
     }));
     result.unwrap_or(ptr::null_mut())
+}
+
+fn runtime_from_config_str(s: &str) -> Result<Runtime, String> {
+    let value: serde_json::Value = serde_json::from_str(s).map_err(|e| e.to_string())?;
+    let renderer = parse_renderer(
+        value
+            .get("renderer")
+            .and_then(|v| v.as_str())
+            .unwrap_or("cpu"),
+    )
+    .ok_or_else(|| "invalid renderer; expected cpu|gpu|auto".to_string())?;
+    let mut builder = Runtime::builder().renderer(renderer);
+    if let Some(cache_dir) = value.get("cache_dir").and_then(|v| v.as_str()) {
+        builder = builder.cache_dir(PathBuf::from(cache_dir));
+    }
+    let terminal =
+        terminal_from_config(&value).ok_or_else(|| "invalid terminal config values".to_string())?;
+    builder = builder.terminal(terminal);
+    builder.build().map_err(|e| e.to_string())
 }
 
 fn runtime_ptr_from_builder(builder: kittui::RuntimeBuilder) -> *mut KittuiRuntime {
@@ -559,12 +562,17 @@ pub unsafe extern "C" fn kittui_runtime_configure(
             Ok(s) => s,
             Err(_) => return KittuiStatus::BadScene,
         };
-        // The Runtime currently exposes immutable renderer/transport fields,
-        // so we record the request in last_error so callers can introspect
-        // what kittui would honour. A future Runtime mutator API will replace
-        // this with the actual mutation.
-        *rt.last_error.lock().unwrap() = CString::new(format!("configure: {s}")).ok();
-        KittuiStatus::Ok
+        match runtime_from_config_str(s) {
+            Ok(runtime) => {
+                rt.inner = runtime;
+                *rt.last_error.lock().unwrap() = None;
+                KittuiStatus::Ok
+            }
+            Err(e) => {
+                *rt.last_error.lock().unwrap() = CString::new(e).ok();
+                KittuiStatus::BadScene
+            }
+        }
     }));
     result.unwrap_or(KittuiStatus::Panic)
 }
@@ -871,6 +879,54 @@ mod tests {
             assert_eq!(status, KittuiStatus::Ok);
             let bytes = owned_string(out);
             assert!(bytes.contains("\x1b[7;6H"), "{bytes:?}");
+            kittui_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn runtime_configure_rebuilds_live_runtime() {
+        let first = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": true, "supports_unicode_placeholders": true}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        let second = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "tmux", "supports_kitty": false, "supports_unicode_placeholders": true}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(first.as_ptr());
+            assert!(!runtime.is_null());
+            let status = kittui_runtime_configure(runtime, second.as_ptr());
+            assert_eq!(status, KittuiStatus::Ok);
+            let probe = owned_string(kittui_probe_json(runtime));
+            assert!(probe.contains("TmuxPassthrough"), "{probe}");
+            let mut out: *mut c_char = std::ptr::null_mut();
+            let status = kittui_place_json(runtime, scene_json().as_ptr(), &mut out);
+            assert_eq!(status, KittuiStatus::Runtime);
+            assert!(out.is_null());
+            let err = owned_string(kittui_last_error(runtime));
+            assert!(err.contains("unsupported terminal"), "{err}");
+            kittui_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn runtime_configure_rejects_bad_json() {
+        let config = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": true, "supports_unicode_placeholders": true}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        let bad = CString::new(r#"{"renderer":"bogus"}"#).unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(config.as_ptr());
+            assert!(!runtime.is_null());
+            let status = kittui_runtime_configure(runtime, bad.as_ptr());
+            assert_eq!(status, KittuiStatus::BadScene);
+            let err = owned_string(kittui_last_error(runtime));
+            assert!(err.contains("invalid renderer"), "{err}");
             kittui_runtime_free(runtime);
         }
     }
