@@ -129,6 +129,14 @@ pub struct NativePaneStatus {
     pub cursor_visible: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bracketed_paste: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mouse_reporting: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mouse_button_motion: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mouse_all_motion: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mouse_sgr: Option<bool>,
     #[serde(skip_serializing)]
     pub text_snapshot: Option<String>,
     #[serde(skip_serializing)]
@@ -1008,7 +1016,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} layout={} title={:?}",
+            "  window={} focused={} weight={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} mouse={} layout={} title={:?}",
             pane.window,
             pane.focused,
             pane.weight,
@@ -1019,6 +1027,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
             native_pane_cursor_label(pane),
             native_pane_bool_label(pane.cursor_visible),
             native_pane_bracketed_paste_label(pane),
+            native_pane_mouse_label(pane),
             native_pane_layout_label(pane),
             pane.title
         );
@@ -1036,6 +1045,27 @@ fn native_pane_cursor_label(pane: &NativePaneStatus) -> String {
 
 fn native_pane_bracketed_paste_label(pane: &NativePaneStatus) -> &'static str {
     native_pane_bool_label(pane.bracketed_paste)
+}
+
+fn native_pane_mouse_label(pane: &NativePaneStatus) -> String {
+    let mut modes = Vec::new();
+    if pane.mouse_reporting == Some(true) {
+        modes.push("basic");
+    }
+    if pane.mouse_button_motion == Some(true) {
+        modes.push("button-motion");
+    }
+    if pane.mouse_all_motion == Some(true) {
+        modes.push("all-motion");
+    }
+    if pane.mouse_sgr == Some(true) {
+        modes.push("sgr");
+    }
+    if modes.is_empty() {
+        "-".to_string()
+    } else {
+        modes.join(",")
+    }
 }
 
 fn native_pane_bool_label(value: Option<bool>) -> &'static str {
@@ -1889,6 +1919,10 @@ mod tests {
             cursor_row: None,
             cursor_visible: Some(true),
             bracketed_paste: Some(false),
+            mouse_reporting: Some(false),
+            mouse_button_motion: Some(false),
+            mouse_all_motion: Some(false),
+            mouse_sgr: Some(false),
             text_snapshot: Some("ready\n$ ".to_string()),
             scrollback_snapshot: Some("boot\n".to_string()),
             app_rows: None,
@@ -1931,6 +1965,10 @@ mod tests {
             cursor_row: None,
             cursor_visible: Some(true),
             bracketed_paste: Some(false),
+            mouse_reporting: Some(false),
+            mouse_button_motion: Some(false),
+            mouse_all_motion: Some(false),
+            mouse_sgr: Some(false),
             text_snapshot: Some("waiting\n".to_string()),
             scrollback_snapshot: Some("previous\n".to_string()),
             app_rows: None,
@@ -2051,6 +2089,10 @@ mod tests {
                 cursor_row: Some(1),
                 cursor_visible: Some(true),
                 bracketed_paste: Some(true),
+                mouse_reporting: Some(true),
+                mouse_button_motion: Some(true),
+                mouse_all_motion: Some(false),
+                mouse_sgr: Some(true),
                 text_snapshot: Some("shell line\n".to_string()),
                 scrollback_snapshot: Some("shell history\n".to_string()),
                 app_rows: Some(23),
@@ -2073,6 +2115,10 @@ mod tests {
                 cursor_row: Some(2),
                 cursor_visible: Some(false),
                 bracketed_paste: Some(false),
+                mouse_reporting: Some(false),
+                mouse_button_motion: Some(false),
+                mouse_all_motion: Some(false),
+                mouse_sgr: Some(false),
                 text_snapshot: Some("htop line\nsecond\n".to_string()),
                 scrollback_snapshot: Some("htop history\n".to_string()),
                 app_rows: Some(23),
@@ -2086,11 +2132,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on mouse=basic,button-motion,sgr layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let status_json: serde_json::Value =
@@ -2121,6 +2167,10 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["cursor_row"], 2);
         assert_eq!(panes_json["panes_detail"][0]["cursor_visible"], true);
         assert_eq!(panes_json["panes_detail"][0]["bracketed_paste"], true);
+        assert_eq!(panes_json["panes_detail"][0]["mouse_reporting"], true);
+        assert_eq!(panes_json["panes_detail"][0]["mouse_button_motion"], true);
+        assert_eq!(panes_json["panes_detail"][0]["mouse_all_motion"], false);
+        assert_eq!(panes_json["panes_detail"][0]["mouse_sgr"], true);
         assert!(panes_json["panes_detail"][1].get("text_snapshot").is_none());
 
         let session_json: serde_json::Value =

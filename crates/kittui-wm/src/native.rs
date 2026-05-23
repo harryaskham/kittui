@@ -27,6 +27,19 @@ use vte::{Params, Parser, Perform};
 
 const SCROLLBACK_MAX_LINES: usize = 10_000;
 
+/// Terminal mouse reporting modes requested by a native PTY application.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MouseReportingModes {
+    /// Basic press/release mouse tracking (`CSI ? 1000 h`).
+    pub basic: bool,
+    /// Button-motion tracking while a button is held (`CSI ? 1002 h`).
+    pub button_motion: bool,
+    /// All-motion tracking, including hover motion (`CSI ? 1003 h`).
+    pub all_motion: bool,
+    /// SGR coordinate encoding (`CSI ? 1006 h`).
+    pub sgr: bool,
+}
+
 /// Backend-independent input and capture surface for a kittwm-native app.
 pub trait NativeApp {
     /// Human-readable app title.
@@ -185,6 +198,11 @@ impl PtyTerminalApp {
         self.state.lock().focus_reporting
     }
 
+    /// Mouse reporting modes requested by the terminal application.
+    pub fn mouse_reporting_modes(&self) -> MouseReportingModes {
+        self.state.lock().mouse_modes
+    }
+
     /// Return the PTY child process id when the backend exposes one.
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
@@ -262,6 +280,7 @@ struct TerminalState {
     alt_screen: Option<AlternateScreen>,
     bracketed_paste: bool,
     focus_reporting: bool,
+    mouse_modes: MouseReportingModes,
     title: Option<String>,
 }
 
@@ -329,6 +348,7 @@ impl TerminalState {
             alt_screen: None,
             bracketed_paste: false,
             focus_reporting: false,
+            mouse_modes: MouseReportingModes::default(),
             title: None,
         }
     }
@@ -342,6 +362,7 @@ impl TerminalState {
         self.cursor_visible = old.cursor_visible;
         self.bracketed_paste = old.bracketed_paste;
         self.focus_reporting = old.focus_reporting;
+        self.mouse_modes = old.mouse_modes;
         self.cells = resize_cells(&old.cells, old.cols, old.rows, cols, rows);
         self.alt_screen = old.alt_screen.map(|alt| AlternateScreen {
             normal_cells: resize_cells(&alt.normal_cells, old.cols, old.rows, cols, rows),
@@ -659,6 +680,16 @@ impl TerminalState {
         self.cursor_row = self.saved_cursor_row.min(self.rows.saturating_sub(1));
     }
 
+    fn set_mouse_mode(&mut self, mode: u16, enabled: bool) {
+        match mode {
+            1000 => self.mouse_modes.basic = enabled,
+            1002 => self.mouse_modes.button_motion = enabled,
+            1003 => self.mouse_modes.all_motion = enabled,
+            1006 => self.mouse_modes.sgr = enabled,
+            _ => {}
+        }
+    }
+
     fn apply_sgr(&mut self, params: &Params) {
         if params.is_empty() {
             self.current_style = TerminalStyle::default();
@@ -838,6 +869,11 @@ impl Perform for TerminalState {
         let has_cursor_visibility_mode = params
             .iter()
             .any(|param| param.first().copied() == Some(25));
+        let mouse_modes = params
+            .iter()
+            .filter_map(|param| param.first().copied())
+            .filter(|mode| matches!(mode, 1000 | 1002 | 1003 | 1006))
+            .collect::<Vec<_>>();
         match action {
             '@' => self.insert_chars(first_count),
             'A' => self.cursor_row = self.cursor_row.saturating_sub(first_count),
@@ -880,6 +916,11 @@ impl Perform for TerminalState {
             'h' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = true,
             'h' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = true,
             'h' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = true,
+            'h' if is_dec_private && !mouse_modes.is_empty() => {
+                for mode in mouse_modes {
+                    self.set_mouse_mode(mode, true);
+                }
+            }
             'J' => match first_raw {
                 0 => self.clear_screen_range(
                     self.cursor_row,
@@ -902,6 +943,11 @@ impl Perform for TerminalState {
             'l' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = false,
             'l' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = false,
             'l' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = false,
+            'l' if is_dec_private && !mouse_modes.is_empty() => {
+                for mode in mouse_modes {
+                    self.set_mouse_mode(mode, false);
+                }
+            }
             'M' => self.delete_lines(first_count),
             'm' => self.apply_sgr(params),
             'P' => self.delete_chars(first_count),
@@ -1471,6 +1517,28 @@ mod tests {
         assert!(state.focus_reporting);
         parser.advance(&mut state, b"\x1b[?1004l");
         assert!(!state.focus_reporting);
+    }
+
+    #[test]
+    fn terminal_state_tracks_mouse_reporting_modes() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        assert_eq!(state.mouse_modes, MouseReportingModes::default());
+        parser.advance(&mut state, b"\x1b[?1000;1002;1003;1006h");
+        assert_eq!(
+            state.mouse_modes,
+            MouseReportingModes {
+                basic: true,
+                button_motion: true,
+                all_motion: true,
+                sgr: true,
+            }
+        );
+        parser.advance(&mut state, b"\x1b[?1002;1006l");
+        assert!(state.mouse_modes.basic);
+        assert!(!state.mouse_modes.button_motion);
+        assert!(state.mouse_modes.all_motion);
+        assert!(!state.mouse_modes.sgr);
     }
 
     #[test]

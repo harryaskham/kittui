@@ -809,6 +809,7 @@ fn native_pane_statuses(
         .map(|(idx, pane)| {
             let layout = layouts.get(idx).copied();
             let (cursor_col, cursor_row) = pane.app.cursor_position();
+            let mouse = pane.app.mouse_reporting_modes();
             crate::daemon::NativePaneStatus {
                 window: pane.window.clone(),
                 title: native_pane_display_title(pane),
@@ -827,6 +828,10 @@ fn native_pane_statuses(
                 cursor_row: Some(cursor_row),
                 cursor_visible: Some(pane.app.cursor_visible()),
                 bracketed_paste: Some(pane.app.bracketed_paste_enabled()),
+                mouse_reporting: Some(mouse.basic),
+                mouse_button_motion: Some(mouse.button_motion),
+                mouse_all_motion: Some(mouse.all_motion),
+                mouse_sgr: Some(mouse.sgr),
                 text_snapshot: Some(pane.app.text_snapshot()),
                 scrollback_snapshot: Some(pane.app.scrollback_snapshot()),
                 app_rows: layout.map(|l| l.app_rows),
