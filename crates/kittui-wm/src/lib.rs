@@ -13,6 +13,8 @@
 
 use kittui::CellRect;
 
+/// Dirty-grid helpers for future frame transport policy.
+pub mod dirty;
 /// Backend-independent native app surfaces (PTY terminal, headless browser).
 pub mod native;
 /// Semantic component surface model and kittui-affordances renderer bridge.
