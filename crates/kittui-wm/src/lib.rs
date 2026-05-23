@@ -482,6 +482,32 @@ pub mod compositor {
             *self.focused.lock()
         }
 
+        /// Focus the next known backend window, wrapping at the end.
+        pub fn focus_next(&self) -> Result<Option<XWindowId>, kittui_xvfb::XError> {
+            self.focus_relative(1)
+        }
+
+        /// Focus the previous known backend window, wrapping at the start.
+        pub fn focus_prev(&self) -> Result<Option<XWindowId>, kittui_xvfb::XError> {
+            self.focus_relative(-1)
+        }
+
+        fn focus_relative(&self, delta: isize) -> Result<Option<XWindowId>, kittui_xvfb::XError> {
+            let windows = self.server.windows()?;
+            if windows.is_empty() {
+                *self.focused.lock() = None;
+                return Ok(None);
+            }
+            let ids = windows.iter().map(|w| w.id).collect::<Vec<_>>();
+            let current = self.focused_window().unwrap_or(ids[0]);
+            let pos = ids.iter().position(|id| *id == current).unwrap_or(0);
+            let len = ids.len() as isize;
+            let next = ((pos as isize + delta).rem_euclid(len)) as usize;
+            let id = ids[next];
+            self.set_focused(id);
+            Ok(Some(id))
+        }
+
         /// Borrow the underlying X server for direct access (advanced use).
         pub fn server(&self) -> &S {
             &self.server
@@ -500,7 +526,10 @@ pub mod compositor {
         pub fn raw_frames(&self, layout: &Layout) -> Result<Vec<RawFrame>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
             let modes = self.modes.lock().clone();
-            let focused_window = self.focused_window();
+            let focused_window = match self.focused_window() {
+                Some(id) if windows.iter().any(|w| w.id == id) => Some(id),
+                _ => windows.first().map(|w| w.id),
+            };
             let mut placements_snapshot = HashMap::new();
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
@@ -535,7 +564,7 @@ pub mod compositor {
                     rgba: cap.rgba,
                     footprint,
                     title: format!("x11:{}", w.id.0),
-                    focused: focused_window.unwrap_or(w.id) == w.id,
+                    focused: focused_window == Some(w.id),
                     mode,
                 });
             }
@@ -970,6 +999,25 @@ pub mod compositor {
                 .unwrap();
             assert!(!unfocused.focused);
             assert_eq!(unfocused.mode, WindowMode::Floating);
+        }
+
+        #[test]
+        fn raw_frames_default_to_single_focused_window_and_cycle() {
+            let comp = Compositor::new(server(), CellSize::new(8, 16));
+            let frames = comp.raw_frames(&Layout::all_floating()).unwrap();
+            assert_eq!(frames.iter().filter(|frame| frame.focused).count(), 1);
+            assert_eq!(
+                frames.iter().find(|frame| frame.focused).unwrap().window_id,
+                XWindowId(1)
+            );
+            assert_eq!(comp.focus_next().unwrap(), Some(XWindowId(2)));
+            let frames = comp.raw_frames(&Layout::all_floating()).unwrap();
+            assert_eq!(
+                frames.iter().find(|frame| frame.focused).unwrap().window_id,
+                XWindowId(2)
+            );
+            assert_eq!(comp.focus_next().unwrap(), Some(XWindowId(1)));
+            assert_eq!(comp.focus_prev().unwrap(), Some(XWindowId(2)));
         }
 
         #[test]

@@ -981,6 +981,17 @@ pub fn run_loop_with<S: XServer>(
                                 | Action::FocusUp
                                 | Action::FocusRight => {
                                     let msg = focus_state.apply(&action);
+                                    let focused = match action {
+                                        Action::FocusLeft | Action::FocusUp => {
+                                            compositor.focus_prev()
+                                        }
+                                        _ => compositor.focus_next(),
+                                    };
+                                    let msg = match focused {
+                                        Ok(Some(id)) => format!("{msg} window={}", id.0),
+                                        Ok(None) => format!("{msg} window=-"),
+                                        Err(e) => format!("{msg} error={e}"),
+                                    };
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("focus action: {msg}"));
                                 }
