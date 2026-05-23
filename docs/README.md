@@ -85,9 +85,10 @@ Current semantic implementation status:
 - `kittwm-terminal` — first-party SDK terminal client for spawn/replace plus
   typed `--status` and `--events-ms` inspection.
 - `kittwm-sdk` automation helpers now include screen text, scrollback,
-  visible-text waits, screen-plus-scrollback output waits, exact byte sends,
-  bracketed paste byte payloads, and typed `MouseEvent` injection through
-  `SurfaceHandle` methods; control helpers cover focus cycling, layout,
+  visible-text waits, screen-plus-scrollback output waits, typed wait-match
+  results, exact byte sends, bracketed paste byte payloads, and typed
+  `MouseEvent` injection through `SurfaceHandle` methods; event helpers expose
+  common envelope/detail accessors; control helpers cover focus cycling, layout,
   balance, and pane movement; `NativePaneDetail` has convenience accessors for
   bounds/cursor/modes/dirty/transport status; local capability presets cover
   none/restricted/inspection/automation scopes; SDK introspection includes typed
