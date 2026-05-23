@@ -646,28 +646,86 @@ fn handle_request(
         spawn_reply(argv, path, panes)
     } else {
         match cmd {
-        "PING" => "PONG\n".to_string(),
-        "STATUS" => daemon_status_reply(started, path, panes),
-        "STATUS_JSON" => daemon_status_json_reply(started, path, panes),
-        "WINDOWS" => windows_reply(),
-        "DISPLAYS" => displays_reply(),
-        "APPS" => apps_reply(50),
-        "APPS_JSON" => apps_json_reply(50),
-        "PANES" => panes_reply(panes),
-        "PANES_JSON" => panes_json_reply(panes),
-        "HELP" | "?" => {
-            "PING | STATUS | STATUS_JSON | WINDOWS | DISPLAYS | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | SPAWN <argv> | PANES | PANES_JSON | QUIT | HELP\n".to_string()
-        }
-        "QUIT" => {
-            quit.store(true, Ordering::SeqCst);
-            "BYE\n".to_string()
-        }
-        other => format!("ERR unknown: {other}\n"),
+            "PING" => "PONG\n".to_string(),
+            "STATUS" => daemon_status_reply(started, path, panes),
+            "STATUS_JSON" => daemon_status_json_reply(started, path, panes),
+            "WINDOWS" => windows_reply(),
+            "DISPLAYS" => displays_reply(),
+            "APPS" => apps_reply(50),
+            "APPS_JSON" => apps_json_reply(50),
+            "PANES" => panes_reply(panes),
+            "PANES_JSON" => panes_json_reply(panes),
+            "HELP" | "?" => daemon_help_reply(),
+            "HELP_JSON" => daemon_help_json_reply(),
+            "QUIT" => {
+                quit.store(true, Ordering::SeqCst);
+                "BYE\n".to_string()
+            }
+            other => format!("ERR unknown: {other}\n"),
         }
     };
     writer.write_all(reply.as_bytes())?;
     writer.flush()?;
     Ok(())
+}
+
+fn daemon_help_entries() -> Vec<(&'static str, &'static str, &'static str)> {
+    vec![
+        ("PING", "health", "return PONG"),
+        ("STATUS", "inspect", "text daemon status"),
+        ("STATUS_JSON", "inspect", "JSON daemon status"),
+        ("WINDOWS", "inspect", "list platform windows when supported"),
+        (
+            "DISPLAYS",
+            "inspect",
+            "list platform displays when supported",
+        ),
+        ("APPS", "apps", "text app discovery listing"),
+        ("APPS_JSON", "apps", "JSON app discovery listing"),
+        (
+            "APPS_FIRST <query>",
+            "apps",
+            "find the first app matching query",
+        ),
+        (
+            "APPS_LAUNCH_FIRST <query>",
+            "apps",
+            "find and launch the first app matching query",
+        ),
+        (
+            "SPAWN <argv>",
+            "control",
+            "spawn a detached tracked daemon process",
+        ),
+        ("PANES", "inspect", "text tracked pane listing"),
+        ("PANES_JSON", "inspect", "JSON tracked pane listing"),
+        ("QUIT", "control", "stop the daemon"),
+        ("HELP", "help", "show this command catalog"),
+        ("HELP_JSON", "help", "show this command catalog as JSON"),
+    ]
+}
+
+fn daemon_help_reply() -> String {
+    let commands = daemon_help_entries()
+        .into_iter()
+        .map(|(command, _, _)| command)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    format!("{commands}\n")
+}
+
+fn daemon_help_json_reply() -> String {
+    let commands = daemon_help_entries()
+        .into_iter()
+        .map(|(command, category, description)| {
+            serde_json::json!({
+                "command": command,
+                "category": category,
+                "description": description,
+            })
+        })
+        .collect::<Vec<_>>();
+    format!("{}\n", serde_json::json!({ "commands": commands }))
 }
 
 /// Send a single-line request and return the reply line.
@@ -738,6 +796,23 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("kittwm-test-status"));
+    }
+
+    #[test]
+    fn standalone_daemon_help_json_lists_commands() {
+        let p = std::env::temp_dir().join(format!("kittwm-test-help-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        let server = DaemonServer::bind(p.clone()).unwrap();
+        let help = client_request(server.path(), "HELP").unwrap();
+        assert!(help.contains("HELP_JSON"), "{help}");
+        assert!(help.contains("SPAWN <argv>"), "{help}");
+        let value: serde_json::Value =
+            serde_json::from_str(&client_request(server.path(), "HELP_JSON").unwrap()).unwrap();
+        assert!(value["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "SPAWN <argv>" && entry["category"] == "control" }));
     }
 
     #[test]
