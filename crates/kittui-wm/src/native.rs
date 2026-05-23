@@ -175,6 +175,11 @@ impl PtyTerminalApp {
         self.state.lock().bracketed_paste
     }
 
+    /// Whether the terminal application has enabled focus in/out reporting.
+    pub fn focus_reporting_enabled(&self) -> bool {
+        self.state.lock().focus_reporting
+    }
+
     /// Return the PTY child process id when the backend exposes one.
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
@@ -250,6 +255,7 @@ struct TerminalState {
     scrollback: Vec<String>,
     alt_screen: Option<AlternateScreen>,
     bracketed_paste: bool,
+    focus_reporting: bool,
     title: Option<String>,
 }
 
@@ -315,6 +321,7 @@ impl TerminalState {
             scrollback: Vec::new(),
             alt_screen: None,
             bracketed_paste: false,
+            focus_reporting: false,
             title: None,
         }
     }
@@ -326,6 +333,7 @@ impl TerminalState {
         self.scrollback = old.scrollback.clone();
         self.current_style = old.current_style;
         self.bracketed_paste = old.bracketed_paste;
+        self.focus_reporting = old.focus_reporting;
         self.cells = resize_cells(&old.cells, old.cols, old.rows, cols, rows);
         self.alt_screen = old.alt_screen.map(|alt| AlternateScreen {
             normal_cells: resize_cells(&alt.normal_cells, old.cols, old.rows, cols, rows),
@@ -816,6 +824,9 @@ impl Perform for TerminalState {
         let has_bracketed_paste_mode = params
             .iter()
             .any(|param| param.first().copied() == Some(2004));
+        let has_focus_reporting_mode = params
+            .iter()
+            .any(|param| param.first().copied() == Some(1004));
         match action {
             '@' => self.insert_chars(first_count),
             'A' => self.cursor_row = self.cursor_row.saturating_sub(first_count),
@@ -856,6 +867,7 @@ impl Perform for TerminalState {
             }
             'h' if is_dec_private && has_alt_screen_mode => self.enter_alternate_screen(),
             'h' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = true,
+            'h' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = true,
             'J' => match first_raw {
                 0 => self.clear_screen_range(
                     self.cursor_row,
@@ -876,6 +888,7 @@ impl Perform for TerminalState {
             'L' => self.insert_lines(first_count),
             'l' if is_dec_private && has_alt_screen_mode => self.leave_alternate_screen(),
             'l' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = false,
+            'l' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = false,
             'M' => self.delete_lines(first_count),
             'm' => self.apply_sgr(params),
             'P' => self.delete_chars(first_count),
@@ -1404,6 +1417,17 @@ mod tests {
         assert!(state.bracketed_paste);
         parser.advance(&mut state, b"\x1b[?2004l");
         assert!(!state.bracketed_paste);
+    }
+
+    #[test]
+    fn terminal_state_tracks_focus_reporting_mode() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        assert!(!state.focus_reporting);
+        parser.advance(&mut state, b"\x1b[?1004h");
+        assert!(state.focus_reporting);
+        parser.advance(&mut state, b"\x1b[?1004l");
+        assert!(!state.focus_reporting);
     }
 
     #[test]

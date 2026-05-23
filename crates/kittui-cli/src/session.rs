@@ -91,7 +91,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             if panes.len() < 8 {
                                 let id = next_native_pane_id(&panes);
                                 panes.push(spawn_native_pane(id, &cmd, &sock, 1, 1)?);
-                                focused = panes.len() - 1;
+                                let new_focus = panes.len() - 1;
+                                native_set_focus(&mut panes, &mut focused, new_focus)?;
                                 resize_native_panes_for_layout(
                                     &mut panes,
                                     cols,
@@ -111,7 +112,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             if panes.len() < 8 {
                                 let id = next_native_pane_id(&panes);
                                 panes.push(spawn_native_pane(id, &cmd, &sock, 1, 1)?);
-                                focused = panes.len() - 1;
+                                let new_focus = panes.len() - 1;
+                                native_set_focus(&mut panes, &mut focused, new_focus)?;
                                 resize_native_panes_for_layout(
                                     &mut panes,
                                     cols,
@@ -127,15 +129,18 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             }
                         }
                         b'\t' | b'n' | b'N' => {
-                            focused = next_native_focus(focused, panes.len());
+                            let new_focus = next_native_focus(focused, panes.len());
+                            native_set_focus(&mut panes, &mut focused, new_focus)?;
                             clear = true;
                             dbg.log(&format!("native terminal focus: {}", panes[focused].window));
                         }
                         b'x' | b'X' => {
                             if panes.len() > 1 {
+                                native_send_focus_event(&mut panes[focused], false)?;
                                 panes[focused].app.terminate()?;
                                 panes.remove(focused);
                                 focused = focus_after_remove(focused, focused, panes.len() + 1);
+                                native_send_focus_event(&mut panes[focused], true)?;
                                 resize_native_panes_for_layout(
                                     &mut panes,
                                     cols,
@@ -221,20 +226,22 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 crate::daemon::NativePaneCommand::SpawnPty(spawn_cmd) => {
                     let id = next_native_pane_id(&panes);
                     panes.push(spawn_native_pane(id, &spawn_cmd, &sock, 1, 1)?);
-                    focused = panes.len() - 1;
+                    let new_focus = panes.len() - 1;
+                    native_set_focus(&mut panes, &mut focused, new_focus)?;
                     resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
                     clear = true;
                     dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
                 }
                 crate::daemon::NativePaneCommand::Focus(window) => {
                     if let Some(idx) = native_pane_index(&panes, &window) {
-                        focused = idx;
+                        native_set_focus(&mut panes, &mut focused, idx)?;
                         clear = true;
                         dbg.log(&format!("native terminal socket focus: {window}"));
                     }
                 }
                 crate::daemon::NativePaneCommand::FocusNext => {
-                    focused = next_native_focus(focused, panes.len());
+                    let new_focus = next_native_focus(focused, panes.len());
+                    native_set_focus(&mut panes, &mut focused, new_focus)?;
                     clear = true;
                     dbg.log(&format!(
                         "native terminal socket focus next: {}",
@@ -242,7 +249,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     ));
                 }
                 crate::daemon::NativePaneCommand::FocusPrev => {
-                    focused = prev_native_focus(focused, panes.len());
+                    let new_focus = prev_native_focus(focused, panes.len());
+                    native_set_focus(&mut panes, &mut focused, new_focus)?;
                     clear = true;
                     dbg.log(&format!(
                         "native terminal socket focus prev: {}",
@@ -257,9 +265,17 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             native_pane_index(&panes, &window)
                         };
                         if let Some(idx) = target {
+                            let old_focused = focused;
+                            let closing_focused = idx == old_focused;
+                            if closing_focused {
+                                native_send_focus_event(&mut panes[idx], false)?;
+                            }
                             panes[idx].app.terminate()?;
                             panes.remove(idx);
-                            focused = focus_after_remove(focused, idx, panes.len() + 1);
+                            focused = focus_after_remove(old_focused, idx, panes.len() + 1);
+                            if closing_focused {
+                                native_send_focus_event(&mut panes[focused], true)?;
+                            }
                             resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
                             clear = true;
                             dbg.log(&format!("native terminal socket close: {window}"));
@@ -747,6 +763,41 @@ fn native_paste_payload(bytes: &[u8], bracketed_paste: bool) -> Vec<u8> {
     wrapped
 }
 
+fn native_focus_event_payload(focus_reporting: bool, focused: bool) -> Option<&'static [u8]> {
+    if !focus_reporting {
+        return None;
+    }
+    Some(if focused { b"\x1b[I" } else { b"\x1b[O" })
+}
+
+fn native_send_focus_event(pane: &mut NativePane, focused: bool) -> Result<()> {
+    if let Some(payload) = native_focus_event_payload(pane.app.focus_reporting_enabled(), focused) {
+        pane.app.send_bytes(payload)?;
+    }
+    Ok(())
+}
+
+fn native_set_focus(
+    panes: &mut [NativePane],
+    focused: &mut usize,
+    new_focus: usize,
+) -> Result<bool> {
+    if panes.is_empty() {
+        *focused = 0;
+        return Ok(false);
+    }
+    let new_focus = new_focus.min(panes.len().saturating_sub(1));
+    if *focused == new_focus {
+        return Ok(false);
+    }
+    if *focused < panes.len() {
+        native_send_focus_event(&mut panes[*focused], false)?;
+    }
+    native_send_focus_event(&mut panes[new_focus], true)?;
+    *focused = new_focus;
+    Ok(true)
+}
+
 fn native_pane_statuses(
     panes: &[NativePane],
     focused: usize,
@@ -825,9 +876,13 @@ fn reap_exited_native_panes(
     while idx < panes.len() && panes.len() > 1 {
         if panes[idx].app.exited()?.is_some() {
             let len_before = panes.len();
+            let removed_focused = idx == focused;
             let window = panes[idx].window.clone();
             panes.remove(idx);
             focused = focus_after_remove(focused, idx, len_before);
+            if removed_focused && !panes.is_empty() {
+                native_send_focus_event(&mut panes[focused], true)?;
+            }
             dbg.log(&format!("native terminal reaped exited pane {window}"));
         } else {
             idx += 1;
@@ -874,6 +929,20 @@ mod native_pane_tests {
         assert_eq!(
             native_paste_payload(b"a\nb", true),
             b"\x1b[200~a\nb\x1b[201~".to_vec()
+        );
+    }
+
+    #[test]
+    fn native_focus_event_payloads_require_reporting() {
+        assert_eq!(native_focus_event_payload(false, true), None);
+        assert_eq!(native_focus_event_payload(false, false), None);
+        assert_eq!(
+            native_focus_event_payload(true, true),
+            Some(b"\x1b[I".as_slice())
+        );
+        assert_eq!(
+            native_focus_event_payload(true, false),
+            Some(b"\x1b[O".as_slice())
         );
     }
 
