@@ -439,6 +439,12 @@ pub mod compositor {
         pub rgba: Vec<u8>,
         /// Terminal cell footprint this frame should be placed at.
         pub footprint: CellRect,
+        /// Human-readable chrome title for the frame.
+        pub title: String,
+        /// Whether this frame is focused.
+        pub focused: bool,
+        /// Layout mode used for chrome labels.
+        pub mode: WindowMode,
     }
 
     /// Derive a stable 32-bit kitty image id for an XWindowId. The kitty
@@ -494,6 +500,7 @@ pub mod compositor {
         pub fn raw_frames(&self, layout: &Layout) -> Result<Vec<RawFrame>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
             let modes = self.modes.lock().clone();
+            let focused_window = self.focused_window();
             let mut placements_snapshot = HashMap::new();
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
@@ -527,6 +534,9 @@ pub mod compositor {
                     height: cap.height,
                     rgba: cap.rgba,
                     footprint,
+                    title: format!("x11:{}", w.id.0),
+                    focused: focused_window.unwrap_or(w.id) == w.id,
+                    mode,
                 });
             }
             *self.placements.lock() = placements_snapshot;
@@ -937,6 +947,29 @@ pub mod compositor {
             assert!(labels.contains(&"wm-chrome:floating:x11:1"), "{labels:?}");
             assert!(labels.contains(&"wm-chrome:tiled:x11:2"), "{labels:?}");
             assert_eq!(comp.focused_window(), Some(XWindowId(2)));
+        }
+
+        #[test]
+        fn raw_frames_include_chrome_metadata() {
+            let comp = Compositor::new(server(), CellSize::new(8, 16));
+            comp.set_mode(XWindowId(2), WindowMode::Tiled);
+            comp.set_focused(XWindowId(2));
+            let mut layout = Layout::all_floating();
+            layout.tile(XWindowId(2), PxRect::new(0.0, 0.0, 32.0, 16.0));
+            let frames = comp.raw_frames(&layout).unwrap();
+            let focused = frames
+                .iter()
+                .find(|frame| frame.window_id == XWindowId(2))
+                .unwrap();
+            assert!(focused.focused);
+            assert_eq!(focused.mode, WindowMode::Tiled);
+            assert_eq!(focused.title, "x11:2");
+            let unfocused = frames
+                .iter()
+                .find(|frame| frame.window_id == XWindowId(1))
+                .unwrap();
+            assert!(!unfocused.focused);
+            assert_eq!(unfocused.mode, WindowMode::Floating);
         }
 
         #[test]

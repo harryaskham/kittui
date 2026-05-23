@@ -1170,6 +1170,7 @@ pub fn run_loop_with<S: XServer>(
                             (f.footprint, p.placement.clone(), p.embed.clone()),
                         );
                     }
+                    write_raw_frame_chrome(&mut handle, f)?;
                     footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
                 }
                 // Delete any window that disappeared since last frame.
@@ -1294,6 +1295,35 @@ pub fn run_loop_with<S: XServer>(
 /// Append-only log for the kittui-wm session. Stderr is invisible inside
 /// the alt screen, so we mirror everything to a file at $KITTUI_WM_LOG
 /// (default `/tmp/kittui-wm.log`).
+fn write_raw_frame_chrome<W: Write>(
+    out: &mut W,
+    frame: &kittui_wm::compositor::RawFrame,
+) -> Result<()> {
+    let marker = if frame.focused { "*" } else { " " };
+    let mode = match frame.mode {
+        kittui_wm::compositor::WindowMode::Floating => "float",
+        kittui_wm::compositor::WindowMode::Tiled => "tile",
+    };
+    let label = format!("{marker} {} {mode}", frame.title);
+    let mut clipped = label
+        .chars()
+        .take(frame.footprint.cols as usize)
+        .collect::<String>();
+    while clipped.chars().count() < frame.footprint.cols as usize {
+        clipped.push(' ');
+    }
+    let style = if frame.focused { "\x1b[7m" } else { "\x1b[2m" };
+    write!(
+        out,
+        "\x1b[{};{}H{}{}\x1b[0m",
+        frame.footprint.y + 1,
+        frame.footprint.x + 1,
+        style,
+        clipped
+    )?;
+    Ok(())
+}
+
 pub struct Debugger {
     file: std::sync::Mutex<Option<std::fs::File>>,
     path: String,
