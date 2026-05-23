@@ -243,6 +243,8 @@ struct TerminalState {
     cursor_row: u16,
     saved_cursor_col: u16,
     saved_cursor_row: u16,
+    scroll_top: u16,
+    scroll_bottom: u16,
     cells: Vec<TerminalCell>,
     current_style: TerminalStyle,
     scrollback: Vec<String>,
@@ -290,6 +292,8 @@ struct AlternateScreen {
     normal_cells: Vec<TerminalCell>,
     normal_cursor_col: u16,
     normal_cursor_row: u16,
+    normal_scroll_top: u16,
+    normal_scroll_bottom: u16,
 }
 
 impl TerminalState {
@@ -301,6 +305,8 @@ impl TerminalState {
             cursor_row: 0,
             saved_cursor_col: 0,
             saved_cursor_row: 0,
+            scroll_top: 0,
+            scroll_bottom: rows.saturating_sub(1),
             cells: vec![
                 TerminalCell::blank(TerminalStyle::default());
                 usize::from(cols) * usize::from(rows)
@@ -325,11 +331,18 @@ impl TerminalState {
             normal_cells: resize_cells(&alt.normal_cells, old.cols, old.rows, cols, rows),
             normal_cursor_col: alt.normal_cursor_col.min(cols.saturating_sub(1)),
             normal_cursor_row: alt.normal_cursor_row.min(rows.saturating_sub(1)),
+            normal_scroll_top: alt.normal_scroll_top.min(rows.saturating_sub(1)),
+            normal_scroll_bottom: alt.normal_scroll_bottom.min(rows.saturating_sub(1)),
         });
         self.cursor_col = old.cursor_col.min(cols.saturating_sub(1));
         self.cursor_row = old.cursor_row.min(rows.saturating_sub(1));
         self.saved_cursor_col = old.saved_cursor_col.min(cols.saturating_sub(1));
         self.saved_cursor_row = old.saved_cursor_row.min(rows.saturating_sub(1));
+        self.scroll_top = old.scroll_top.min(rows.saturating_sub(1));
+        self.scroll_bottom = old.scroll_bottom.min(rows.saturating_sub(1));
+        if self.scroll_top >= self.scroll_bottom {
+            self.reset_scroll_region();
+        }
     }
 
     fn text_snapshot(&self) -> String {
@@ -396,18 +409,29 @@ impl TerminalState {
 
     fn newline(&mut self) {
         self.cursor_col = 0;
-        if self.cursor_row + 1 >= self.rows {
-            if self.alt_screen.is_none() {
-                self.push_scrollback_line(self.line_snapshot(0));
-            }
-            let cols = usize::from(self.cols);
-            self.cells.copy_within(cols.., 0);
-            let start = self.cells.len().saturating_sub(cols);
-            for cell in &mut self.cells[start..] {
-                *cell = TerminalCell::blank(self.current_style);
-            }
+        if self.cursor_row == self.scroll_bottom {
+            self.scroll_region_up(self.scroll_top, self.scroll_bottom);
+        } else if self.cursor_row + 1 >= self.rows {
+            self.scroll_region_up(0, self.rows.saturating_sub(1));
         } else {
             self.cursor_row += 1;
+        }
+    }
+
+    fn scroll_region_up(&mut self, top: u16, bottom: u16) {
+        if top >= bottom || bottom >= self.rows {
+            return;
+        }
+        if top == 0 && bottom == self.rows.saturating_sub(1) && self.alt_screen.is_none() {
+            self.push_scrollback_line(self.line_snapshot(0));
+        }
+        let cols = usize::from(self.cols);
+        let start = usize::from(top) * cols;
+        let end = (usize::from(bottom) + 1) * cols;
+        self.cells.copy_within(start + cols..end, start);
+        let clear_start = usize::from(bottom) * cols;
+        for cell in &mut self.cells[clear_start..clear_start + cols] {
+            *cell = TerminalCell::blank(self.current_style);
         }
     }
 
@@ -556,9 +580,12 @@ impl TerminalState {
             normal_cells,
             normal_cursor_col: self.cursor_col,
             normal_cursor_row: self.cursor_row,
+            normal_scroll_top: self.scroll_top,
+            normal_scroll_bottom: self.scroll_bottom,
         });
         self.cursor_col = 0;
         self.cursor_row = 0;
+        self.reset_scroll_region();
     }
 
     fn leave_alternate_screen(&mut self) {
@@ -566,6 +593,43 @@ impl TerminalState {
             self.cells = alt.normal_cells;
             self.cursor_col = alt.normal_cursor_col.min(self.cols.saturating_sub(1));
             self.cursor_row = alt.normal_cursor_row.min(self.rows.saturating_sub(1));
+            self.scroll_top = alt.normal_scroll_top.min(self.rows.saturating_sub(1));
+            self.scroll_bottom = alt.normal_scroll_bottom.min(self.rows.saturating_sub(1));
+            if self.scroll_top >= self.scroll_bottom {
+                self.reset_scroll_region();
+            }
+        }
+    }
+
+    fn reset_scroll_region(&mut self) {
+        self.scroll_top = 0;
+        self.scroll_bottom = self.rows.saturating_sub(1);
+    }
+
+    fn set_scroll_region(&mut self, params: &Params) {
+        let mut iter = params.iter();
+        let top = iter.next().and_then(|p| p.first().copied()).unwrap_or(1) as u16;
+        let bottom = iter
+            .next()
+            .and_then(|p| p.first().copied())
+            .unwrap_or(self.rows) as u16;
+        if top == 0 && bottom == 0 {
+            self.reset_scroll_region();
+            return;
+        }
+        let top = top
+            .max(1)
+            .saturating_sub(1)
+            .min(self.rows.saturating_sub(1));
+        let bottom = bottom
+            .max(1)
+            .saturating_sub(1)
+            .min(self.rows.saturating_sub(1));
+        if top < bottom {
+            self.scroll_top = top;
+            self.scroll_bottom = bottom;
+            self.cursor_col = 0;
+            self.cursor_row = 0;
         }
     }
 
@@ -815,6 +879,7 @@ impl Perform for TerminalState {
             'M' => self.delete_lines(first_count),
             'm' => self.apply_sgr(params),
             'P' => self.delete_chars(first_count),
+            'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
             'u' => self.restore_cursor(),
             'X' => self.erase_chars(first_count),
@@ -1221,6 +1286,34 @@ mod tests {
             text.starts_with("x    y\n      z\nk  n\nw"),
             "snapshot was:\n{text}"
         );
+    }
+
+    #[test]
+    fn terminal_state_honors_scroll_region() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 5);
+        parser.advance(&mut state, b"header\nbody1\nbody2\nbody3\nfooter");
+        parser.advance(&mut state, b"\x1b[2;4r\x1b[4;1H\x1b[2Knew\n");
+        let text = state.text_snapshot();
+        assert!(
+            text.starts_with("header\nbody2\nnew\n\nfooter"),
+            "snapshot was:\n{text}"
+        );
+    }
+
+    #[test]
+    fn terminal_state_resets_scroll_region() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 4);
+        parser.advance(&mut state, b"top\nmid1\nmid2\nbot");
+        parser.advance(
+            &mut state,
+            b"\x1b[2;3r\x1b[3;1H\x1b[2KX\n\x1b[r\x1b[4;1H\x1b[2KY\n",
+        );
+        let text = state.text_snapshot();
+        assert!(text.starts_with("X\n\nY"), "snapshot was:\n{text}");
+        assert_eq!(state.scroll_top, 0);
+        assert_eq!(state.scroll_bottom, 3);
     }
 
     #[test]
