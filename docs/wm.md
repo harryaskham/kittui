@@ -1,6 +1,6 @@
 # kittui-wm v3 — native apps, X backends, and operator guide
 
-kittui-wm is a terminal-native window manager. Its default surface is now a native PTY session: running `kittwm` with no backend flags starts a real shell in a nested PTY, renders it through kitty graphics, resizes it with the host terminal, and injects `KITTWM_SOCKET`, `KITTWM_DISPLAY`, `KITTUI_WM_DISPLAY`, and `KITTWM_WINDOW` into the child environment. Press `Ctrl-A %` (or `Ctrl-A |` / `Ctrl-A v`) to split side-by-side, `Ctrl-A -` (or `Ctrl-A h` / `Ctrl-A "`) to split into stacked rows, `Ctrl-A Tab` (or `Ctrl-A n`) to cycle focus, and `Ctrl-A x` to close the focused pane; keyboard input is routed only to the focused pane.
+kittui-wm is a terminal-native window manager. Its default surface is now a native PTY session: running `kittwm` with no backend flags starts a real shell in a nested PTY, renders it through kitty graphics, resizes it with the host terminal, and injects `KITTWM_SOCKET`, `KITTWM_DISPLAY`, `KITTUI_WM_DISPLAY`, and `KITTWM_WINDOW` into the child environment. Press `Ctrl-A %` (or `Ctrl-A |` / `Ctrl-A v`) to split side-by-side, `Ctrl-A -` (or `Ctrl-A h` / `Ctrl-A "`) to split into stacked rows, `Ctrl-A +/-` to grow the focused pane weight, `Ctrl-A _` (or `Ctrl-A <`) to shrink it, `Ctrl-A b` to balance all pane weights, `Ctrl-A Tab` (or `Ctrl-A n`) to cycle focus, and `Ctrl-A x` to close the focused pane; keyboard input is routed only to the focused pane.
 
 The WM can also host kittwm-native apps (for example `kittwm-browser`, backed by headless Chrome screenshots + DevTools input) and X/Quartz capture backends. The long-term model is DISPLAY-like: native apps are ordinary binaries that inherit a kittwm socket/window context, can `kittwm replace ...` their current container, or can ask the socket to spawn a new app when not already inside a window.
 
@@ -43,11 +43,16 @@ kittwm --attach -c 'LAYOUT rows'
 kittwm --attach -c 'FOCUS_PANE native-2'
 kittwm --attach -c FOCUS_NEXT
 kittwm --attach -c FOCUS_PREV
+kittwm --attach -c 'MOVE_PANE focused last'
+kittwm --attach -c 'RESIZE_PANE focused +2'
+kittwm --attach -c BALANCE_PANES
 kittwm --attach -c 'RENAME_PANE native-2 editor'
 kittwm --attach -c 'CLOSE_PANE focused'
 ```
 
 Use `Ctrl-]` to exit the current native PTY/browser viewer. Explicit capture-backed demos remain available with `--backend fake|quartz|xvfb`.
+
+Native `PANES_JSON` includes per-pane `window`, `title`, `focused`, `weight`, and, once a live session has rendered at least one frame, resolved title/app cell geometry: `x`, `y`, `cols`, `rows`, `app_x`, `app_y`, `app_cols`, and `app_rows`. The text `PANES` reply includes the same geometry as `layout=x,y CxR app=x,y CxR` for simple shell inspection. `HELP_JSON` is the machine-readable catalog for the socket command set.
 
 ## Architecture
 

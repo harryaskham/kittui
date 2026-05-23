@@ -99,7 +99,7 @@ a flag, env var, YAML, or a built-in default.
 
 v0.3: kittwm now includes backend-independent native app foundations:
 
-- `kittwm` with no backend flags starts a native PTY terminal sized to the host terminal; `Ctrl-A %` creates side-by-side panes, `Ctrl-A -` creates stacked panes, `Ctrl-A Tab` cycles focus, and `Ctrl-A x` closes the focused pane.
+- `kittwm` with no backend flags starts a native PTY terminal sized to the host terminal; `Ctrl-A %` creates side-by-side panes, `Ctrl-A -` creates stacked panes, `Ctrl-A +/-` resizes the focused pane weight, `Ctrl-A b` balances pane weights, `Ctrl-A Tab` cycles focus, and `Ctrl-A x` closes the focused pane.
 - PTY children inherit `KITTWM_SOCKET`, `KITTWM_DISPLAY`, `KITTUI_WM_DISPLAY`, and `KITTWM_WINDOW`.
 - `kittwm replace ...` can exec in the current window context or ask a socket context to spawn.
 - `kittwm-browser` is a first-class native browser app backed by local headless Chrome screenshots and DevTools input.
@@ -115,6 +115,10 @@ KITTWM_TERMINAL_CMD=htop cargo run -p kittui-cli --bin kittwm
 cargo run -p kittui-cli --bin kittwm-browser -- https://example.com
 # From another shell while native kittwm is running:
 kittwm --attach -c 'SPAWN_PTY htop'
+kittwm --attach -c 'RESIZE_PANE focused +2'
+kittwm --attach -c 'MOVE_PANE focused last'
+kittwm --attach -c BALANCE_PANES
+kittwm --attach -c PANES_JSON  # includes weight plus title/app cell geometry
 ```
 
 ### kittui-md Markdown viewer
