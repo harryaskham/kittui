@@ -50,8 +50,16 @@ fn scene_json() -> Vec<u8> {
 #[test]
 fn render_stdin_writes_png_file() {
     let path = temp_path("kittui-render-command", "png");
+    let manifest_path = temp_path("kittui-render-command", "json");
     let mut render = Command::new(kittui_bin())
-        .args(["render", "-", "--out", path.to_str().unwrap()])
+        .args([
+            "render",
+            "-",
+            "--out",
+            path.to_str().unwrap(),
+            "--manifest",
+            manifest_path.to_str().unwrap(),
+        ])
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -69,7 +77,11 @@ fn render_stdin_writes_png_file() {
         String::from_utf8_lossy(&output.stderr)
     );
     let png = std::fs::read(&path).unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
     let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&manifest_path);
+    assert_eq!(manifest["output"], path.display().to_string());
     assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
     assert!(!png.windows(2).any(|window| window == b"\x1b_"));
 }
@@ -104,11 +116,19 @@ fn render_json_reports_metadata_without_writing_on_dry_run() {
 #[test]
 fn render_scene_array_writes_png_directory() {
     let out_dir = temp_path("kittui-render-batch", "dir");
+    let manifest_path = out_dir.join("manifest.json");
     let a: serde_json::Value = serde_json::from_slice(&scene_json()).unwrap();
     let b: serde_json::Value = serde_json::from_slice(&scene_json()).unwrap();
     let batch = serde_json::to_vec(&serde_json::json!([a, b])).unwrap();
     let mut render = Command::new(kittui_bin())
-        .args(["render", "-", "--out-dir", out_dir.to_str().unwrap()])
+        .args([
+            "render",
+            "-",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--manifest",
+            manifest_path.to_str().unwrap(),
+        ])
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -125,6 +145,13 @@ fn render_scene_array_writes_png_directory() {
         assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert!(!png.windows(2).any(|window| window == b"\x1b_"));
     }
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest["count"], 2);
+    assert!(manifest["files"][0]["output"]
+        .as_str()
+        .unwrap()
+        .ends_with("scene-00000.png"));
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 

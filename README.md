@@ -14,7 +14,7 @@ protocol. It ships as:
   `kittui panel --tone assistant`, `kittui chip`, `kittui divider`,
   `kittui title-bar`, `kittui wm-chrome`, `kittui wm-session`, `kittui image --src -`, `kittui place --id 0x...`,
   `kittui delete --id 0x...`, `kittui compose scene.json`, `kittui render
-  scene.json --out preview.png`, `kittui render scenes.json --out-dir previews/`,
+  scene.json --out preview.png --manifest preview.json`, `kittui render scenes.json --out-dir previews/ --manifest previews/manifest.json`,
   and shell pipelines such as `kittui box --scene-json | kittui compose -`.
 - a ratatui adapter (`ratakittui`) — widget decoration + lifecycle.
 

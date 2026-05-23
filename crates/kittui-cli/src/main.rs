@@ -404,6 +404,9 @@ struct RenderArgs {
     /// Directory for rendering a scene array to one PNG per scene.
     #[arg(long)]
     out_dir: Option<PathBuf>,
+    /// Write render metadata JSON to this path in addition to normal output.
+    #[arg(long)]
+    manifest: Option<PathBuf>,
 }
 
 #[derive(Copy, Clone, clap::ValueEnum)]
@@ -958,21 +961,24 @@ fn run_render_single(
         ));
     }
     let png = runtime.render_png(&scene)?;
+    let mut payload = serde_json::json!({
+        "bytes": png.len(),
+        "footprint": scene.footprint,
+        "output": args.out.as_ref().map(|p| p.display().to_string()),
+    });
+    if mode.dry_run {
+        payload["dry_run"] = serde_json::json!(true);
+    }
+    if mode.json_bytes {
+        payload["png_base64"] =
+            serde_json::json!(base64::engine::general_purpose::STANDARD.encode(&png));
+    }
     if global.json.value || mode.dry_run {
-        let mut payload = serde_json::json!({
-            "bytes": png.len(),
-            "footprint": scene.footprint,
-            "output": args.out.as_ref().map(|p| p.display().to_string()),
-        });
-        if mode.dry_run {
-            payload["dry_run"] = serde_json::json!(true);
-        }
-        if mode.json_bytes {
-            payload["png_base64"] =
-                serde_json::json!(base64::engine::general_purpose::STANDARD.encode(&png));
-        }
         println!("{}", serde_json::to_string_pretty(&payload)?);
         if mode.dry_run {
+            if let Some(path) = &args.manifest {
+                write_json_manifest(path, &payload)?;
+            }
             return Ok(());
         }
     }
@@ -980,6 +986,9 @@ fn run_render_single(
         std::fs::write(path, &png)?;
     } else if !global.json.value {
         std::io::stdout().lock().write_all(&png)?;
+    }
+    if let Some(path) = &args.manifest {
+        write_json_manifest(path, &payload)?;
     }
     Ok(())
 }
@@ -1015,17 +1024,20 @@ fn run_render_batch(
         entries.push(entry);
         rendered.push((path, png));
     }
+    let mut payload = serde_json::json!({
+        "count": entries.len(),
+        "output_dir": out_dir.display().to_string(),
+        "files": entries,
+    });
+    if mode.dry_run {
+        payload["dry_run"] = serde_json::json!(true);
+    }
     if global.json.value || mode.dry_run {
-        let mut payload = serde_json::json!({
-            "count": entries.len(),
-            "output_dir": out_dir.display().to_string(),
-            "files": entries,
-        });
-        if mode.dry_run {
-            payload["dry_run"] = serde_json::json!(true);
-        }
         println!("{}", serde_json::to_string_pretty(&payload)?);
         if mode.dry_run {
+            if let Some(path) = &args.manifest {
+                write_json_manifest(path, &payload)?;
+            }
             return Ok(());
         }
     }
@@ -1033,6 +1045,23 @@ fn run_render_batch(
     for (path, png) in rendered {
         std::fs::write(path, png)?;
     }
+    if let Some(path) = &args.manifest {
+        write_json_manifest(path, &payload)?;
+    }
+    Ok(())
+}
+
+fn write_json_manifest(path: &PathBuf, payload: &serde_json::Value) -> Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(
+        path,
+        format!("{}\n", serde_json::to_string_pretty(payload)?),
+    )?;
     Ok(())
 }
 
