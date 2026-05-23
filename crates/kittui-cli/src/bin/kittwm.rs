@@ -81,6 +81,7 @@ struct Cli {
     native_out: Option<String>,
     save_session: Option<String>,
     restore_session: Option<String>,
+    automation_request: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -196,6 +197,46 @@ fn parse_args() -> Result<Cli> {
                         .ok_or_else(|| anyhow!("--restore-session PATH|-"))?,
                 );
             }
+            "--send-text" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-text WINDOW TEXT"))?;
+                let text = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-text WINDOW TEXT"))?;
+                out.automation_request = Some(automation_request("SEND_TEXT", &window, &text)?);
+            }
+            "--send-line" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-line WINDOW TEXT"))?;
+                let text = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-line WINDOW TEXT"))?;
+                out.automation_request = Some(automation_request("SEND_LINE", &window, &text)?);
+            }
+            "--send-key" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-key WINDOW KEY"))?;
+                let key = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-key WINDOW KEY"))?;
+                out.automation_request = Some(automation_request("SEND_KEY", &window, &key)?);
+            }
+            "--read-text" => {
+                let window = args.next().ok_or_else(|| anyhow!("--read-text WINDOW"))?;
+                out.automation_request = Some(automation_request("READ_TEXT", &window, "")?);
+            }
+            "--wait-text" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text WINDOW NEEDLE"))?;
+                let needle = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text WINDOW NEEDLE"))?;
+                out.automation_request = Some(automation_request("WAIT_TEXT", &window, &needle)?);
+            }
             "--launcher-overlay" => out.launcher_overlay = true,
             "--no-launcher-overlay" => out.no_launcher_overlay = true,
             "--kill" => out.mode = Mode::Kill,
@@ -257,6 +298,11 @@ fn print_help() {
                    no daemon is reachable.\n\
          --save-session PATH|-    write native SESSION_JSON from the running socket.\n\
          --restore-session PATH|- read SESSION_JSON and queue RESTORE_SESSION_JSON.\n\
+         --send-text WINDOW TEXT  send text bytes to a native pane.\n\
+         --send-line WINDOW TEXT  send text plus newline to a native pane.\n\
+         --send-key WINDOW KEY    send a named key (ctrl-c, escape, arrows, ...).\n\
+         --read-text WINDOW       print a native pane text snapshot.\n\
+         --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
          --backend fake|quartz|xvfb force a specific backend.\n\
          --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
                          one window, then run a kittwm session capturing only it.\n\
@@ -424,6 +470,9 @@ fn real_main() -> Result<()> {
     }
     if let Some(path) = &cli.restore_session {
         return restore_session_cmd(path);
+    }
+    if let Some(request) = &cli.automation_request {
+        return automation_cmd(request);
     }
 
     match cli.mode {
@@ -1024,6 +1073,38 @@ fn normalize_daemon_command(cmd: &str) -> String {
         return trimmed.to_ascii_uppercase();
     };
     format!("{} {}", verb.to_ascii_uppercase(), rest.trim_start())
+}
+
+fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String> {
+    let window = window.trim();
+    if window.is_empty() || window.contains(char::is_whitespace) {
+        return Err(anyhow!("automation window must be a single nonempty token"));
+    }
+    let verb = verb.trim().to_ascii_uppercase();
+    if payload.is_empty() {
+        Ok(format!("{verb} {window}"))
+    } else {
+        Ok(format!("{verb} {window} {payload}"))
+    }
+}
+
+fn automation_cmd(request: &str) -> Result<()> {
+    use kittui_cli::daemon::{client_request_multi, default_socket_path};
+    let path = default_socket_path();
+    let reply = client_request_multi(&path, request).map_err(|e| {
+        anyhow!(
+            "could not send automation request to {}: {e}",
+            path.display()
+        )
+    })?;
+    print!("{reply}");
+    if !reply.ends_with('\n') {
+        println!();
+    }
+    if reply.starts_with("ERR ") {
+        std::process::exit(2);
+    }
+    Ok(())
 }
 
 fn save_session_cmd(path_arg: &str) -> Result<()> {
@@ -1808,6 +1889,19 @@ mod tests {
             normalize_daemon_command("apps_first Safari"),
             "APPS_FIRST Safari"
         );
+    }
+
+    #[test]
+    fn automation_request_preserves_payload_case_and_spaces() {
+        assert_eq!(
+            automation_request("send_line", "focused", "echo Mixed Case").unwrap(),
+            "SEND_LINE focused echo Mixed Case"
+        );
+        assert_eq!(
+            automation_request("read_text", "native-2", "").unwrap(),
+            "READ_TEXT native-2"
+        );
+        assert!(automation_request("SEND_KEY", "bad window", "ctrl-c").is_err());
     }
 
     #[test]

@@ -120,10 +120,10 @@ kittwm --attach -c 'SPAWN_PTY htop'
 kittwm --attach -c 'RESIZE_PANE focused +2'
 kittwm --attach -c 'MOVE_PANE focused last'
 kittwm --attach -c BALANCE_PANES
-kittwm --attach -c 'SEND_LINE focused echo hello from controller'
-kittwm --attach -c 'SEND_KEY focused ctrl-c'
-kittwm --attach -c 'READ_TEXT focused'
-kittwm --attach -c 'WAIT_TEXT focused ready'
+kittwm --send-line focused 'echo hello from controller'
+kittwm --send-key focused ctrl-c
+kittwm --read-text focused
+kittwm --wait-text focused ready
 kittwm --save-session session.json
 kittwm --restore-session session.json
 kittwm --attach -c SESSION_JSON  # persistence-oriented layout/order/focus manifest
