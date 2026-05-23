@@ -117,7 +117,7 @@ loop {
 }
 ```
 
-Initial transport wraps the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types. Current typed helpers cover status/panes, bounded events, terminal surface spawn/replace, first-party browser surface spawn via `SurfaceSpec::browser(...)`, semantic snapshot/publish/action/focus, screen text and scrollback snapshots, visible/output text waits, control/input helpers, session save/restore through `SessionManifest`, `SessionPane`, `Kittwm::session`, and `Kittwm::restore_session`, and app discovery through `Kittwm::apps`, `Kittwm::app_first`, and `Kittwm::app_launch_first`.
+Initial transport wraps the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types. Current typed helpers cover status/panes, bounded events, terminal surface spawn/replace, first-party browser surface spawn via `SurfaceSpec::browser(...)`, semantic snapshot/publish/action/focus, screen text and scrollback snapshots, visible/output text waits, control/input helpers including exact bytes, bracketed paste bytes, and mouse events, session save/restore through `SessionManifest`, `SessionPane`, `Kittwm::session`, and `Kittwm::restore_session`, and app discovery through `Kittwm::apps`, `Kittwm::app_first`, and `Kittwm::app_launch_first`.
 
 ## First-party apps
 
