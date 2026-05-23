@@ -49,6 +49,14 @@ class FakeLib:
         out_len._obj.value = len(data.raw) - 1
         return 0
 
+    def kittui_render_many_json(self, runtime, scenes_json, out):
+        self.calls.append(("render_many", json.loads(scenes_json.decode())))
+        out._obj.value = json.dumps({
+            "count": 2,
+            "images": [{"index": 0, "bytes": 8, "png_base64": "iVBORw=="}],
+        }).encode()
+        return 0
+
     def kittui_place_json(self, runtime, scene_json, out):
         self.calls.append(("place", json.loads(scene_json.decode())))
         out._obj.value = b"placed"
@@ -85,6 +93,11 @@ class FailingRenderLib(FakeLib):
         return 3
 
 
+class FailingRenderManyLib(FakeLib):
+    def kittui_render_many_json(self, runtime, scenes_json, out):
+        return 3
+
+
 SCENE = {
     "footprint": {"x": 0, "y": 0, "cols": 2, "rows": 1},
     "cell_size": {"width_px": 8, "height_px": 16},
@@ -116,6 +129,9 @@ class KittuiBindingTests(unittest.TestCase):
         k = Kittui.from_library(lib)
         self.assertEqual(k.render(SCENE), b"\x89PNGfake")
         self.assertTrue(any(call[0] == "free_bytes" for call in lib.calls))
+        manifest = k.render_many([SCENE, json.dumps(SCENE)])
+        self.assertEqual(manifest["count"], 2)
+        self.assertEqual(manifest["images"][0]["png_base64"], "iVBORw==")
         self.assertEqual(k.place(SCENE), "placed")
         self.assertEqual(k.place_at(SCENE, 7, 9), "placed-at")
         self.assertEqual(k.place_many([SCENE, json.dumps(SCENE)]), "placed-many")
@@ -135,6 +151,11 @@ class KittuiBindingTests(unittest.TestCase):
         k = Kittui.from_library(FailingRenderLib())
         with self.assertRaisesRegex(KittuiError, "kittui_render_json.*fake error"):
             k.render(SCENE)
+
+    def test_render_many_errors_include_last_error(self):
+        k = Kittui.from_library(FailingRenderManyLib())
+        with self.assertRaisesRegex(KittuiError, "kittui_render_many_json.*fake error"):
+            k.render_many([SCENE])
 
 
 if __name__ == "__main__":

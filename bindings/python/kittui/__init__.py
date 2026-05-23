@@ -137,6 +137,14 @@ class Kittui:
             if out_ptr:
                 self.lib.kittui_bytes_free(out_ptr, out_len)
 
+    def render_many(self, scenes: Iterable[Any]) -> dict[str, Any]:
+        out = c_char_p()
+        self._check(
+            self.lib.kittui_render_many_json(self.runtime, _scene_array(scenes), ctypes.byref(out)),
+            "kittui_render_many_json",
+        )
+        return json.loads(self._consume_out(out))
+
     def place(self, scene: Any) -> str:
         out = c_char_p()
         self._check(self.lib.kittui_place_json(self.runtime, _json(scene), ctypes.byref(out)), "kittui_place_json")
@@ -220,6 +228,7 @@ def _wire_library(lib: Any) -> None:
     lib.kittui_render_json.argtypes = [c_void_p, c_char_p, ctypes.POINTER(POINTER(c_uint8)), ctypes.POINTER(c_size_t)]
     lib.kittui_render_json.restype = c_int
     for name in [
+        "kittui_render_many_json",
         "kittui_place_json",
         "kittui_place_many_json",
     ]:
