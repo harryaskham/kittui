@@ -43,6 +43,8 @@ const imageScene = scene.imageBox({
   src: '/tmp/preview.png',
   fit: 'contain',
 });
+const glowScene = scene.glowBox({ cols: 8, rows: 3, rgba: [0, 216, 255, 128], intensity: 0.5 });
+const scanlineScene = scene.scanlinesBox({ cols: 8, rows: 3, alpha: 24, periodPx: 3 });
 
 // Render-only PNG bytes for previews/artifacts.
 const png = k.render(sceneObject);

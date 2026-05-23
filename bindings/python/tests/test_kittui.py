@@ -159,6 +159,12 @@ class KittuiBindingTests(unittest.TestCase):
         self.assertEqual(iroot["tint"], [255, 0, 0, 128])
         path_image = scene.image_layer(2, 1, "/tmp/a.png")
         self.assertEqual(path_image["root"]["src"], {"kind": "path", "path": "/tmp/a.png"})
+        glow = scene.glow_box(4, 2, [0, 216, 255, 128], intensity=0.5)
+        self.assertEqual(glow["layers"][0]["root"]["kind"], "glow")
+        self.assertEqual(glow["layers"][0]["root"]["intensity"], 0.5)
+        scan = scene.scanlines_box(4, 2, alpha=24, period_px=3)
+        self.assertEqual(scan["layers"][0]["root"]["kind"], "scanlines")
+        self.assertEqual(scan["layers"][0]["root"]["period_px"], 3)
 
     def test_place_variants_normalize_dicts_and_json_strings(self):
         lib = FakeLib()

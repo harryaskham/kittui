@@ -141,6 +141,57 @@ class _SceneHelpers:
         )
 
     @staticmethod
+    def glow_layer(cols: int, rows: int, rgba: list[int] | tuple[int, int, int, int], *, intensity: float = 0.8, center_x_frac: float = 0.5, center_y_frac: float = 0.5, radius_frac: float = 0.5, cell_size: dict[str, int] | None = None, label: str = "glow") -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        width = int(cols) * int(cell.get("width_px", 8))
+        height = int(rows) * int(cell.get("height_px", 16))
+        return {
+            "label": label,
+            "root": {
+                "kind": "glow",
+                "rect": {"origin": [0, 0], "width": width, "height": height},
+                "center_x_frac": center_x_frac,
+                "center_y_frac": center_y_frac,
+                "radius_frac": radius_frac,
+                "color": list(rgba),
+                "intensity": intensity,
+            },
+        }
+
+    @staticmethod
+    def glow_box(cols: int, rows: int, rgba: list[int] | tuple[int, int, int, int], *, intensity: float = 0.8, cell_size: dict[str, int] | None = None, label: str = "glow") -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        return _SceneHelpers.build(
+            (cols, rows),
+            [_SceneHelpers.glow_layer(cols, rows, rgba, intensity=intensity, cell_size=cell, label=label)],
+            cell,
+        )
+
+    @staticmethod
+    def scanlines_layer(cols: int, rows: int, *, alpha: int = 32, period_px: int = 2, cell_size: dict[str, int] | None = None, label: str = "scanlines") -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        width = int(cols) * int(cell.get("width_px", 8))
+        height = int(rows) * int(cell.get("height_px", 16))
+        return {
+            "label": label,
+            "root": {
+                "kind": "scanlines",
+                "rect": {"origin": [0, 0], "width": width, "height": height},
+                "alpha": int(alpha),
+                "period_px": int(period_px),
+            },
+        }
+
+    @staticmethod
+    def scanlines_box(cols: int, rows: int, *, alpha: int = 32, period_px: int = 2, cell_size: dict[str, int] | None = None, label: str = "scanlines") -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        return _SceneHelpers.build(
+            (cols, rows),
+            [_SceneHelpers.scanlines_layer(cols, rows, alpha=alpha, period_px=period_px, cell_size=cell, label=label)],
+            cell,
+        )
+
+    @staticmethod
     def image_layer(cols: int, rows: int, src: str | bytes | bytearray | list[int], *, fit: str = "contain", tint: list[int] | tuple[int, int, int, int] | None = None, cell_size: dict[str, int] | None = None, label: str = "image") -> dict[str, Any]:
         cell = cell_size or {"width_px": 8, "height_px": 16}
         width = int(cols) * int(cell.get("width_px", 8))

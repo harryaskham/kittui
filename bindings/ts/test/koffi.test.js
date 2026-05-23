@@ -390,4 +390,10 @@ test('scene helpers produce JSON-compatible plain objects', () => {
   assert.equal(image.layers[0].root.fit, 'cover');
   assert.deepEqual(image.layers[0].root.tint, [255, 0, 0, 128]);
   assert.deepEqual(scene.imageLayer({ cols: 1, rows: 1, src: '/tmp/a.png' }).root.src, { kind: 'path', path: '/tmp/a.png' });
+  const glow = scene.glowBox({ cols: 4, rows: 2, rgba: [0, 216, 255, 128], intensity: 0.5 });
+  assert.equal(glow.layers[0].root.kind, 'glow');
+  assert.equal(glow.layers[0].root.intensity, 0.5);
+  const scan = scene.scanlinesBox({ cols: 4, rows: 2, alpha: 24, periodPx: 3 });
+  assert.equal(scan.layers[0].root.kind, 'scanlines');
+  assert.equal(scan.layers[0].root.period_px, 3);
 });

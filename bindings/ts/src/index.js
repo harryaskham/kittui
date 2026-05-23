@@ -492,6 +492,53 @@ export const scene = {
     });
   },
 
+  /** Glow layer sized in cells. */
+  glowLayer({ cols, rows, rgba, intensity = 0.8, centerXFrac = 0.5, centerYFrac = 0.5, radiusFrac = 0.5, cellSize = { width_px: 8, height_px: 16 }, label = 'glow' }) {
+    return {
+      label,
+      root: {
+        kind: 'glow',
+        rect: { origin: [0, 0], width: cols * cellSize.width_px, height: rows * cellSize.height_px },
+        center_x_frac: centerXFrac,
+        center_y_frac: centerYFrac,
+        radius_frac: radiusFrac,
+        color: rgba,
+        intensity,
+      },
+    };
+  },
+
+  /** Complete glow scene. */
+  glowBox({ cols, rows, rgba, intensity = 0.8, cellSize = { width_px: 8, height_px: 16 }, label = 'glow' }) {
+    return this.build({
+      footprintCells: [cols, rows],
+      cellSize,
+      layers: [this.glowLayer({ cols, rows, rgba, intensity, cellSize, label })],
+    });
+  },
+
+  /** Scanlines layer sized in cells. */
+  scanlinesLayer({ cols, rows, alpha = 32, periodPx = 2, cellSize = { width_px: 8, height_px: 16 }, label = 'scanlines' }) {
+    return {
+      label,
+      root: {
+        kind: 'scanlines',
+        rect: { origin: [0, 0], width: cols * cellSize.width_px, height: rows * cellSize.height_px },
+        alpha,
+        period_px: periodPx,
+      },
+    };
+  },
+
+  /** Complete scanlines scene. */
+  scanlinesBox({ cols, rows, alpha = 32, periodPx = 2, cellSize = { width_px: 8, height_px: 16 }, label = 'scanlines' }) {
+    return this.build({
+      footprintCells: [cols, rows],
+      cellSize,
+      layers: [this.scanlinesLayer({ cols, rows, alpha, periodPx, cellSize, label })],
+    });
+  },
+
   /** Image layer sized in cells. `src` may be a path string or byte array. */
   imageLayer({ cols, rows, src, fit = 'contain', tint = null, cellSize = { width_px: 8, height_px: 16 }, label = 'image' }) {
     const imageSrc = typeof src === 'string'

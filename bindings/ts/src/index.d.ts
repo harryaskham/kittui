@@ -175,6 +175,10 @@ export const scene: {
   solidBox(args: { cols: number; rows: number; rgba: Rgba; cellSize?: CellSize; label?: string; radius?: number }): Scene;
   gradientLayer(args: { cols: number; rows: number; start: Rgba; end: Rgba; direction?: Direction; cellSize?: CellSize; label?: string }): Layer;
   gradientBox(args: { cols: number; rows: number; start: Rgba; end: Rgba; direction?: Direction; cellSize?: CellSize; label?: string }): Scene;
+  glowLayer(args: { cols: number; rows: number; rgba: Rgba; intensity?: number; centerXFrac?: number; centerYFrac?: number; radiusFrac?: number; cellSize?: CellSize; label?: string }): Layer;
+  glowBox(args: { cols: number; rows: number; rgba: Rgba; intensity?: number; cellSize?: CellSize; label?: string }): Scene;
+  scanlinesLayer(args: { cols: number; rows: number; alpha?: number; periodPx?: number; cellSize?: CellSize; label?: string }): Layer;
+  scanlinesBox(args: { cols: number; rows: number; alpha?: number; periodPx?: number; cellSize?: CellSize; label?: string }): Scene;
   imageLayer(args: { cols: number; rows: number; src: string | ArrayLike<number>; fit?: Fit; tint?: Rgba | null; cellSize?: CellSize; label?: string }): Layer;
   imageBox(args: { cols: number; rows: number; src: string | ArrayLike<number>; fit?: Fit; tint?: Rgba | null; cellSize?: CellSize; label?: string }): Scene;
   backgroundSolid(rgba: Rgba): Layer;
