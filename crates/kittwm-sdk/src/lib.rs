@@ -924,6 +924,8 @@ pub enum KittwmEvent {
     PaneChanged(EventEnvelope),
     /// Pane outer/app geometry changed.
     PaneResized(EventEnvelope),
+    /// Socket-injected input was sent to a pane.
+    PaneInputSent(EventEnvelope),
     /// Focus changed.
     FocusChanged(EventEnvelope),
     /// Layout changed.
@@ -969,6 +971,7 @@ impl KittwmEvent {
             | Self::PaneClosed(envelope)
             | Self::PaneChanged(envelope)
             | Self::PaneResized(envelope)
+            | Self::PaneInputSent(envelope)
             | Self::FocusChanged(envelope)
             | Self::LayoutChanged(envelope)
             | Self::SemanticSnapshotReady(envelope)
@@ -1000,6 +1003,7 @@ impl KittwmEvent {
             Self::PaneClosed(_) => "pane_closed",
             Self::PaneChanged(_) => "pane_changed",
             Self::PaneResized(_) => "pane_resized",
+            Self::PaneInputSent(_) => "pane_input_sent",
             Self::FocusChanged(_) => "focus_changed",
             Self::LayoutChanged(_) => "layout_changed",
             Self::SemanticSnapshotReady(_) => "semantic_snapshot_ready",
@@ -1038,6 +1042,7 @@ fn parse_event_value(value: Value) -> KittwmEvent {
         "pane_closed" => KittwmEvent::PaneClosed(envelope()),
         "pane_changed" => KittwmEvent::PaneChanged(envelope()),
         "pane_resized" => KittwmEvent::PaneResized(envelope()),
+        "pane_input_sent" => KittwmEvent::PaneInputSent(envelope()),
         "focus_changed" => KittwmEvent::FocusChanged(envelope()),
         "layout_changed" => KittwmEvent::LayoutChanged(envelope()),
         "semantic_snapshot_ready" => KittwmEvent::SemanticSnapshotReady(envelope()),
@@ -2397,8 +2402,24 @@ mod tests {
             other => panic!("unexpected event: {other:?}"),
         }
 
+        let input = KittwmEvent::parse_line(
+            r#"{"schema_version":1,"seq":9,"kind":"pane_input_sent","window":"native-1","detail":{"source":"socket","method":"send_key","key":"enter","bytes":1,"sensitive":false}}"#,
+        )
+        .unwrap();
+        assert_eq!(input.kind(), "pane_input_sent");
+        match input {
+            KittwmEvent::PaneInputSent(envelope) => {
+                assert_eq!(envelope.seq, Some(9));
+                assert_eq!(envelope.window.as_deref(), Some("native-1"));
+                assert_eq!(envelope.detail["source"], "socket");
+                assert_eq!(envelope.detail["method"], "send_key");
+                assert_eq!(envelope.detail["sensitive"], false);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
         let semantic = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":9,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
+            r#"{"schema_version":1,"seq":10,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
         )
         .unwrap();
         assert_eq!(semantic.kind(), "semantic_value_changed");
