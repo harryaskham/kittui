@@ -23,7 +23,7 @@ use anyhow::{anyhow, Result};
 use kittui::{CellRect, Runtime};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
-use kittui_wm::dirty::DirtyGrid;
+use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
 use kittui_wm::native::{
     MouseReportingModes, NativeApp, NativeFrame, NativeSurface, PtyTerminalApp,
 };
@@ -490,7 +490,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         layout.app_cols,
                         layout.app_rows,
                     );
-                    let p = if dirty_frames.should_upload(pane.image_id, width, height, &rgba) {
+                    let decision = dirty_frames.decide(pane.image_id, width, height, &rgba);
+                    pane.dirty_frame = Some(decision.metrics.clone());
+                    let p = if decision.upload {
                         runtime.place_raw_frame(pane.image_id, &rgba, width, height, footprint)
                     } else {
                         runtime.place_uploaded_image(pane.image_id, footprint)
@@ -526,6 +528,15 @@ struct NativePane {
     display_title: Option<String>,
     weight: u16,
     app: PtyTerminalApp,
+    dirty_frame: Option<NativeDirtyFrameMetrics>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct NativeDirtyFrameMetrics {
+    changed_tiles: u32,
+    total_tiles: u32,
+    changed_fraction: f32,
+    skipped_upload: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -664,17 +675,65 @@ impl NativeDirtyFramePolicy {
         }
     }
 
-    fn should_upload(&mut self, image_id: u32, width: u32, height: u32, rgba: &[u8]) -> bool {
-        if !self.skip_unchanged {
-            return true;
+    fn decide(
+        &mut self,
+        image_id: u32,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> NativeDirtyFrameDecision {
+        let Some(diff) = self.diff(image_id, width, height, rgba) else {
+            return NativeDirtyFrameDecision::upload_without_metrics();
+        };
+        let upload = !self.skip_unchanged || !diff.is_clean();
+        NativeDirtyFrameDecision {
+            upload,
+            metrics: NativeDirtyFrameMetrics::from_diff(&diff, !upload),
         }
+    }
+
+    fn diff(
+        &mut self,
+        image_id: u32,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Option<DirtyFrameDiff> {
         let grid = self
             .grids
             .entry(image_id)
             .or_insert_with(|| DirtyGrid::new(64, 64));
         grid.diff_rgba(width, height, rgba)
-            .map(|diff| !diff.is_clean())
-            .unwrap_or(true)
+    }
+}
+
+struct NativeDirtyFrameDecision {
+    upload: bool,
+    metrics: NativeDirtyFrameMetrics,
+}
+
+impl NativeDirtyFrameDecision {
+    fn upload_without_metrics() -> Self {
+        Self {
+            upload: true,
+            metrics: NativeDirtyFrameMetrics {
+                changed_tiles: 0,
+                total_tiles: 0,
+                changed_fraction: 0.0,
+                skipped_upload: false,
+            },
+        }
+    }
+}
+
+impl NativeDirtyFrameMetrics {
+    fn from_diff(diff: &DirtyFrameDiff, skipped_upload: bool) -> Self {
+        Self {
+            changed_tiles: diff.changed_count(),
+            total_tiles: diff.tiles,
+            changed_fraction: diff.changed_fraction(),
+            skipped_upload,
+        }
     }
 }
 
@@ -749,6 +808,7 @@ fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Re
         display_title: None,
         weight: 1,
         app,
+        dirty_frame: None,
     })
 }
 
@@ -1284,6 +1344,14 @@ fn native_pane_statuses(
                 mouse_button_motion: Some(mouse.button_motion),
                 mouse_all_motion: Some(mouse.all_motion),
                 mouse_sgr: Some(mouse.sgr),
+                dirty_frame: pane.dirty_frame.as_ref().map(|metrics| {
+                    crate::daemon::NativeDirtyFrameStatus {
+                        changed_tiles: metrics.changed_tiles,
+                        total_tiles: metrics.total_tiles,
+                        changed_fraction: metrics.changed_fraction,
+                        skipped_upload: metrics.skipped_upload,
+                    }
+                }),
                 text_snapshot: Some(pane.app.text_snapshot()),
                 scrollback_snapshot: Some(pane.app.scrollback_snapshot()),
                 app_rows: layout.map(|l| l.app_rows),
@@ -1460,17 +1528,58 @@ mod native_pane_tests {
         std::env::remove_var("KITTWM_DIRTY_FRAMES");
         let rgba = vec![0u8; 4 * 4 * 4];
         let mut disabled = NativeDirtyFramePolicy::from_env();
-        assert!(disabled.should_upload(1, 4, 4, &rgba));
-        assert!(disabled.should_upload(1, 4, 4, &rgba));
+        assert!(disabled.decide(1, 4, 4, &rgba).upload);
+        assert!(disabled.decide(1, 4, 4, &rgba).upload);
 
         std::env::set_var("KITTWM_DIRTY_FRAMES", "skip-unchanged");
         let mut enabled = NativeDirtyFramePolicy::from_env();
-        assert!(enabled.should_upload(1, 4, 4, &rgba));
-        assert!(!enabled.should_upload(1, 4, 4, &rgba));
+        let first = enabled.decide(1, 4, 4, &rgba);
+        assert!(first.upload);
+        assert_eq!(first.metrics.changed_tiles, 1);
+        let second = enabled.decide(1, 4, 4, &rgba);
+        assert!(!second.upload);
+        assert!(second.metrics.skipped_upload);
+        assert_eq!(second.metrics.changed_tiles, 0);
         let mut changed = rgba.clone();
         changed[0] = 1;
-        assert!(enabled.should_upload(1, 4, 4, &changed));
+        let third = enabled.decide(1, 4, 4, &changed);
+        assert!(third.upload);
+        assert_eq!(third.metrics.changed_tiles, 1);
         std::env::remove_var("KITTWM_DIRTY_FRAMES");
+    }
+
+    #[test]
+    fn native_pane_statuses_include_dirty_frame_metrics() {
+        let panes = vec![NativePane {
+            window: "native-1".to_string(),
+            image_id: 1,
+            command: "cmd1".to_string(),
+            pid: Some(101),
+            display_title: None,
+            weight: 1,
+            app: dummy_native_pane_app(),
+            dirty_frame: Some(NativeDirtyFrameMetrics {
+                changed_tiles: 2,
+                total_tiles: 4,
+                changed_fraction: 0.5,
+                skipped_upload: true,
+            }),
+        }];
+        let layouts = vec![NativePaneLayout {
+            x: 0,
+            y: 0,
+            cols: 10,
+            app_x: 0,
+            app_y: 1,
+            app_cols: 10,
+            app_rows: 4,
+        }];
+        let statuses = native_pane_statuses(&panes, 0, &layouts);
+        let dirty = statuses[0].dirty_frame.as_ref().unwrap();
+        assert_eq!(dirty.changed_tiles, 2);
+        assert_eq!(dirty.total_tiles, 4);
+        assert_eq!(dirty.changed_fraction, 0.5);
+        assert!(dirty.skipped_upload);
     }
 
     #[test]
@@ -1760,6 +1869,7 @@ mod native_pane_tests {
                 display_title: None,
                 weight: 4,
                 app: dummy_native_pane_app(),
+                dirty_frame: None,
             },
             NativePane {
                 window: "native-2".to_string(),
@@ -1769,6 +1879,7 @@ mod native_pane_tests {
                 display_title: None,
                 weight: 2,
                 app: dummy_native_pane_app(),
+                dirty_frame: None,
             },
         ];
         balance_native_pane_weights(&mut panes);
@@ -1846,6 +1957,7 @@ mod native_pane_tests {
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
+                dirty_frame: None,
             },
             NativePane {
                 window: "native-2".to_string(),
@@ -1855,6 +1967,7 @@ mod native_pane_tests {
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
+                dirty_frame: None,
             },
         ];
         assert_eq!(native_pane_index(&panes, "native-2"), Some(1));
@@ -1876,6 +1989,7 @@ mod native_pane_tests {
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
+                dirty_frame: None,
             },
             NativePane {
                 window: "native-7".to_string(),
@@ -1885,6 +1999,7 @@ mod native_pane_tests {
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
+                dirty_frame: None,
             },
         ];
         assert_eq!(next_native_pane_id(&panes), 8);
@@ -1905,6 +2020,7 @@ mod native_pane_tests {
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
+                dirty_frame: None,
             },
             NativePane {
                 window: "native-2".to_string(),
@@ -1914,6 +2030,7 @@ mod native_pane_tests {
                 display_title: Some("editor".to_string()),
                 weight: 3,
                 app: dummy_native_pane_app(),
+                dirty_frame: None,
             },
         ];
         let layouts = native_pane_layouts_weighted(80, 24, &[1, 3], NativePaneLayoutAxis::Columns);

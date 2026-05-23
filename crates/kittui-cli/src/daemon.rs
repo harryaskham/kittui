@@ -103,7 +103,15 @@ impl PaneRegistry {
 
 type SharedPanes = Arc<Mutex<PaneRegistry>>;
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct NativeDirtyFrameStatus {
+    pub changed_tiles: u32,
+    pub total_tiles: u32,
+    pub changed_fraction: f32,
+    pub skipped_upload: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct NativePaneStatus {
     pub window: String,
     pub title: String,
@@ -145,6 +153,8 @@ pub struct NativePaneStatus {
     pub mouse_all_motion: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mouse_sgr: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dirty_frame: Option<NativeDirtyFrameStatus>,
     #[serde(skip_serializing)]
     pub text_snapshot: Option<String>,
     #[serde(skip_serializing)]
@@ -2260,6 +2270,7 @@ mod tests {
             mouse_button_motion: Some(false),
             mouse_all_motion: Some(false),
             mouse_sgr: Some(false),
+            dirty_frame: None,
             text_snapshot: Some("secret live text is not serialized".to_string()),
             scrollback_snapshot: Some("secret scrollback is not serialized".to_string()),
             app_rows: None,
@@ -2357,6 +2368,7 @@ mod tests {
             mouse_button_motion: Some(false),
             mouse_all_motion: Some(false),
             mouse_sgr: Some(false),
+            dirty_frame: None,
             text_snapshot: Some("ready\n$ ".to_string()),
             scrollback_snapshot: Some("boot\n".to_string()),
             app_rows: None,
@@ -2404,6 +2416,7 @@ mod tests {
             mouse_button_motion: Some(false),
             mouse_all_motion: Some(false),
             mouse_sgr: Some(false),
+            dirty_frame: None,
             text_snapshot: Some("waiting\n".to_string()),
             scrollback_snapshot: Some("previous\n".to_string()),
             app_rows: None,
@@ -2539,6 +2552,7 @@ mod tests {
                 mouse_button_motion: Some(true),
                 mouse_all_motion: Some(false),
                 mouse_sgr: Some(true),
+                dirty_frame: None,
                 text_snapshot: Some("shell line\n".to_string()),
                 scrollback_snapshot: Some("shell history\n".to_string()),
                 app_rows: Some(23),
@@ -2566,6 +2580,7 @@ mod tests {
                 mouse_button_motion: Some(false),
                 mouse_all_motion: Some(false),
                 mouse_sgr: Some(false),
+                dirty_frame: None,
                 text_snapshot: Some("htop line\nsecond\n".to_string()),
                 scrollback_snapshot: Some("htop history\n".to_string()),
                 app_rows: Some(23),
