@@ -147,6 +147,11 @@ pub enum NativePaneCommand {
         text: String,
         newline: bool,
     },
+    SendBytes {
+        window: String,
+        bytes: Vec<u8>,
+        label: String,
+    },
 }
 
 #[derive(Default, Debug)]
@@ -412,6 +417,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("SEND_LINE ") {
         return queue_native_send_text(pending, rest, true);
     }
+    if let Some(rest) = cmd.strip_prefix("SEND_KEY ") {
+        return queue_native_send_key(pending, rest);
+    }
     match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
@@ -422,7 +430,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -493,6 +501,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "SEND_LINE <window|focused> <text>",
             "control",
             "send UTF-8 text plus newline to a native pane",
+        ),
+        (
+            "SEND_KEY <window|focused> <key>",
+            "control",
+            "send a named key sequence to a native pane",
         ),
         ("APPS", "apps", "text app discovery listing"),
         ("APPS_JSON", "apps", "JSON app discovery listing"),
@@ -610,6 +623,70 @@ fn queue_native_send_text(
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
+}
+
+fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
+    let Some((window, key)) = rest.trim().split_once(' ') else {
+        return "ERR SEND_KEY requires window and key\n".to_string();
+    };
+    let window = window.trim();
+    let key = key.trim();
+    if window.is_empty() || key.is_empty() || key.contains(char::is_whitespace) {
+        return "ERR SEND_KEY requires window and single key name\n".to_string();
+    }
+    let Some(bytes) = native_key_bytes(key) else {
+        return "ERR SEND_KEY unsupported key; expected enter|tab|escape|backspace|delete|left|right|up|down|home|end|pageup|pagedown|ctrl-a..ctrl-z\n".to_string();
+    };
+    match pending.lock() {
+        Ok(mut state) => {
+            state.pending.push(NativePaneCommand::SendBytes {
+                window: window.to_string(),
+                bytes: bytes.clone(),
+                label: key.to_string(),
+            });
+            format!(
+                "SEND_KEY_QUEUED command={} window={} key={} bytes={}\n",
+                state.pending.len(),
+                window,
+                key,
+                bytes.len()
+            )
+        }
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
+}
+
+fn native_key_bytes(key: &str) -> Option<Vec<u8>> {
+    let normalized = key.trim().to_ascii_lowercase().replace('_', "-");
+    let bytes: &[u8] = match normalized.as_str() {
+        "enter" | "return" => b"\r",
+        "tab" => b"\t",
+        "escape" | "esc" => b"\x1b",
+        "backspace" | "bs" => b"\x7f",
+        "delete" | "del" => b"\x1b[3~",
+        "left" | "arrow-left" => b"\x1b[D",
+        "right" | "arrow-right" => b"\x1b[C",
+        "up" | "arrow-up" => b"\x1b[A",
+        "down" | "arrow-down" => b"\x1b[B",
+        "home" => b"\x1b[H",
+        "end" => b"\x1b[F",
+        "pageup" | "page-up" => b"\x1b[5~",
+        "pagedown" | "page-down" => b"\x1b[6~",
+        _ => return native_ctrl_key_bytes(&normalized),
+    };
+    Some(bytes.to_vec())
+}
+
+fn native_ctrl_key_bytes(normalized: &str) -> Option<Vec<u8>> {
+    let suffix = normalized
+        .strip_prefix("ctrl-")
+        .or_else(|| normalized.strip_prefix("c-"))?;
+    let mut chars = suffix.chars();
+    let ch = chars.next()?;
+    if chars.next().is_some() || !ch.is_ascii_alphabetic() {
+        return None;
+    }
+    Some(vec![(ch.to_ascii_lowercase() as u8) & 0x1f])
 }
 
 fn native_spawn_status_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
@@ -1114,6 +1191,14 @@ mod tests {
         );
         assert!(native_spawn_queue_reply("SEND_LINE native-2 pwd", &pending)
             .starts_with("SEND_LINE_QUEUED"));
+        assert!(
+            native_spawn_queue_reply("SEND_KEY focused ctrl-c", &pending)
+                .starts_with("SEND_KEY_QUEUED")
+        );
+        assert!(
+            native_spawn_queue_reply("SEND_KEY native-2 page-down", &pending)
+                .starts_with("SEND_KEY_QUEUED")
+        );
         assert!(native_spawn_queue_reply("LAYOUT diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("FOCUS_PANE", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("MOVE_PANE focused diagonal", &pending).contains("ERR"));
@@ -1121,6 +1206,8 @@ mod tests {
         assert!(native_spawn_queue_reply("RENAME_PANE native-2", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_TEXT focused", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_LINE", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("SEND_KEY focused nope", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("SEND_KEY focused page down", &pending).contains("ERR"));
         assert_eq!(
             drain_native_spawn_pending(&pending),
             vec![
@@ -1151,6 +1238,16 @@ mod tests {
                     window: "native-2".to_string(),
                     text: "pwd".to_string(),
                     newline: true,
+                },
+                NativePaneCommand::SendBytes {
+                    window: "focused".to_string(),
+                    bytes: vec![0x03],
+                    label: "ctrl-c".to_string(),
+                },
+                NativePaneCommand::SendBytes {
+                    window: "native-2".to_string(),
+                    bytes: b"\x1b[6~".to_vec(),
+                    label: "page-down".to_string(),
                 }
             ]
         );
@@ -1172,6 +1269,7 @@ mod tests {
         assert!(help.contains("RENAME_PANE <window> <title>"), "{help}");
         assert!(help.contains("SEND_TEXT <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_LINE <window|focused> <text>"), "{help}");
+        assert!(help.contains("SEND_KEY <window|focused> <key>"), "{help}");
         assert!(help.contains("APPS_JSON"), "{help}");
 
         let help_json: serde_json::Value =

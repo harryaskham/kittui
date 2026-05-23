@@ -349,6 +349,24 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         ));
                     }
                 }
+                crate::daemon::NativePaneCommand::SendBytes {
+                    window,
+                    bytes,
+                    label,
+                } => {
+                    let target = if window == "focused" {
+                        Some(focused)
+                    } else {
+                        native_pane_index(&panes, &window)
+                    };
+                    if let Some(idx) = target {
+                        panes[idx].app.send_bytes(&bytes)?;
+                        dbg.log(&format!(
+                            "native terminal socket send key: {window} key={label} bytes={}",
+                            bytes.len()
+                        ));
+                    }
+                }
             }
         }
         queue.update_layout(layout_axis.label());
