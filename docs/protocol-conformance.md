@@ -20,7 +20,7 @@ from that crate's public API.
 
 | Spec section | Status | Notes |
 |---|---|---|
-| Transferring pixel data via the escape (`a=t,f=24/32/100`) | ✅ | `upload_still_ex` / `upload_animation_ex` only emit `f=100` (PNG); RGBA / RGB raw streaming is partial — `bd-3dc8c7` epic. |
+| Transferring pixel data via the escape (`a=t,f=24/32/100`) | ✅ | PNG (`f=100`) uploads are covered by still/animation helpers; raw RGBA (`f=32`) is covered by the raw-frame path and exact grammar tests. Raw RGB (`f=24`) remains a possible future helper, but current renderer uploads use PNG or RGBA. |
 | Local transmission (`t=d` direct base64) | ✅ | Default `UploadMedium::Direct`. Single chunked path covered by tests. |
 | Local transmission (`t=f` regular file) | ✅ | `UploadMedium::File { path }`; encoded path goes into the `t=f` field. |
 | Local transmission (`t=t` temp file) | ✅ | `UploadMedium::TempFile { path }`. |
@@ -39,7 +39,7 @@ from that crate's public API.
 | Reading responses from the terminal | ⛔ | `bd-3dc8c7` epic — see "Open work" below. |
 | Querying terminal capabilities (`a=q`) | ⛔ | `bd-3dc8c7` epic — see "Open work" below. |
 | tmux passthrough wrapping | ✅ | `Transport::TmuxPassthrough` wraps every payload in `\ePtmux;…\e\\` with escape doubling. Auto-selected by `TerminalInfo::detect()` when `$TMUX` is set. |
-| File / temp-file format hints (`f=100` PNG) | ✅ | All upload variants currently use `f=100`. |
+| File / temp-file/shared-memory format hints (`f=100` PNG, `f=32` raw RGBA) | ✅ | PNG helpers use `f=100`; raw-frame file/temp/shared-memory paths use `f=32` and the kitty `t=f` / `t=t` / `t=s` grammar. |
 
 ## Test coverage
 
@@ -59,9 +59,10 @@ from that crate's public API.
 
 The remaining gaps are tracked under the protocol epic `bd-3dc8c7`:
 
-- raw RGB / RGBA transmission (`f=24`, `f=32`) end-to-end.
+- raw RGB (`f=24`) helper coverage if callers need it beyond current PNG/RGBA paths.
 - terminal response reading (`OK`, `ENOENT`, capability queries).
 - `a=q` capability probing into `TerminalInfo::detect()`.
+- broader visual proof coverage for file/temp/shared-memory raw-frame transports across terminals.
 - ratakittui complete widget coverage example + decoration matrix
   (`bd-6ccb5e`).
 
