@@ -139,7 +139,9 @@ pub struct Kittwm {
 pub enum SurfaceKind {
     /// PTY-backed terminal surface.
     Terminal,
-    /// Browser-backed surface. Transport support is planned, but not yet wired.
+    /// Browser-backed surface. Today this uses the first-party `kittwm-browser`
+    /// app over the PTY spawn transport; a dedicated browser surface protocol is
+    /// future work.
     Browser,
     /// External/unknown surface kind.
     Other(String),
@@ -162,6 +164,15 @@ impl SurfaceSpec {
         Self {
             kind: SurfaceKind::Terminal,
             command: command.into(),
+            title: None,
+        }
+    }
+
+    /// Build a browser surface spec using the first-party `kittwm-browser` app.
+    pub fn browser(target: impl Into<String>) -> Self {
+        Self {
+            kind: SurfaceKind::Browser,
+            command: target.into(),
             title: None,
         }
     }
@@ -998,25 +1009,20 @@ impl Kittwm {
     }
 
     /// Ask kittwm to spawn a typed surface. The v0 transport supports terminal
-    /// surfaces via `SPAWN_PTY`; richer surface kinds are reserved for later
-    /// native protocol work.
+    /// surfaces via `SPAWN_PTY`; browser surfaces currently dogfood that same
+    /// transport by launching the first-party `kittwm-browser` app.
     pub fn spawn_surface(&self, spec: &SurfaceSpec) -> Result<SurfaceSpawn> {
         self.capabilities.ensure(Capability::CreateWindow)?;
-        let reply = match &spec.kind {
-            SurfaceKind::Terminal => {
-                self.request_protocol(format!("SPAWN_PTY {}", spec.command))?
-            }
-            SurfaceKind::Browser => {
-                return Err(Error::Daemon(
-                    "browser surface spawning is not yet exposed by the SDK transport".to_string(),
-                ))
-            }
+        let command = match &spec.kind {
+            SurfaceKind::Terminal => spec.command.clone(),
+            SurfaceKind::Browser => browser_surface_command(&spec.command),
             SurfaceKind::Other(kind) => {
                 return Err(Error::Daemon(format!(
                     "surface kind {kind:?} is not supported by the SDK transport"
                 )))
             }
         };
+        let reply = self.request_protocol(format!("SPAWN_PTY {command}"))?;
         let handle = self.focused_surface();
         if let Some(title) = &spec.title {
             let _ = handle.rename(title);
@@ -1316,6 +1322,22 @@ fn parse_app_candidate_fields(fields: &str) -> Result<AppCandidate> {
     })
 }
 
+fn browser_surface_command(target: &str) -> String {
+    format!("kittwm-browser {}", shell_quote(target))
+}
+
+fn shell_quote(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '/' | '.' | ':'))
+    {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
 fn request_socket(path: &Path, command: &str) -> Result<String> {
     #[cfg(unix)]
     {
@@ -1390,7 +1412,7 @@ mod tests {
     }
 
     #[test]
-    fn surface_spec_builds_terminal_specs() {
+    fn surface_spec_builds_terminal_and_browser_specs() {
         assert_eq!(
             SurfaceSpec::terminal("htop").titled("monitor"),
             SurfaceSpec {
@@ -1398,6 +1420,26 @@ mod tests {
                 command: "htop".to_string(),
                 title: Some("monitor".to_string())
             }
+        );
+        assert_eq!(
+            SurfaceSpec::browser("https://example.com").titled("web"),
+            SurfaceSpec {
+                kind: SurfaceKind::Browser,
+                command: "https://example.com".to_string(),
+                title: Some("web".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn browser_surface_command_quotes_targets() {
+        assert_eq!(
+            browser_surface_command("https://example.com/a%20b"),
+            "kittwm-browser 'https://example.com/a%20b'"
+        );
+        assert_eq!(
+            browser_surface_command("https://example.com/it's"),
+            "kittwm-browser 'https://example.com/it'\\''s'"
         );
     }
 
@@ -1690,6 +1732,58 @@ mod tests {
                 "APPS_JSON",
                 "APPS_FIRST Visual Studio Code",
                 "APPS_LAUNCH_FIRST Safari"
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spawn_surface_sends_browser_as_first_party_browser_app() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwb-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                let command = request.trim().to_string();
+                seen.push(command);
+                stream.write_all(b"SPAWNED native-1\n").unwrap();
+            }
+            seen
+        });
+        let client = Kittwm::connect_path(&path);
+        assert_eq!(
+            client
+                .spawn_surface(&SurfaceSpec::terminal("htop"))
+                .unwrap()
+                .reply
+                .trim(),
+            "SPAWNED native-1"
+        );
+        assert_eq!(
+            client
+                .spawn_surface(&SurfaceSpec::browser("https://example.com/a%20b"))
+                .unwrap()
+                .reply
+                .trim(),
+            "SPAWNED native-1"
+        );
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            seen,
+            [
+                "SPAWN_PTY htop",
+                "SPAWN_PTY kittwm-browser 'https://example.com/a%20b'"
             ]
         );
     }
