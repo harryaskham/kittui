@@ -826,6 +826,40 @@ pub struct Status {
     pub panes_detail: Vec<NativePaneDetail>,
 }
 
+/// Native app discovery catalog returned by `APPS_JSON`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppsCatalog {
+    /// Default launcher command configured for the runtime.
+    pub default_command: String,
+    /// Resolved executable path for the default command, when found on PATH.
+    #[serde(default)]
+    pub default_resolved: Option<String>,
+    /// Executable command names discovered on PATH.
+    #[serde(default)]
+    pub path_commands: Vec<String>,
+    /// macOS `.app` bundle names discovered under Applications directories.
+    #[serde(default)]
+    pub macos_apps: Vec<String>,
+}
+
+/// Candidate selected by native app discovery.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppCandidate {
+    /// Candidate source kind, such as `path` or `macos_app`.
+    pub kind: String,
+    /// Candidate display/command name.
+    pub name: String,
+}
+
+/// Result of launching an app-discovery candidate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppLaunch {
+    /// Process id reported by the native launcher.
+    pub pid: u32,
+    /// Candidate that was launched.
+    pub candidate: AppCandidate,
+}
+
 /// Basic window creation/replacement request. This is currently translated to
 /// existing socket verbs and will grow into a richer SDK request later.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -913,6 +947,26 @@ impl Kittwm {
     /// Fetch typed native pane details from `PANES_JSON`.
     pub fn panes(&self) -> Result<PanesStatus> {
         Ok(serde_json::from_str(&self.request_protocol("PANES_JSON")?)?)
+    }
+
+    /// Fetch the native app discovery catalog from `APPS_JSON`.
+    pub fn apps(&self) -> Result<AppsCatalog> {
+        self.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(&self.request_protocol("APPS_JSON")?)?)
+    }
+
+    /// Return the first app-discovery candidate matching a query.
+    pub fn app_first(&self, query: impl AsRef<str>) -> Result<AppCandidate> {
+        self.capabilities.ensure(Capability::ReadText)?;
+        parse_app_first_reply(&self.request_protocol(format!("APPS_FIRST {}", query.as_ref()))?)
+    }
+
+    /// Launch the first app-discovery candidate matching a query.
+    pub fn app_launch_first(&self, query: impl AsRef<str>) -> Result<AppLaunch> {
+        self.capabilities.ensure(Capability::CreateWindow)?;
+        parse_app_launch_reply(
+            &self.request_protocol(format!("APPS_LAUNCH_FIRST {}", query.as_ref()))?,
+        )
     }
 
     /// Fetch a bounded batch of native JSON-lines events.
@@ -1215,6 +1269,53 @@ pub fn display_to_socket_path(display: &str) -> PathBuf {
     env::temp_dir().join(format!("kittwm-{token}.sock"))
 }
 
+fn parse_app_first_reply(reply: &str) -> Result<AppCandidate> {
+    let line = reply.trim();
+    let fields = line
+        .strip_prefix("APPS_FIRST ")
+        .ok_or_else(|| Error::Daemon(line.to_string()))?;
+    parse_app_candidate_fields(fields)
+}
+
+fn parse_app_launch_reply(reply: &str) -> Result<AppLaunch> {
+    let line = reply.trim();
+    let fields = line
+        .strip_prefix("APPS_LAUNCH_FIRST ")
+        .ok_or_else(|| Error::Daemon(line.to_string()))?;
+    let mut pid = None;
+    let mut rest = Vec::new();
+    for field in fields.split_whitespace() {
+        if let Some(value) = field.strip_prefix("pid=") {
+            pid =
+                Some(value.parse::<u32>().map_err(|_| {
+                    Error::Daemon(format!("invalid APPS_LAUNCH_FIRST pid: {value}"))
+                })?);
+        } else {
+            rest.push(field);
+        }
+    }
+    Ok(AppLaunch {
+        pid: pid.ok_or_else(|| Error::Daemon(format!("missing APPS_LAUNCH_FIRST pid: {line}")))?,
+        candidate: parse_app_candidate_fields(&rest.join(" "))?,
+    })
+}
+
+fn parse_app_candidate_fields(fields: &str) -> Result<AppCandidate> {
+    let kind = fields
+        .split_whitespace()
+        .find_map(|field| field.strip_prefix("kind="))
+        .ok_or_else(|| Error::Daemon(format!("missing app candidate kind: {fields}")))?;
+    let name = fields
+        .split_once("name=")
+        .map(|(_, value)| value.trim())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| Error::Daemon(format!("missing app candidate name: {fields}")))?;
+    Ok(AppCandidate {
+        kind: kind.to_string(),
+        name: name.to_string(),
+    })
+}
+
 fn request_socket(path: &Path, command: &str) -> Result<String> {
     #[cfg(unix)]
     {
@@ -1454,6 +1555,37 @@ mod tests {
     }
 
     #[test]
+    fn app_catalog_and_candidate_shapes_decode() {
+        let catalog: AppsCatalog = serde_json::from_str(
+            r#"{"default_command":"xterm","default_resolved":"/usr/bin/xterm","path_commands":["bash","vim"],"macos_apps":["Safari.app"]}"#,
+        )
+        .unwrap();
+        assert_eq!(catalog.default_command, "xterm");
+        assert_eq!(catalog.default_resolved.as_deref(), Some("/usr/bin/xterm"));
+        assert_eq!(catalog.path_commands, ["bash", "vim"]);
+        assert_eq!(catalog.macos_apps, ["Safari.app"]);
+
+        assert_eq!(
+            parse_app_first_reply("APPS_FIRST kind=path name=Visual Studio Code\n").unwrap(),
+            AppCandidate {
+                kind: "path".to_string(),
+                name: "Visual Studio Code".to_string(),
+            }
+        );
+        assert_eq!(
+            parse_app_launch_reply("APPS_LAUNCH_FIRST pid=1234 kind=macos_app name=Safari\n")
+                .unwrap(),
+            AppLaunch {
+                pid: 1234,
+                candidate: AppCandidate {
+                    kind: "macos_app".to_string(),
+                    name: "Safari".to_string(),
+                }
+            }
+        );
+    }
+
+    #[test]
     fn event_parser_handles_known_and_unknown_events() {
         let status = KittwmEvent::parse_line(
             r#"{"schema_version":1,"seq":7,"at_ms":10,"kind":"focus_changed","window":"native-2","detail":{"focus":"native-2"}}"#,
@@ -1509,6 +1641,74 @@ mod tests {
         assert!(matches!(
             client.events_ms(100),
             Err(Error::CapabilityDenied(Capability::SubscribeEvents))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn app_discovery_helpers_send_expected_socket_commands() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwa-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                let command = request.trim().to_string();
+                seen.push(command.clone());
+                let reply = match command.as_str() {
+                    "APPS_JSON" => "{\"default_command\":\"xterm\",\"default_resolved\":null,\"path_commands\":[\"bash\"],\"macos_apps\":[]}",
+                    "APPS_FIRST Visual Studio Code" => "APPS_FIRST kind=path name=Visual Studio Code",
+                    "APPS_LAUNCH_FIRST Safari" => "APPS_LAUNCH_FIRST pid=42 kind=macos_app name=Safari",
+                    other => panic!("unexpected command {other}"),
+                };
+                stream.write_all(reply.as_bytes()).unwrap();
+                stream.write_all(b"\n").unwrap();
+            }
+            seen
+        });
+        let client = Kittwm::connect_path(&path);
+        assert_eq!(client.apps().unwrap().path_commands, ["bash"]);
+        assert_eq!(
+            client.app_first("Visual Studio Code").unwrap().name,
+            "Visual Studio Code"
+        );
+        assert_eq!(client.app_launch_first("Safari").unwrap().pid, 42);
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            seen,
+            [
+                "APPS_JSON",
+                "APPS_FIRST Visual Studio Code",
+                "APPS_LAUNCH_FIRST Safari"
+            ]
+        );
+    }
+
+    #[test]
+    fn app_discovery_capabilities_deny_before_io() {
+        let client = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::SubscribeEvents]));
+        assert!(matches!(
+            client.apps(),
+            Err(Error::CapabilityDenied(Capability::ReadText))
+        ));
+        assert!(matches!(
+            client.app_first("vim"),
+            Err(Error::CapabilityDenied(Capability::ReadText))
+        ));
+        assert!(matches!(
+            client.app_launch_first("vim"),
+            Err(Error::CapabilityDenied(Capability::CreateWindow))
         ));
     }
 
