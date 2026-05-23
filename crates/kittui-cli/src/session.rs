@@ -181,6 +181,22 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         dbg.log(&format!("native terminal socket focus: {window}"));
                     }
                 }
+                crate::daemon::NativePaneCommand::FocusNext => {
+                    focused = next_native_focus(focused, panes.len());
+                    clear = true;
+                    dbg.log(&format!(
+                        "native terminal socket focus next: {}",
+                        panes[focused].window
+                    ));
+                }
+                crate::daemon::NativePaneCommand::FocusPrev => {
+                    focused = prev_native_focus(focused, panes.len());
+                    clear = true;
+                    dbg.log(&format!(
+                        "native terminal socket focus prev: {}",
+                        panes[focused].window
+                    ));
+                }
                 crate::daemon::NativePaneCommand::Close(window) => {
                     if panes.len() > 1 {
                         let target = if window == "focused" {
@@ -462,6 +478,14 @@ fn next_native_focus(current: usize, count: usize) -> usize {
     }
 }
 
+fn prev_native_focus(current: usize, count: usize) -> usize {
+    if count == 0 {
+        0
+    } else {
+        current.checked_sub(1).unwrap_or(count - 1)
+    }
+}
+
 fn focus_after_remove(current: usize, removed: usize, len_before: usize) -> usize {
     let len_after = len_before.saturating_sub(1);
     if len_after == 0 {
@@ -579,6 +603,10 @@ mod native_pane_tests {
         assert_eq!(next_native_focus(0, 3), 1);
         assert_eq!(next_native_focus(2, 3), 0);
         assert_eq!(next_native_focus(0, 0), 0);
+        assert_eq!(prev_native_focus(0, 1), 0);
+        assert_eq!(prev_native_focus(0, 3), 2);
+        assert_eq!(prev_native_focus(2, 3), 1);
+        assert_eq!(prev_native_focus(0, 0), 0);
     }
 
     #[test]

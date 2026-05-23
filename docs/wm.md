@@ -38,6 +38,8 @@ kittwm --attach -c 'APPS_FIRST htop'
 kittwm --attach -c 'SPAWN_PTY htop'
 kittwm --attach -c 'LAYOUT rows'
 kittwm --attach -c 'FOCUS_PANE native-2'
+kittwm --attach -c FOCUS_NEXT
+kittwm --attach -c FOCUS_PREV
 kittwm --attach -c 'RENAME_PANE native-2 editor'
 kittwm --attach -c 'CLOSE_PANE focused'
 ```

@@ -104,6 +104,8 @@ pub struct NativePaneStatus {
 pub enum NativePaneCommand {
     SpawnPty(String),
     Focus(String),
+    FocusNext,
+    FocusPrev,
     Close(String),
     Layout(String),
     Rename { window: String, title: String },
@@ -241,6 +243,20 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
             "FOCUS_QUEUED",
         );
     }
+    if cmd == "FOCUS_NEXT" {
+        return queue_native_pane_action(
+            pending,
+            NativePaneCommand::FocusNext,
+            "FOCUS_NEXT_QUEUED",
+        );
+    }
+    if cmd == "FOCUS_PREV" {
+        return queue_native_pane_action(
+            pending,
+            NativePaneCommand::FocusPrev,
+            "FOCUS_PREV_QUEUED",
+        );
+    }
     if let Some(window) = cmd.strip_prefix("CLOSE_PANE ") {
         return queue_native_pane_command(
             pending,
@@ -296,7 +312,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -326,6 +342,8 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "control",
             "focus a native pane by window token",
         ),
+        ("FOCUS_NEXT", "control", "focus the next native pane"),
+        ("FOCUS_PREV", "control", "focus the previous native pane"),
         (
             "CLOSE_PANE <window|focused>",
             "control",
@@ -380,6 +398,20 @@ fn native_spawn_help_json_reply() -> String {
         })
         .collect::<Vec<_>>();
     format!("{}\n", serde_json::json!({ "commands": commands }))
+}
+
+fn queue_native_pane_action(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    command: NativePaneCommand,
+    ok_prefix: &str,
+) -> String {
+    match pending.lock() {
+        Ok(mut state) => {
+            state.pending.push(command);
+            format!("{ok_prefix} command={}\n", state.pending.len())
+        }
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
 }
 
 fn queue_native_pane_command(
@@ -758,6 +790,8 @@ mod tests {
         assert!(
             native_spawn_queue_reply("FOCUS_PANE native-2", &pending).starts_with("FOCUS_QUEUED")
         );
+        assert!(native_spawn_queue_reply("FOCUS_NEXT", &pending).starts_with("FOCUS_NEXT_QUEUED"));
+        assert!(native_spawn_queue_reply("FOCUS_PREV", &pending).starts_with("FOCUS_PREV_QUEUED"));
         assert!(
             native_spawn_queue_reply("CLOSE_PANE focused", &pending).starts_with("CLOSE_QUEUED")
         );
@@ -773,6 +807,8 @@ mod tests {
             drain_native_spawn_pending(&pending),
             vec![
                 NativePaneCommand::Focus("native-2".to_string()),
+                NativePaneCommand::FocusNext,
+                NativePaneCommand::FocusPrev,
                 NativePaneCommand::Close("focused".to_string()),
                 NativePaneCommand::Layout("rows".to_string()),
                 NativePaneCommand::Rename {
@@ -790,6 +826,8 @@ mod tests {
         assert!(help.contains("SPAWN_PTY <cmd>"), "{help}");
         assert!(help.contains("STATUS_JSON"), "{help}");
         assert!(help.contains("PANES_JSON"), "{help}");
+        assert!(help.contains("FOCUS_NEXT"), "{help}");
+        assert!(help.contains("FOCUS_PREV"), "{help}");
         assert!(help.contains("LAYOUT <columns|rows>"), "{help}");
         assert!(help.contains("RENAME_PANE <window> <title>"), "{help}");
         assert!(help.contains("APPS_JSON"), "{help}");
