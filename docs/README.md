@@ -31,6 +31,9 @@ Current implementation status:
   bar and shortcut hint instead of auto-spawning a shell; `Ctrl-A Enter` /
   `Ctrl-A t` launches the default terminal, `Ctrl-A ?` toggles shortcut help,
   and `KITTWM_STARTUP_TERMINAL=1` restores the old startup-terminal behavior.
+  The opt-in live kittui scene chrome path carries the top-bar state/text in
+  labelled scene layers, while the pure terminal renderer remains the ANSI
+  fallback.
 - tmux defaults to pure terminal rendering unless explicitly overridden;
 - direct raw RGBA uploads support zlib and threshold-based `auto` compression;
 - file/tempfile and shared-memory raw-frame grammar/path exist with safe fallback;
