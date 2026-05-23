@@ -93,7 +93,7 @@ impl PaneRegistry {
 
 type SharedPanes = Arc<Mutex<PaneRegistry>>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct NativePaneStatus {
     pub window: String,
     pub title: String,
@@ -259,8 +259,10 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
+        "STATUS_JSON" => native_spawn_status_json_reply(pending),
         "PANES" => native_spawn_panes_reply(pending),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows>\n"
+        "PANES_JSON" => native_spawn_panes_json_reply(pending),
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | STATUS_JSON | PANES_JSON\n"
             .to_string(),
     }
 }
@@ -306,6 +308,27 @@ fn native_spawn_status_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Str
         .unwrap_or_else(|_| "ERR registry poisoned\n".to_string())
 }
 
+fn native_spawn_status_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    let Ok(state) = pending.lock() else {
+        return "{\"error\":\"registry poisoned\"}\n".to_string();
+    };
+    let focused = state
+        .panes
+        .iter()
+        .find(|pane| pane.focused)
+        .map(|pane| pane.window.as_str())
+        .unwrap_or("-");
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "pending": state.pending.len(),
+            "panes": state.panes.len(),
+            "focus": focused,
+            "layout": state.layout.as_deref().unwrap_or("-"),
+        })
+    )
+}
+
 fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
     use std::fmt::Write as _;
     let Ok(state) = pending.lock() else {
@@ -328,6 +351,27 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     }
     out.push_str("END\n");
     out
+}
+
+fn native_spawn_panes_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    let Ok(state) = pending.lock() else {
+        return "{\"error\":\"registry poisoned\"}\n".to_string();
+    };
+    let focused = state
+        .panes
+        .iter()
+        .find(|pane| pane.focused)
+        .map(|pane| pane.window.as_str())
+        .unwrap_or("-");
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "panes": state.panes.len(),
+            "focus": focused,
+            "layout": state.layout.as_deref().unwrap_or("-"),
+            "panes_detail": state.panes,
+        })
+    )
 }
 
 /// Accept-loop daemon that answers `PING` / `STATUS` / `QUIT`.
@@ -645,6 +689,17 @@ mod tests {
             panes.contains("window=native-2 focused=true title=\"htop\""),
             "{panes}"
         );
+        let status_json: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("STATUS_JSON", &pending)).unwrap();
+        assert_eq!(status_json["pending"], 0);
+        assert_eq!(status_json["panes"], 2);
+        assert_eq!(status_json["focus"], "native-2");
+        assert_eq!(status_json["layout"], "rows");
+        let panes_json: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("PANES_JSON", &pending)).unwrap();
+        assert_eq!(panes_json["panes_detail"].as_array().unwrap().len(), 2);
+        assert_eq!(panes_json["panes_detail"][1]["window"], "native-2");
+        assert_eq!(panes_json["panes_detail"][1]["focused"], true);
     }
 
     #[test]

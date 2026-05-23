@@ -28,7 +28,9 @@ KITTUI_WM_DISPLAY=:7 kittwm --status
 # While a no-arg native kittwm session is running, inspect or create panes
 # through its inherited/display-style socket.
 kittwm --attach -c STATUS
+kittwm --attach -c STATUS_JSON
 kittwm --attach -c PANES
+kittwm --attach -c PANES_JSON
 kittwm --attach -c 'SPAWN_PTY htop'
 kittwm --attach -c 'LAYOUT rows'
 kittwm --attach -c 'FOCUS_PANE native-2'
