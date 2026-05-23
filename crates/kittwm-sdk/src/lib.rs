@@ -810,6 +810,45 @@ impl SurfaceHandle {
             format!("READ_TEXT_JSON {}", self.id),
         )?)?)
     }
+
+    /// Read the semantic component snapshot for this surface.
+    pub fn semantic_snapshot(&self) -> Result<SemanticSurfaceSnapshot> {
+        self.client
+            .capabilities
+            .ensure(Capability::ReadSemanticTree)?;
+        Ok(serde_json::from_str(&self.client.request_protocol(
+            format!("SEMANTIC_SNAPSHOT {}", self.id),
+        )?)?)
+    }
+
+    /// Invoke a semantic component action with a JSON payload.
+    pub fn semantic_action(
+        &self,
+        component: impl AsRef<str>,
+        action: impl AsRef<str>,
+        payload: impl Serialize,
+    ) -> Result<String> {
+        self.client
+            .capabilities
+            .ensure(Capability::InvokeSemanticAction)?;
+        let payload = serde_json::to_string(&payload)?;
+        self.client.request_protocol(format!(
+            "SEMANTIC_ACTION {} {} {} {}",
+            self.id,
+            component.as_ref(),
+            action.as_ref(),
+            payload
+        ))
+    }
+
+    /// Request semantic focus for a component.
+    pub fn semantic_focus(&self, component: impl AsRef<str>) -> Result<String> {
+        self.client
+            .capabilities
+            .ensure(Capability::InvokeSemanticAction)?;
+        self.client
+            .request_protocol(format!("SEMANTIC_FOCUS {} {}", self.id, component.as_ref()))
+    }
 }
 
 /// Resolve a socket path using kittwm's current environment conventions.
@@ -871,6 +910,13 @@ fn request_socket(path: &Path, command: &str) -> Result<String> {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[cfg(unix)]
+    use std::io::{BufRead, BufReader};
+    #[cfg(unix)]
+    use std::os::unix::net::UnixListener;
+    #[cfg(unix)]
+    use std::thread;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -1014,6 +1060,93 @@ mod tests {
                 value: ComponentValue::Text("Ada".to_string())
             }
         );
+    }
+
+    #[test]
+    fn semantic_capabilities_deny_wrappers_before_io() {
+        let client = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::ReadText]));
+        let surface = client.focused_surface();
+        assert!(matches!(
+            surface.semantic_snapshot(),
+            Err(Error::CapabilityDenied(Capability::ReadSemanticTree))
+        ));
+        assert!(matches!(
+            surface.semantic_action("field", "set", serde_json::json!({"value":"x"})),
+            Err(Error::CapabilityDenied(Capability::InvokeSemanticAction))
+        ));
+        assert!(matches!(
+            surface.semantic_focus("field"),
+            Err(Error::CapabilityDenied(Capability::InvokeSemanticAction))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn semantic_wrappers_send_expected_socket_commands() {
+        let path = PathBuf::from(format!(
+            "/tmp/kws-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                let command = request.trim().to_string();
+                seen.push(command.clone());
+                let reply = if command.starts_with("SEMANTIC_SNAPSHOT") {
+                    serde_json::to_string(&SemanticSurfaceSnapshot::new(
+                        "native-1",
+                        7,
+                        ComponentNode::new("root", ComponentRole::Group),
+                    ))
+                    .unwrap()
+                } else if command.starts_with("SEMANTIC_ACTION") {
+                    "ERR SEMANTIC_ACTION unsupported window=native-1 component=field action=set"
+                        .to_string()
+                } else {
+                    "ERR SEMANTIC_FOCUS unsupported window=native-1 component=field".to_string()
+                };
+                stream.write_all(reply.as_bytes()).unwrap();
+                stream.write_all(b"\n").unwrap();
+            }
+            seen
+        });
+
+        let surface = Kittwm::connect_path(&path).surface("native-1");
+        let snapshot = surface.semantic_snapshot().unwrap();
+        assert_eq!(snapshot.surface, "native-1");
+        assert!(matches!(
+            surface.semantic_action("field", "set", serde_json::json!({"value":"x"})),
+            Err(Error::Daemon(_))
+        ));
+        assert!(matches!(
+            surface.semantic_focus("field"),
+            Err(Error::Daemon(_))
+        ));
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen[0], "SEMANTIC_SNAPSHOT native-1");
+        assert_eq!(
+            seen[1],
+            "SEMANTIC_ACTION native-1 field set {\"value\":\"x\"}"
+        );
+        assert_eq!(seen[2], "SEMANTIC_FOCUS native-1 field");
+    }
+
+    #[cfg(unix)]
+    fn now_test_nanos() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
     }
 
     #[test]
