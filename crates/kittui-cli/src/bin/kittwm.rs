@@ -82,6 +82,7 @@ struct Cli {
     native_out: Option<String>,
     save_session: Option<String>,
     restore_session: Option<String>,
+    semantic_publish: Option<(String, String)>,
     automation_request: Option<String>,
     socket: Option<String>,
     display: Option<String>,
@@ -291,6 +292,15 @@ fn parse_args() -> Result<Cli> {
                     .next()
                     .ok_or_else(|| anyhow!("--semantic-snapshot WINDOW|focused"))?;
                 out.automation_request = Some(semantic_snapshot_request(&window)?);
+            }
+            "--semantic-publish" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--semantic-publish WINDOW|focused JSON_OR_PATH|-"))?;
+                let json = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--semantic-publish WINDOW|focused JSON_OR_PATH|-"))?;
+                out.semantic_publish = Some((window, json));
             }
             "--semantic-action" => {
                 let window = args.next().ok_or_else(|| {
@@ -525,6 +535,7 @@ fn print_help() {
          --read-text WINDOW       print a native pane text snapshot.\n\
          --read-scrollback WINDOW print native pane scrollback lines.\n\
          --semantic-snapshot WINDOW print semantic component snapshot JSON.\n\
+         --semantic-publish WINDOW JSON_OR_PATH|- publish semantic snapshot JSON.\n\
          --semantic-action WINDOW COMPONENT ACTION JSON invoke semantic action.\n\
          --semantic-focus WINDOW COMPONENT request semantic component focus.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
@@ -715,6 +726,9 @@ fn real_main() -> Result<()> {
     }
     if let Some(path) = &cli.restore_session {
         return restore_session_cmd(path);
+    }
+    if let Some((window, json)) = &cli.semantic_publish {
+        return semantic_publish_cmd(window, json);
     }
     if let Some(request) = &cli.automation_request {
         return automation_cmd(request);
@@ -1381,6 +1395,12 @@ fn semantic_focus_request(window: &str, component: &str) -> Result<String> {
     )
 }
 
+fn semantic_publish_request(window: &str, input: &str) -> Result<String> {
+    let value: serde_json::Value = serde_json::from_str(input)
+        .map_err(|e| anyhow!("--semantic-publish expects valid snapshot JSON: {e}"))?;
+    automation_request("SEMANTIC_PUBLISH", window, &serde_json::to_string(&value)?)
+}
+
 fn semantic_action_request(
     window: &str,
     component: &str,
@@ -1559,15 +1579,22 @@ fn save_session_cmd(path_arg: &str) -> Result<()> {
     Ok(())
 }
 
-fn restore_session_cmd(path_arg: &str) -> Result<()> {
-    use kittui_cli::daemon::{client_request, default_socket_path};
+fn read_json_arg(path_arg: &str) -> Result<String> {
     use std::io::Read as _;
     let mut input = String::new();
     if path_arg == "-" {
         std::io::stdin().read_to_string(&mut input)?;
-    } else {
+    } else if std::path::Path::new(path_arg).exists() {
         input = std::fs::read_to_string(path_arg)?;
+    } else {
+        input = path_arg.to_string();
     }
+    Ok(input)
+}
+
+fn restore_session_cmd(path_arg: &str) -> Result<()> {
+    use kittui_cli::daemon::{client_request, default_socket_path};
+    let input = read_json_arg(path_arg)?;
     let request = restore_session_request(&input)?;
     let path = default_socket_path();
     let reply = client_request(&path, &request)
@@ -1589,6 +1616,27 @@ fn restore_session_request(input: &str) -> Result<String> {
         "RESTORE_SESSION_JSON {}",
         serde_json::to_string(&value)?
     ))
+}
+
+fn semantic_publish_cmd(window: &str, json_arg: &str) -> Result<()> {
+    use kittui_cli::daemon::{client_request, default_socket_path};
+    let input = read_json_arg(json_arg)?;
+    let request = semantic_publish_request(window, &input)?;
+    let path = default_socket_path();
+    let reply = client_request(&path, &request).map_err(|e| {
+        anyhow!(
+            "could not publish semantic snapshot on {}: {e}",
+            path.display()
+        )
+    })?;
+    print!("{reply}");
+    if !reply.ends_with('\n') {
+        println!();
+    }
+    if reply.starts_with("ERR ") {
+        std::process::exit(2);
+    }
+    Ok(())
 }
 
 fn status_cmd() -> Result<()> {
@@ -2426,6 +2474,14 @@ mod tests {
             "SEMANTIC_FOCUS focused native-1.screen"
         );
         assert_eq!(
+            semantic_publish_request(
+                "focused",
+                r#"{"schema_version":1,"surface":"native-1","revision":1,"root":{"id":"native-1.root","role":"group"}}"#
+            )
+            .unwrap(),
+            r#"SEMANTIC_PUBLISH focused {"revision":1,"root":{"id":"native-1.root","role":"group"},"schema_version":1,"surface":"native-1"}"#
+        );
+        assert_eq!(
             semantic_action_request(
                 "focused",
                 "native-1.screen",
@@ -2437,6 +2493,7 @@ mod tests {
         );
         assert!(semantic_action_request("focused", "bad component", "set", "{}").is_err());
         assert!(semantic_action_request("focused", "field", "set", "not-json").is_err());
+        assert!(semantic_publish_request("focused", "not-json").is_err());
         assert_eq!(events_request("2500").unwrap(), "EVENTS 2500");
         assert!(events_request("0").is_err());
         assert!(events_request("60001").is_err());
