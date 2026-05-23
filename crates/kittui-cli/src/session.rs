@@ -22,7 +22,9 @@ use anyhow::{anyhow, Result};
 use kittui::{CellRect, Runtime};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
-use kittui_wm::native::{MouseReportingModes, NativeApp, NativeFrame, PtyTerminalApp};
+use kittui_wm::native::{
+    MouseReportingModes, NativeApp, NativeFrame, NativeSurface, PtyTerminalApp,
+};
 use kittui_xvfb::XServer;
 
 use crate::keymap::{Action, KeyMods, KeySpec, Keymap};
@@ -471,7 +473,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 write_native_pane_chrome(&mut handle, chrome)?;
                 last_title_rows[idx] = chrome.cache_key.clone();
             }
-            match pane.app.capture()? {
+            let surface_frame = NativeSurface::capture_surface(&mut pane.app)?;
+            match surface_frame.frame {
                 NativeFrame::Rgba {
                     width,
                     height,
@@ -923,7 +926,7 @@ fn native_pane_layouts_weighted(
 
 fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>) -> Result<()> {
     for (pane, layout) in panes.iter_mut().zip(layouts) {
-        pane.app.resize(layout.app_cols, layout.app_rows)?;
+        NativeSurface::resize_surface(&mut pane.app, layout.app_cols, layout.app_rows)?;
     }
     Ok(())
 }
