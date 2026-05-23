@@ -12,6 +12,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
+use base64::Engine;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use config::{
@@ -103,6 +104,8 @@ enum Cmd {
     TitleBar(TitleBarArgs),
     /// Compose a scene from a JSON file.
     Compose(ComposeArgs),
+    /// Render a scene JSON file to PNG bytes without terminal placement.
+    Render(RenderArgs),
     /// Render an image from a path/bytes through Node::Image.
     Image(ImageArgs),
     /// Re-place an already-uploaded image id at a terminal footprint.
@@ -354,6 +357,15 @@ struct ComposeArgs {
     y: Option<u16>,
 }
 
+#[derive(clap::Args)]
+struct RenderArgs {
+    /// Path to a JSON file describing one `kittui::Scene`; use `-` for stdin.
+    path: PathBuf,
+    /// Write PNG bytes to this path instead of stdout.
+    #[arg(long)]
+    out: Option<PathBuf>,
+}
+
 #[derive(Copy, Clone, clap::ValueEnum)]
 enum DirectionArg {
     Horizontal,
@@ -477,6 +489,7 @@ fn main() -> Result<()> {
         Cmd::Divider(args) => run_divider(&global, &runtime, args, emit_mode),
         Cmd::TitleBar(args) => run_title_bar(&global, &runtime, args, emit_mode),
         Cmd::Compose(args) => run_compose(&global, &runtime, args, emit_mode),
+        Cmd::Render(args) => run_render(&global, &runtime, args, emit_mode),
         Cmd::Image(args) => run_image(&global, &runtime, args, emit_mode),
         Cmd::Place(args) => run_place(&global, &runtime, args, emit_mode),
         Cmd::Delete(args) => run_delete(&global, &runtime, args, emit_mode),
@@ -712,6 +725,45 @@ fn read_compose_input(path: &PathBuf) -> Result<ComposeInput> {
     } else {
         Ok(ComposeInput::Single(serde_json::from_value(value)?))
     }
+}
+
+fn run_render(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &RenderArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let scene = match read_compose_input(&args.path)? {
+        ComposeInput::Single(scene) => scene,
+        ComposeInput::Batch(_) => {
+            return Err(anyhow!("render expects a single Scene, not an array"))
+        }
+    };
+    let png = runtime.render_png(&scene)?;
+    if global.json.value || mode.dry_run {
+        let mut payload = serde_json::json!({
+            "bytes": png.len(),
+            "footprint": scene.footprint,
+            "output": args.out.as_ref().map(|p| p.display().to_string()),
+        });
+        if mode.dry_run {
+            payload["dry_run"] = serde_json::json!(true);
+        }
+        if mode.json_bytes {
+            payload["png_base64"] =
+                serde_json::json!(base64::engine::general_purpose::STANDARD.encode(&png));
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        if mode.dry_run {
+            return Ok(());
+        }
+    }
+    if let Some(path) = &args.out {
+        std::fs::write(path, &png)?;
+    } else if !global.json.value {
+        std::io::stdout().lock().write_all(&png)?;
+    }
+    Ok(())
 }
 
 fn run_image(
