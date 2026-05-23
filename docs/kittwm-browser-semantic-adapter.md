@@ -108,6 +108,30 @@ If an action target no longer exists after a DOM update, return an explicit stal
   - Landed first slice: `HeadlessBrowserApp::semantic_snapshot()` evaluates a DOM/ARIA extractor via DevTools and maps common controls into SDK semantic nodes while leaving opaque pages as empty semantic roots over the screenshot fallback.
 - `bd-fea819`: wire the browser adapter to publish snapshots through the kittwm semantic publish path on navigation/focus/change, with screenshot fallback intact.
   - Landed first slice: `kittwm-browser` creates a semantic publisher from `KITTWM_SOCKET`/`KITTWM_WINDOW`, debounces extractor calls, skips unchanged payloads, and best-effort publishes browser snapshots without interrupting screenshot rendering.
+
+## Current browser publishing workflow
+
+When `kittwm-browser` runs inside a kittwm-managed surface and inherits both
+`KITTWM_SOCKET` and `KITTWM_WINDOW`, it now best-effort publishes DOM/ARIA
+semantic snapshots side-by-side with screenshot rendering:
+
+1. capture/rendering remains screenshot-first;
+2. the DOM/ARIA extractor builds a `SemanticSurfaceSnapshot` for common controls;
+3. a semantic publisher debounces extraction/publish work;
+4. unchanged snapshot payloads are skipped to avoid spamming the daemon;
+5. failures are non-fatal and screenshot rendering continues.
+
+Inspect the latest browser semantic tree from another pane or script:
+
+```sh
+kittwm --semantic-snapshot focused
+# or, for a known browser window:
+kittwm --semantic-snapshot native-2
+```
+
+The semantic tree is intentionally side-band state. Opaque/canvas/video/custom
+content still relies on screenshots, and browser semantic actions through
+DevTools are tracked by `bd-15cde5`.
 - `bd-15cde5`: route `SEMANTIC_ACTION`/`SEMANTIC_FOCUS` for browser semantic nodes to DevTools/DOM operations for focus, activate, set value, insert text, and select.
 
 These should be separate implementation beads because extraction, publishing cadence, and action routing each carry different risk.

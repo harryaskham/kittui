@@ -5,8 +5,9 @@ Tracking bead: `bd-829e64`
 This quickstart shows the current end-to-end semantic surface workflow. The
 semantic stack is intentionally incremental: kittwm can expose a terminal pane as
 a semantic fallback, SDK apps can build/publish component snapshots, and scripts
-can inspect the current tree. Full action routing for real toolkit/browser
-adapters is still future work.
+can inspect the current tree. Published snapshots support basic in-memory focus/value actions; browser DOM
+snapshot publishing exists, while toolkit/browser action routing remains future
+adapter work.
 
 ## Current pieces
 
@@ -24,6 +25,7 @@ adapters is still future work.
   - `SEMANTIC_ACTION <window|focused> <component> <action> <json>`;
   - `SEMANTIC_FOCUS <window|focused> <component>`.
 - Example app: `crates/kittui-cli/examples/kittwm_semantic_app.rs`.
+- Browser adapter plan/current state: `docs/kittwm-browser-semantic-adapter.md`.
 
 ## Start kittwm
 
@@ -112,14 +114,19 @@ Using the example:
 cargo run -p kittui-cli --example kittwm_semantic_app -- --query-current
 ```
 
-Using raw socket protocol for now:
+Using CLI wrappers:
+
+```sh
+cargo run -p kittui-cli --bin kittwm -- --semantic-snapshot focused
+cargo run -p kittui-cli --bin kittwm -- --semantic-publish focused snapshot.json
+cargo run -p kittui-cli --bin kittwm -- --semantic-publish focused - < snapshot.json
+```
+
+The raw socket escape hatch remains available:
 
 ```sh
 cargo run -p kittui-cli --bin kittwm -- --attach -c 'SEMANTIC_SNAPSHOT focused'
 ```
-
-CLI wrappers exist for snapshot/action/focus, and the publish wrapper is tracked
-separately as `bd-c6f2c7`.
 
 ## Fallback behavior
 
@@ -137,19 +144,31 @@ or toolkit adapter.
 
 ## Action and focus status
 
-`SEMANTIC_ACTION` and `SEMANTIC_FOCUS` validate request shape and return explicit
-unsupported errors unless a future adapter/runtime path implements the requested
-mutation. This is intentional: kittwm should not pretend to mutate arbitrary
-terminal or pixel UI semantics by synthesizing fragile coordinates.
+For **published** semantic snapshots, the daemon supports a conservative in-memory
+action/focus subset:
 
-Expected current behavior:
+- `SEMANTIC_FOCUS` updates the snapshot focus and focused/focusable flags;
+- `SEMANTIC_ACTION ... focus {}` delegates to the same focus path;
+- `toggle` flips boolean/checked state;
+- `set`, `set_value`, and `insert_text` update text, number, or bool scalar values;
+- `select` updates selection values and child selected/checked flags.
 
-```text
-ERR SEMANTIC_ACTION unsupported window=native-1 component=settings.name action=set
-ERR SEMANTIC_FOCUS unsupported window=native-1 component=settings.name
+Using SDK helpers:
+
+```rust
+let surface = wm.focused_surface();
+surface.semantic_focus_component("settings.name")?;
+surface.semantic_set_text("settings.name", "Grace")?;
+surface.semantic_toggle("settings.notifications")?;
+surface.semantic_select_one("settings.profile", "settings.profile.ops")?;
 ```
 
-Future native SDK/component surfaces can implement action ids directly.
+For fallback PTY text-area snapshots, action/focus still returns explicit
+unsupported errors. This is intentional: kittwm should not pretend to mutate
+arbitrary terminal or pixel UI semantics by synthesizing fragile coordinates.
+
+Browser semantic action routing through DevTools is tracked separately and should
+return stale-component errors when ids no longer resolve.
 
 ## Rendering semantic trees
 
@@ -171,14 +190,16 @@ primitive-only.
   DOM/DevTools, or native SDK adapter exposes semantics.
 - Published snapshots are the first runtime storage path, not a full lifecycle
   model for standalone semantic surfaces.
-- Semantic action/focus mutation is not implemented for real apps yet.
-- Browser/Qt/GTK/accessibility adapters are future work.
+- Basic semantic action/focus mutation is in-memory for published snapshots; real
+  adapter-backed mutation is still adapter-specific.
+- Browser DOM/ARIA snapshot extraction and best-effort publishing exist; browser
+  action routing through DevTools is follow-up work.
+- Qt/GTK/accessibility adapters are future work.
 - Published semantic trees do not replace terminal input routing by default.
 
 ## Next useful work
 
-- Add stable `kittwm --semantic-publish` CLI wrapper (`bd-c6f2c7`).
 - Add a real standalone semantic surface/app lifecycle around SDK publishing.
-- Add browser DOM/ARIA or accessibility-tree adapter spike; the browser-specific plan lives in [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md).
-- Route semantic actions for first-party SDK surfaces.
+- Route browser semantic actions through DevTools.
+- Add Qt/GTK/accessibility-tree adapter spikes.
 - Make semantic renderer output selectable in live kittwm views where useful.
