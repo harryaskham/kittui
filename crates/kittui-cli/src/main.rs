@@ -799,12 +799,17 @@ fn run_render_batch(
     let mut rendered = Vec::with_capacity(scenes.len());
     for (idx, (scene, png)) in scenes.iter().zip(pngs).enumerate() {
         let path = out_dir.join(format!("scene-{idx:05}.png"));
-        entries.push(serde_json::json!({
+        let mut entry = serde_json::json!({
             "index": idx,
             "bytes": png.len(),
             "footprint": scene.footprint,
             "output": path.display().to_string(),
-        }));
+        });
+        if mode.json_bytes {
+            entry["png_base64"] =
+                serde_json::json!(base64::engine::general_purpose::STANDARD.encode(&png));
+        }
+        entries.push(entry);
         rendered.push((path, png));
     }
     if global.json.value || mode.dry_run {

@@ -1,6 +1,23 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+fn base64_decode(input: &str) -> Vec<u8> {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::new();
+    let mut buf = 0u32;
+    let mut bits = 0u8;
+    for byte in input.bytes().filter(|b| *b != b'=') {
+        let val = TABLE.iter().position(|v| *v == byte).expect("base64 char") as u32;
+        buf = (buf << 6) | val;
+        bits += 6;
+        while bits >= 8 {
+            bits -= 8;
+            out.push(((buf >> bits) & 0xff) as u8);
+        }
+    }
+    out
+}
+
 fn kittui_bin() -> &'static str {
     env!("CARGO_BIN_EXE_kittui")
 }
@@ -109,6 +126,40 @@ fn render_scene_array_writes_png_directory() {
         assert!(!png.windows(2).any(|window| window == b"\x1b_"));
     }
     let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn render_batch_dry_run_json_bytes_include_png_base64() {
+    let out_dir = temp_path("kittui-render-batch-json-bytes", "dir");
+    let a: serde_json::Value = serde_json::from_slice(&scene_json()).unwrap();
+    let batch = serde_json::to_vec(&serde_json::json!([a])).unwrap();
+    let mut render = Command::new(kittui_bin())
+        .args([
+            "--json",
+            "--json-bytes",
+            "--dry-run",
+            "render",
+            "-",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn kittui render batch json bytes");
+    render.stdin.as_mut().unwrap().write_all(&batch).unwrap();
+    let output = render.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "render batch json bytes failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let encoded = payload["files"][0]["png_base64"].as_str().unwrap();
+    let decoded = base64_decode(encoded);
+    assert!(decoded.starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert!(!out_dir.exists(), "dry-run should not create output dir");
 }
 
 #[test]
