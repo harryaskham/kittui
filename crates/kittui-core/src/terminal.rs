@@ -190,6 +190,13 @@ impl TerminalInfo {
         if env("TMUX").is_some() {
             info.transport = Transport::TmuxPassthrough;
         }
+        if let Some(value) = env("KITTUI_TRANSPORT") {
+            if !value.eq_ignore_ascii_case("auto") {
+                if let Some(transport) = Transport::from_override(&value) {
+                    info.transport = transport;
+                }
+            }
+        }
 
         // Known kitty-family terminals.
         if env("KITTY_WINDOW_ID").is_some()
@@ -282,6 +289,7 @@ mod tests {
         with_env(
             &[
                 ("TMUX", Some("/tmp/x,123,0")),
+                ("KITTUI_TRANSPORT", None),
                 ("KITTY_WINDOW_ID", None),
                 ("KITTY_PUBLIC_KEY", None),
                 ("TERM_PROGRAM", None),
@@ -297,10 +305,30 @@ mod tests {
     }
 
     #[test]
+    fn detect_transport_override_picks_file_transport() {
+        with_env(
+            &[
+                ("TMUX", None),
+                ("KITTUI_TRANSPORT", Some("file")),
+                ("KITTY_WINDOW_ID", None),
+                ("KITTY_PUBLIC_KEY", None),
+                ("TERM_PROGRAM", None),
+                ("WT_SESSION", None),
+                ("TERM", Some("xterm-256color")),
+            ],
+            || {
+                let info = TerminalInfo::detect();
+                assert_eq!(info.transport, Transport::File);
+            },
+        );
+    }
+
+    #[test]
     fn detect_kitty_window_id_marks_kitty_supported() {
         with_env(
             &[
                 ("TMUX", None),
+                ("KITTUI_TRANSPORT", None),
                 ("KITTY_WINDOW_ID", Some("1")),
                 ("KITTY_PUBLIC_KEY", None),
                 ("TERM_PROGRAM", None),
@@ -321,6 +349,7 @@ mod tests {
         with_env(
             &[
                 ("TMUX", None),
+                ("KITTUI_TRANSPORT", None),
                 ("KITTY_WINDOW_ID", None),
                 ("KITTY_PUBLIC_KEY", None),
                 ("TERM_PROGRAM", Some("ghostty")),
@@ -376,6 +405,7 @@ mod tests {
         with_env(
             &[
                 ("TMUX", None),
+                ("KITTUI_TRANSPORT", None),
                 ("KITTY_WINDOW_ID", None),
                 ("KITTY_PUBLIC_KEY", None),
                 ("TERM_PROGRAM", None),

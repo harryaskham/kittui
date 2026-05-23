@@ -262,6 +262,54 @@ pub fn upload_still_rgba_ex(
     )
 }
 
+/// Upload a raw RGBA frame through a file/shared-memory medium.
+///
+/// The caller owns creating the file or shared-memory object and writing exactly
+/// `width * height * 4` bytes into it. This emits kitty's `f=32` raw-frame
+/// grammar together with `t=f`, `t=t`, or `t=s`; direct byte payloads should use
+/// [`upload_still_rgba`] instead.
+pub fn upload_still_rgba_medium(
+    image_id: u32,
+    medium: UploadMedium<'_>,
+    width: u32,
+    height: u32,
+    quiet: Quiet,
+    transport: Transport,
+) -> String {
+    match medium {
+        UploadMedium::Direct { bytes } => {
+            upload_still_rgba_ex(image_id, bytes, width, height, quiet, transport)
+        }
+        UploadMedium::File { path } => single_payload_rgba(
+            image_id,
+            "f",
+            &base64::engine::general_purpose::STANDARD.encode(path_bytes(path)),
+            width,
+            height,
+            quiet,
+            transport,
+        ),
+        UploadMedium::TempFile { path } => single_payload_rgba(
+            image_id,
+            "t",
+            &base64::engine::general_purpose::STANDARD.encode(path_bytes(path)),
+            width,
+            height,
+            quiet,
+            transport,
+        ),
+        UploadMedium::SharedMemory { name } => single_payload_rgba(
+            image_id,
+            "s",
+            &base64::engine::general_purpose::STANDARD.encode(name.as_bytes()),
+            width,
+            height,
+            quiet,
+            transport,
+        ),
+    }
+}
+
 /// Upload a raw RGBA frame with an explicit compression mode.
 pub fn upload_still_rgba_compressed(
     image_id: u32,
@@ -760,6 +808,27 @@ fn single_payload(
     wrap_transport(payload, transport)
 }
 
+fn single_payload_rgba(
+    image_id: u32,
+    medium_field: &str,
+    base64_body: &str,
+    width: u32,
+    height: u32,
+    quiet: Quiet,
+    transport: Transport,
+) -> String {
+    let header = format!(
+        "a=t,f=32,s={width},v={height},t={medium},i={id}{q}",
+        width = width,
+        height = height,
+        medium = medium_field,
+        id = image_id,
+        q = quiet.field(),
+    );
+    let payload = format!("{ESC}_G{header};{base64_body}{ESC}\\");
+    wrap_transport(payload, transport)
+}
+
 fn encode_chunked(
     image_id: u32,
     verb: &str,
@@ -1003,6 +1072,40 @@ mod tests {
         );
         let expected_b64 = base64::engine::general_purpose::STANDARD.encode(b"/kittui-9");
         let want = format!("\x1b_Ga=t,f=100,t=s,i=9,q=2;{expected_b64}\x1b\\");
+        assert_eq!(escapes, want);
+    }
+
+    #[test]
+    fn upload_raw_rgba_via_temp_file_medium_sends_path_and_f32_shape() {
+        let path = Path::new("/tmp/kittui-raw-frame.rgba");
+        let escapes = upload_still_rgba_medium(
+            11,
+            UploadMedium::TempFile { path },
+            64,
+            32,
+            Quiet::SuppressAll,
+            Transport::Direct,
+        );
+        let expected_b64 =
+            base64::engine::general_purpose::STANDARD.encode(b"/tmp/kittui-raw-frame.rgba");
+        let want = format!("\x1b_Ga=t,f=32,s=64,v=32,t=t,i=11,q=2;{expected_b64}\x1b\\");
+        assert_eq!(escapes, want);
+    }
+
+    #[test]
+    fn upload_raw_rgba_via_shared_memory_medium_sends_name_and_f32_shape() {
+        let escapes = upload_still_rgba_medium(
+            12,
+            UploadMedium::SharedMemory {
+                name: "/kittui-raw-12",
+            },
+            8,
+            4,
+            Quiet::SuppressAll,
+            Transport::Direct,
+        );
+        let expected_b64 = base64::engine::general_purpose::STANDARD.encode(b"/kittui-raw-12");
+        let want = format!("\x1b_Ga=t,f=32,s=8,v=4,t=s,i=12,q=2;{expected_b64}\x1b\\");
         assert_eq!(escapes, want);
     }
 

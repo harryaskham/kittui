@@ -27,6 +27,7 @@ pub use kittui_core::{
 };
 
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 
@@ -250,9 +251,7 @@ impl Runtime {
             // terminals can reclaim graphics memory promptly.
             upload.push_str(&kitty::delete(image_id, transport));
         }
-        upload.push_str(&kitty::upload_still_rgba(
-            image_id, rgba, width, height, transport,
-        ));
+        upload.push_str(&self.raw_frame_upload(image_id, rgba, width, height));
         self.place_uploaded_image_with_upload(image_id, footprint, upload)
     }
 
@@ -262,6 +261,62 @@ impl Runtime {
     /// frames but still need to redraw or move the terminal placement.
     pub fn place_uploaded_image(&self, image_id: u32, footprint: CellRect) -> Placement {
         self.place_uploaded_image_with_upload(image_id, footprint, String::new())
+    }
+
+    fn raw_frame_upload(&self, image_id: u32, rgba: &[u8], width: u32, height: u32) -> String {
+        match self.terminal.transport {
+            Transport::File => self
+                .write_raw_frame_tempfile(image_id, rgba)
+                .map(|path| {
+                    kitty::upload_still_rgba_medium(
+                        image_id,
+                        kitty::UploadMedium::TempFile { path: &path },
+                        width,
+                        height,
+                        kitty::Quiet::SuppressAll,
+                        self.terminal.transport,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    kitty::upload_still_rgba(image_id, rgba, width, height, Transport::Direct)
+                }),
+            Transport::Memory => {
+                // Shared-memory allocation is platform-specific and lands behind
+                // the same grammar exposed by kittui-kitty. Until a safe allocator
+                // is available in this `unsafe_code`-forbidden crate, prefer the
+                // local tempfile transfer when possible and otherwise direct stream.
+                self.write_raw_frame_tempfile(image_id, rgba)
+                    .map(|path| {
+                        kitty::upload_still_rgba_medium(
+                            image_id,
+                            kitty::UploadMedium::TempFile { path: &path },
+                            width,
+                            height,
+                            kitty::Quiet::SuppressAll,
+                            Transport::File,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        kitty::upload_still_rgba(image_id, rgba, width, height, Transport::Direct)
+                    })
+            }
+            transport => kitty::upload_still_rgba(image_id, rgba, width, height, transport),
+        }
+    }
+
+    fn write_raw_frame_tempfile(&self, image_id: u32, rgba: &[u8]) -> Option<PathBuf> {
+        let mut path = std::env::temp_dir();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        path.push(format!(
+            "kittui-raw-{pid}-{image_id}-{now}.rgba",
+            pid = std::process::id(),
+        ));
+        std::fs::write(&path, rgba).ok()?;
+        Some(path)
     }
 
     fn place_uploaded_image_with_upload(
@@ -856,6 +911,40 @@ mod tests {
             second.upload
         );
         assert!(second.upload.contains("\x1b_Ga=t,f=32"));
+    }
+
+    #[test]
+    fn raw_frame_file_transport_uses_tempfile_medium() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .terminal(TerminalInfo::override_with(
+                Some(80),
+                Some(24),
+                CellSize::new(8, 16),
+                true,
+                true,
+                Transport::File,
+            ))
+            .build()
+            .unwrap();
+        let rgba = vec![0x7f; 2 * 2 * 4];
+        let placement = runtime.place_raw_frame(17, &rgba, 2, 2, CellRect::new(0, 0, 1, 1));
+        assert!(
+            placement
+                .upload
+                .starts_with("\x1b_Ga=t,f=32,s=2,v=2,t=t,i=17,q=2;"),
+            "raw frame file transport should use tempfile medium: {:?}",
+            placement.upload
+        );
+        let prefix = format!("kittui-raw-{}-17-", std::process::id());
+        if let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) {
+            for entry in entries.flatten() {
+                if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
     }
 
     #[test]
