@@ -23,6 +23,7 @@ Already present:
 
 - Native `kittwm` starts real PTY panes using `portable-pty`.
 - PTY output is parsed with `vte` into a custom `TerminalState` with screen cells, style, cursor, scrollback, alt screen, DEC modes, OSC title, OSC 52 forwarding, mouse/focus/bracketed-paste modes, and readback snapshots.
+- `TerminalSurface` now owns the reusable PTY terminal engine (PTY read/write, parsing, responses, snapshots, resize state, and RGBA rendering), while `PtyTerminalApp` keeps process lifecycle as a thin adapter.
 - `PtyTerminalApp` and `HeadlessBrowserApp` implement a small `NativeApp` shape: title, resize, send text/input, capture frame.
 - Xvfb/XQuartz/browser capture support exists in project crates, but is not yet unified as one public surface model.
 - Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, a JSON `EVENTS [ms]` status/pane/focus/layout stream, and machine-readable help.
@@ -33,7 +34,7 @@ Missing or immature:
 - No public `kittwm-sdk` crate/API.
 - No first-class `SurfaceHandle` object model.
 - The native event stream exists for status/pane/focus/layout changes, but resize/input/frame/clipboard/bell/title events are not yet promoted into a complete SDK event model.
-- Terminal engine is still embedded in `PtyTerminalApp`/native session rather than extracted as reusable `kittui-term`/`kittwm-terminal` infrastructure.
+- Terminal engine extraction has started with `TerminalSurface`, but it still lives inside `kittui-wm::native` rather than a standalone `kittui-term`/`kittwm-terminal` crate.
 - GUI capture backends are not expressed as the same capture/input/resize surface abstraction.
 - External apps cannot yet create child surfaces, composite them, and present a merged window.
 - Clipboard/bell/notification semantics are only partially modeled; OSC 52 set-clipboard forwarding exists, but policy and clipboard reads are not yet an SDK capability.
@@ -206,9 +207,9 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 ### Stage 2: extract terminal surface engine
 
-- Move `TerminalState`, PTY read/write, terminal responses, host sequences, snapshots, and RGBA rendering behind a reusable `TerminalSurface` type.
+- Continue hardening the new `TerminalSurface` boundary by moving it toward a standalone `kittui-term`/`kittwm-terminal` crate when the SDK shape is ready.
 - Keep `PtyTerminalApp` as an adapter to avoid behavior churn.
-- Add tests at the surface boundary.
+- Add direct tests at the surface boundary as it gains a public constructor independent of live PTY process spawning.
 
 ### Stage 3: define common surface trait/model
 

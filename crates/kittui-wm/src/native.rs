@@ -94,11 +94,14 @@ impl NativeFrame {
     }
 }
 
-/// A nested PTY terminal rendered into an RGBA frame.
-pub struct PtyTerminalApp {
-    title: String,
+/// Reusable terminal surface engine for a PTY-backed kittwm-native app.
+///
+/// `TerminalSurface` owns terminal parsing, PTY read/write, host responses,
+/// readback snapshots, resize state, and RGBA rendering. Higher-level window
+/// adapters such as [`PtyTerminalApp`] keep process lifecycle and policy while
+/// delegating terminal behavior here.
+pub struct TerminalSurface {
     master: Box<dyn MasterPty + Send>,
-    child: Box<dyn PtyChild + Send + Sync>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     state: Arc<Mutex<TerminalState>>,
     _reader: JoinHandle<()>,
@@ -106,52 +109,24 @@ pub struct PtyTerminalApp {
     cell_height: u32,
 }
 
-impl PtyTerminalApp {
-    /// Spawn a shell command in a real PTY.
-    pub fn spawn(command: &str, cols: u16, rows: u16) -> Result<Self> {
-        Self::spawn_with_env(command, cols, rows, std::iter::empty::<(&str, &str)>())
-    }
+/// A nested PTY terminal rendered into an RGBA frame.
+pub struct PtyTerminalApp {
+    title: String,
+    child: Box<dyn PtyChild + Send + Sync>,
+    surface: TerminalSurface,
+}
 
-    /// Spawn a shell command in a real PTY with extra environment variables.
-    pub fn spawn_with_env<'a, I, K, V>(command: &str, cols: u16, rows: u16, envs: I) -> Result<Self>
-    where
-        I: IntoIterator<Item = (K, V)>,
-        K: AsRef<std::ffi::OsStr> + 'a,
-        V: AsRef<std::ffi::OsStr> + 'a,
-    {
-        let pty_system = NativePtySystem::default();
-        let pair = pty_system
-            .openpty(PtySize {
-                rows,
-                cols,
-                pixel_width: cols.saturating_mul(8),
-                pixel_height: rows.saturating_mul(16),
-            })
-            .context("open PTY")?;
-        let shell = std::env::var("KITTWM_PTY_SHELL").unwrap_or_else(|_| {
-            std::env::var("SHELL").unwrap_or_else(|_| {
-                if std::path::Path::new("/bin/sh").exists() {
-                    "/bin/sh".to_string()
-                } else {
-                    "sh".to_string()
-                }
-            })
-        });
-        let mut builder = CommandBuilder::new(shell);
-        builder.arg("-lc");
-        builder.arg(command);
-        for (key, value) in envs {
-            builder.env(key, value);
-        }
-        let child = pair
-            .slave
-            .spawn_command(builder)
-            .context("spawn PTY child")?;
-        drop(pair.slave);
-        let mut reader = pair.master.try_clone_reader().context("clone PTY reader")?;
-        let writer = Arc::new(Mutex::new(
-            pair.master.take_writer().context("take PTY writer")?,
-        ));
+impl TerminalSurface {
+    /// Attach to an already-spawned PTY master and start parsing output.
+    pub fn from_master(
+        master: Box<dyn MasterPty + Send>,
+        cols: u16,
+        rows: u16,
+        cell_width: u32,
+        cell_height: u32,
+    ) -> Result<Self> {
+        let mut reader = master.try_clone_reader().context("clone PTY reader")?;
+        let writer = Arc::new(Mutex::new(master.take_writer().context("take PTY writer")?));
         let state = Arc::new(Mutex::new(TerminalState::new(cols, rows)));
         let reader_state = state.clone();
         let reader_writer = writer.clone();
@@ -177,14 +152,12 @@ impl PtyTerminalApp {
             }
         });
         Ok(Self {
-            title: command.to_string(),
-            master: pair.master,
-            child,
+            master,
             writer,
             state,
             _reader: join,
-            cell_width: 8,
-            cell_height: 16,
+            cell_width,
+            cell_height,
         })
     }
 
@@ -234,6 +207,142 @@ impl PtyTerminalApp {
         self.state.lock().mouse_modes
     }
 
+    /// Runtime title reported by the nested terminal, if any.
+    pub fn title(&self) -> Option<String> {
+        self.state.lock().title.clone()
+    }
+
+    /// Resize the terminal surface and backing PTY.
+    pub fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
+        self.master.resize(PtySize {
+            rows,
+            cols,
+            pixel_width: cols.saturating_mul(self.cell_width.min(u32::from(u16::MAX)) as u16),
+            pixel_height: rows.saturating_mul(self.cell_height.min(u32::from(u16::MAX)) as u16),
+        })?;
+        self.state.lock().resize(cols, rows);
+        Ok(())
+    }
+
+    /// Send UTF-8 text bytes to the terminal surface.
+    pub fn send_text(&mut self, text: &str) -> Result<()> {
+        self.send_bytes(text.as_bytes())
+    }
+
+    /// Send raw bytes to the PTY, preserving control sequences.
+    pub fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        let mut writer = self.writer.lock();
+        writer.write_all(bytes)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    /// Render the current terminal state as an RGBA frame.
+    pub fn capture(&mut self) -> Result<NativeFrame> {
+        let state = self.state.lock().clone();
+        Ok(NativeFrame::Rgba {
+            width: u32::from(state.cols) * self.cell_width,
+            height: u32::from(state.rows) * self.cell_height,
+            rgba: render_terminal_rgba(&state, self.cell_width, self.cell_height),
+        })
+    }
+}
+
+impl PtyTerminalApp {
+    /// Spawn a shell command in a real PTY.
+    pub fn spawn(command: &str, cols: u16, rows: u16) -> Result<Self> {
+        Self::spawn_with_env(command, cols, rows, std::iter::empty::<(&str, &str)>())
+    }
+
+    /// Spawn a shell command in a real PTY with extra environment variables.
+    pub fn spawn_with_env<'a, I, K, V>(command: &str, cols: u16, rows: u16, envs: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<std::ffi::OsStr> + 'a,
+        V: AsRef<std::ffi::OsStr> + 'a,
+    {
+        let pty_system = NativePtySystem::default();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: cols.saturating_mul(8),
+                pixel_height: rows.saturating_mul(16),
+            })
+            .context("open PTY")?;
+        let shell = std::env::var("KITTWM_PTY_SHELL").unwrap_or_else(|_| {
+            std::env::var("SHELL").unwrap_or_else(|_| {
+                if std::path::Path::new("/bin/sh").exists() {
+                    "/bin/sh".to_string()
+                } else {
+                    "sh".to_string()
+                }
+            })
+        });
+        let mut builder = CommandBuilder::new(shell);
+        builder.arg("-lc");
+        builder.arg(command);
+        for (key, value) in envs {
+            builder.env(key, value);
+        }
+        let child = pair
+            .slave
+            .spawn_command(builder)
+            .context("spawn PTY child")?;
+        drop(pair.slave);
+        let surface = TerminalSurface::from_master(pair.master, cols, rows, 8, 16)?;
+        Ok(Self {
+            title: command.to_string(),
+            child,
+            surface,
+        })
+    }
+
+    /// Return the terminal grid as plain text for assertions and accessibility.
+    pub fn text_snapshot(&self) -> String {
+        self.surface.text_snapshot()
+    }
+
+    /// Return lines that have scrolled off the terminal grid as plain text.
+    pub fn scrollback_snapshot(&self) -> String {
+        self.surface.scrollback_snapshot()
+    }
+
+    /// Drain host-terminal OSC/control sequences requested by the nested app.
+    pub fn take_host_sequences(&self) -> Vec<u8> {
+        self.surface.take_host_sequences()
+    }
+
+    /// Return the current zero-based cursor `(col, row)` in the terminal grid.
+    pub fn cursor_position(&self) -> (u16, u16) {
+        self.surface.cursor_position()
+    }
+
+    /// Whether the terminal cursor should be visible.
+    pub fn cursor_visible(&self) -> bool {
+        self.surface.cursor_visible()
+    }
+
+    /// Whether the terminal application has enabled bracketed paste mode.
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        self.surface.bracketed_paste_enabled()
+    }
+
+    /// Whether the terminal application has enabled focus in/out reporting.
+    pub fn focus_reporting_enabled(&self) -> bool {
+        self.surface.focus_reporting_enabled()
+    }
+
+    /// Whether the terminal application has enabled application cursor-key mode.
+    pub fn application_cursor_keys_enabled(&self) -> bool {
+        self.surface.application_cursor_keys_enabled()
+    }
+
+    /// Mouse reporting modes requested by the terminal application.
+    pub fn mouse_reporting_modes(&self) -> MouseReportingModes {
+        self.surface.mouse_reporting_modes()
+    }
+
     /// Return the PTY child process id when the backend exposes one.
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
@@ -252,47 +361,25 @@ impl PtyTerminalApp {
 
     /// Send raw bytes to the PTY, preserving control sequences.
     pub fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        let mut writer = self.writer.lock();
-        writer.write_all(bytes)?;
-        writer.flush()?;
-        Ok(())
+        self.surface.send_bytes(bytes)
     }
 }
 
 impl NativeApp for PtyTerminalApp {
     fn title(&self) -> String {
-        self.state
-            .lock()
-            .title
-            .clone()
-            .unwrap_or_else(|| self.title.clone())
+        self.surface.title().unwrap_or_else(|| self.title.clone())
     }
 
     fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
-        self.master.resize(PtySize {
-            rows,
-            cols,
-            pixel_width: cols.saturating_mul(self.cell_width.min(u32::from(u16::MAX)) as u16),
-            pixel_height: rows.saturating_mul(self.cell_height.min(u32::from(u16::MAX)) as u16),
-        })?;
-        self.state.lock().resize(cols, rows);
-        Ok(())
+        self.surface.resize(cols, rows)
     }
 
     fn send_text(&mut self, text: &str) -> Result<()> {
-        let mut writer = self.writer.lock();
-        writer.write_all(text.as_bytes())?;
-        writer.flush()?;
-        Ok(())
+        self.surface.send_text(text)
     }
 
     fn capture(&mut self) -> Result<NativeFrame> {
-        let state = self.state.lock().clone();
-        Ok(NativeFrame::Rgba {
-            width: u32::from(state.cols) * self.cell_width,
-            height: u32::from(state.rows) * self.cell_height,
-            rgba: render_terminal_rgba(&state, self.cell_width, self.cell_height),
-        })
+        self.surface.capture()
     }
 }
 
