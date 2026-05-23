@@ -47,7 +47,7 @@ pub fn display_to_socket_path(display: &str) -> PathBuf {
 }
 
 /// Metadata for a process spawned through the daemon protocol.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct TrackedPane {
     /// Monotonic pane id assigned by the daemon.
     pub pane_id: u32,
@@ -647,21 +647,16 @@ fn handle_request(
     } else {
         match cmd {
         "PING" => "PONG\n".to_string(),
-        "STATUS" => format!(
-            "pid={} uptime_s={} sock={} panes={} focus={}\n",
-            std::process::id(),
-            started.elapsed().as_secs(),
-            path.display(),
-            panes.lock().map(|p| p.panes.len()).unwrap_or(0),
-            panes.lock().ok().and_then(|p| p.focused).map(|id| id.to_string()).unwrap_or_else(|| "-".to_string())
-        ),
+        "STATUS" => daemon_status_reply(started, path, panes),
+        "STATUS_JSON" => daemon_status_json_reply(started, path, panes),
         "WINDOWS" => windows_reply(),
         "DISPLAYS" => displays_reply(),
         "APPS" => apps_reply(50),
         "APPS_JSON" => apps_json_reply(50),
         "PANES" => panes_reply(panes),
+        "PANES_JSON" => panes_json_reply(panes),
         "HELP" | "?" => {
-            "PING | STATUS | WINDOWS | DISPLAYS | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | SPAWN <argv> | PANES | QUIT | HELP\n".to_string()
+            "PING | STATUS | STATUS_JSON | WINDOWS | DISPLAYS | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | SPAWN <argv> | PANES | PANES_JSON | QUIT | HELP\n".to_string()
         }
         "QUIT" => {
             quit.store(true, Ordering::SeqCst);
@@ -733,6 +728,16 @@ mod tests {
         assert!(reply.contains("pid="), "{reply}");
         assert!(reply.contains("uptime_s="), "{reply}");
         assert!(reply.contains("sock="), "{reply}");
+
+        let value: serde_json::Value =
+            serde_json::from_str(&client_request(server.path(), "STATUS_JSON").unwrap()).unwrap();
+        assert_eq!(value["pid"], std::process::id());
+        assert_eq!(value["panes"], 0);
+        assert_eq!(value["focus"], "-");
+        assert!(value["sock"]
+            .as_str()
+            .unwrap()
+            .contains("kittwm-test-status"));
     }
 
     #[test]
@@ -762,6 +767,12 @@ mod tests {
         let panes = client_request_multi(server.path(), "PANES").unwrap();
         assert!(panes.contains("PANES 1"), "{panes}");
         assert!(panes.contains("pane=1 window=daemon-1"), "{panes}");
+        let panes_json: serde_json::Value =
+            serde_json::from_str(&client_request(server.path(), "PANES_JSON").unwrap()).unwrap();
+        assert_eq!(panes_json["panes"], 1);
+        assert_eq!(panes_json["focus"], "1");
+        assert_eq!(panes_json["panes_detail"][0]["window"], "daemon-1");
+        assert_eq!(panes_json["panes_detail"][0]["focused"], true);
         assert_eq!(server.panes().len(), 1);
     }
 
@@ -1002,6 +1013,37 @@ pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
     Ok(out)
 }
 
+fn daemon_status_reply(started: Instant, path: &Path, panes: &SharedPanes) -> String {
+    let snapshot = panes.lock().ok();
+    format!(
+        "pid={} uptime_s={} sock={} panes={} focus={}\n",
+        std::process::id(),
+        started.elapsed().as_secs(),
+        path.display(),
+        snapshot.as_ref().map(|p| p.panes.len()).unwrap_or(0),
+        snapshot
+            .and_then(|p| p.focused)
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    )
+}
+
+fn daemon_status_json_reply(started: Instant, path: &Path, panes: &SharedPanes) -> String {
+    let Ok(registry) = panes.lock() else {
+        return "{\"error\":\"PANES registry poisoned\"}\n".to_string();
+    };
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "pid": std::process::id(),
+            "uptime_s": started.elapsed().as_secs(),
+            "sock": path.display().to_string(),
+            "panes": registry.panes.len(),
+            "focus": registry.focused.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
+        })
+    )
+}
+
 fn panes_reply(panes: &SharedPanes) -> String {
     use std::fmt::Write;
     let Ok(registry) = panes.lock() else {
@@ -1026,6 +1068,20 @@ fn panes_reply(panes: &SharedPanes) -> String {
     }
     out.push_str("END\n");
     out
+}
+
+fn panes_json_reply(panes: &SharedPanes) -> String {
+    let Ok(registry) = panes.lock() else {
+        return "{\"error\":\"PANES registry poisoned\"}\n".to_string();
+    };
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "panes": registry.panes.len(),
+            "focus": registry.focused.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
+            "panes_detail": registry.panes,
+        })
+    )
 }
 
 fn spawn_reply(argv: &str, path: &Path, panes: &SharedPanes) -> String {

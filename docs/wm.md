@@ -24,6 +24,8 @@ kittwm replace htop
 # Socket/display style context. :7 maps to /tmp/kittui-wm-7.sock.
 KITTUI_WM_DISPLAY=:7 kittwm --serve
 KITTUI_WM_DISPLAY=:7 kittwm --status
+KITTUI_WM_DISPLAY=:7 kittwm --attach -c STATUS_JSON
+KITTUI_WM_DISPLAY=:7 kittwm --attach -c PANES_JSON
 
 # While a no-arg native kittwm session is running, inspect or create panes
 # through its inherited/display-style socket.
