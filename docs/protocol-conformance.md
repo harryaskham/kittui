@@ -20,7 +20,7 @@ from that crate's public API.
 
 | Spec section | Status | Notes |
 |---|---|---|
-| Transferring pixel data via the escape (`a=t,f=24/32/100`) | ✅ | PNG (`f=100`) uploads are covered by still/animation helpers; raw RGBA (`f=32`) is covered by the raw-frame path and exact grammar tests; raw RGB (`f=24`) direct uploads are covered by `upload_still_rgb(_ex/_compressed)`. Current renderer defaults still use PNG or RGBA. |
+| Transferring pixel data via the escape (`a=t,f=24/32/100`) | ✅ | PNG (`f=100`) uploads are covered by still/animation helpers; raw RGBA (`f=32`) is covered by the raw-frame path and exact grammar tests; raw RGB (`f=24`) uploads are covered by `upload_still_rgb(_ex/_compressed)` and `upload_still_rgb_medium`. Current renderer defaults still use PNG or RGBA. |
 | Local transmission (`t=d` direct base64) | ✅ | Default `UploadMedium::Direct`. Single chunked path covered by tests. |
 | Local transmission (`t=f` regular file) | ✅ | `UploadMedium::File { path }`; encoded path goes into the `t=f` field. |
 | Local transmission (`t=t` temp file) | ✅ | `UploadMedium::TempFile { path }`. |
@@ -39,7 +39,7 @@ from that crate's public API.
 | Reading responses from the terminal | ⛔ | `bd-3dc8c7` epic; implementation plan in [`kitty-response-probing.md`](kitty-response-probing.md). |
 | Querying terminal capabilities (`a=q`) | ⛔ | `bd-3dc8c7` epic; implementation plan in [`kitty-response-probing.md`](kitty-response-probing.md). |
 | tmux passthrough wrapping | ✅ | `Transport::TmuxPassthrough` wraps every payload in `\ePtmux;…\e\\` with escape doubling. Auto-selected by `TerminalInfo::detect()` when `$TMUX` is set. |
-| File / temp-file/shared-memory format hints (`f=100` PNG, `f=32` raw RGBA) | ✅ | PNG helpers use `f=100`; raw-frame file/temp/shared-memory paths use `f=32` and the kitty `t=f` / `t=t` / `t=s` grammar. |
+| File / temp-file/shared-memory format hints (`f=100` PNG, `f=24` raw RGB, `f=32` raw RGBA) | ✅ | PNG helpers use `f=100`; raw RGB/RGBA frame file/temp/shared-memory paths use `f=24`/`f=32` and the kitty `t=f` / `t=t` / `t=s` grammar. |
 
 ## Test coverage
 
@@ -59,10 +59,10 @@ from that crate's public API.
 
 The remaining gaps are tracked under the protocol epic `bd-3dc8c7`:
 
-- raw RGB (`f=24`) file/temp/shared-memory medium helpers only if callers need them beyond the landed direct RGB helper.
+- broader visual proof coverage for raw RGB/RGBA file/temp/shared-memory transports across terminals.
 - terminal response reading (`OK`, `ENOENT`, capability queries); see [`kitty-response-probing.md`](kitty-response-probing.md).
 - `a=q` capability probing into `TerminalInfo::detect()` / diagnostics; see [`kitty-response-probing.md`](kitty-response-probing.md).
-- broader visual proof coverage for file/temp/shared-memory raw-frame transports across terminals.
+- terminal response/probe diagnostics beyond opt-in doctor, if future render policy needs probe data.
 - ratakittui complete widget coverage example + decoration matrix
   (`bd-6ccb5e`).
 
@@ -70,13 +70,13 @@ The remaining gaps are tracked under the protocol epic `bd-3dc8c7`:
 
 The current hot paths use PNG (`f=100`) for compressed still/scene uploads and
 raw RGBA (`f=32`) for WM frame uploads where avoiding PNG encode cost matters.
-Raw RGB (`f=24`) direct helpers now exist for callers that already own a
-three-channel buffer (`upload_still_rgb`, `upload_still_rgb_ex`, and
-`upload_still_rgb_compressed`). kittui renderers and native WM captures still
-produce RGBA buffers and should not add a conversion pass just to drop alpha.
-File/temp/shared-memory RGB medium helpers can be added later if a concrete
-caller needs them; response reading and capability probing remain the higher
-priority protocol gaps.
+Raw RGB (`f=24`) helpers now exist for callers that already own a
+three-channel buffer (`upload_still_rgb`, `upload_still_rgb_ex`,
+`upload_still_rgb_compressed`, and `upload_still_rgb_medium`). kittui renderers
+and native WM captures still produce RGBA buffers and should not add a
+conversion pass just to drop alpha. Response/probe diagnostics beyond the
+opt-in doctor path and broader visual proof remain the higher priority protocol
+work.
 
 ## How to reproduce visually
 
