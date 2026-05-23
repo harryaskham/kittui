@@ -26,6 +26,7 @@ fn header_lists_only_exported_symbols() {
         "kittui_place_many_json_at",
         "kittui_place_many_json_channels",
         "kittui_render_json",
+        "kittui_render_many_json",
         "kittui_unplace",
         "kittui_probe_json",
         "kittui_last_error",
@@ -45,9 +46,9 @@ fn abi_version_constants_match_header() {
     let header =
         fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("kittui.h")).unwrap();
     assert!(header.contains("#define KITTUI_ABI_MAJOR 0"));
-    assert!(header.contains("#define KITTUI_ABI_MINOR 7"));
+    assert!(header.contains("#define KITTUI_ABI_MINOR 8"));
     assert_eq!(kittui_ffi::KITTUI_ABI_MAJOR, 0);
-    assert_eq!(kittui_ffi::KITTUI_ABI_MINOR, 7);
+    assert_eq!(kittui_ffi::KITTUI_ABI_MINOR, 8);
 }
 
 #[test]

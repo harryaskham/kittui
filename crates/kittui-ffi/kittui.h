@@ -23,7 +23,7 @@ extern "C" {
 #define KITTUI_ABI_MAJOR 0
 
 /* Minor ABI version. Bumped on additive changes. */
-#define KITTUI_ABI_MINOR 7
+#define KITTUI_ABI_MINOR 8
 
 /* Return value for every fallible entry point. */
 typedef enum KittuiStatus {
@@ -108,6 +108,11 @@ KittuiStatus kittui_render_json(KittuiRuntime* runtime,
                                 const char* scene_json,
                                 uint8_t** out_ptr,
                                 size_t* out_len);
+
+/* Render a JSON array of scenes and return a channelized JSON manifest. */
+KittuiStatus kittui_render_many_json(KittuiRuntime* runtime,
+                                     const char* scenes_json,
+                                     char** out);
 
 #ifdef __cplusplus
 }
