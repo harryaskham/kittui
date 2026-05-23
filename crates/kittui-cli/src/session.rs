@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 
 use kittui::{CellRect, Runtime};
-use kittui_input::{InputEvent, Key};
+use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::native::{MouseReportingModes, NativeApp, NativeFrame, PtyTerminalApp};
 use kittui_xvfb::XServer;
@@ -78,145 +78,58 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             if n == 0 {
                 break;
             }
-            for &byte in &chunk[..n] {
-                if byte == 0x1d {
-                    dbg.log("native terminal loop: Ctrl-] exit");
-                    return Ok(());
-                }
-                if prefix {
-                    prefix = false;
-                    match byte {
-                        b'%' | b'|' | b'v' | b'V' => {
-                            layout_axis = NativePaneLayoutAxis::Columns;
-                            if panes.len() < 8 {
-                                let id = next_native_pane_id(&panes);
-                                panes.push(spawn_native_pane(id, &cmd, &sock, 1, 1)?);
-                                let new_focus = panes.len() - 1;
-                                native_set_focus(&mut panes, &mut focused, new_focus)?;
-                                resize_native_panes_for_layout(
-                                    &mut panes,
-                                    cols,
-                                    rows,
-                                    layout_axis,
-                                )?;
-                                clear = true;
-                                dbg.log(&format!(
-                                    "native terminal split {:?}: panes={}",
-                                    layout_axis,
-                                    panes.len()
-                                ));
-                            }
-                        }
-                        b'-' | b'\"' | b'h' | b'H' => {
-                            layout_axis = NativePaneLayoutAxis::Rows;
-                            if panes.len() < 8 {
-                                let id = next_native_pane_id(&panes);
-                                panes.push(spawn_native_pane(id, &cmd, &sock, 1, 1)?);
-                                let new_focus = panes.len() - 1;
-                                native_set_focus(&mut panes, &mut focused, new_focus)?;
-                                resize_native_panes_for_layout(
-                                    &mut panes,
-                                    cols,
-                                    rows,
-                                    layout_axis,
-                                )?;
-                                clear = true;
-                                dbg.log(&format!(
-                                    "native terminal split {:?}: panes={}",
-                                    layout_axis,
-                                    panes.len()
-                                ));
-                            }
-                        }
-                        b'\t' | b'n' | b'N' => {
-                            let new_focus = next_native_focus(focused, panes.len());
-                            native_set_focus(&mut panes, &mut focused, new_focus)?;
-                            clear = true;
-                            dbg.log(&format!("native terminal focus: {}", panes[focused].window));
-                        }
-                        b'x' | b'X' => {
-                            if panes.len() > 1 {
-                                native_send_focus_event(&mut panes[focused], false)?;
-                                panes[focused].app.terminate()?;
-                                panes.remove(focused);
-                                focused = focus_after_remove(focused, focused, panes.len() + 1);
-                                native_send_focus_event(&mut panes[focused], true)?;
-                                resize_native_panes_for_layout(
-                                    &mut panes,
-                                    cols,
-                                    rows,
-                                    layout_axis,
-                                )?;
-                                clear = true;
-                                dbg.log(&format!("native terminal close: panes={}", panes.len()));
-                            }
-                        }
-                        b'+' | b'=' => {
-                            panes[focused].weight = native_adjust_weight(panes[focused].weight, 1);
-                            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
-                            clear = true;
-                            dbg.log(&format!(
-                                "native terminal resize grow: {} weight={}",
-                                panes[focused].window, panes[focused].weight
-                            ));
-                        }
-                        b'_' | b'<' => {
-                            panes[focused].weight = native_adjust_weight(panes[focused].weight, -1);
-                            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
-                            clear = true;
-                            dbg.log(&format!(
-                                "native terminal resize shrink: {} weight={}",
-                                panes[focused].window, panes[focused].weight
-                            ));
-                        }
-                        b'b' | b'B' => {
-                            balance_native_pane_weights(&mut panes);
-                            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
-                            clear = true;
-                            dbg.log("native terminal balance pane weights");
-                        }
-                        b'[' | b',' => {
-                            let to = native_move_target_index(focused, panes.len(), "left");
-                            if to != focused {
-                                let pane = panes.remove(focused);
-                                panes.insert(to, pane);
-                                focused = to;
-                                resize_native_panes_for_layout(
-                                    &mut panes,
-                                    cols,
-                                    rows,
-                                    layout_axis,
-                                )?;
-                                clear = true;
-                            }
-                            dbg.log(&format!("native terminal move previous -> {focused}"));
-                        }
-                        b']' | b'.' => {
-                            let to = native_move_target_index(focused, panes.len(), "right");
-                            if to != focused {
-                                let pane = panes.remove(focused);
-                                panes.insert(to, pane);
-                                focused = to;
-                                resize_native_panes_for_layout(
-                                    &mut panes,
-                                    cols,
-                                    rows,
-                                    layout_axis,
-                                )?;
-                                clear = true;
-                            }
-                            dbg.log(&format!("native terminal move next -> {focused}"));
-                        }
-                        0x01 => panes[focused].app.send_bytes(&[0x01])?,
-                        other => panes[focused].app.send_bytes(&[other])?,
+            let mut offset = 0usize;
+            while offset < n {
+                let remaining = &chunk[offset..n];
+                if let Some((event, consumed)) = kittui_input::parse(remaining) {
+                    if native_route_mouse_event(
+                        event,
+                        &mut panes,
+                        &mut focused,
+                        cols,
+                        rows,
+                        layout_axis,
+                        &mut clear,
+                    )? {
+                        offset += consumed;
+                        continue;
                     }
-                    continue;
+                    for &byte in &remaining[..consumed] {
+                        if process_native_terminal_byte(
+                            byte,
+                            &mut prefix,
+                            &mut panes,
+                            &mut focused,
+                            &mut layout_axis,
+                            &cmd,
+                            &sock,
+                            cols,
+                            rows,
+                            &mut clear,
+                            &dbg,
+                        )? {
+                            return Ok(());
+                        }
+                    }
+                    offset += consumed;
+                } else {
+                    if process_native_terminal_byte(
+                        remaining[0],
+                        &mut prefix,
+                        &mut panes,
+                        &mut focused,
+                        &mut layout_axis,
+                        &cmd,
+                        &sock,
+                        cols,
+                        rows,
+                        &mut clear,
+                        &dbg,
+                    )? {
+                        return Ok(());
+                    }
+                    offset += 1;
                 }
-                if byte == 0x01 {
-                    prefix = true;
-                    continue;
-                }
-                panes[focused].app.send_bytes(&[byte])?;
             }
         }
 
@@ -622,6 +535,177 @@ fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Re
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn process_native_terminal_byte(
+    byte: u8,
+    prefix: &mut bool,
+    panes: &mut Vec<NativePane>,
+    focused: &mut usize,
+    layout_axis: &mut NativePaneLayoutAxis,
+    cmd: &str,
+    sock: &str,
+    cols: u16,
+    rows: u16,
+    clear: &mut bool,
+    dbg: &Debugger,
+) -> Result<bool> {
+    if byte == 0x1d {
+        dbg.log("native terminal loop: Ctrl-] exit");
+        return Ok(true);
+    }
+    if *prefix {
+        *prefix = false;
+        match byte {
+            b'%' | b'|' | b'v' | b'V' => {
+                *layout_axis = NativePaneLayoutAxis::Columns;
+                native_split_focused(
+                    panes,
+                    focused,
+                    *layout_axis,
+                    cmd,
+                    sock,
+                    cols,
+                    rows,
+                    clear,
+                    dbg,
+                )?;
+            }
+            b'-' | b'\"' | b'h' | b'H' => {
+                *layout_axis = NativePaneLayoutAxis::Rows;
+                native_split_focused(
+                    panes,
+                    focused,
+                    *layout_axis,
+                    cmd,
+                    sock,
+                    cols,
+                    rows,
+                    clear,
+                    dbg,
+                )?;
+            }
+            b'\t' | b'n' | b'N' => {
+                let new_focus = next_native_focus(*focused, panes.len());
+                native_set_focus(panes, focused, new_focus)?;
+                *clear = true;
+                dbg.log(&format!(
+                    "native terminal focus: {}",
+                    panes[*focused].window
+                ));
+            }
+            b'x' | b'X' => {
+                if panes.len() > 1 {
+                    native_send_focus_event(&mut panes[*focused], false)?;
+                    panes[*focused].app.terminate()?;
+                    panes.remove(*focused);
+                    *focused = focus_after_remove(*focused, *focused, panes.len() + 1);
+                    native_send_focus_event(&mut panes[*focused], true)?;
+                    resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                    *clear = true;
+                    dbg.log(&format!("native terminal close: panes={}", panes.len()));
+                }
+            }
+            b'+' | b'=' => {
+                panes[*focused].weight = native_adjust_weight(panes[*focused].weight, 1);
+                resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                *clear = true;
+                dbg.log(&format!(
+                    "native terminal resize grow: {} weight={}",
+                    panes[*focused].window, panes[*focused].weight
+                ));
+            }
+            b'_' | b'<' => {
+                panes[*focused].weight = native_adjust_weight(panes[*focused].weight, -1);
+                resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                *clear = true;
+                dbg.log(&format!(
+                    "native terminal resize shrink: {} weight={}",
+                    panes[*focused].window, panes[*focused].weight
+                ));
+            }
+            b'b' | b'B' => {
+                balance_native_pane_weights(panes);
+                resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                *clear = true;
+                dbg.log("native terminal balance pane weights");
+            }
+            b'[' | b',' => {
+                native_move_focused(panes, focused, *layout_axis, cols, rows, "left", clear, dbg)?
+            }
+            b']' | b'.' => native_move_focused(
+                panes,
+                focused,
+                *layout_axis,
+                cols,
+                rows,
+                "right",
+                clear,
+                dbg,
+            )?,
+            0x01 => panes[*focused].app.send_bytes(&[0x01])?,
+            other => panes[*focused].app.send_bytes(&[other])?,
+        }
+        return Ok(false);
+    }
+    if byte == 0x01 {
+        *prefix = true;
+        return Ok(false);
+    }
+    panes[*focused].app.send_bytes(&[byte])?;
+    Ok(false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn native_split_focused(
+    panes: &mut Vec<NativePane>,
+    focused: &mut usize,
+    axis: NativePaneLayoutAxis,
+    cmd: &str,
+    sock: &str,
+    cols: u16,
+    rows: u16,
+    clear: &mut bool,
+    dbg: &Debugger,
+) -> Result<()> {
+    if panes.len() < 8 {
+        let id = next_native_pane_id(panes);
+        panes.push(spawn_native_pane(id, cmd, sock, 1, 1)?);
+        let new_focus = panes.len() - 1;
+        native_set_focus(panes, focused, new_focus)?;
+        resize_native_panes_for_layout(panes, cols, rows, axis)?;
+        *clear = true;
+        dbg.log(&format!(
+            "native terminal split {:?}: panes={}",
+            axis,
+            panes.len()
+        ));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn native_move_focused(
+    panes: &mut Vec<NativePane>,
+    focused: &mut usize,
+    axis: NativePaneLayoutAxis,
+    cols: u16,
+    rows: u16,
+    direction: &str,
+    clear: &mut bool,
+    dbg: &Debugger,
+) -> Result<()> {
+    let to = native_move_target_index(*focused, panes.len(), direction);
+    if to != *focused {
+        let pane = panes.remove(*focused);
+        panes.insert(to, pane);
+        *focused = to;
+        resize_native_panes_for_layout(panes, cols, rows, axis)?;
+        *clear = true;
+    }
+    dbg.log(&format!("native terminal move {direction} -> {focused}"));
+    Ok(())
+}
+
 #[cfg(test)]
 fn native_pane_layouts(
     cols: u16,
@@ -787,6 +871,74 @@ fn native_paste_payload(bytes: &[u8], bracketed_paste: bool) -> Vec<u8> {
     wrapped.extend_from_slice(bytes);
     wrapped.extend_from_slice(b"\x1b[201~");
     wrapped
+}
+
+fn native_route_mouse_event(
+    event: InputEvent,
+    panes: &mut [NativePane],
+    focused: &mut usize,
+    cols: u16,
+    rows: u16,
+    axis: NativePaneLayoutAxis,
+    clear: &mut bool,
+) -> Result<bool> {
+    let Some((event_name, col, row, should_focus)) = native_mouse_event_name_and_position(&event)
+    else {
+        return Ok(false);
+    };
+    let layouts = native_layouts_for_panes(cols, rows, panes, axis);
+    let Some((idx, local_col, local_row)) = native_pane_at_host_cell(&layouts, col, row) else {
+        return Ok(true);
+    };
+    if should_focus {
+        native_set_focus(panes, focused, idx)?;
+        *clear = true;
+    }
+    let modes = panes[idx].app.mouse_reporting_modes();
+    if let Some(payload) = native_mouse_event_payload(event_name, local_col, local_row, modes) {
+        panes[idx].app.send_bytes(&payload)?;
+    }
+    Ok(true)
+}
+
+fn native_mouse_event_name_and_position(
+    event: &InputEvent,
+) -> Option<(&'static str, u16, u16, bool)> {
+    match event {
+        InputEvent::MousePress {
+            button, col, row, ..
+        } => match button {
+            MouseButton::Left => Some(("press-left", *col, *row, true)),
+            MouseButton::Middle => Some(("press-middle", *col, *row, true)),
+            MouseButton::Right => Some(("press-right", *col, *row, true)),
+            MouseButton::ScrollUp => Some(("scroll-up", *col, *row, true)),
+            MouseButton::ScrollDown => Some(("scroll-down", *col, *row, true)),
+            _ => None,
+        },
+        InputEvent::MouseRelease { col, row, .. } => Some(("release", *col, *row, false)),
+        InputEvent::MouseMove { col, row, .. } => Some(("move", *col, *row, false)),
+        _ => None,
+    }
+}
+
+fn native_pane_at_host_cell(
+    layouts: &[NativePaneLayout],
+    host_col: u16,
+    host_row: u16,
+) -> Option<(usize, u16, u16)> {
+    let col0 = host_col.checked_sub(1)?;
+    let row0 = host_row.checked_sub(1)?;
+    layouts.iter().enumerate().find_map(|(idx, layout)| {
+        let within_cols =
+            col0 >= layout.app_x && col0 < layout.app_x.saturating_add(layout.app_cols);
+        let within_rows =
+            row0 >= layout.app_y && row0 < layout.app_y.saturating_add(layout.app_rows);
+        if within_cols && within_rows {
+            Some((idx, col0 - layout.app_x + 1, row0 - layout.app_y + 1))
+        } else {
+            None
+        }
+    })
 }
 
 fn native_mouse_event_payload(
@@ -984,6 +1136,35 @@ mod native_pane_tests {
             native_paste_payload(b"a\nb", true),
             b"\x1b[200~a\nb\x1b[201~".to_vec()
         );
+    }
+
+    #[test]
+    fn native_pane_at_host_cell_translates_to_local_coordinates() {
+        let layouts = vec![
+            NativePaneLayout {
+                x: 0,
+                y: 0,
+                cols: 20,
+                app_x: 0,
+                app_y: 1,
+                app_cols: 20,
+                app_rows: 9,
+            },
+            NativePaneLayout {
+                x: 20,
+                y: 0,
+                cols: 20,
+                app_x: 20,
+                app_y: 1,
+                app_cols: 20,
+                app_rows: 9,
+            },
+        ];
+        assert_eq!(native_pane_at_host_cell(&layouts, 1, 1), None);
+        assert_eq!(native_pane_at_host_cell(&layouts, 1, 2), Some((0, 1, 1)));
+        assert_eq!(native_pane_at_host_cell(&layouts, 21, 2), Some((1, 1, 1)));
+        assert_eq!(native_pane_at_host_cell(&layouts, 40, 10), Some((1, 20, 9)));
+        assert_eq!(native_pane_at_host_cell(&layouts, 41, 10), None);
     }
 
     #[test]
