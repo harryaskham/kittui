@@ -553,6 +553,23 @@ impl CompositeFrameSurface {
         }
     }
 
+    /// Capture a child native surface and append its RGBA frame.
+    ///
+    /// The captured frame is returned so callers can inspect metadata or retain
+    /// it for diagnostics. PNG captures are returned only through the error path
+    /// from [`push_surface_frame`](Self::push_surface_frame); callers should
+    /// decode them explicitly before composing.
+    pub fn push_surface_capture<S: NativeSurface + ?Sized>(
+        &mut self,
+        x: u32,
+        y: u32,
+        surface: &mut S,
+    ) -> Result<SurfaceFrame> {
+        let frame = surface.capture_surface()?;
+        self.push_surface_frame(x, y, &frame)?;
+        Ok(frame)
+    }
+
     /// Remove all children while preserving the canvas metadata.
     pub fn clear_children(&mut self) {
         self.children.clear();
@@ -3915,6 +3932,48 @@ mod tests {
             }
             other => panic!("expected RGBA frame, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn composite_frame_surface_captures_rgba_child_surfaces() {
+        let mut child =
+            RgbaFrameSurface::new("rgba:child", "child", 1, 1, vec![0x90, 0x80, 0x70, 0xff])
+                .unwrap();
+        let mut surface = CompositeFrameSurface::new("composite:capture", "capture", 2, 1).unwrap();
+        let captured = surface.push_surface_capture(1, 0, &mut child).unwrap();
+        assert_eq!(captured.metadata.id.as_str(), "rgba:child");
+        assert_eq!(surface.children().len(), 1);
+        let frame = NativeSurface::capture_surface(&mut surface).unwrap();
+        match frame.frame {
+            NativeFrame::Rgba { rgba, .. } => {
+                assert_eq!(&rgba[0..4], &[0, 0, 0, 0]);
+                assert_eq!(&rgba[4..8], &[0x90, 0x80, 0x70, 0xff]);
+            }
+            other => panic!("expected RGBA frame, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn composite_frame_surface_rejects_png_child_surface_captures() {
+        let footprint = kittui::CellRect::new(0, 0, 1, 1);
+        let cell_size = kittui::CellSize::new(1, 1);
+        let scene = kittui::scene::scene(
+            footprint,
+            cell_size,
+            vec![kittui::scene::background_solid(
+                footprint,
+                cell_size,
+                kittui::Rgba::rgb(0, 0, 0),
+            )],
+        );
+        let mut child = KittuiSceneSurface::new("scene:child", "scene", scene);
+        let mut surface = CompositeFrameSurface::new("composite:capture", "capture", 2, 1).unwrap();
+        let err = surface.push_surface_capture(0, 0, &mut child).unwrap_err();
+        assert!(
+            err.to_string().contains("PNG input must be decoded"),
+            "{err}"
+        );
+        assert!(surface.children().is_empty());
     }
 
     #[test]
