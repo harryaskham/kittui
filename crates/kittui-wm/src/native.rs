@@ -393,6 +393,103 @@ impl NativeSurface for KittuiSceneSurface {
     }
 }
 
+/// Capture-only adapter for caller-provided RGBA frame streams.
+///
+/// This is a small bridge for renderers/compositors that already have raw RGBA
+/// pixels and need to participate in the same native surface metadata/capture
+/// path as PTY, browser, X/Quartz, and kittui scene surfaces.
+pub struct RgbaFrameSurface {
+    id: SurfaceId,
+    title: String,
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
+
+impl RgbaFrameSurface {
+    /// Create a new RGBA frame surface, validating dimensions and payload size.
+    pub fn new(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) -> Result<Self> {
+        validate_rgba_frame(width, height, rgba.len())?;
+        Ok(Self {
+            id: SurfaceId::new(id),
+            title: title.into(),
+            width,
+            height,
+            rgba,
+        })
+    }
+
+    /// Replace the current RGBA frame, validating dimensions and payload size.
+    pub fn update_frame(&mut self, width: u32, height: u32, rgba: Vec<u8>) -> Result<()> {
+        validate_rgba_frame(width, height, rgba.len())?;
+        self.width = width;
+        self.height = height;
+        self.rgba = rgba;
+        Ok(())
+    }
+
+    /// Return the current frame dimensions in pixels.
+    pub fn frame_size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+}
+
+impl NativeSurface for RgbaFrameSurface {
+    fn metadata(&self) -> SurfaceMetadata {
+        SurfaceMetadata {
+            id: self.id.clone(),
+            kind: SurfaceKind::Composite,
+            title: self.title.clone(),
+            capabilities: SurfaceCapabilities::capture_only(),
+            frame_size: Some(self.frame_size()),
+        }
+    }
+
+    fn resize_surface(&mut self, _cols: u16, _rows: u16) -> Result<()> {
+        Err(anyhow!(
+            "rgba frame surfaces are sized by their producer; update the frame instead"
+        ))
+    }
+
+    fn send_surface_text(&mut self, _text: &str) -> Result<()> {
+        Err(anyhow!("rgba frame surfaces do not accept text input"))
+    }
+
+    fn capture_surface(&mut self) -> Result<SurfaceFrame> {
+        Ok(SurfaceFrame {
+            metadata: self.metadata(),
+            frame: NativeFrame::Rgba {
+                width: self.width,
+                height: self.height,
+                rgba: self.rgba.clone(),
+            },
+        })
+    }
+}
+
+fn validate_rgba_frame(width: u32, height: u32, len: usize) -> Result<()> {
+    if width == 0 || height == 0 {
+        return Err(anyhow!("rgba frame dimensions must be non-zero"));
+    }
+    let expected = usize::try_from(width)
+        .ok()
+        .and_then(|w| usize::try_from(height).ok().and_then(|h| w.checked_mul(h)))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| anyhow!("rgba frame dimensions overflow"))?;
+    if len != expected {
+        return Err(anyhow!(
+            "rgba frame payload length {len} does not match {width}x{height}x4 ({expected})"
+        ));
+    }
+    Ok(())
+}
+
 impl NativeSurface for XWindowSurface {
     fn metadata(&self) -> SurfaceMetadata {
         let window = self.current_window();
@@ -3470,6 +3567,51 @@ mod tests {
             }
             other => panic!("expected PNG frame, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rgba_frame_surface_validates_updates_and_captures() {
+        let mut surface = RgbaFrameSurface::new(
+            "rgba:1",
+            "composited frame",
+            2,
+            1,
+            vec![0x11, 0x22, 0x33, 0xff, 0x44, 0x55, 0x66, 0xff],
+        )
+        .unwrap();
+        let metadata = NativeSurface::metadata(&surface);
+        assert_eq!(metadata.id.as_str(), "rgba:1");
+        assert_eq!(metadata.kind, SurfaceKind::Composite);
+        assert_eq!(metadata.title, "composited frame");
+        assert!(metadata.capabilities.capture);
+        assert!(!metadata.capabilities.input);
+        assert!(!metadata.capabilities.resize);
+        assert_eq!(metadata.frame_size, Some((2, 1)));
+        assert!(NativeSurface::resize_surface(&mut surface, 4, 4).is_err());
+        assert!(NativeSurface::send_surface_text(&mut surface, "ignored").is_err());
+
+        surface
+            .update_frame(1, 2, vec![0xaa, 0xbb, 0xcc, 0xff, 0x01, 0x02, 0x03, 0xff])
+            .unwrap();
+        assert_eq!(surface.frame_size(), (1, 2));
+        let frame = NativeSurface::capture_surface(&mut surface).unwrap();
+        assert_eq!(frame.metadata.frame_size, Some((1, 2)));
+        assert!(matches!(
+            frame.frame,
+            NativeFrame::Rgba {
+                width: 1,
+                height: 2,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rgba_frame_surface_rejects_invalid_payloads() {
+        assert!(RgbaFrameSurface::new("bad", "bad", 0, 1, vec![]).is_err());
+        assert!(RgbaFrameSurface::new("bad", "bad", 2, 2, vec![0; 15]).is_err());
+        let mut surface = RgbaFrameSurface::new("ok", "ok", 1, 1, vec![0; 4]).unwrap();
+        assert!(surface.update_frame(1, 2, vec![0; 4]).is_err());
     }
 
     #[test]
