@@ -472,6 +472,31 @@ pub mod compositor {
             self.modes.lock().insert(id, mode);
         }
 
+        /// Return the tracked mode for `id`, defaulting to floating.
+        pub fn mode_of(&self, id: XWindowId) -> WindowMode {
+            self.modes
+                .lock()
+                .get(&id)
+                .copied()
+                .unwrap_or(WindowMode::Floating)
+        }
+
+        /// Toggle the focused-or-first backend window between floating and tiled.
+        pub fn toggle_focused_mode(
+            &self,
+        ) -> Result<Option<(XWindowId, WindowMode)>, kittui_xvfb::XError> {
+            let Some(id) = self.focused_or_first_window()? else {
+                return Ok(None);
+            };
+            self.set_focused(id);
+            let next = match self.mode_of(id) {
+                WindowMode::Floating => WindowMode::Tiled,
+                WindowMode::Tiled => WindowMode::Floating,
+            };
+            self.set_mode(id, next);
+            Ok(Some((id, next)))
+        }
+
         /// Set the focused backend window for chrome and key routing.
         pub fn set_focused(&self, id: XWindowId) {
             *self.focused.lock() = Some(id);
@@ -480,6 +505,15 @@ pub mod compositor {
         /// Return the focused backend window, if any.
         pub fn focused_window(&self) -> Option<XWindowId> {
             *self.focused.lock()
+        }
+
+        /// Return the focused window if it still exists, otherwise the first known window.
+        pub fn focused_or_first_window(&self) -> Result<Option<XWindowId>, kittui_xvfb::XError> {
+            let windows = self.server.windows()?;
+            Ok(match self.focused_window() {
+                Some(id) if windows.iter().any(|w| w.id == id) => Some(id),
+                _ => windows.first().map(|w| w.id),
+            })
         }
 
         /// Focus the next known backend window, wrapping at the end.
@@ -526,10 +560,7 @@ pub mod compositor {
         pub fn raw_frames(&self, layout: &Layout) -> Result<Vec<RawFrame>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
             let modes = self.modes.lock().clone();
-            let focused_window = match self.focused_window() {
-                Some(id) if windows.iter().any(|w| w.id == id) => Some(id),
-                _ => windows.first().map(|w| w.id),
-            };
+            let focused_window = self.focused_or_first_window()?;
             let mut placements_snapshot = HashMap::new();
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
@@ -581,6 +612,7 @@ pub mod compositor {
         ) -> Result<Vec<Scene>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
             let modes = self.modes.lock().clone();
+            let focused_window = self.focused_or_first_window()?;
             let mut placements_snapshot = HashMap::new();
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
@@ -619,7 +651,7 @@ pub mod compositor {
                     fit: kittui_core::node::Fit::Stretch,
                     tint: None,
                 })];
-                let focused = self.focused_window().unwrap_or(w.id) == w.id;
+                let focused = focused_window == Some(w.id);
                 let title = format!("x11:{}", w.id.0);
                 layers.extend(WindowChromeTheme::default().layers(
                     rect,
@@ -1018,6 +1050,54 @@ pub mod compositor {
             );
             assert_eq!(comp.focus_next().unwrap(), Some(XWindowId(1)));
             assert_eq!(comp.focus_prev().unwrap(), Some(XWindowId(2)));
+        }
+
+        #[test]
+        fn toggle_focused_mode_changes_compositor_mode() {
+            let comp = Compositor::new(server(), CellSize::new(8, 16));
+            assert_eq!(comp.mode_of(XWindowId(1)), WindowMode::Floating);
+            assert_eq!(
+                comp.toggle_focused_mode().unwrap(),
+                Some((XWindowId(1), WindowMode::Tiled))
+            );
+            assert_eq!(comp.focused_window(), Some(XWindowId(1)));
+            assert_eq!(comp.mode_of(XWindowId(1)), WindowMode::Tiled);
+            assert_eq!(
+                comp.toggle_focused_mode().unwrap(),
+                Some((XWindowId(1), WindowMode::Floating))
+            );
+            assert_eq!(comp.mode_of(XWindowId(1)), WindowMode::Floating);
+        }
+
+        #[test]
+        fn compose_defaults_to_one_focused_window() {
+            let comp = Compositor::new(server(), CellSize::new(8, 16));
+            let scenes = comp.compose_with_layout(&Layout::all_floating()).unwrap();
+            let chrome_widths = scenes
+                .iter()
+                .flat_map(|scene| scene.layers.iter())
+                .filter(|layer| {
+                    layer
+                        .label
+                        .as_deref()
+                        .is_some_and(|label| label.starts_with("wm-chrome:"))
+                })
+                .filter_map(|layer| match &layer.root {
+                    Node::Rect {
+                        stroke: Some(stroke),
+                        ..
+                    } => Some(stroke.width_px),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                chrome_widths.iter().filter(|width| **width == 2.0).count(),
+                1
+            );
+            assert_eq!(
+                chrome_widths.iter().filter(|width| **width == 1.0).count(),
+                1
+            );
         }
 
         #[test]

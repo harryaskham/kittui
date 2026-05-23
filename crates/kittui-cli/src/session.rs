@@ -1003,7 +1003,25 @@ pub fn run_loop_with<S: XServer>(
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("swap action: {msg}"));
                                 }
-                                Action::FullscreenToggle | Action::FloatToggle => {
+                                Action::FloatToggle => {
+                                    let msg = toggle_state.apply(&action);
+                                    let msg = match compositor.toggle_focused_mode() {
+                                        Ok(Some((id, mode))) => {
+                                            let mode = match mode {
+                                                kittui_wm::compositor::WindowMode::Floating => {
+                                                    "floating"
+                                                }
+                                                kittui_wm::compositor::WindowMode::Tiled => "tiled",
+                                            };
+                                            format!("{msg} window={} mode={mode}", id.0)
+                                        }
+                                        Ok(None) => format!("{msg} window=-"),
+                                        Err(e) => format!("{msg} error={e}"),
+                                    };
+                                    last_keymap_action = Some(msg.clone());
+                                    dbg.log(&format!("toggle action: {msg}"));
+                                }
+                                Action::FullscreenToggle => {
                                     let msg = toggle_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("toggle action: {msg}"));
