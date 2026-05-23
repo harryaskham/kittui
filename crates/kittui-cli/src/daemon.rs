@@ -98,6 +98,7 @@ pub struct NativePaneStatus {
     pub window: String,
     pub title: String,
     pub focused: bool,
+    pub weight: u16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,6 +110,7 @@ pub enum NativePaneCommand {
     Close(String),
     Layout(String),
     Move { window: String, direction: String },
+    Resize { window: String, delta: i16 },
     Rename { window: String, title: String },
 }
 
@@ -309,6 +311,40 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
             "MOVE_QUEUED",
         );
     }
+    if let Some(rest) = cmd.strip_prefix("RESIZE_PANE ") {
+        let Some((window, amount)) = rest.trim().split_once(' ') else {
+            return "ERR RESIZE_PANE requires window and amount\n".to_string();
+        };
+        let window = window.trim();
+        let amount = amount.trim().to_ascii_lowercase();
+        let delta = match amount.as_str() {
+            "grow" | "+" => 1,
+            "shrink" | "-" => -1,
+            other => match other.parse::<i16>() {
+                Ok(n) if n != 0 => n,
+                _ => {
+                    return "ERR RESIZE_PANE expects <window|focused> <grow|shrink|+N|-N>\n"
+                        .to_string()
+                }
+            },
+        };
+        if window.is_empty() {
+            return "ERR RESIZE_PANE requires window and amount\n".to_string();
+        }
+        return queue_native_pane_command(
+            pending,
+            &format!("{window}\t{delta}"),
+            "RESIZE_PANE requires window and amount",
+            |arg| {
+                let (window, delta) = arg.split_once('\t').unwrap_or((&arg, "0"));
+                NativePaneCommand::Resize {
+                    window: window.to_string(),
+                    delta: delta.parse().unwrap_or(0),
+                }
+            },
+            "RESIZE_QUEUED",
+        );
+    }
     if let Some(rest) = cmd.strip_prefix("RENAME_PANE ") {
         let Some((window, title)) = rest.trim().split_once(' ') else {
             return "ERR RENAME_PANE requires window and title\n".to_string();
@@ -342,7 +378,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -388,6 +424,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "MOVE_PANE <window|focused> <left|right|up|down|first|last>",
             "control",
             "move a native pane within the layout order",
+        ),
+        (
+            "RESIZE_PANE <window|focused> <grow|shrink|+N|-N>",
+            "control",
+            "adjust a native pane layout weight",
         ),
         (
             "RENAME_PANE <window> <title>",
@@ -527,8 +568,8 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} title={:?}",
-            pane.window, pane.focused, pane.title
+            "  window={} focused={} weight={} title={:?}",
+            pane.window, pane.focused, pane.weight, pane.title
         );
     }
     out.push_str("END\n");
@@ -920,6 +961,8 @@ mod tests {
         assert!(
             native_spawn_queue_reply("MOVE_PANE focused last", &pending).starts_with("MOVE_QUEUED")
         );
+        assert!(native_spawn_queue_reply("RESIZE_PANE focused +2", &pending)
+            .starts_with("RESIZE_QUEUED"));
         assert!(
             native_spawn_queue_reply("RENAME_PANE native-2 editor pane", &pending)
                 .starts_with("RENAME_QUEUED")
@@ -927,6 +970,7 @@ mod tests {
         assert!(native_spawn_queue_reply("LAYOUT diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("FOCUS_PANE", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("MOVE_PANE focused diagonal", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("RESIZE_PANE focused nope", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RENAME_PANE native-2", &pending).contains("ERR"));
         assert_eq!(
             drain_native_spawn_pending(&pending),
@@ -939,6 +983,10 @@ mod tests {
                 NativePaneCommand::Move {
                     window: "focused".to_string(),
                     direction: "last".to_string(),
+                },
+                NativePaneCommand::Resize {
+                    window: "focused".to_string(),
+                    delta: 2,
                 },
                 NativePaneCommand::Rename {
                     window: "native-2".to_string(),
@@ -959,6 +1007,7 @@ mod tests {
         assert!(help.contains("FOCUS_PREV"), "{help}");
         assert!(help.contains("LAYOUT <columns|rows>"), "{help}");
         assert!(help.contains("MOVE_PANE <window|focused>"), "{help}");
+        assert!(help.contains("RESIZE_PANE <window|focused>"), "{help}");
         assert!(help.contains("RENAME_PANE <window> <title>"), "{help}");
         assert!(help.contains("APPS_JSON"), "{help}");
 
@@ -1001,11 +1050,13 @@ mod tests {
                 window: "native-1".to_string(),
                 title: "shell".to_string(),
                 focused: false,
+                weight: 1,
             },
             NativePaneStatus {
                 window: "native-2".to_string(),
                 title: "htop".to_string(),
                 focused: true,
+                weight: 3,
             },
         ];
         pending.lock().unwrap().layout = Some("rows".to_string());
@@ -1016,11 +1067,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 title=\"htop\""),
             "{panes}"
         );
         let status_json: serde_json::Value =
@@ -1034,6 +1085,7 @@ mod tests {
         assert_eq!(panes_json["panes_detail"].as_array().unwrap().len(), 2);
         assert_eq!(panes_json["panes_detail"][1]["window"], "native-2");
         assert_eq!(panes_json["panes_detail"][1]["focused"], true);
+        assert_eq!(panes_json["panes_detail"][1]["weight"], 3);
     }
 
     #[test]

@@ -55,11 +55,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     )?];
     let mut focused = 0usize;
     let mut layout_axis = NativePaneLayoutAxis::Columns;
-    let pane_count = panes.len();
-    resize_native_panes(
-        &mut panes,
-        native_pane_layouts(cols, rows, pane_count, layout_axis),
-    )?;
+    resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
     queue.update_panes(native_pane_statuses(&panes, focused));
     queue.update_layout(layout_axis.label());
 
@@ -95,10 +91,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 let id = next_native_pane_id(&panes);
                                 panes.push(spawn_native_pane(id, &cmd, &sock, 1, 1)?);
                                 focused = panes.len() - 1;
-                                let pane_count = panes.len();
-                                resize_native_panes(
+                                resize_native_panes_for_layout(
                                     &mut panes,
-                                    native_pane_layouts(cols, rows, pane_count, layout_axis),
+                                    cols,
+                                    rows,
+                                    layout_axis,
                                 )?;
                                 clear = true;
                                 dbg.log(&format!(
@@ -114,10 +111,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 let id = next_native_pane_id(&panes);
                                 panes.push(spawn_native_pane(id, &cmd, &sock, 1, 1)?);
                                 focused = panes.len() - 1;
-                                let pane_count = panes.len();
-                                resize_native_panes(
+                                resize_native_panes_for_layout(
                                     &mut panes,
-                                    native_pane_layouts(cols, rows, pane_count, layout_axis),
+                                    cols,
+                                    rows,
+                                    layout_axis,
                                 )?;
                                 clear = true;
                                 dbg.log(&format!(
@@ -137,10 +135,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 panes[focused].app.terminate()?;
                                 panes.remove(focused);
                                 focused = focus_after_remove(focused, focused, panes.len() + 1);
-                                let pane_count = panes.len();
-                                resize_native_panes(
+                                resize_native_panes_for_layout(
                                     &mut panes,
-                                    native_pane_layouts(cols, rows, pane_count, layout_axis),
+                                    cols,
+                                    rows,
+                                    layout_axis,
                                 )?;
                                 clear = true;
                                 dbg.log(&format!("native terminal close: panes={}", panes.len()));
@@ -166,11 +165,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     let id = next_native_pane_id(&panes);
                     panes.push(spawn_native_pane(id, &spawn_cmd, &sock, 1, 1)?);
                     focused = panes.len() - 1;
-                    let pane_count = panes.len();
-                    resize_native_panes(
-                        &mut panes,
-                        native_pane_layouts(cols, rows, pane_count, layout_axis),
-                    )?;
+                    resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
                     clear = true;
                     dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
                 }
@@ -208,11 +203,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             panes[idx].app.terminate()?;
                             panes.remove(idx);
                             focused = focus_after_remove(focused, idx, panes.len() + 1);
-                            let pane_count = panes.len();
-                            resize_native_panes(
-                                &mut panes,
-                                native_pane_layouts(cols, rows, pane_count, layout_axis),
-                            )?;
+                            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
                             clear = true;
                             dbg.log(&format!("native terminal socket close: {window}"));
                         }
@@ -221,11 +212,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 crate::daemon::NativePaneCommand::Layout(axis) => {
                     if let Some(axis) = NativePaneLayoutAxis::parse(&axis) {
                         layout_axis = axis;
-                        let pane_count = panes.len();
-                        resize_native_panes(
-                            &mut panes,
-                            native_pane_layouts(cols, rows, pane_count, layout_axis),
-                        )?;
+                        resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
                         clear = true;
                         dbg.log(&format!(
                             "native terminal socket layout: {}",
@@ -246,14 +233,26 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             panes.insert(to, pane);
                         }
                         focused = to;
-                        let pane_count = panes.len();
-                        resize_native_panes(
-                            &mut panes,
-                            native_pane_layouts(cols, rows, pane_count, layout_axis),
-                        )?;
+                        resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
                         clear = true;
                         dbg.log(&format!(
                             "native terminal socket move: {window} {direction} -> {to}"
+                        ));
+                    }
+                }
+                crate::daemon::NativePaneCommand::Resize { window, delta } => {
+                    let target = if window == "focused" {
+                        Some(focused)
+                    } else {
+                        native_pane_index(&panes, &window)
+                    };
+                    if let Some(idx) = target {
+                        panes[idx].weight = native_adjust_weight(panes[idx].weight, delta);
+                        resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                        clear = true;
+                        dbg.log(&format!(
+                            "native terminal socket resize: {window} delta={delta} weight={}",
+                            panes[idx].weight
                         ));
                     }
                 }
@@ -274,11 +273,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
             rows = new_rows;
-            let pane_count = panes.len();
-            resize_native_panes(
-                &mut panes,
-                native_pane_layouts(cols, rows, pane_count, layout_axis),
-            )?;
+            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
             clear = true;
             dbg.log(&format!(
                 "native terminal resized to {cols}x{rows} panes={}",
@@ -286,7 +281,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             ));
         }
 
-        let layouts = native_pane_layouts(cols, rows, panes.len(), layout_axis);
+        let layouts = native_layouts_for_panes(cols, rows, &panes, layout_axis);
         let stdout = io::stdout();
         let mut handle = stdout.lock();
         if clear {
@@ -334,6 +329,7 @@ struct NativePane {
     window: String,
     image_id: u32,
     display_title: Option<String>,
+    weight: u16,
     app: PtyTerminalApp,
 }
 
@@ -398,23 +394,57 @@ fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Re
         window,
         image_id: 0x6b77_0000 | id,
         display_title: None,
+        weight: 1,
         app,
     })
 }
 
+#[cfg(test)]
 fn native_pane_layouts(
     cols: u16,
     rows: u16,
     count: usize,
     axis: NativePaneLayoutAxis,
 ) -> Vec<NativePaneLayout> {
-    let count = count.max(1).min(u16::MAX as usize);
-    let count_u16 = count as u16;
+    native_pane_layouts_weighted(cols, rows, &vec![1; count], axis)
+}
+
+fn native_layouts_for_panes(
+    cols: u16,
+    rows: u16,
+    panes: &[NativePane],
+    axis: NativePaneLayoutAxis,
+) -> Vec<NativePaneLayout> {
+    native_pane_layouts_weighted(
+        cols,
+        rows,
+        &panes.iter().map(|pane| pane.weight).collect::<Vec<_>>(),
+        axis,
+    )
+}
+
+fn native_pane_layouts_weighted(
+    cols: u16,
+    rows: u16,
+    weights: &[u16],
+    axis: NativePaneLayoutAxis,
+) -> Vec<NativePaneLayout> {
+    let count = weights.len().max(1).min(u16::MAX as usize);
+    let weights = if weights.is_empty() {
+        vec![1]
+    } else {
+        weights.to_vec()
+    };
+    let total_weight = weights
+        .iter()
+        .take(count)
+        .map(|w| (*w).max(1) as u32)
+        .sum::<u32>()
+        .max(1);
     let title_rows = 1;
     match axis {
         NativePaneLayoutAxis::Columns => {
             let pane_rows = rows.max(title_rows + 1);
-            let base_cols = (cols / count_u16).max(1);
             let mut x = 0u16;
             let mut layouts = Vec::with_capacity(count);
             for idx in 0..count {
@@ -422,9 +452,9 @@ fn native_pane_layouts(
                 let pane_cols = if idx + 1 == count {
                     remaining
                 } else {
-                    base_cols.min(remaining)
-                }
-                .max(1);
+                    let share = ((cols as u32 * weights[idx].max(1) as u32) / total_weight) as u16;
+                    share.max(1).min(remaining)
+                };
                 layouts.push(NativePaneLayout {
                     x,
                     y: 0,
@@ -439,7 +469,6 @@ fn native_pane_layouts(
             layouts
         }
         NativePaneLayoutAxis::Rows => {
-            let base_rows = (rows / count_u16).max(2);
             let mut y = 0u16;
             let mut layouts = Vec::with_capacity(count);
             for idx in 0..count {
@@ -447,9 +476,9 @@ fn native_pane_layouts(
                 let pane_rows = if idx + 1 == count {
                     remaining
                 } else {
-                    base_rows.min(remaining)
-                }
-                .max(2);
+                    let share = ((rows as u32 * weights[idx].max(1) as u32) / total_weight) as u16;
+                    share.max(2).min(remaining)
+                };
                 layouts.push(NativePaneLayout {
                     x: 0,
                     y,
@@ -471,6 +500,24 @@ fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>)
         pane.app.resize(layout.app_cols, layout.app_rows)?;
     }
     Ok(())
+}
+
+fn resize_native_panes_for_layout(
+    panes: &mut [NativePane],
+    cols: u16,
+    rows: u16,
+    axis: NativePaneLayoutAxis,
+) -> Result<()> {
+    let layouts = native_layouts_for_panes(cols, rows, panes, axis);
+    resize_native_panes(panes, layouts)
+}
+
+fn native_adjust_weight(weight: u16, delta: i16) -> u16 {
+    if delta.is_negative() {
+        weight.saturating_sub(delta.unsigned_abs()).max(1)
+    } else {
+        weight.saturating_add(delta as u16).max(1)
+    }
 }
 
 fn native_move_target_index(from: usize, len: usize, direction: &str) -> usize {
@@ -503,6 +550,7 @@ fn native_pane_statuses(
             window: pane.window.clone(),
             title: native_pane_display_title(pane),
             focused: idx == focused,
+            weight: pane.weight,
         })
         .collect()
 }
@@ -635,6 +683,25 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_pane_layouts_honor_weights() {
+        let columns = native_pane_layouts_weighted(90, 24, &[1, 2], NativePaneLayoutAxis::Columns);
+        assert_eq!(columns[0].cols, 30);
+        assert_eq!(columns[1].cols, 60);
+        assert_eq!(columns[1].x, 30);
+        let rows = native_pane_layouts_weighted(80, 30, &[1, 2], NativePaneLayoutAxis::Rows);
+        assert_eq!(rows[0].app_rows, 9);
+        assert_eq!(rows[1].app_rows, 19);
+        assert_eq!(rows[1].y, 10);
+    }
+
+    #[test]
+    fn native_adjust_weight_clamps_to_one() {
+        assert_eq!(native_adjust_weight(1, -1), 1);
+        assert_eq!(native_adjust_weight(2, -1), 1);
+        assert_eq!(native_adjust_weight(2, 3), 5);
+    }
+
+    #[test]
     fn native_move_target_index_clamps_and_moves() {
         assert_eq!(native_move_target_index(1, 3, "left"), 0);
         assert_eq!(native_move_target_index(1, 3, "up"), 0);
@@ -674,12 +741,14 @@ mod native_pane_tests {
                 window: "native-1".to_string(),
                 image_id: 1,
                 display_title: None,
+                weight: 1,
                 app: dummy_native_pane_app(),
             },
             NativePane {
                 window: "native-2".to_string(),
                 image_id: 2,
                 display_title: None,
+                weight: 1,
                 app: dummy_native_pane_app(),
             },
         ];
@@ -694,12 +763,14 @@ mod native_pane_tests {
                 window: "native-1".to_string(),
                 image_id: 1,
                 display_title: None,
+                weight: 1,
                 app: dummy_native_pane_app(),
             },
             NativePane {
                 window: "native-7".to_string(),
                 image_id: 7,
                 display_title: None,
+                weight: 1,
                 app: dummy_native_pane_app(),
             },
         ];
@@ -713,12 +784,14 @@ mod native_pane_tests {
                 window: "native-1".to_string(),
                 image_id: 1,
                 display_title: None,
+                weight: 1,
                 app: dummy_native_pane_app(),
             },
             NativePane {
                 window: "native-2".to_string(),
                 image_id: 2,
                 display_title: Some("editor".to_string()),
+                weight: 3,
                 app: dummy_native_pane_app(),
             },
         ];
@@ -728,6 +801,7 @@ mod native_pane_tests {
         assert!(statuses[1].focused);
         assert_eq!(statuses[1].window, "native-2");
         assert_eq!(statuses[1].title, "editor");
+        assert_eq!(statuses[1].weight, 3);
     }
 
     fn dummy_native_pane_app() -> PtyTerminalApp {
