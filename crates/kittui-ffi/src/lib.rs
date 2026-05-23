@@ -598,9 +598,8 @@ pub unsafe extern "C" fn kittui_render_json(
                 return KittuiStatus::BadScene;
             }
         };
-        match rt.inner.place(&scene) {
-            Ok(placement) => {
-                let bytes = placement.to_bytes().into_bytes();
+        match rt.inner.render_png(&scene) {
+            Ok(bytes) => {
                 let mut boxed = bytes.into_boxed_slice();
                 *out_len = boxed.len();
                 *out_ptr = boxed.as_mut_ptr();
@@ -806,6 +805,33 @@ mod tests {
             assert_eq!(status, KittuiStatus::Ok);
             let bytes = owned_string(out);
             assert!(bytes.contains("\x1b[7;6H"), "{bytes:?}");
+            kittui_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn render_json_returns_png_bytes_without_terminal_support() {
+        let config = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": false, "supports_unicode_placeholders": false}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(config.as_ptr());
+            assert!(!runtime.is_null());
+            let mut out: *mut u8 = std::ptr::null_mut();
+            let mut len = 0usize;
+            let status = kittui_render_json(runtime, scene_json().as_ptr(), &mut out, &mut len);
+            assert_eq!(status, KittuiStatus::Ok);
+            assert!(len > 8);
+            let bytes = std::slice::from_raw_parts(out, len);
+            assert!(
+                bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+                "{:02x?}",
+                &bytes[..8]
+            );
+            assert!(!bytes.windows(2).any(|window| window == b"\x1b_"));
+            kittui_bytes_free(out, len);
             kittui_runtime_free(runtime);
         }
     }

@@ -92,6 +92,15 @@ impl Runtime {
         RuntimeBuilder::default()
     }
 
+    /// Render a scene into PNG bytes without placing it in a terminal.
+    ///
+    /// This is the render-only substrate for foreign hosts and previews. It
+    /// does not check kitty terminal capabilities, mutate placement state, or
+    /// emit kitty escape sequences.
+    pub fn render_png(&self, scene: &Scene) -> Result<Vec<u8>, KittuiError> {
+        Ok(self.render_still_with_backend(scene)?.png)
+    }
+
     /// Render, cache and place a scene. Returns a `Placement` containing the
     /// upload bytes (empty if already cached + uploaded), the placement
     /// escape, and the embeddable text grid.
@@ -723,6 +732,30 @@ mod tests {
         let placement = runtime.place(&scene).unwrap();
         assert_eq!(placement.footprint, scene.footprint);
         assert!(!placement.placement.is_empty());
+    }
+
+    #[test]
+    fn render_png_returns_png_without_terminal_support() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .terminal(TerminalInfo::override_with(
+                Some(80),
+                Some(24),
+                CellSize::new(8, 16),
+                false,
+                false,
+                Transport::Direct,
+            ))
+            .build()
+            .unwrap();
+        let scene = builders::simple_solid_box(4, 2, "#00d8ff");
+        let png = runtime.render_png(&scene).unwrap();
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+        match runtime.place(&scene) {
+            Ok(_) => panic!("place unexpectedly succeeded without terminal support"),
+            Err(err) => assert!(matches!(err, KittuiError::UnsupportedTerminal(_))),
+        }
     }
 
     #[test]
