@@ -57,7 +57,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             &cmd,
             &sock,
             cols,
-            rows.saturating_sub(2).max(1),
+            native_tilable_rows(rows),
         )?]
     } else {
         Vec::new()
@@ -849,6 +849,7 @@ impl NativeDirtyFrameMetrics {
     }
 }
 
+const NATIVE_TOP_BAR_ROWS: u16 = 1;
 const NATIVE_CELL_WIDTH_PX: u32 = 8;
 const NATIVE_CELL_HEIGHT_PX: u32 = 16;
 const NATIVE_FRAME_BG_RGBA: [u8; 4] = [0x08, 0x0d, 0x14, 0xff];
@@ -1223,19 +1224,27 @@ fn native_layouts_for_panes(
     if panes.is_empty() {
         return Vec::new();
     }
-    native_pane_layouts_weighted(
+    reserve_native_top_bar(native_pane_layouts_weighted(
         cols,
-        rows.saturating_sub(1).max(1),
+        native_tilable_rows(rows),
         &panes.iter().map(|pane| pane.weight).collect::<Vec<_>>(),
         axis,
-    )
-    .into_iter()
-    .map(|mut layout| {
-        layout.y = layout.y.saturating_add(1);
-        layout.app_y = layout.app_y.saturating_add(1);
-        layout
-    })
-    .collect()
+    ))
+}
+
+fn reserve_native_top_bar(layouts: Vec<NativePaneLayout>) -> Vec<NativePaneLayout> {
+    layouts
+        .into_iter()
+        .map(|mut layout| {
+            layout.y = layout.y.saturating_add(NATIVE_TOP_BAR_ROWS);
+            layout.app_y = layout.app_y.saturating_add(NATIVE_TOP_BAR_ROWS);
+            layout
+        })
+        .collect()
+}
+
+fn native_tilable_rows(rows: u16) -> u16 {
+    rows.saturating_sub(NATIVE_TOP_BAR_ROWS).max(1)
 }
 
 fn native_pane_layouts_weighted(
@@ -2245,6 +2254,24 @@ mod native_pane_tests {
         assert!(view.top_bar.text.contains("ws:1"));
         assert!(view.top_bar.text.contains("empty"));
         assert!(view.footer.text.is_empty());
+    }
+
+    #[test]
+    fn native_layouts_reserve_top_bar_chrome_band() {
+        let layouts = reserve_native_top_bar(native_pane_layouts_weighted(
+            80,
+            native_tilable_rows(24),
+            &[1],
+            NativePaneLayoutAxis::Columns,
+        ));
+        assert_eq!(layouts.len(), 1);
+        assert_eq!(layouts[0].y, NATIVE_TOP_BAR_ROWS);
+        assert_eq!(layouts[0].app_y, NATIVE_TOP_BAR_ROWS + 1);
+        assert_eq!(
+            layouts[0].app_rows,
+            native_tilable_rows(24).saturating_sub(1)
+        );
+        assert_eq!(native_tilable_rows(1), 1);
     }
 
     #[test]
