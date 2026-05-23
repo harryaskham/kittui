@@ -334,6 +334,11 @@ fn parse_args() -> Result<Cli> {
             "--panes" => out.automation_request = Some("PANES".to_string()),
             "--panes-json" => out.automation_request = Some("PANES_JSON".to_string()),
             "--session-json" => out.automation_request = Some("SESSION_JSON".to_string()),
+            "--events" => out.automation_request = Some("EVENTS".to_string()),
+            "--events-ms" => {
+                let ms = args.next().ok_or_else(|| anyhow!("--events-ms MS"))?;
+                out.automation_request = Some(events_request(&ms)?);
+            }
             "--spawn-pty" => {
                 let cmd = args.next().ok_or_else(|| anyhow!("--spawn-pty CMD"))?;
                 out.automation_request = Some(protocol_payload_request("SPAWN_PTY", &cmd)?);
@@ -1419,6 +1424,16 @@ fn rename_pane_request(window: &str, title: &str) -> Result<String> {
     protocol_payload_request("RENAME_PANE", &format!("{window} {title}"))
 }
 
+fn events_request(ms: &str) -> Result<String> {
+    let parsed: u64 = ms
+        .parse()
+        .map_err(|_| anyhow!("--events-ms expects integer milliseconds"))?;
+    if parsed == 0 || parsed > 60_000 {
+        return Err(anyhow!("--events-ms expects 1..=60000"));
+    }
+    Ok(format!("EVENTS {parsed}"))
+}
+
 fn wait_ms_request(verb: &str, ms: &str, window: &str, needle: &str) -> Result<String> {
     let parsed = ms
         .trim()
@@ -1551,7 +1566,7 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
         probe.trim()
     );
     eprintln!(
-        "Commands: PING STATUS PANES SPAWN <argv> WINDOWS DISPLAYS HELP QUIT (Ctrl-D to detach)"
+        "Commands: PING STATUS PANES EVENTS [ms] SPAWN <argv> WINDOWS DISPLAYS HELP QUIT (Ctrl-D to detach)"
     );
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -2323,6 +2338,9 @@ mod tests {
             wait_ms_request("WAIT_OUTPUT_MS", "2500", "focused", "Ready Now").unwrap(),
             "WAIT_OUTPUT_MS focused 2500 Ready Now"
         );
+        assert_eq!(events_request("2500").unwrap(), "EVENTS 2500");
+        assert!(events_request("0").is_err());
+        assert!(events_request("60001").is_err());
         assert!(wait_ms_request("WAIT_TEXT_MS", "0", "focused", "ready").is_err());
         assert!(send_mouse_request("focused", "drag", "7", "9").is_err());
         assert!(automation_request("SEND_KEY", "bad window", "ctrl-c").is_err());

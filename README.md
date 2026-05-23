@@ -145,6 +145,7 @@ kittwm --save-session session.json
 kittwm --restore-session session.json
 kittwm --session-json  # persistence-oriented layout/order/focus manifest
 kittwm --panes-json    # includes weight, pid/command, and title/app cell geometry
+kittwm --events-ms 5000 # stream JSON status/pane/focus/layout events for SDK clients
 kittwm --attach -c 'RESTORE_SESSION_JSON {"layout":"rows","panes":[{"command":"htop","title":"htop","weight":1,"focused":true}]}'
 ```
 

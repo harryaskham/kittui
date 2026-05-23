@@ -6,16 +6,22 @@
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CLIENT_READ_TIMEOUT: Duration = Duration::from_secs(10);
 const CLIENT_WAIT_TEXT_MARGIN: Duration = Duration::from_secs(5);
+const CLIENT_EVENTS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+const CLIENT_EVENTS_MAX_TIMEOUT: Duration = Duration::from_secs(60);
+const CLIENT_EVENTS_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const NATIVE_EVENT_SCHEMA_VERSION: u8 = 1;
+const NATIVE_EVENT_BACKLOG_LIMIT: usize = 512;
 
 /// Default socket path for the kittwm daemon.
 ///
@@ -211,6 +217,8 @@ struct NativeSpawnQueueState {
     pending: Vec<NativePaneCommand>,
     panes: Vec<NativePaneStatus>,
     layout: Option<String>,
+    events: VecDeque<serde_json::Value>,
+    next_event_seq: u64,
 }
 
 /// In-process socket queue used by the live native PTY session.
@@ -266,17 +274,17 @@ impl NativeSpawnQueue {
         drain_native_spawn_pending(&self.pending)
     }
 
-    /// Publish a live native pane snapshot for STATUS/PANES requests.
+    /// Publish a live native pane snapshot for STATUS/PANES/EVENTS requests.
     pub fn update_panes(&self, panes: Vec<NativePaneStatus>) {
         if let Ok(mut state) = self.pending.lock() {
-            state.panes = panes;
+            publish_native_pane_events(&mut state, panes);
         }
     }
 
-    /// Publish the live native pane layout axis for STATUS requests.
+    /// Publish the live native pane layout axis for STATUS/EVENTS requests.
     pub fn update_layout(&self, layout: impl Into<String>) {
         if let Ok(mut state) = self.pending.lock() {
-            state.layout = Some(layout.into());
+            publish_native_layout_event(&mut state, layout.into());
         }
     }
 }
@@ -298,7 +306,10 @@ fn drain_native_spawn_pending(
     let Ok(mut state) = pending.lock() else {
         return Vec::new();
     };
-    std::mem::take(&mut state.pending)
+    let old_pending = state.pending.len();
+    let drained = std::mem::take(&mut state.pending);
+    push_native_pending_status_event(&mut state, old_pending);
+    drained
 }
 
 fn handle_native_spawn_request(
@@ -310,10 +321,74 @@ fn handle_native_spawn_request(
         let mut reader = BufReader::new(stream.try_clone()?);
         reader.read_line(&mut line)?;
     }
-    let reply = native_spawn_queue_reply(line.trim(), pending);
+    let cmd = line.trim();
+    if cmd == "EVENTS" || cmd.starts_with("EVENTS ") {
+        return stream_native_events(stream, pending, cmd);
+    }
+    let reply = native_spawn_queue_reply(cmd, pending);
     stream.write_all(reply.as_bytes())?;
     stream.flush()?;
     Ok(())
+}
+
+fn stream_native_events(
+    mut stream: UnixStream,
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    cmd: &str,
+) -> Result<()> {
+    let timeout = parse_events_timeout(cmd);
+    let started = Instant::now();
+    let mut next_seq = match pending.lock() {
+        Ok(mut state) => {
+            let seq = state.next_event_seq;
+            state.next_event_seq = state.next_event_seq.saturating_add(1);
+            let event = native_status_event(&state, seq);
+            stream.write_all(event.to_string().as_bytes())?;
+            stream.write_all(b"\n")?;
+            state.next_event_seq
+        }
+        Err(_) => {
+            stream.write_all(b"{\"error\":\"registry poisoned\"}\nEND\n")?;
+            stream.flush()?;
+            return Ok(());
+        }
+    };
+    stream.flush()?;
+
+    while started.elapsed() < timeout {
+        let events = match pending.lock() {
+            Ok(state) => state
+                .events
+                .iter()
+                .filter(|event| event["seq"].as_u64().unwrap_or(0) >= next_seq)
+                .cloned()
+                .collect::<Vec<_>>(),
+            Err(_) => vec![serde_json::json!({ "error": "registry poisoned" })],
+        };
+        for event in events {
+            if let Some(seq) = event["seq"].as_u64() {
+                next_seq = seq.saturating_add(1);
+            }
+            stream.write_all(event.to_string().as_bytes())?;
+            stream.write_all(b"\n")?;
+        }
+        stream.flush()?;
+        std::thread::sleep(CLIENT_EVENTS_POLL_INTERVAL);
+    }
+    stream.write_all(b"END\n")?;
+    stream.flush()?;
+    Ok(())
+}
+
+fn parse_events_timeout(cmd: &str) -> Duration {
+    let ms = cmd
+        .strip_prefix("EVENTS")
+        .unwrap_or("")
+        .split_whitespace()
+        .next()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(CLIENT_EVENTS_DEFAULT_TIMEOUT.as_millis() as u64);
+    Duration::from_millis(ms.clamp(1, CLIENT_EVENTS_MAX_TIMEOUT.as_millis() as u64))
 }
 
 fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
@@ -522,7 +597,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -546,6 +621,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "SESSION_JSON",
             "inspect",
             "JSON persistence-oriented native session manifest",
+        ),
+        (
+            "EVENTS [ms]",
+            "events",
+            "stream JSON status/pane/focus/layout events until timeout",
         ),
         (
             "SPAWN_PTY <cmd>",
@@ -705,6 +785,147 @@ fn native_spawn_help_json_reply() -> String {
     format!("{}\n", serde_json::json!({ "commands": commands }))
 }
 
+fn publish_native_layout_event(state: &mut NativeSpawnQueueState, layout: String) {
+    if state.layout.as_deref() == Some(layout.as_str()) {
+        return;
+    }
+    let old = state.layout.clone();
+    state.layout = Some(layout.clone());
+    push_native_event(
+        state,
+        "layout_changed",
+        None,
+        serde_json::json!({ "old": old, "layout": layout }),
+    );
+}
+
+fn publish_native_pane_events(state: &mut NativeSpawnQueueState, panes: Vec<NativePaneStatus>) {
+    let old_panes = std::mem::replace(&mut state.panes, panes);
+    let old_by_window = old_panes
+        .iter()
+        .map(|pane| (pane.window.clone(), pane.clone()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let new_by_window = state
+        .panes
+        .iter()
+        .map(|pane| (pane.window.clone(), pane.clone()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    let mut events = Vec::new();
+    for (window, pane) in &new_by_window {
+        match old_by_window.get(window) {
+            None => events.push((
+                "pane_opened",
+                Some(window.clone()),
+                serde_json::json!({ "pane": native_pane_status_value(pane) }),
+            )),
+            Some(old) if old != pane => events.push((
+                "pane_changed",
+                Some(window.clone()),
+                serde_json::json!({ "pane": native_pane_status_value(pane) }),
+            )),
+            _ => {}
+        }
+    }
+    for window in old_by_window.keys() {
+        if !new_by_window.contains_key(window) {
+            events.push((
+                "pane_closed",
+                Some(window.clone()),
+                serde_json::json!({ "window": window }),
+            ));
+        }
+    }
+
+    let old_focus = old_panes
+        .iter()
+        .find(|pane| pane.focused)
+        .map(|pane| pane.window.clone());
+    let new_focus = state
+        .panes
+        .iter()
+        .find(|pane| pane.focused)
+        .map(|pane| pane.window.clone());
+    if old_focus != new_focus {
+        events.push((
+            "focus_changed",
+            new_focus.clone(),
+            serde_json::json!({ "old": old_focus, "focus": new_focus }),
+        ));
+    }
+
+    for (kind, window, detail) in events {
+        push_native_event(state, kind, window, detail);
+    }
+}
+
+fn push_native_pending_status_event(state: &mut NativeSpawnQueueState, old_pending: usize) {
+    let pending = state.pending.len();
+    if pending != old_pending {
+        push_native_event(
+            state,
+            "status_changed",
+            None,
+            serde_json::json!({ "old_pending": old_pending, "pending": pending }),
+        );
+    }
+}
+
+fn push_native_event(
+    state: &mut NativeSpawnQueueState,
+    kind: &'static str,
+    window: Option<String>,
+    detail: serde_json::Value,
+) {
+    let seq = state.next_event_seq;
+    state.next_event_seq = state.next_event_seq.saturating_add(1);
+    let event = serde_json::json!({
+        "schema_version": NATIVE_EVENT_SCHEMA_VERSION,
+        "seq": seq,
+        "at_ms": now_unix_ms(),
+        "kind": kind,
+        "window": window,
+        "detail": detail,
+    });
+    state.events.push_back(event);
+    while state.events.len() > NATIVE_EVENT_BACKLOG_LIMIT {
+        state.events.pop_front();
+    }
+}
+
+fn native_status_event(state: &NativeSpawnQueueState, seq: u64) -> serde_json::Value {
+    let focus = state
+        .panes
+        .iter()
+        .find(|pane| pane.focused)
+        .map(|pane| pane.window.clone());
+    serde_json::json!({
+        "schema_version": NATIVE_EVENT_SCHEMA_VERSION,
+        "seq": seq,
+        "at_ms": now_unix_ms(),
+        "kind": "status",
+        "window": focus,
+        "detail": {
+            "pending": state.pending.len(),
+            "panes": state.panes.len(),
+            "focus": state.panes.iter().find(|pane| pane.focused).map(|pane| pane.window.as_str()).unwrap_or("-"),
+            "layout": state.layout.as_deref().unwrap_or("-"),
+            "panes_detail": state.panes.iter().map(native_pane_status_value).collect::<Vec<_>>(),
+        },
+    })
+}
+
+fn native_pane_status_value(pane: &NativePaneStatus) -> serde_json::Value {
+    serde_json::to_value(pane).unwrap_or_else(|_| serde_json::json!({ "window": pane.window }))
+}
+
+fn now_unix_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
 fn queue_native_pane_action(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     command: NativePaneCommand,
@@ -712,7 +933,9 @@ fn queue_native_pane_action(
 ) -> String {
     match pending.lock() {
         Ok(mut state) => {
+            let old_pending = state.pending.len();
             state.pending.push(command);
+            push_native_pending_status_event(&mut state, old_pending);
             format!("{ok_prefix} command={}\n", state.pending.len())
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
@@ -732,7 +955,9 @@ fn queue_native_pane_command(
     }
     match pending.lock() {
         Ok(mut state) => {
+            let old_pending = state.pending.len();
             state.pending.push(build(arg.to_string()));
+            push_native_pending_status_event(&mut state, old_pending);
             format!("{ok_prefix} command={} arg={}\n", state.pending.len(), arg)
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
@@ -791,6 +1016,7 @@ fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, jso
     let focus_index = panes.iter().position(|pane| pane.focused);
     match pending.lock() {
         Ok(mut state) => {
+            let old_pending = state.pending.len();
             state
                 .pending
                 .push(NativePaneCommand::RestoreSession(NativeSessionRestore {
@@ -798,6 +1024,7 @@ fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, jso
                     panes,
                     focus_index,
                 }));
+            push_native_pending_status_event(&mut state, old_pending);
             format!("RESTORE_SESSION_QUEUED command={}\n", state.pending.len())
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
@@ -826,11 +1053,13 @@ fn queue_native_send_text(
     }
     match pending.lock() {
         Ok(mut state) => {
+            let old_pending = state.pending.len();
             state.pending.push(NativePaneCommand::SendText {
                 window: window.to_string(),
                 text: text.to_string(),
                 newline,
             });
+            push_native_pending_status_event(&mut state, old_pending);
             let prefix = if newline {
                 "SEND_LINE_QUEUED"
             } else {
@@ -854,11 +1083,13 @@ fn queue_native_send_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest
     };
     match pending.lock() {
         Ok(mut state) => {
+            let old_pending = state.pending.len();
             state.pending.push(NativePaneCommand::SendBytes {
                 window: window.clone(),
                 bytes: bytes.clone(),
                 label: "base64".to_string(),
             });
+            push_native_pending_status_event(&mut state, old_pending);
             format!(
                 "SEND_BYTES_B64_QUEUED command={} window={} bytes={}\n",
                 state.pending.len(),
@@ -877,10 +1108,12 @@ fn queue_native_paste_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, res
     };
     match pending.lock() {
         Ok(mut state) => {
+            let old_pending = state.pending.len();
             state.pending.push(NativePaneCommand::PasteBytes {
                 window: window.clone(),
                 bytes: bytes.clone(),
             });
+            push_native_pending_status_event(&mut state, old_pending);
             format!(
                 "PASTE_BYTES_B64_QUEUED command={} window={} bytes={}\n",
                 state.pending.len(),
@@ -931,12 +1164,14 @@ fn queue_native_send_mouse(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &s
     }
     match pending.lock() {
         Ok(mut state) => {
+            let old_pending = state.pending.len();
             state.pending.push(NativePaneCommand::SendMouse {
                 window: window.to_string(),
                 event: event.to_string(),
                 col,
                 row,
             });
+            push_native_pending_status_event(&mut state, old_pending);
             format!(
                 "SEND_MOUSE_QUEUED command={} window={} event={} col={} row={}\n",
                 state.pending.len(),
@@ -980,11 +1215,13 @@ fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str
     };
     match pending.lock() {
         Ok(mut state) => {
+            let old_pending = state.pending.len();
             state.pending.push(NativePaneCommand::SendBytes {
                 window: window.to_string(),
                 bytes: bytes.clone(),
                 label: key.to_string(),
             });
+            push_native_pending_status_event(&mut state, old_pending);
             format!(
                 "SEND_KEY_QUEUED command={} window={} key={} bytes={}\n",
                 state.pending.len(),
@@ -1655,6 +1892,9 @@ fn daemon_help_json_reply() -> String {
 
 fn client_read_timeout_for(cmd: &str) -> Duration {
     let trimmed = cmd.trim_start();
+    if trimmed == "EVENTS" || trimmed.starts_with("EVENTS ") {
+        return parse_events_timeout(trimmed).saturating_add(CLIENT_WAIT_TEXT_MARGIN);
+    }
     let Some(rest) = trimmed
         .strip_prefix("WAIT_TEXT_MS ")
         .or_else(|| trimmed.strip_prefix("WAIT_OUTPUT_MS "))
@@ -1721,6 +1961,10 @@ mod tests {
         assert_eq!(
             client_read_timeout_for("WAIT_OUTPUT_MS focused 60000 build finished"),
             Duration::from_secs(65)
+        );
+        assert_eq!(
+            client_read_timeout_for("EVENTS 250"),
+            Duration::from_millis(250).saturating_add(CLIENT_WAIT_TEXT_MARGIN)
         );
         assert_eq!(
             client_read_timeout_for("WAIT_TEXT_MS focused nope build finished"),
@@ -1992,6 +2236,98 @@ mod tests {
         );
     }
 
+    fn native_status(window: &str, focused: bool, weight: u16) -> NativePaneStatus {
+        NativePaneStatus {
+            window: window.to_string(),
+            title: window.to_string(),
+            focused,
+            weight,
+            pid: None,
+            command: Some("/bin/sh".to_string()),
+            x: None,
+            y: None,
+            cols: None,
+            rows: None,
+            app_x: None,
+            app_y: None,
+            app_cols: None,
+            cursor_col: None,
+            cursor_row: None,
+            cursor_visible: Some(true),
+            bracketed_paste: Some(false),
+            application_cursor_keys: Some(false),
+            mouse_reporting: Some(false),
+            mouse_button_motion: Some(false),
+            mouse_all_motion: Some(false),
+            mouse_sgr: Some(false),
+            text_snapshot: Some("secret live text is not serialized".to_string()),
+            scrollback_snapshot: Some("secret scrollback is not serialized".to_string()),
+            app_rows: None,
+        }
+    }
+
+    #[test]
+    fn native_spawn_queue_streams_status_and_change_events() {
+        let p =
+            tmp_sock().with_file_name(format!("kittwm-native-events-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        let queue = NativeSpawnQueue::bind(p).unwrap();
+        queue.update_layout("columns");
+        queue.update_panes(vec![native_status("native-1", true, 1)]);
+
+        let path = queue.path().to_path_buf();
+        let reader = std::thread::spawn(move || client_request_multi(&path, "EVENTS 300").unwrap());
+        std::thread::sleep(Duration::from_millis(50));
+        queue.update_panes(vec![
+            native_status("native-1", false, 1),
+            native_status("native-2", true, 3),
+        ]);
+        queue.update_layout("rows");
+
+        let stream = reader.join().unwrap();
+        let events = stream
+            .lines()
+            .filter(|line| line.trim_start().starts_with('{'))
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            events.iter().any(|event| event["kind"] == "status"),
+            "{stream}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event["kind"] == "pane_opened" && event["window"] == "native-2"),
+            "{stream}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event["kind"] == "focus_changed"
+                    && event["detail"]["focus"] == "native-2"),
+            "{stream}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event["kind"] == "layout_changed"
+                    && event["detail"]["layout"] == "rows"),
+            "{stream}"
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| event["schema_version"] == NATIVE_EVENT_SCHEMA_VERSION),
+            "{stream}"
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| event["detail"].to_string().contains("secret live text") == false),
+            "{stream}"
+        );
+    }
+
     #[test]
     fn native_spawn_queue_read_text_round_trip_over_socket() {
         let p =
@@ -2091,6 +2427,7 @@ mod tests {
         assert!(help.contains("STATUS_JSON"), "{help}");
         assert!(help.contains("PANES_JSON"), "{help}");
         assert!(help.contains("SESSION_JSON"), "{help}");
+        assert!(help.contains("EVENTS [ms]"), "{help}");
         assert!(help.contains("FOCUS_NEXT"), "{help}");
         assert!(help.contains("FOCUS_PREV"), "{help}");
         assert!(help.contains("LAYOUT <columns|rows>"), "{help}");
@@ -2148,6 +2485,11 @@ mod tests {
             .any(|entry| {
                 entry["command"] == "LAYOUT <columns|rows>" && entry["category"] == "control"
             }));
+        assert!(help_json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "EVENTS [ms]" && entry["category"] == "events" }));
     }
 
     #[test]
@@ -2456,6 +2798,7 @@ pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
             && !first.starts_with("DISPLAYS ")
             && !first.starts_with("APPS ")
             && !first.starts_with("PANES ")
+            && !(cmd.trim_start() == "EVENTS" || cmd.trim_start().starts_with("EVENTS "))
             && !first.starts_with("TEXT ")
             && !first.starts_with("SCROLLBACK ")
         {

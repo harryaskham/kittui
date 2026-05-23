@@ -25,14 +25,14 @@ Already present:
 - PTY output is parsed with `vte` into a custom `TerminalState` with screen cells, style, cursor, scrollback, alt screen, DEC modes, OSC title, OSC 52 forwarding, mouse/focus/bracketed-paste modes, and readback snapshots.
 - `PtyTerminalApp` and `HeadlessBrowserApp` implement a small `NativeApp` shape: title, resize, send text/input, capture frame.
 - Xvfb/XQuartz/browser capture support exists in project crates, but is not yet unified as one public surface model.
-- Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, and machine-readable help.
+- Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, a JSON `EVENTS [ms]` status/pane/focus/layout stream, and machine-readable help.
 - `kittui wm-chrome` and `kittui wm-session` provide static chrome/session previews, but the live shell still draws chrome largely through direct ANSI and kitty image placement.
 
 Missing or immature:
 
 - No public `kittwm-sdk` crate/API.
 - No first-class `SurfaceHandle` object model.
-- No event stream for resize/focus/input/frame/clipboard/bell/title changes.
+- The native event stream exists for status/pane/focus/layout changes, but resize/input/frame/clipboard/bell/title events are not yet promoted into a complete SDK event model.
 - Terminal engine is still embedded in `PtyTerminalApp`/native session rather than extracted as reusable `kittui-term`/`kittwm-terminal` infrastructure.
 - GUI capture backends are not expressed as the same capture/input/resize surface abstraction.
 - External apps cannot yet create child surfaces, composite them, and present a merged window.
@@ -202,7 +202,7 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 - Finish host side-effect mediation such as OSC 52 set-clipboard.
 - Keep native socket help/status comprehensive.
-- Add event/watch stream so clients do not poll status/readback.
+- Keep the native `EVENTS [ms]` stream covered while broadening it beyond status/pane/focus/layout events so clients do not poll status/readback.
 
 ### Stage 2: extract terminal surface engine
 
@@ -220,7 +220,7 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 - Add `kittwm-sdk` crate with `connect_from_env`, `WindowHandle`, `SurfaceHandle`, and typed requests.
 - Initially back it with the existing native socket protocol.
-- Add JSON event stream/watch command.
+- Wrap the existing JSON `EVENTS [ms]` stream in typed SDK event iteration.
 
 ### Stage 5: dogfood built-in shell
 
@@ -238,7 +238,7 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 Recommended beads:
 
-1. `kittwm: add native socket event stream for pane/window changes`
+1. `kittwm-sdk: wrap native socket event stream in typed event iterator`
 2. `kittwm: extract TerminalSurface engine from PtyTerminalApp`
 3. `kittwm: define common native Surface trait and frame metadata`
 4. `kittwm: adapt browser backend to common Surface trait`
