@@ -121,6 +121,10 @@ pub struct NativePaneStatus {
     pub app_y: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_cols: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor_col: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor_row: Option<u16>,
     #[serde(skip_serializing)]
     pub text_snapshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -925,7 +929,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} pid={} command={:?} layout={} title={:?}",
+            "  window={} focused={} weight={} pid={} command={:?} cursor={} layout={} title={:?}",
             pane.window,
             pane.focused,
             pane.weight,
@@ -933,12 +937,20 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
                 .map(|pid| pid.to_string())
                 .unwrap_or_else(|| "-".to_string()),
             pane.command,
+            native_pane_cursor_label(pane),
             native_pane_layout_label(pane),
             pane.title
         );
     }
     out.push_str("END\n");
     out
+}
+
+fn native_pane_cursor_label(pane: &NativePaneStatus) -> String {
+    match (pane.cursor_col, pane.cursor_row) {
+        (Some(col), Some(row)) => format!("{col},{row}"),
+        _ => "-".to_string(),
+    }
 }
 
 fn native_pane_layout_label(pane: &NativePaneStatus) -> String {
@@ -1674,6 +1686,8 @@ mod tests {
             app_x: None,
             app_y: None,
             app_cols: None,
+            cursor_col: None,
+            cursor_row: None,
             text_snapshot: Some("ready\n$ ".to_string()),
             app_rows: None,
         }]);
@@ -1704,6 +1718,8 @@ mod tests {
             app_x: None,
             app_y: None,
             app_cols: None,
+            cursor_col: None,
+            cursor_row: None,
             text_snapshot: Some("waiting\n".to_string()),
             app_rows: None,
         }]);
@@ -1802,6 +1818,8 @@ mod tests {
                 app_x: Some(0),
                 app_y: Some(1),
                 app_cols: Some(40),
+                cursor_col: Some(4),
+                cursor_row: Some(1),
                 text_snapshot: Some("shell line\n".to_string()),
                 app_rows: Some(23),
             },
@@ -1819,6 +1837,8 @@ mod tests {
                 app_x: Some(40),
                 app_y: Some(1),
                 app_cols: Some(80),
+                cursor_col: Some(12),
+                cursor_row: Some(2),
                 text_snapshot: Some("htop line\nsecond\n".to_string()),
                 app_rows: Some(23),
             },
@@ -1831,11 +1851,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") cursor=4,1 layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") cursor=12,2 layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let status_json: serde_json::Value =
@@ -1849,6 +1869,8 @@ mod tests {
         assert_eq!(status_json["focused_pane"]["pid"], 202);
         assert_eq!(status_json["focused_pane"]["command"], "htop");
         assert_eq!(status_json["focused_pane"]["app_cols"], 80);
+        assert_eq!(status_json["focused_pane"]["cursor_col"], 12);
+        assert_eq!(status_json["focused_pane"]["cursor_row"], 2);
         assert_eq!(status_json["panes_detail"].as_array().unwrap().len(), 2);
         let panes_json: serde_json::Value =
             serde_json::from_str(&native_spawn_queue_reply("PANES_JSON", &pending)).unwrap();
@@ -1858,6 +1880,8 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["weight"], 3);
         assert_eq!(panes_json["panes_detail"][1]["x"], 40);
         assert_eq!(panes_json["panes_detail"][1]["app_cols"], 80);
+        assert_eq!(panes_json["panes_detail"][1]["cursor_col"], 12);
+        assert_eq!(panes_json["panes_detail"][1]["cursor_row"], 2);
         assert!(panes_json["panes_detail"][1].get("text_snapshot").is_none());
 
         let session_json: serde_json::Value =

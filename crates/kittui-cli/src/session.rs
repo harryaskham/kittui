@@ -729,6 +729,7 @@ fn native_pane_statuses(
         .enumerate()
         .map(|(idx, pane)| {
             let layout = layouts.get(idx).copied();
+            let (cursor_col, cursor_row) = pane.app.cursor_position();
             crate::daemon::NativePaneStatus {
                 window: pane.window.clone(),
                 title: native_pane_display_title(pane),
@@ -743,6 +744,8 @@ fn native_pane_statuses(
                 app_x: layout.map(|l| l.app_x),
                 app_y: layout.map(|l| l.app_y),
                 app_cols: layout.map(|l| l.app_cols),
+                cursor_col: Some(cursor_col),
+                cursor_row: Some(cursor_row),
                 text_snapshot: Some(pane.app.text_snapshot()),
                 app_rows: layout.map(|l| l.app_rows),
             }

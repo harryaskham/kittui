@@ -157,6 +157,12 @@ impl PtyTerminalApp {
         self.state.lock().text_snapshot()
     }
 
+    /// Return the current zero-based cursor `(col, row)` in the terminal grid.
+    pub fn cursor_position(&self) -> (u16, u16) {
+        let state = self.state.lock();
+        (state.cursor_col, state.cursor_row)
+    }
+
     /// Return the PTY child process id when the backend exposes one.
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
@@ -740,6 +746,14 @@ mod tests {
         assert_eq!((width, height), (320, 96));
         assert_eq!(rgba.len(), (width * height * 4) as usize);
         assert!(rgba.chunks_exact(4).any(|px| px[0] == 0xd7));
+    }
+
+    #[test]
+    fn terminal_state_reports_cursor_position() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(20, 4);
+        parser.advance(&mut state, b"abc\nxy");
+        assert_eq!((state.cursor_col, state.cursor_row), (2, 1));
     }
 
     #[test]
