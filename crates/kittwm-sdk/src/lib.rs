@@ -40,6 +40,79 @@ pub struct Kittwm {
     socket: PathBuf,
 }
 
+/// Coarse surface kind accepted by the v0 SDK.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SurfaceKind {
+    /// PTY-backed terminal surface.
+    Terminal,
+    /// Browser-backed surface. Transport support is planned, but not yet wired.
+    Browser,
+    /// External/unknown surface kind.
+    Other(String),
+}
+
+/// Typed surface spawn request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfaceSpec {
+    /// Surface kind.
+    pub kind: SurfaceKind,
+    /// Command or target for the surface.
+    pub command: String,
+    /// Optional title to apply once a stable id is known.
+    pub title: Option<String>,
+}
+
+impl SurfaceSpec {
+    /// Build a PTY terminal surface spec.
+    pub fn terminal(command: impl Into<String>) -> Self {
+        Self {
+            kind: SurfaceKind::Terminal,
+            command: command.into(),
+            title: None,
+        }
+    }
+
+    /// Attach a display title.
+    pub fn titled(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+}
+
+/// Result of queueing a surface spawn on the current socket transport.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SurfaceSpawn {
+    /// Raw daemon reply for diagnostics.
+    pub reply: String,
+    /// Best-effort handle. Native `SPAWN_PTY` focuses the spawned pane, so this
+    /// starts as `focused` until event APIs provide stable ids.
+    pub handle: SurfaceHandle,
+}
+
+/// A typed handle to a kittwm surface/window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SurfaceHandle {
+    client: Kittwm,
+    /// Window/surface id, e.g. `native-1`, or the protocol alias `focused`.
+    pub id: String,
+}
+
+/// Text snapshot returned by `READ_TEXT_JSON`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextSnapshot {
+    /// Window id.
+    pub window: String,
+    /// Screen text.
+    pub text: String,
+    /// Cursor column, when the daemon provides it.
+    #[serde(default)]
+    pub cursor_col: Option<u16>,
+    /// Cursor row, when the daemon provides it.
+    #[serde(default)]
+    pub cursor_row: Option<u16>,
+}
+
 /// A typed handle to a kittwm window.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowHandle {
@@ -83,7 +156,9 @@ impl Kittwm {
 
     /// Connect to an explicit kittwm socket path.
     pub fn connect_path(path: impl Into<PathBuf>) -> Self {
-        Self { socket: path.into() }
+        Self {
+            socket: path.into(),
+        }
     }
 
     /// Return the socket path used by this client.
@@ -124,14 +199,51 @@ impl Kittwm {
         Ok(serde_json::from_str(&self.request("STATUS_JSON")?)?)
     }
 
+    /// Return a typed handle to an existing surface/window id.
+    pub fn surface(&self, id: impl Into<String>) -> SurfaceHandle {
+        SurfaceHandle {
+            client: self.clone(),
+            id: id.into(),
+        }
+    }
+
+    /// Return a typed handle to the currently focused surface/window.
+    pub fn focused_surface(&self) -> SurfaceHandle {
+        self.surface("focused")
+    }
+
+    /// Ask kittwm to spawn a typed surface. The v0 transport supports terminal
+    /// surfaces via `SPAWN_PTY`; richer surface kinds are reserved for later
+    /// native protocol work.
+    pub fn spawn_surface(&self, spec: &SurfaceSpec) -> Result<SurfaceSpawn> {
+        let reply = match &spec.kind {
+            SurfaceKind::Terminal => self.request(format!("SPAWN_PTY {}", spec.command))?,
+            SurfaceKind::Browser => {
+                return Err(Error::Daemon(
+                    "browser surface spawning is not yet exposed by the SDK transport".to_string(),
+                ))
+            }
+            SurfaceKind::Other(kind) => {
+                return Err(Error::Daemon(format!(
+                    "surface kind {kind:?} is not supported by the SDK transport"
+                )))
+            }
+        };
+        let handle = self.focused_surface();
+        if let Some(title) = &spec.title {
+            let _ = handle.rename(title);
+        }
+        Ok(SurfaceSpawn { reply, handle })
+    }
+
     /// Ask kittwm to create a new native PTY window/surface using today's
     /// `SPAWN_PTY` socket verb. Returns the queued textual response for now.
     pub fn create_window(&self, spec: &WindowSpec) -> Result<String> {
-        let reply = self.request(format!("SPAWN_PTY {}", spec.command))?;
-        if let (Some(title), Some(handle)) = (&spec.title, self.current_window_from_env()) {
-            let _ = self.request(format!("RENAME_PANE {} {}", handle.id, title));
+        let spawn = self.spawn_surface(&SurfaceSpec::terminal(&spec.command))?;
+        if let Some(title) = &spec.title {
+            let _ = spawn.handle.rename(title);
         }
-        Ok(reply)
+        Ok(spawn.reply)
     }
 
     /// Replace the current window in the coarse v0 skeleton. Until a dedicated
@@ -143,6 +255,60 @@ impl Kittwm {
             let _ = self.request(format!("CLOSE_PANE {}", handle.id));
         }
         Ok(reply)
+    }
+}
+
+impl SurfaceHandle {
+    /// Focus this surface/window.
+    pub fn focus(&self) -> Result<String> {
+        self.client.request(format!("FOCUS_PANE {}", self.id))
+    }
+
+    /// Close this surface/window.
+    pub fn close(&self) -> Result<String> {
+        self.client.request(format!("CLOSE_PANE {}", self.id))
+    }
+
+    /// Rename this surface/window.
+    pub fn rename(&self, title: impl AsRef<str>) -> Result<String> {
+        self.client
+            .request(format!("RENAME_PANE {} {}", self.id, title.as_ref()))
+    }
+
+    /// Resize this surface/window by a relative pane-weight delta.
+    pub fn resize_weight(&self, delta: i16) -> Result<String> {
+        let label = if delta >= 0 {
+            format!("+{delta}")
+        } else {
+            delta.to_string()
+        };
+        self.client
+            .request(format!("RESIZE_PANE {} {label}", self.id))
+    }
+
+    /// Send raw UTF-8 text.
+    pub fn send_text(&self, text: impl AsRef<str>) -> Result<String> {
+        self.client
+            .request(format!("SEND_TEXT {} {}", self.id, text.as_ref()))
+    }
+
+    /// Send one line, appending a newline in the daemon.
+    pub fn send_line(&self, text: impl AsRef<str>) -> Result<String> {
+        self.client
+            .request(format!("SEND_LINE {} {}", self.id, text.as_ref()))
+    }
+
+    /// Send a named key such as `ctrl-c`, `escape`, or `up`.
+    pub fn send_key(&self, key: impl AsRef<str>) -> Result<String> {
+        self.client
+            .request(format!("SEND_KEY {} {}", self.id, key.as_ref()))
+    }
+
+    /// Read the current screen text snapshot.
+    pub fn read_text(&self) -> Result<TextSnapshot> {
+        Ok(serde_json::from_str(
+            &self.client.request(format!("READ_TEXT_JSON {}", self.id))?,
+        )?)
     }
 }
 
@@ -243,5 +409,39 @@ mod tests {
             })
         );
         env::remove_var("KITTWM_WINDOW");
+    }
+
+    #[test]
+    fn surface_spec_builds_terminal_specs() {
+        assert_eq!(
+            SurfaceSpec::terminal("htop").titled("monitor"),
+            SurfaceSpec {
+                kind: SurfaceKind::Terminal,
+                command: "htop".to_string(),
+                title: Some("monitor".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn surface_handles_keep_client_and_id() {
+        let client = Kittwm::connect_path("/tmp/kittwm-sdk.sock");
+        let focused = client.focused_surface();
+        assert_eq!(focused.id, "focused");
+        assert_eq!(
+            focused.client.socket_path(),
+            Path::new("/tmp/kittwm-sdk.sock")
+        );
+    }
+
+    #[test]
+    fn text_snapshot_decodes_json_shape() {
+        let snapshot: TextSnapshot = serde_json::from_str(
+            r#"{"window":"native-1","text":"hello\n","cursor_col":2,"cursor_row":0}"#,
+        )
+        .unwrap();
+        assert_eq!(snapshot.window, "native-1");
+        assert_eq!(snapshot.text, "hello\n");
+        assert_eq!(snapshot.cursor_col, Some(2));
     }
 }
