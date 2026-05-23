@@ -7,7 +7,7 @@ protocol. It ships as:
 - a C ABI shared library (`kittui-ffi`) — `libkittui_ffi.{so,dylib,dll}` for
   TypeScript / Python / Lua / shell callers.
 - a CLI (`kittui`) — `kittui box`, `kittui gradient`, `kittui glow`,
-  `kittui image --src -`, `kittui place --id 0x...`,
+  `kittui panel --tone assistant`, `kittui image --src -`, `kittui place --id 0x...`,
   `kittui delete --id 0x...`, `kittui compose scene.json`, and shell
   pipelines such as `kittui box --scene-json | kittui compose -`.
 - a ratatui adapter (`ratakittui`) — widget decoration + lifecycle.

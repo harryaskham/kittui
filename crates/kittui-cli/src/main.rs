@@ -12,7 +12,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use config::{
     BoxFlagValues, ConfigLayers, GlobalConfig, GlobalFlagValues, GlowFlagValues,
@@ -23,6 +23,7 @@ use kittui::{
     Animation, CellRect, CellSize, Direction, Layer, PhaseCurve, Rgba, Runtime, Scene,
     TerminalInfo,
 };
+use kittui_affordances::{panel_chrome, PanelOptions, Tone};
 use kittui_core::node::{Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
 use kittui_core::Stroke;
@@ -90,6 +91,8 @@ enum Cmd {
     Gradient(GradientArgs),
     /// Render a glow layer.
     Glow(GlowArgs),
+    /// Render a tonal panel chrome scene.
+    Panel(PanelArgs),
     /// Compose a scene from a JSON file.
     Compose(ComposeArgs),
     /// Render an image from a path/bytes through Node::Image.
@@ -250,6 +253,40 @@ struct GlowArgs {
 }
 
 #[derive(clap::Args)]
+#[command(disable_help_flag = true)]
+struct PanelArgs {
+    /// Panel tone palette.
+    #[arg(long, value_enum, default_value_t = ToneArg::Assistant)]
+    tone: ToneArg,
+    /// Width in cells or as a percentage (`100%`).
+    #[arg(short = 'w', long)]
+    width: String,
+    /// Height in cells or as a percentage (`100%`).
+    #[arg(short = 'h', long)]
+    height: String,
+    /// Add native kitty-side pulsing glow animation.
+    #[arg(long)]
+    animate: bool,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum ToneArg {
+    Assistant,
+    Tool,
+    User,
+}
+
+impl From<ToneArg> for Tone {
+    fn from(value: ToneArg) -> Self {
+        match value {
+            ToneArg::Assistant => Tone::Assistant,
+            ToneArg::Tool => Tone::Tool,
+            ToneArg::User => Tone::User,
+        }
+    }
+}
+
+#[derive(clap::Args)]
 struct ComposeArgs {
     /// Path to a JSON file describing a `kittui::Scene`; use `-` for stdin.
     path: PathBuf,
@@ -379,6 +416,7 @@ fn main() -> Result<()> {
             });
             run_glow(&global, &runtime, &config, emit_mode)
         }
+        Cmd::Panel(args) => run_panel(&global, &runtime, args, emit_mode),
         Cmd::Compose(args) => run_compose(&global, &runtime, args, emit_mode),
         Cmd::Image(args) => run_image(&global, &runtime, args, emit_mode),
         Cmd::Place(args) => run_place(&global, &runtime, args, emit_mode),
@@ -490,6 +528,27 @@ fn run_glow(
         animation: None,
     };
     emit_with_mode(global, runtime, &scene, Some(args.source_json()), mode)
+}
+
+fn run_panel(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &PanelArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let cols = resolve_size(&args.width, global.terminal_cols.value)?;
+    let rows = resolve_size(&args.height, global.terminal_rows.value)?;
+    let chrome = panel_chrome(
+        args.tone.into(),
+        &PanelOptions {
+            animated: args.animate,
+        },
+    );
+    let area = ratatui::layout::Rect::new(0, 0, cols, rows);
+    let scene = chrome
+        .to_scene(area)
+        .ok_or_else(|| anyhow!("panel chrome produced no scene for {cols}x{rows}"))?;
+    emit_with_mode(global, runtime, &scene, None, mode)
 }
 
 fn run_compose(
@@ -1178,6 +1237,21 @@ mod tests {
             terminal_rows: Some(43),
             json: true,
         })
+    }
+
+    #[test]
+    fn panel_scene_uses_affordance_chrome_and_animation_flag() {
+        let chrome = panel_chrome(Tone::Assistant, &PanelOptions { animated: true });
+        let scene = chrome
+            .to_scene(ratatui::layout::Rect::new(0, 0, 20, 4))
+            .unwrap();
+        assert_eq!(scene.footprint.cols, 20);
+        assert_eq!(scene.footprint.rows, 4);
+        assert!(scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("background")));
+        assert!(scene.animation.is_some());
     }
 
     #[test]

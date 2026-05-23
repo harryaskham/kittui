@@ -485,8 +485,7 @@ kittui box       -x X -y Y -w W -h H --fg COLOR --bg COLOR
                  [--animate pulse:FRAMES@CYCLE_MS[:CURVE]]
 kittui gradient  -w W -h H --left COLOR --right COLOR [--direction h|v|d] [--fade]
 kittui glow      -w W -h H --color COLOR [--intensity 0..1]
-kittui panel     --tone assistant|tool|user -w W -h H
-                 [--caption TEXT] [--animate pulse:8@800ms]
+kittui panel     --tone assistant|tool|user -w W -h H [--animate]
 kittui image     --src PATH|- -w W -h H [--fit contain|cover|stretch|none] [--tint COLOR]
 kittui compose   <scene.json>|- [--x X --y Y]                # `-` reads Scene JSON from stdin; x/y override placement only
 kittui place     --id 0xID --x X --y Y --cols C --rows R       # re-place a cached id
