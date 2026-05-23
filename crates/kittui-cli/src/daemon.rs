@@ -117,6 +117,8 @@ pub struct NativePaneStatus {
     pub app_y: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_cols: Option<u16>,
+    #[serde(skip_serializing)]
+    pub text_snapshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_rows: Option<u16>,
 }
@@ -420,6 +422,12 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("SEND_KEY ") {
         return queue_native_send_key(pending, rest);
     }
+    if let Some(target) = cmd.strip_prefix("READ_TEXT_JSON ") {
+        return native_spawn_read_text_json_reply(pending, target);
+    }
+    if let Some(target) = cmd.strip_prefix("READ_TEXT ") {
+        return native_spawn_read_text_reply(pending, target);
+    }
     match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
@@ -430,7 +438,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -506,6 +514,16 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "SEND_KEY <window|focused> <key>",
             "control",
             "send a named key sequence to a native pane",
+        ),
+        (
+            "READ_TEXT <window|focused>",
+            "inspect",
+            "read a native pane text snapshot",
+        ),
+        (
+            "READ_TEXT_JSON <window|focused>",
+            "inspect",
+            "read a native pane text snapshot as JSON",
         ),
         ("APPS", "apps", "text app discovery listing"),
         ("APPS_JSON", "apps", "JSON app discovery listing"),
@@ -790,6 +808,62 @@ fn native_pane_layout_label(pane: &NativePaneStatus) -> String {
             format!("{x},{y} {cols}x{rows} app={app_x},{app_y} {app_cols}x{app_rows}")
         }
         _ => "-".to_string(),
+    }
+}
+
+fn native_spawn_read_text_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    target: &str,
+) -> String {
+    let Ok(state) = pending.lock() else {
+        return "ERR registry poisoned\n".to_string();
+    };
+    let Some(pane) = native_find_pane_target(&state.panes, target) else {
+        return format!("ERR READ_TEXT no pane matching {}\n", target.trim());
+    };
+    let text = pane.text_snapshot.as_deref().unwrap_or("");
+    format!(
+        "TEXT window={} bytes={}\n{}END\n",
+        pane.window,
+        text.len(),
+        text
+    )
+}
+
+fn native_spawn_read_text_json_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    target: &str,
+) -> String {
+    let Ok(state) = pending.lock() else {
+        return "{\"error\":\"registry poisoned\"}\n".to_string();
+    };
+    let Some(pane) = native_find_pane_target(&state.panes, target) else {
+        return format!(
+            "{}\n",
+            serde_json::json!({ "error": "no pane matching target", "target": target.trim() })
+        );
+    };
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "window": pane.window,
+            "text": pane.text_snapshot.as_deref().unwrap_or(""),
+        })
+    )
+}
+
+fn native_find_pane_target<'a>(
+    panes: &'a [NativePaneStatus],
+    target: &str,
+) -> Option<&'a NativePaneStatus> {
+    let target = target.trim();
+    if target.is_empty() {
+        return None;
+    }
+    if target == "focused" {
+        panes.iter().find(|pane| pane.focused)
+    } else {
+        panes.iter().find(|pane| pane.window == target)
     }
 }
 
@@ -1254,6 +1328,34 @@ mod tests {
     }
 
     #[test]
+    fn native_spawn_queue_read_text_round_trip_over_socket() {
+        let p =
+            tmp_sock().with_file_name(format!("kittwm-native-read-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        let queue = NativeSpawnQueue::bind(p).unwrap();
+        queue.update_panes(vec![NativePaneStatus {
+            window: "native-1".to_string(),
+            title: "shell".to_string(),
+            focused: true,
+            weight: 1,
+            pid: None,
+            command: None,
+            x: None,
+            y: None,
+            cols: None,
+            rows: None,
+            app_x: None,
+            app_y: None,
+            app_cols: None,
+            text_snapshot: Some("ready\n$ ".to_string()),
+            app_rows: None,
+        }]);
+        let reply = client_request_multi(queue.path(), "READ_TEXT focused").unwrap();
+        assert!(reply.starts_with("TEXT window=native-1"), "{reply}");
+        assert!(reply.contains("ready\n$ "), "{reply}");
+    }
+
+    #[test]
     fn native_spawn_queue_serves_help_catalogs() {
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
         let help = native_spawn_queue_reply("HELP", &pending);
@@ -1270,6 +1372,8 @@ mod tests {
         assert!(help.contains("SEND_TEXT <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_LINE <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_KEY <window|focused> <key>"), "{help}");
+        assert!(help.contains("READ_TEXT <window|focused>"), "{help}");
+        assert!(help.contains("READ_TEXT_JSON <window|focused>"), "{help}");
         assert!(help.contains("APPS_JSON"), "{help}");
 
         let help_json: serde_json::Value =
@@ -1321,6 +1425,7 @@ mod tests {
                 app_x: Some(0),
                 app_y: Some(1),
                 app_cols: Some(40),
+                text_snapshot: Some("shell line\n".to_string()),
                 app_rows: Some(23),
             },
             NativePaneStatus {
@@ -1337,6 +1442,7 @@ mod tests {
                 app_x: Some(40),
                 app_y: Some(1),
                 app_cols: Some(80),
+                text_snapshot: Some("htop line\nsecond\n".to_string()),
                 app_rows: Some(23),
             },
         ];
@@ -1375,6 +1481,19 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["weight"], 3);
         assert_eq!(panes_json["panes_detail"][1]["x"], 40);
         assert_eq!(panes_json["panes_detail"][1]["app_cols"], 80);
+        assert!(panes_json["panes_detail"][1].get("text_snapshot").is_none());
+
+        let text = native_spawn_queue_reply("READ_TEXT focused", &pending);
+        assert!(text.starts_with("TEXT window=native-2 bytes="), "{text}");
+        assert!(text.contains("htop line\nsecond\nEND\n"), "{text}");
+        let text_json: serde_json::Value = serde_json::from_str(&native_spawn_queue_reply(
+            "READ_TEXT_JSON native-1",
+            &pending,
+        ))
+        .unwrap();
+        assert_eq!(text_json["window"], "native-1");
+        assert_eq!(text_json["text"], "shell line\n");
+        assert!(native_spawn_queue_reply("READ_TEXT missing", &pending).contains("ERR"));
     }
 
     #[test]
@@ -1466,6 +1585,7 @@ pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
             && !first.starts_with("DISPLAYS ")
             && !first.starts_with("APPS ")
             && !first.starts_with("PANES ")
+            && !first.starts_with("TEXT ")
         {
             break;
         }

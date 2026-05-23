@@ -677,6 +677,7 @@ fn native_pane_statuses(
                 app_x: layout.map(|l| l.app_x),
                 app_y: layout.map(|l| l.app_y),
                 app_cols: layout.map(|l| l.app_cols),
+                text_snapshot: Some(pane.app.text_snapshot()),
                 app_rows: layout.map(|l| l.app_rows),
             }
         })
