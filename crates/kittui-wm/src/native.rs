@@ -452,13 +452,7 @@ impl TerminalState {
 
     fn newline(&mut self) {
         self.cursor_col = 0;
-        if self.cursor_row == self.scroll_bottom {
-            self.scroll_region_up(self.scroll_top, self.scroll_bottom);
-        } else if self.cursor_row + 1 >= self.rows {
-            self.scroll_region_up(0, self.rows.saturating_sub(1));
-        } else {
-            self.cursor_row += 1;
-        }
+        self.index();
     }
 
     fn scroll_region_up(&mut self, top: u16, bottom: u16) {
@@ -475,6 +469,42 @@ impl TerminalState {
         let clear_start = usize::from(bottom) * cols;
         for cell in &mut self.cells[clear_start..clear_start + cols] {
             *cell = TerminalCell::blank(self.current_style);
+        }
+    }
+
+    fn scroll_region_down(&mut self, top: u16, bottom: u16) {
+        if top >= bottom || bottom >= self.rows {
+            return;
+        }
+        let cols = usize::from(self.cols);
+        let start = usize::from(top) * cols;
+        let end = usize::from(bottom) * cols;
+        self.cells.copy_within(start..end, start + cols);
+        for cell in &mut self.cells[start..start + cols] {
+            *cell = TerminalCell::blank(self.current_style);
+        }
+    }
+
+    fn index(&mut self) {
+        if self.cursor_row == self.scroll_bottom {
+            self.scroll_region_up(self.scroll_top, self.scroll_bottom);
+        } else if self.cursor_row + 1 >= self.rows {
+            self.scroll_region_up(0, self.rows.saturating_sub(1));
+        } else {
+            self.cursor_row += 1;
+        }
+    }
+
+    fn next_line(&mut self) {
+        self.carriage_return();
+        self.index();
+    }
+
+    fn reverse_index(&mut self) {
+        if self.cursor_row == self.scroll_top {
+            self.scroll_region_down(self.scroll_top, self.scroll_bottom);
+        } else {
+            self.cursor_row = self.cursor_row.saturating_sub(1);
         }
     }
 
@@ -870,6 +900,9 @@ impl Perform for TerminalState {
             b'\r' => self.carriage_return(),
             b'\t' => self.tab(),
             0x08 => self.cursor_col = self.cursor_col.saturating_sub(1),
+            0x84 => self.index(),
+            0x85 => self.next_line(),
+            0x8d => self.reverse_index(),
             _ => {}
         }
     }
@@ -1000,6 +1033,9 @@ impl Perform for TerminalState {
         match byte {
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
+            b'D' => self.index(),
+            b'E' => self.next_line(),
+            b'M' => self.reverse_index(),
             _ => {}
         }
     }
@@ -1473,6 +1509,33 @@ mod tests {
         assert!(text.starts_with("X\n\nY"), "snapshot was:\n{text}");
         assert_eq!(state.scroll_top, 0);
         assert_eq!(state.scroll_bottom, 3);
+    }
+
+    #[test]
+    fn terminal_state_honors_index_and_next_line_controls() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 3);
+        parser.advance(&mut state, b"ab\x1bEcd");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("ab\ncd"), "snapshot was:\n{text}");
+
+        let mut state = TerminalState::new(8, 3);
+        parser.advance(&mut state, b"ab\x1bDcd");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("ab\n  cd"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn terminal_state_honors_reverse_index_in_scroll_region() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 5);
+        parser.advance(&mut state, b"header\nbody1\nbody2\nbody3\nfooter");
+        parser.advance(&mut state, b"\x1b[2;4r\x1b[2;1H\x1bMtop");
+        let text = state.text_snapshot();
+        assert!(
+            text.starts_with("header\ntop\nbody1\nbody2\nfooter"),
+            "snapshot was:\n{text}"
+        );
     }
 
     #[test]
