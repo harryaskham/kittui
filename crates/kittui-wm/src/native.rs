@@ -76,6 +76,20 @@ pub enum NativeFrame {
 }
 
 impl NativeFrame {
+    /// Frame width in pixels.
+    pub fn width(&self) -> u32 {
+        match self {
+            Self::Rgba { width, .. } | Self::Png { width, .. } => *width,
+        }
+    }
+
+    /// Frame height in pixels.
+    pub fn height(&self) -> u32 {
+        match self {
+            Self::Rgba { height, .. } | Self::Png { height, .. } => *height,
+        }
+    }
+
     /// Convert an RGBA frame into the existing XCapture shape used by the WM.
     pub fn as_xcapture(&self, id: XWindowId) -> Option<XCapture> {
         match self {
@@ -479,15 +493,15 @@ impl NativeApp for PtyTerminalApp {
     }
 
     fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
-        self.surface.resize(cols, rows)
+        self.resize_surface(cols, rows)
     }
 
     fn send_text(&mut self, text: &str) -> Result<()> {
-        self.surface.send_text(text)
+        self.send_surface_text(text)
     }
 
     fn capture(&mut self) -> Result<NativeFrame> {
-        self.surface.capture()
+        Ok(self.capture_surface()?.frame)
     }
 }
 
@@ -501,22 +515,22 @@ impl NativeSurface for PtyTerminalApp {
                     .unwrap_or_else(|| "unknown".to_string())
             )),
             kind: SurfaceKind::Terminal,
-            title: self.title(),
+            title: self.surface.title().unwrap_or_else(|| self.title.clone()),
             capabilities: SurfaceCapabilities::interactive_capture(),
             frame_size: None,
         }
     }
 
     fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()> {
-        self.resize(cols, rows)
+        self.surface.resize(cols, rows)
     }
 
     fn send_surface_text(&mut self, text: &str) -> Result<()> {
-        self.send_text(text)
+        self.surface.send_text(text)
     }
 
     fn capture_surface(&mut self) -> Result<SurfaceFrame> {
-        let frame = self.capture()?;
+        let frame = self.surface.capture()?;
         let frame_size = match &frame {
             NativeFrame::Rgba { width, height, .. } | NativeFrame::Png { width, height, .. } => {
                 Some((*width, *height))
@@ -1950,22 +1964,43 @@ impl NativeSurface for HeadlessBrowserApp {
     }
 
     fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()> {
-        self.resize(cols, rows)
+        self.width = u32::from(cols) * 8;
+        self.height = u32::from(rows) * 16;
+        self.cdp(
+            "Emulation.setDeviceMetricsOverride",
+            json!({"width": self.width, "height": self.height, "deviceScaleFactor": 1, "mobile": false}),
+        )?;
+        Ok(())
     }
 
     fn send_surface_text(&mut self, text: &str) -> Result<()> {
-        self.send_text(text)
+        for ch in text.chars() {
+            self.cdp(
+                "Input.dispatchKeyEvent",
+                json!({"type": "char", "text": ch.to_string()}),
+            )?;
+        }
+        Ok(())
     }
 
     fn capture_surface(&mut self) -> Result<SurfaceFrame> {
-        let frame = self.capture()?;
-        let frame_size = match &frame {
-            NativeFrame::Rgba { width, height, .. } | NativeFrame::Png { width, height, .. } => {
-                Some((*width, *height))
-            }
+        let value = self.cdp(
+            "Page.captureScreenshot",
+            json!({"format": "png", "captureBeyondViewport": false}),
+        )?;
+        let b64 = value
+            .get("data")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("captureScreenshot response missing data"))?;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(b64)?;
+        let (width, height) = png_dimensions(&bytes)?;
+        let frame = NativeFrame::Png {
+            width,
+            height,
+            bytes,
         };
         let mut metadata = self.metadata();
-        metadata.frame_size = frame_size;
+        metadata.frame_size = Some((width, height));
         Ok(SurfaceFrame { metadata, frame })
     }
 }
@@ -1983,41 +2018,15 @@ impl NativeApp for HeadlessBrowserApp {
     }
 
     fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
-        self.width = u32::from(cols) * 8;
-        self.height = u32::from(rows) * 16;
-        self.cdp(
-            "Emulation.setDeviceMetricsOverride",
-            json!({"width": self.width, "height": self.height, "deviceScaleFactor": 1, "mobile": false}),
-        )?;
-        Ok(())
+        self.resize_surface(cols, rows)
     }
 
     fn send_text(&mut self, text: &str) -> Result<()> {
-        for ch in text.chars() {
-            self.cdp(
-                "Input.dispatchKeyEvent",
-                json!({"type": "char", "text": ch.to_string()}),
-            )?;
-        }
-        Ok(())
+        self.send_surface_text(text)
     }
 
     fn capture(&mut self) -> Result<NativeFrame> {
-        let value = self.cdp(
-            "Page.captureScreenshot",
-            json!({"format": "png", "captureBeyondViewport": false}),
-        )?;
-        let b64 = value
-            .get("data")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("captureScreenshot response missing data"))?;
-        let bytes = base64::engine::general_purpose::STANDARD.decode(b64)?;
-        let (width, height) = png_dimensions(&bytes)?;
-        Ok(NativeFrame::Png {
-            width,
-            height,
-            bytes,
-        })
+        Ok(self.capture_surface()?.frame)
     }
 }
 
@@ -2134,6 +2143,17 @@ fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_reports_dimensions() {
+        let frame = NativeFrame::Rgba {
+            width: 3,
+            height: 2,
+            rgba: vec![0; 24],
+        };
+        assert_eq!(frame.width(), 3);
+        assert_eq!(frame.height(), 2);
+    }
 
     #[test]
     fn pty_terminal_echo_round_trip_and_capture() {
