@@ -150,6 +150,7 @@ export class Kittui {
     this._kittui_string_free = this.lib.func('void kittui_string_free(void* ptr)');
     this._kittui_probe_json = this.lib.func('KittuiOwnedStr kittui_probe_json(void* runtime)');
     this._kittui_unplace = this.lib.func('KittuiOwnedStr kittui_unplace(void* runtime, uint32_t image_id)');
+    this._kittui_last_error = this.lib.func('KittuiOwnedStr kittui_last_error(void* runtime)');
     // `KittuiOwnedStr` ties the auto-decoded `char**` to kittui_string_free
     // so ownership of the C buffer transfers cleanly into JS.
     this._kittui_place_json = this.lib.func(
@@ -168,6 +169,18 @@ export class Kittui {
       'int kittui_place_many_json_channels(void* runtime, const char* scenes_json, uint16_t x, uint16_t y, _Out_ KittuiOwnedStr* out)',
     );
     this._kittui_abi_version = this.lib.func('uint32_t kittui_abi_version()');
+  }
+
+  _ffiError(name, status) {
+    let detail = '';
+    if (this.runtime && this._kittui_last_error) {
+      try {
+        detail = this._kittui_last_error(this.runtime) || '';
+      } catch (_err) {
+        detail = '';
+      }
+    }
+    return new Error(`${name} failed: status=${status}${detail ? `: ${detail}` : ''}`);
   }
 
   _parseImageId(imageId) {
@@ -227,7 +240,7 @@ export class Kittui {
     const outBox = [null];
     const status = this._kittui_place_json(this.runtime, json, outBox);
     if (status !== KittuiStatus.Ok) {
-      throw new Error(`kittui_place_json failed: status=${status}`);
+      throw this._ffiError('kittui_place_json', status);
     }
     // koffi decodes the C string into JS and runs the disposable's
     // destructor (kittui_string_free) once decoding completes.
@@ -249,7 +262,7 @@ export class Kittui {
     const outBox = [null];
     const status = this._kittui_place_json_at(this.runtime, json, x, y, outBox);
     if (status !== KittuiStatus.Ok) {
-      throw new Error(`kittui_place_json_at failed: status=${status}`);
+      throw this._ffiError('kittui_place_json_at', status);
     }
     return outBox[0] || '';
   }
@@ -267,7 +280,7 @@ export class Kittui {
     const outBox = [null];
     const status = this._kittui_place_many_json(this.runtime, JSON.stringify(normalized), outBox);
     if (status !== KittuiStatus.Ok) {
-      throw new Error(`kittui_place_many_json failed: status=${status}`);
+      throw this._ffiError('kittui_place_many_json', status);
     }
     return outBox[0] || '';
   }
@@ -288,7 +301,7 @@ export class Kittui {
     const outBox = [null];
     const status = this._kittui_place_many_json_at(this.runtime, JSON.stringify(normalized), x, y, outBox);
     if (status !== KittuiStatus.Ok) {
-      throw new Error(`kittui_place_many_json_at failed: status=${status}`);
+      throw this._ffiError('kittui_place_many_json_at', status);
     }
     return outBox[0] || '';
   }
@@ -308,7 +321,7 @@ export class Kittui {
     const outBox = [null];
     const status = this._kittui_place_many_json_channels(this.runtime, JSON.stringify(normalized), x, y, outBox);
     if (status !== KittuiStatus.Ok) {
-      throw new Error(`kittui_place_many_json_channels failed: status=${status}`);
+      throw this._ffiError('kittui_place_many_json_channels', status);
     }
     return JSON.parse(outBox[0] || '{}');
   }

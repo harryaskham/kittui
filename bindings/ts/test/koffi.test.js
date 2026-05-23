@@ -56,7 +56,7 @@ test('koffi binding round-trips a still scene through the FFI', { skip: !libBuil
   k.close();
 });
 
-function fakeLib(calls) {
+function fakeLib(calls, options = {}) {
   return {
     func(signature) {
       if (signature.includes('kittui_runtime_new_config')) {
@@ -86,9 +86,13 @@ function fakeLib(calls) {
           return 'deleted';
         };
       }
+      if (signature.includes('kittui_last_error')) {
+        return () => 'fake ffi detail';
+      }
       if (signature.includes('kittui_place_many_json_channels')) {
         return (_runtime, scenesJson, x, y, out) => {
           calls.push(['place_many_channels', JSON.parse(scenesJson), x, y]);
+          if (options.fail === 'place_many_channels') return 3;
           out[0] = JSON.stringify({ count: 2, upload: 'u', placement: 'p', embed: 'e' });
           return 0;
         };
@@ -96,6 +100,7 @@ function fakeLib(calls) {
       if (signature.includes('kittui_place_many_json_at')) {
         return (_runtime, scenesJson, x, y, out) => {
           calls.push(['place_many_at', JSON.parse(scenesJson), x, y]);
+          if (options.fail === 'place_many_at') return 3;
           out[0] = 'placed-many-at';
           return 0;
         };
@@ -103,6 +108,7 @@ function fakeLib(calls) {
       if (signature.includes('kittui_place_many_json')) {
         return (_runtime, scenesJson, out) => {
           calls.push(['place_many', JSON.parse(scenesJson)]);
+          if (options.fail === 'place_many') return 3;
           out[0] = 'placed-many';
           return 0;
         };
@@ -110,6 +116,7 @@ function fakeLib(calls) {
       if (signature.includes('kittui_place_json_at')) {
         return (_runtime, sceneJson, x, y, out) => {
           calls.push(['place_at', JSON.parse(sceneJson), x, y]);
+          if (options.fail === 'place_at') return 3;
           out[0] = 'placed-at';
           return 0;
         };
@@ -117,6 +124,7 @@ function fakeLib(calls) {
       if (signature.includes('kittui_place_json')) {
         return (_runtime, sceneJson, out) => {
           calls.push(['place', JSON.parse(sceneJson)]);
+          if (options.fail === 'place') return 3;
           out[0] = 'placed';
           return 0;
         };
@@ -234,6 +242,24 @@ test('placeManyChannels returns parsed channel JSON', () => {
   assert.equal(call[2], 10);
   assert.equal(call[3], 20);
   k.close();
+});
+
+test('placement failures include FFI last_error detail', () => {
+  const s = scene.build({
+    footprintCells: [4, 2],
+    layers: [scene.backgroundSolid([0, 216, 255, 255])],
+  });
+  for (const [fail, call] of [
+    ['place', (k) => k.place(s)],
+    ['place_at', (k) => k.placeAt(s, 1, 2)],
+    ['place_many', (k) => k.placeMany([s])],
+    ['place_many_at', (k) => k.placeManyAt([s], 1, 2)],
+    ['place_many_channels', (k) => k.placeManyChannels([s], 1, 2)],
+  ]) {
+    const k = new Kittui(fakeLib([], { fail }), {});
+    assert.throws(() => call(k), /status=3: fake ffi detail/);
+    k.close();
+  }
 });
 
 test('scene helpers produce JSON-compatible plain objects', () => {

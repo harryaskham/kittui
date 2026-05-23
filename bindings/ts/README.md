@@ -50,12 +50,18 @@ process.stdout.write(k.unplace('0x1234'));
 
 // Reuse the same scene/render identity but place it elsewhere.
 process.stdout.write(k.placeAt(sceneJsonOrObject, 10, 4));
+
+// Batch placement at a group origin, with channelized output for hosts that
+// want to schedule upload / placement / embed writes separately.
+const channels = k.placeManyChannels([sceneJsonOrObject], 10, 4);
+process.stdout.write(channels.upload + channels.placement + channels.embed);
 ```
 
 The returned string is the concatenated `upload + placement + embed`
 escape sequences ready to write at the cursor's current position. Use
 `placeAt(scene, x, y)` when the host wants to control terminal placement
-without mutating the scene JSON.
+without mutating the scene JSON. Failed FFI calls throw errors containing both
+numeric status and `kittui_last_error` detail when the runtime provides it.
 
 ## Library discovery
 
