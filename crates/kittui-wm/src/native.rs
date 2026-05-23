@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use kittui::Scene;
-use kittui_xvfb::{XCapture, XServer, XWindow, XWindowId};
+use kittui_xvfb::{XButton, XCapture, XPointerEvent, XServer, XWindow, XWindowId};
 use kittwm_sdk::{
     ActionKind, ComponentAction, ComponentNode, ComponentRole, ComponentState, ComponentValue,
     SemanticSurfaceSnapshot,
@@ -43,6 +43,55 @@ pub struct MouseReportingModes {
     pub all_motion: bool,
     /// SGR coordinate encoding (`CSI ? 1006 h`).
     pub sgr: bool,
+}
+
+/// Surface-level pointer button independent of backend-specific event types.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfacePointerButton {
+    /// Primary/left button.
+    Left,
+    /// Middle button.
+    Middle,
+    /// Secondary/right button.
+    Right,
+    /// Scroll up wheel step.
+    ScrollUp,
+    /// Scroll down wheel step.
+    ScrollDown,
+}
+
+impl SurfacePointerButton {
+    fn to_xbutton(self) -> XButton {
+        match self {
+            Self::Left => XButton::Left,
+            Self::Middle => XButton::Middle,
+            Self::Right => XButton::Right,
+            Self::ScrollUp => XButton::ScrollUp,
+            Self::ScrollDown => XButton::ScrollDown,
+        }
+    }
+}
+
+/// Surface-level pointer event in surface-local pixel coordinates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfacePointerEvent {
+    /// Move pointer to absolute surface-local pixel coordinates.
+    Move {
+        /// Surface-local x coordinate in pixels.
+        x_px: i32,
+        /// Surface-local y coordinate in pixels.
+        y_px: i32,
+    },
+    /// Press a pointer button.
+    Press {
+        /// Button to press.
+        button: SurfacePointerButton,
+    },
+    /// Release a pointer button.
+    Release {
+        /// Button to release.
+        button: SurfacePointerButton,
+    },
 }
 
 /// Backend-independent input and capture surface for a kittwm-native app.
@@ -355,6 +404,12 @@ pub trait NativeSurface {
     /// Notify the surface that it gained or lost focus.
     fn send_surface_focus(&mut self, _focused: bool) -> Result<()> {
         Ok(())
+    }
+    /// Send a pointer event in surface-local pixel coordinates when supported.
+    fn send_surface_pointer(&mut self, _event: SurfacePointerEvent) -> Result<()> {
+        Err(anyhow!(
+            "surface does not support pointer input through this adapter"
+        ))
     }
     /// Capture a frame and pair it with current metadata.
     fn capture_surface(&mut self) -> Result<SurfaceFrame>;
@@ -851,6 +906,27 @@ impl NativeSurface for XWindowSurface {
             })?;
         }
         Ok(())
+    }
+
+    fn send_surface_pointer(&mut self, event: SurfacePointerEvent) -> Result<()> {
+        let event = match event {
+            SurfacePointerEvent::Move { x_px, y_px } => XPointerEvent::Move {
+                window: self.window.id,
+                x_px,
+                y_px,
+            },
+            SurfacePointerEvent::Press { button } => XPointerEvent::Press {
+                window: self.window.id,
+                button: button.to_xbutton(),
+            },
+            SurfacePointerEvent::Release { button } => XPointerEvent::Release {
+                window: self.window.id,
+                button: button.to_xbutton(),
+            },
+        };
+        self.server
+            .inject_pointer(event)
+            .with_context(|| format!("send pointer event to X window {:?}", self.window.id))
     }
 
     fn capture_surface(&mut self) -> Result<SurfaceFrame> {
@@ -4245,6 +4321,111 @@ mod tests {
         assert!(CompositeFrameSurface::new("bad", "bad", 0, 1).is_err());
         let mut surface = CompositeFrameSurface::new("ok", "ok", 2, 2).unwrap();
         assert!(surface.push_rgba_child(0, 0, 1, 1, vec![0; 3]).is_err());
+    }
+
+    #[test]
+    fn xwindow_surface_routes_surface_pointer_events() {
+        struct RecordingServer {
+            window: XWindow,
+            events: Arc<parking_lot::Mutex<Vec<XPointerEvent>>>,
+        }
+
+        impl XServer for RecordingServer {
+            fn windows(&self) -> std::result::Result<Vec<XWindow>, kittui_xvfb::XError> {
+                Ok(vec![self.window.clone()])
+            }
+
+            fn capture(&self, id: XWindowId) -> std::result::Result<XCapture, kittui_xvfb::XError> {
+                Ok(XCapture {
+                    id,
+                    width: 1,
+                    height: 1,
+                    rgba: vec![0, 0, 0, 0xff],
+                })
+            }
+
+            fn inject_pointer(
+                &self,
+                event: XPointerEvent,
+            ) -> std::result::Result<(), kittui_xvfb::XError> {
+                self.events.lock().push(event);
+                Ok(())
+            }
+
+            fn inject_key(
+                &self,
+                _sym: u32,
+                _pressed: bool,
+            ) -> std::result::Result<(), kittui_xvfb::XError> {
+                Ok(())
+            }
+        }
+
+        let events = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let window = XWindow {
+            id: XWindowId(11),
+            rect: kittui_core::geom::PxRect::new(0.0, 0.0, 10.0, 10.0),
+            title: "xterm".to_string(),
+        };
+        let server = RecordingServer {
+            window: window.clone(),
+            events: events.clone(),
+        };
+        let mut surface = XWindowSurface::x11(Box::new(server), window, 8, 16);
+
+        NativeSurface::send_surface_pointer(
+            &mut surface,
+            SurfacePointerEvent::Move { x_px: 3, y_px: 4 },
+        )
+        .unwrap();
+        NativeSurface::send_surface_pointer(
+            &mut surface,
+            SurfacePointerEvent::Press {
+                button: SurfacePointerButton::Left,
+            },
+        )
+        .unwrap();
+        NativeSurface::send_surface_pointer(
+            &mut surface,
+            SurfacePointerEvent::Release {
+                button: SurfacePointerButton::ScrollDown,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            &*events.lock(),
+            &[
+                XPointerEvent::Move {
+                    window: XWindowId(11),
+                    x_px: 3,
+                    y_px: 4,
+                },
+                XPointerEvent::Press {
+                    window: XWindowId(11),
+                    button: XButton::Left,
+                },
+                XPointerEvent::Release {
+                    window: XWindowId(11),
+                    button: XButton::ScrollDown,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn capture_only_surface_pointer_hook_reports_unsupported() {
+        let mut surface =
+            RgbaFrameSurface::new("rgba:pointer", "pointer", 1, 1, vec![0; 4]).unwrap();
+        let err = NativeSurface::send_surface_pointer(
+            &mut surface,
+            SurfacePointerEvent::Move { x_px: 0, y_px: 0 },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("does not support pointer input"),
+            "{err}"
+        );
     }
 
     #[test]
