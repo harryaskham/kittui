@@ -410,6 +410,7 @@ pub mod compositor {
         focused: Mutex<Option<XWindowId>>,
         modes: Mutex<HashMap<XWindowId, WindowMode>>,
         fullscreen: Mutex<HashMap<XWindowId, bool>>,
+        z_order: Mutex<Vec<XWindowId>>,
         /// Last-known `(source_rect, terminal_footprint)` pair per window,
         /// populated by every `compose_with_layout` call. Pointer routing
         /// reads this to map terminal cells back into source pixels.
@@ -468,6 +469,7 @@ pub mod compositor {
                 focused: Mutex::new(None),
                 modes: Mutex::new(HashMap::new()),
                 fullscreen: Mutex::new(HashMap::new()),
+                z_order: Mutex::new(Vec::new()),
                 placements: Mutex::new(HashMap::new()),
                 placement_order: Mutex::new(Vec::new()),
             }
@@ -540,6 +542,50 @@ pub mod compositor {
             })
         }
 
+        /// Raise the focused-or-first backend window one z-order step.
+        pub fn raise_focused(&self) -> Result<Option<XWindowId>, kittui_xvfb::XError> {
+            self.move_focused_z(1)
+        }
+
+        /// Lower the focused-or-first backend window one z-order step.
+        pub fn lower_focused(&self) -> Result<Option<XWindowId>, kittui_xvfb::XError> {
+            self.move_focused_z(-1)
+        }
+
+        fn ordered_window_ids(&self, windows: &[kittui_xvfb::XWindow]) -> Vec<XWindowId> {
+            let base = windows.iter().map(|w| w.id).collect::<Vec<_>>();
+            let z_order = self.z_order.lock();
+            let mut ordered = z_order
+                .iter()
+                .copied()
+                .filter(|id| base.contains(id))
+                .collect::<Vec<_>>();
+            for id in base {
+                if !ordered.contains(&id) {
+                    ordered.push(id);
+                }
+            }
+            ordered
+        }
+
+        fn move_focused_z(&self, delta: isize) -> Result<Option<XWindowId>, kittui_xvfb::XError> {
+            let windows = self.server.windows()?;
+            let Some(id) = self.focused_or_first_window()? else {
+                return Ok(None);
+            };
+            self.set_focused(id);
+            let mut order = self.ordered_window_ids(&windows);
+            let Some(pos) = order.iter().position(|candidate| *candidate == id) else {
+                return Ok(Some(id));
+            };
+            let len = order.len() as isize;
+            let next = (pos as isize + delta).clamp(0, len.saturating_sub(1)) as usize;
+            order.remove(pos);
+            order.insert(next, id);
+            *self.z_order.lock() = order;
+            Ok(Some(id))
+        }
+
         /// Focus the next known backend window, wrapping at the end.
         pub fn focus_next(&self) -> Result<Option<XWindowId>, kittui_xvfb::XError> {
             self.focus_relative(1)
@@ -583,6 +629,8 @@ pub mod compositor {
         /// one base64 + one write, no PNG encode.
         pub fn raw_frames(&self, layout: &Layout) -> Result<Vec<RawFrame>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
+            let ordered_ids = self.ordered_window_ids(&windows);
+            let windows_by_id = windows.iter().map(|w| (w.id, w)).collect::<HashMap<_, _>>();
             let modes = self.modes.lock().clone();
             let fullscreen = self.fullscreen.lock().clone();
             let focused_window = self.focused_or_first_window()?;
@@ -590,7 +638,10 @@ pub mod compositor {
             let mut placements_snapshot = HashMap::new();
             let mut placement_order = Vec::with_capacity(windows.len());
             let mut out = Vec::with_capacity(windows.len());
-            for w in &windows {
+            for id in ordered_ids {
+                let Some(w) = windows_by_id.get(&id).copied() else {
+                    continue;
+                };
                 let mode = modes.get(&w.id).copied().unwrap_or(WindowMode::Floating);
                 let is_fullscreen = fullscreen.get(&w.id).copied().unwrap_or(false);
                 let target_rect =
@@ -640,6 +691,8 @@ pub mod compositor {
             layout: &Layout,
         ) -> Result<Vec<Scene>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
+            let ordered_ids = self.ordered_window_ids(&windows);
+            let windows_by_id = windows.iter().map(|w| (w.id, w)).collect::<HashMap<_, _>>();
             let modes = self.modes.lock().clone();
             let fullscreen = self.fullscreen.lock().clone();
             let focused_window = self.focused_or_first_window()?;
@@ -647,7 +700,10 @@ pub mod compositor {
             let mut placements_snapshot = HashMap::new();
             let mut placement_order = Vec::with_capacity(windows.len());
             let mut out = Vec::with_capacity(windows.len());
-            for w in &windows {
+            for id in ordered_ids {
+                let Some(w) = windows_by_id.get(&id).copied() else {
+                    continue;
+                };
                 let mode = modes.get(&w.id).copied().unwrap_or(WindowMode::Floating);
                 let is_fullscreen = fullscreen.get(&w.id).copied().unwrap_or(false);
                 let target_rect =
@@ -1051,6 +1107,36 @@ pub mod compositor {
                     ..
                 })
             ));
+        }
+
+        #[test]
+        fn raise_and_lower_focused_window_changes_hit_test_order() {
+            let server = FakeServer::with_windows(vec![
+                (
+                    XWindowId(1),
+                    PxRect::new(0.0, 0.0, 64.0, 32.0),
+                    "bottom",
+                    [0xff, 0x00, 0x00, 0xff],
+                ),
+                (
+                    XWindowId(2),
+                    PxRect::new(0.0, 0.0, 64.0, 32.0),
+                    "top",
+                    [0x00, 0xff, 0x00, 0xff],
+                ),
+            ]);
+            let comp = Compositor::new(server, CellSize::new(8, 16));
+            let _ = comp.compose_with_layout(&Layout::all_floating()).unwrap();
+            assert_eq!(comp.hit_test(1, 1), Some(XWindowId(2)));
+            comp.set_focused(XWindowId(1));
+            assert_eq!(comp.raise_focused().unwrap(), Some(XWindowId(1)));
+            let frames = comp.raw_frames(&Layout::all_floating()).unwrap();
+            assert_eq!(frames.last().unwrap().window_id, XWindowId(1));
+            assert_eq!(comp.hit_test(1, 1), Some(XWindowId(1)));
+            assert_eq!(comp.lower_focused().unwrap(), Some(XWindowId(1)));
+            let frames = comp.raw_frames(&Layout::all_floating()).unwrap();
+            assert_eq!(frames.first().unwrap().window_id, XWindowId(1));
+            assert_eq!(comp.hit_test(1, 1), Some(XWindowId(2)));
         }
 
         #[test]

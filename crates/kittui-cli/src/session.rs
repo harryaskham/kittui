@@ -1000,6 +1000,17 @@ pub fn run_loop_with<S: XServer>(
                                 | Action::SwapUp
                                 | Action::SwapRight => {
                                     let msg = swap_state.apply(&action);
+                                    let moved = match action {
+                                        Action::SwapLeft | Action::SwapUp => {
+                                            compositor.lower_focused()
+                                        }
+                                        _ => compositor.raise_focused(),
+                                    };
+                                    let msg = match moved {
+                                        Ok(Some(id)) => format!("{msg} window={}", id.0),
+                                        Ok(None) => format!("{msg} window=-"),
+                                        Err(e) => format!("{msg} error={e}"),
+                                    };
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("swap action: {msg}"));
                                 }
