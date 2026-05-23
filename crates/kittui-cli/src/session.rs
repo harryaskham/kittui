@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 
-use kittui::{CellRect, CellSize, Runtime, Scene};
-use kittui_affordances::{button, text_input, ControlState};
+use kittui::{CellRect, CellSize, Rgba, Runtime, Scene};
+use kittui_affordances::{button, text_input, title_chrome, ControlState};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
@@ -480,7 +480,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             write_native_help_overlay(&mut handle, cols, rows)?;
         }
         if affordance_scene_chrome {
-            write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view)?;
+            write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view, cols)?;
         }
         for (idx, pane) in panes.iter_mut().enumerate() {
             let layout = layouts[idx];
@@ -1736,11 +1736,48 @@ struct NativeShellChromeScene {
     scene: Scene,
 }
 
+fn native_top_bar_scene(view: &NativeShellView, cols: u16, cell_size: CellSize) -> Scene {
+    let (left, right) = if view.panes.is_empty() {
+        (Rgba::rgb(0x20, 0x20, 0x24), Rgba::rgb(0x3a, 0x3a, 0x44))
+    } else {
+        (Rgba::rgb(0x18, 0x4e, 0x77), Rgba::rgb(0x52, 0xb6, 0x9a))
+    };
+    let mut scene = title_chrome(left, right)
+        .to_scene(ratatui::layout::Rect::new(
+            0,
+            view.top_bar.row,
+            cols.max(1),
+            1,
+        ))
+        .expect("top bar chrome produces a scene");
+    scene.cell_size = cell_size;
+    for layer in &mut scene.layers {
+        if layer.label.as_deref() == Some("background") {
+            layer.label = Some(format!(
+                "kittwm-live-top-bar:{}",
+                if view.panes.is_empty() {
+                    "empty"
+                } else {
+                    "active"
+                }
+            ));
+        }
+    }
+    scene
+}
+
 fn render_native_shell_view_affordance_scenes(
     view: &NativeShellView,
     cell_size: CellSize,
+    cols: u16,
 ) -> Vec<NativeShellChromeScene> {
     let mut scenes = Vec::new();
+    scenes.push(NativeShellChromeScene {
+        id: "top-bar".to_string(),
+        x: 0,
+        y: view.top_bar.row,
+        scene: native_top_bar_scene(view, cols, cell_size),
+    });
     for (idx, pane) in view.panes.iter().enumerate() {
         let state = ControlState::default().focused(pane.focused);
         let mut control = button(
@@ -1757,23 +1794,25 @@ fn render_native_shell_view_affordance_scenes(
             scene: control.to_scene(cell_size),
         });
     }
-    let mut footer = text_input(
-        "footer",
-        "status",
-        view.footer.text.clone(),
-        view.panes
-            .iter()
-            .map(|pane| pane.app_cols)
-            .sum::<u16>()
-            .max(20),
-    );
-    footer.height_cells = 1;
-    scenes.push(NativeShellChromeScene {
-        id: "footer".to_string(),
-        x: 0,
-        y: view.footer.row,
-        scene: footer.to_scene(cell_size),
-    });
+    if !view.footer.text.is_empty() {
+        let mut footer = text_input(
+            "footer",
+            "status",
+            view.footer.text.clone(),
+            view.panes
+                .iter()
+                .map(|pane| pane.app_cols)
+                .sum::<u16>()
+                .max(20),
+        );
+        footer.height_cells = 1;
+        scenes.push(NativeShellChromeScene {
+            id: "footer".to_string(),
+            x: 0,
+            y: view.footer.row,
+            scene: footer.to_scene(cell_size),
+        });
+    }
     scenes
 }
 
@@ -1781,8 +1820,9 @@ fn write_native_shell_affordance_chrome<W: Write>(
     out: &mut W,
     runtime: &Runtime,
     view: &NativeShellView,
+    cols: u16,
 ) -> Result<()> {
-    for chrome in render_native_shell_view_affordance_scenes(view, CellSize::default()) {
+    for chrome in render_native_shell_view_affordance_scenes(view, CellSize::default(), cols) {
         let placement = CellRect::new(
             chrome.x,
             chrome.y,
@@ -2185,24 +2225,24 @@ mod native_pane_tests {
             panes: vec![
                 NativePaneChrome {
                     x: 0,
-                    y: 0,
+                    y: 1,
                     focused: true,
                     text: "* native-1 shell".to_string(),
                     cache_key: "key1".to_string(),
                     app_x: 0,
-                    app_y: 1,
+                    app_y: 2,
                     app_cols: 8,
                     app_rows: 2,
                     text_snapshot: "hello".to_string(),
                 },
                 NativePaneChrome {
                     x: 8,
-                    y: 0,
+                    y: 1,
                     focused: false,
                     text: "  native-2 logs".to_string(),
                     cache_key: "key2".to_string(),
                     app_x: 8,
-                    app_y: 1,
+                    app_y: 2,
                     app_cols: 10,
                     app_rows: 2,
                     text_snapshot: "logs".to_string(),
@@ -2214,17 +2254,47 @@ mod native_pane_tests {
             },
             help_overlay: false,
         };
-        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16));
-        assert_eq!(scenes.len(), 3);
-        assert_eq!(scenes[0].id, "pane-0-title");
-        assert_eq!((scenes[1].x, scenes[1].y), (8, 0));
-        assert_eq!(scenes[2].id, "footer");
+        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 18);
+        assert_eq!(scenes.len(), 4);
+        assert_eq!(scenes[0].id, "top-bar");
+        assert_eq!((scenes[0].x, scenes[0].y), (0, 0));
         assert!(scenes[0]
+            .scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("kittwm-live-top-bar:active")));
+        assert_eq!(scenes[1].id, "pane-0-title");
+        assert_eq!((scenes[2].x, scenes[2].y), (8, 1));
+        assert_eq!(scenes[3].id, "footer");
+        assert!(scenes[1]
             .scene
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("control_background")));
         assert!(scenes.iter().all(|chrome| !chrome.scene.layers.is_empty()));
+    }
+
+    #[test]
+    fn native_top_bar_scene_marks_empty_workspace() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: " kittui-bar  ws:1  empty  12:00 UTC ".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 4,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let scene = native_top_bar_scene(&view, 20, CellSize::new(8, 16));
+        assert_eq!(scene.footprint.rows, 1);
+        assert_eq!(scene.footprint.cols, 20);
+        assert!(scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("kittwm-live-top-bar:empty")));
     }
 
     #[test]
