@@ -20,7 +20,7 @@ use kittui::{CellSize, RendererKind, Runtime, Scene, TerminalInfo, Transport};
 /// Major version of the FFI ABI. Bumped on any breaking change.
 pub const KITTUI_ABI_MAJOR: u32 = 0;
 /// Minor version of the FFI ABI. Bumped on additive changes.
-pub const KITTUI_ABI_MINOR: u32 = 4;
+pub const KITTUI_ABI_MINOR: u32 = 5;
 
 /// Opaque pointer to a runtime instance. Owned by the caller; freed via
 /// [`kittui_runtime_free`].
@@ -233,6 +233,60 @@ pub unsafe extern "C" fn kittui_place_json_at(
     out: *mut *mut c_char,
 ) -> KittuiStatus {
     place_json_impl(runtime, scene_json, Some(x), Some(y), out)
+}
+
+/// Render/place a JSON array of scenes in one FFI round-trip. On success,
+/// writes a heap-allocated string containing concatenated
+/// `upload + placement + embed` bytes for the whole batch.
+///
+/// # Safety
+///
+/// `runtime` must be valid. `scenes_json` must be a NUL-terminated UTF-8
+/// string containing a JSON array of scenes. `out` must point to writable
+/// storage.
+#[no_mangle]
+pub unsafe extern "C" fn kittui_place_many_json(
+    runtime: *mut KittuiRuntime,
+    scenes_json: *const c_char,
+    out: *mut *mut c_char,
+) -> KittuiStatus {
+    if runtime.is_null() || scenes_json.is_null() || out.is_null() {
+        return KittuiStatus::NullPointer;
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let rt = &*runtime;
+        let json = match CStr::from_ptr(scenes_json).to_str() {
+            Ok(s) => s,
+            Err(_) => return KittuiStatus::BadScene,
+        };
+        let scenes: Vec<Scene> = match serde_json::from_str(json) {
+            Ok(s) => s,
+            Err(e) => {
+                *rt.last_error.lock().unwrap() = CString::new(e.to_string()).ok();
+                return KittuiStatus::BadScene;
+            }
+        };
+        match rt.inner.place_batch(&scenes) {
+            Ok(batch) => {
+                let mut bytes = String::new();
+                bytes.push_str(&batch.upload);
+                bytes.push_str(&batch.placement);
+                bytes.push_str(&batch.embed);
+                match CString::new(bytes) {
+                    Ok(c) => {
+                        *out = c.into_raw();
+                        KittuiStatus::Ok
+                    }
+                    Err(_) => KittuiStatus::Runtime,
+                }
+            }
+            Err(e) => {
+                *rt.last_error.lock().unwrap() = CString::new(e.to_string()).ok();
+                KittuiStatus::Runtime
+            }
+        }
+    }));
+    result.unwrap_or(KittuiStatus::Panic)
 }
 
 unsafe fn place_json_impl(
@@ -532,6 +586,55 @@ mod tests {
             assert_eq!(status, KittuiStatus::Ok);
             let bytes = owned_string(out);
             assert!(bytes.contains("\x1b_G"), "{bytes:?}");
+            kittui_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn place_many_json_batches_scene_array() {
+        let config = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": true, "supports_unicode_placeholders": true}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(config.as_ptr());
+            assert!(!runtime.is_null());
+            let scene_a: serde_json::Value =
+                serde_json::from_str(scene_json().to_str().unwrap()).unwrap();
+            let scene_b: serde_json::Value =
+                serde_json::from_str(scene_json().to_str().unwrap()).unwrap();
+            let scenes =
+                CString::new(serde_json::to_string(&vec![scene_a, scene_b]).unwrap()).unwrap();
+            let mut out: *mut c_char = std::ptr::null_mut();
+            let status = kittui_place_many_json(runtime, scenes.as_ptr(), &mut out);
+            assert_eq!(status, KittuiStatus::Ok);
+            let bytes = owned_string(out);
+            assert!(bytes.contains("\x1b_G"), "{bytes:?}");
+            assert!(bytes.len() > 32, "{bytes:?}");
+            kittui_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn place_many_json_rejects_non_array_input() {
+        let config = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": true, "supports_unicode_placeholders": true}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(config.as_ptr());
+            assert!(!runtime.is_null());
+            let mut out: *mut c_char = std::ptr::null_mut();
+            let status = kittui_place_many_json(runtime, scene_json().as_ptr(), &mut out);
+            assert_eq!(status, KittuiStatus::BadScene);
+            assert!(out.is_null());
+            let err = owned_string(kittui_last_error(runtime));
+            assert!(
+                err.contains("invalid type") || err.contains("sequence"),
+                "{err}"
+            );
             kittui_runtime_free(runtime);
         }
     }
