@@ -253,6 +253,24 @@ impl Runtime {
         upload.push_str(&kitty::upload_still_rgba(
             image_id, rgba, width, height, transport,
         ));
+        self.place_uploaded_image_with_upload(image_id, footprint, upload)
+    }
+
+    /// Emit placement/embed text for an image id that is already uploaded.
+    ///
+    /// This is useful for WM policies that skip re-uploading byte-identical raw
+    /// frames but still need to redraw or move the terminal placement.
+    pub fn place_uploaded_image(&self, image_id: u32, footprint: CellRect) -> Placement {
+        self.place_uploaded_image_with_upload(image_id, footprint, String::new())
+    }
+
+    fn place_uploaded_image_with_upload(
+        &self,
+        image_id: u32,
+        footprint: CellRect,
+        upload: String,
+    ) -> Placement {
+        let transport = self.terminal.transport;
         let placement = {
             let mv = kitty::cursor_move(footprint.x, footprint.y, transport);
             let p = kitty::placement_command(image_id, footprint, transport);
@@ -838,6 +856,27 @@ mod tests {
             second.upload
         );
         assert!(second.upload.contains("\x1b_Ga=t,f=32"));
+    }
+
+    #[test]
+    fn place_uploaded_image_emits_no_upload() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .terminal(TerminalInfo::override_with(
+                Some(80),
+                Some(24),
+                CellSize::new(8, 16),
+                true,
+                true,
+                Transport::Direct,
+            ))
+            .build()
+            .unwrap();
+        let placement = runtime.place_uploaded_image(9, CellRect::new(1, 2, 3, 4));
+        assert!(placement.upload.is_empty());
+        assert!(placement.placement.contains("\x1b[3;2H"));
+        assert!(!placement.embed.is_empty());
     }
 
     #[test]

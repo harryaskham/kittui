@@ -88,16 +88,16 @@ policy input, not a transport implementation.
 
 ## Runtime policy recommendation
 
-Initial runtime integration should be conservative and opt-in:
+Initial runtime integration is conservative and opt-in:
 
 ```text
 KITTWM_DIRTY_FRAMES=skip-unchanged
 ```
 
-Suggested modes:
+Modes:
 
 - unset / `off`: current full-frame behavior;
-- `skip-unchanged`: use dirty grid only to skip identical frames;
+- `skip-unchanged`: use dirty grid only to skip identical frames while still redrawing placement/embed text;
 - `measure`: log or expose dirty fraction in status without changing output;
 - `overlay-experimental`: future non-default dirty-rectangle overlay prototype.
 
@@ -118,8 +118,7 @@ Ghostty, tmux passthrough, remote SSH, and zlib/raw RGBA combinations.
 
 Recommended follow-ups:
 
-1. `kittwm: use dirty grid to skip unchanged raw frame uploads` — opt-in or safe
-   default if proven no visible behavior change.
+1. `kittwm: use dirty grid to skip unchanged raw frame uploads` — landed as opt-in `KITTWM_DIRTY_FRAMES=skip-unchanged` behavior (`bd-889f33`).
 2. `kittwm: expose dirty-frame metrics in native status/events` — useful for
    renderer policy and debugging.
 3. `kittwm: prototype dirty-rectangle overlay transport behind env flag` — upload

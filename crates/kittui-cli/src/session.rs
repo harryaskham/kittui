@@ -14,6 +14,7 @@
 //! Both the `kittui_wm_demo` example and the `kittwm` binary call into
 //! [`run_loop`].
 
+use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
 
@@ -22,6 +23,7 @@ use anyhow::{anyhow, Result};
 use kittui::{CellRect, Runtime};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
+use kittui_wm::dirty::DirtyGrid;
 use kittui_wm::native::{
     MouseReportingModes, NativeApp, NativeFrame, NativeSurface, PtyTerminalApp,
 };
@@ -74,6 +76,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut last_title_rows = Vec::<String>::new();
     let mut last_footer = String::new();
     let pure_terminal_renderer = native_should_use_pure_terminal_renderer();
+    let mut dirty_frames = NativeDirtyFramePolicy::from_env();
     loop {
         let frame_start = Instant::now();
         let mut chunk = [0u8; 1024];
@@ -487,7 +490,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         layout.app_cols,
                         layout.app_rows,
                     );
-                    let p = runtime.place_raw_frame(pane.image_id, &rgba, width, height, footprint);
+                    let p = if dirty_frames.should_upload(pane.image_id, width, height, &rgba) {
+                        runtime.place_raw_frame(pane.image_id, &rgba, width, height, footprint)
+                    } else {
+                        runtime.place_uploaded_image(pane.image_id, footprint)
+                    };
                     handle.write_all(p.upload.as_bytes())?;
                     handle.write_all(p.placement.as_bytes())?;
                     handle.write_all(p.embed.as_bytes())?;
@@ -631,6 +638,43 @@ fn native_should_use_pure_terminal_renderer() -> bool {
     match std::env::var("KITTWM_NATIVE_RENDERER") {
         Ok(value) => matches!(value.as_str(), "terminal" | "text" | "ansi" | "dec"),
         Err(_) => std::env::var_os("TMUX").is_some(),
+    }
+}
+
+fn native_dirty_frames_skip_unchanged() -> bool {
+    matches!(
+        std::env::var("KITTWM_DIRTY_FRAMES")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "skip-unchanged" | "skip_unchanged"
+    )
+}
+
+struct NativeDirtyFramePolicy {
+    skip_unchanged: bool,
+    grids: BTreeMap<u32, DirtyGrid>,
+}
+
+impl NativeDirtyFramePolicy {
+    fn from_env() -> Self {
+        Self {
+            skip_unchanged: native_dirty_frames_skip_unchanged(),
+            grids: BTreeMap::new(),
+        }
+    }
+
+    fn should_upload(&mut self, image_id: u32, width: u32, height: u32, rgba: &[u8]) -> bool {
+        if !self.skip_unchanged {
+            return true;
+        }
+        let grid = self
+            .grids
+            .entry(image_id)
+            .or_insert_with(|| DirtyGrid::new(64, 64));
+        grid.diff_rgba(width, height, rgba)
+            .map(|diff| !diff.is_clean())
+            .unwrap_or(true)
     }
 }
 
@@ -1408,6 +1452,25 @@ mod native_pane_tests {
         assert!(native_should_use_pure_terminal_renderer());
         std::env::remove_var("TMUX");
         std::env::remove_var("KITTWM_NATIVE_RENDERER");
+    }
+
+    #[test]
+    fn native_dirty_frame_policy_skips_only_identical_frames_when_enabled() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_DIRTY_FRAMES");
+        let rgba = vec![0u8; 4 * 4 * 4];
+        let mut disabled = NativeDirtyFramePolicy::from_env();
+        assert!(disabled.should_upload(1, 4, 4, &rgba));
+        assert!(disabled.should_upload(1, 4, 4, &rgba));
+
+        std::env::set_var("KITTWM_DIRTY_FRAMES", "skip-unchanged");
+        let mut enabled = NativeDirtyFramePolicy::from_env();
+        assert!(enabled.should_upload(1, 4, 4, &rgba));
+        assert!(!enabled.should_upload(1, 4, 4, &rgba));
+        let mut changed = rgba.clone();
+        changed[0] = 1;
+        assert!(enabled.should_upload(1, 4, 4, &changed));
+        std::env::remove_var("KITTWM_DIRTY_FRAMES");
     }
 
     #[test]
