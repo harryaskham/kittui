@@ -31,13 +31,13 @@ Already present:
 
 Missing or immature:
 
-- A public `kittwm-sdk` crate now exists with a typed socket client, `WindowHandle`, `SurfaceHandle`, `SurfaceSpec`, typed status/events/semantic helpers, typed app-discovery helpers, and local capability scoping.
+- A public `kittwm-sdk` crate now exists with a typed socket client, `WindowHandle`, `SurfaceHandle`, `SurfaceSpec`, typed status/events/semantic helpers, typed app-discovery helpers, native pane status accessors, and local capability scoping presets.
 - The native event stream now has typed SDK coverage for status/pane/focus/layout, semantic snapshot/focus/action/value, and title/bell/OSC52 clipboard-set/notification side-effect events, but resize/input/frame events and clipboard read policy are not yet promoted into a complete SDK event model.
 - Terminal engine extraction has started with `TerminalSurface`, but it still lives inside `kittui-wm::native` rather than a standalone `kittui-term`/`kittwm-terminal` crate.
 - GUI capture backends are only partially expressed through the new native surface abstraction; X/Quartz and scene/composite metadata still need concrete adapters.
 - External apps can now dogfood the SDK with a composite example that spawns child surfaces and composes text snapshots side-by-side, but true child-surface frame capture/present is still immature.
 - Clipboard/bell/notification side effects are modeled as events and OSC 52 set-clipboard forwarding exists; clipboard read policy is not yet an SDK capability.
-- Capability/security policy has an initial client-side SDK shape, but runtime-issued credentials and per-client enforcement are still immature.
+- Capability/security policy has an initial client-side SDK shape with `none`, `restricted`, `inspect_only`, and `automation` local presets, but runtime-issued credentials and per-client enforcement are still immature.
 - Semantic component surfaces are documented in [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md) and [`kittwm-semantic-quickstart.md`](kittwm-semantic-quickstart.md); SDK/native/browser/accessibility proofs now exist, but durable standalone semantic surface lifecycle and platform bindings are still maturing.
 
 ## Target object model
@@ -117,7 +117,7 @@ loop {
 }
 ```
 
-Initial transport wraps the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types. Current typed helpers cover status/panes, bounded events, terminal surface spawn/replace, first-party browser surface spawn via `SurfaceSpec::browser(...)`, semantic snapshot/publish/action/focus, screen text and scrollback snapshots, visible/output text waits, control/input helpers including exact bytes, bracketed paste bytes, and mouse events, layout/focus/move/balance helpers through `Kittwm::focus_next`, `focus_prev`, `layout(LayoutMode)`, `balance_panes`, and `SurfaceHandle::move_pane(MoveDirection)`, session save/restore through `SessionManifest`, `SessionPane`, `Kittwm::session`, and `Kittwm::restore_session`, app discovery through `Kittwm::apps`, `Kittwm::app_first`, and `Kittwm::app_launch_first`, and command catalog introspection through `HelpCatalog`, `HelpCommand`, `Kittwm::help_catalog`, and `Kittwm::help`.
+Initial transport wraps the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types. Current typed helpers cover status/panes plus `NativePaneDetail` accessors for bounds/cursor/modes/dirty-frame/transport diagnostics, bounded events, terminal surface spawn/replace, first-party browser surface spawn via `SurfaceSpec::browser(...)`, semantic snapshot/publish/action/focus, screen text and scrollback snapshots, visible/output text waits, control/input helpers including exact bytes, bracketed paste bytes, and mouse events, layout/focus/move/balance helpers through `Kittwm::focus_next`, `focus_prev`, `layout(LayoutMode)`, `balance_panes`, and `SurfaceHandle::move_pane(MoveDirection)`, session save/restore through `SessionManifest`, `SessionPane`, `Kittwm::session`, and `Kittwm::restore_session`, app discovery through `Kittwm::apps`, `Kittwm::app_first`, and `Kittwm::app_launch_first`, and command catalog introspection through `HelpCatalog`, `HelpCommand`, `Kittwm::help_catalog`, and `Kittwm::help`.
 
 ## First-party apps
 
