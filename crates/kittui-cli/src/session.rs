@@ -233,6 +233,30 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         ));
                     }
                 }
+                crate::daemon::NativePaneCommand::Move { window, direction } => {
+                    let target = if window == "focused" {
+                        Some(focused)
+                    } else {
+                        native_pane_index(&panes, &window)
+                    };
+                    if let Some(from) = target {
+                        let to = native_move_target_index(from, panes.len(), &direction);
+                        if to != from {
+                            let pane = panes.remove(from);
+                            panes.insert(to, pane);
+                        }
+                        focused = to;
+                        let pane_count = panes.len();
+                        resize_native_panes(
+                            &mut panes,
+                            native_pane_layouts(cols, rows, pane_count, layout_axis),
+                        )?;
+                        clear = true;
+                        dbg.log(&format!(
+                            "native terminal socket move: {window} {direction} -> {to}"
+                        ));
+                    }
+                }
                 crate::daemon::NativePaneCommand::Rename { window, title } => {
                     if let Some(idx) = native_pane_index(&panes, &window) {
                         panes[idx].display_title = Some(title.clone());
@@ -449,6 +473,19 @@ fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>)
     Ok(())
 }
 
+fn native_move_target_index(from: usize, len: usize, direction: &str) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    match direction {
+        "left" | "up" => from.saturating_sub(1),
+        "right" | "down" => (from + 1).min(len - 1),
+        "first" => 0,
+        "last" => len - 1,
+        _ => from.min(len - 1),
+    }
+}
+
 fn native_pane_display_title(pane: &NativePane) -> String {
     pane.display_title
         .clone()
@@ -595,6 +632,19 @@ mod native_pane_tests {
         assert_eq!(layouts[1].y, 12);
         assert_eq!(layouts[1].app_y, 13);
         assert_eq!(layouts[1].app_rows, 12);
+    }
+
+    #[test]
+    fn native_move_target_index_clamps_and_moves() {
+        assert_eq!(native_move_target_index(1, 3, "left"), 0);
+        assert_eq!(native_move_target_index(1, 3, "up"), 0);
+        assert_eq!(native_move_target_index(1, 3, "right"), 2);
+        assert_eq!(native_move_target_index(1, 3, "down"), 2);
+        assert_eq!(native_move_target_index(1, 3, "first"), 0);
+        assert_eq!(native_move_target_index(1, 3, "last"), 2);
+        assert_eq!(native_move_target_index(0, 3, "left"), 0);
+        assert_eq!(native_move_target_index(2, 3, "right"), 2);
+        assert_eq!(native_move_target_index(5, 0, "last"), 0);
     }
 
     #[test]

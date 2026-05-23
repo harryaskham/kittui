@@ -108,6 +108,7 @@ pub enum NativePaneCommand {
     FocusPrev,
     Close(String),
     Layout(String),
+    Move { window: String, direction: String },
     Rename { window: String, title: String },
 }
 
@@ -279,6 +280,35 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
             "LAYOUT_QUEUED",
         );
     }
+    if let Some(rest) = cmd.strip_prefix("MOVE_PANE ") {
+        let Some((window, direction)) = rest.trim().split_once(' ') else {
+            return "ERR MOVE_PANE requires window and direction\n".to_string();
+        };
+        let window = window.trim();
+        let direction = direction.trim().to_ascii_lowercase();
+        if window.is_empty()
+            || !matches!(
+                direction.as_str(),
+                "left" | "right" | "up" | "down" | "first" | "last"
+            )
+        {
+            return "ERR MOVE_PANE expects <window|focused> <left|right|up|down|first|last>\n"
+                .to_string();
+        }
+        return queue_native_pane_command(
+            pending,
+            &format!("{window}\t{direction}"),
+            "MOVE_PANE requires window and direction",
+            |arg| {
+                let (window, direction) = arg.split_once('\t').unwrap_or((&arg, ""));
+                NativePaneCommand::Move {
+                    window: window.to_string(),
+                    direction: direction.to_string(),
+                }
+            },
+            "MOVE_QUEUED",
+        );
+    }
     if let Some(rest) = cmd.strip_prefix("RENAME_PANE ") {
         let Some((window, title)) = rest.trim().split_once(' ') else {
             return "ERR RENAME_PANE requires window and title\n".to_string();
@@ -312,7 +342,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -353,6 +383,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "LAYOUT <columns|rows>",
             "control",
             "switch native pane layout axis",
+        ),
+        (
+            "MOVE_PANE <window|focused> <left|right|up|down|first|last>",
+            "control",
+            "move a native pane within the layout order",
         ),
         (
             "RENAME_PANE <window> <title>",
@@ -883,11 +918,15 @@ mod tests {
         );
         assert!(native_spawn_queue_reply("LAYOUT rows", &pending).starts_with("LAYOUT_QUEUED"));
         assert!(
+            native_spawn_queue_reply("MOVE_PANE focused last", &pending).starts_with("MOVE_QUEUED")
+        );
+        assert!(
             native_spawn_queue_reply("RENAME_PANE native-2 editor pane", &pending)
                 .starts_with("RENAME_QUEUED")
         );
         assert!(native_spawn_queue_reply("LAYOUT diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("FOCUS_PANE", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("MOVE_PANE focused diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RENAME_PANE native-2", &pending).contains("ERR"));
         assert_eq!(
             drain_native_spawn_pending(&pending),
@@ -897,6 +936,10 @@ mod tests {
                 NativePaneCommand::FocusPrev,
                 NativePaneCommand::Close("focused".to_string()),
                 NativePaneCommand::Layout("rows".to_string()),
+                NativePaneCommand::Move {
+                    window: "focused".to_string(),
+                    direction: "last".to_string(),
+                },
                 NativePaneCommand::Rename {
                     window: "native-2".to_string(),
                     title: "editor pane".to_string(),
@@ -915,6 +958,7 @@ mod tests {
         assert!(help.contains("FOCUS_NEXT"), "{help}");
         assert!(help.contains("FOCUS_PREV"), "{help}");
         assert!(help.contains("LAYOUT <columns|rows>"), "{help}");
+        assert!(help.contains("MOVE_PANE <window|focused>"), "{help}");
         assert!(help.contains("RENAME_PANE <window> <title>"), "{help}");
         assert!(help.contains("APPS_JSON"), "{help}");
 
