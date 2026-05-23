@@ -241,16 +241,51 @@ struct TerminalState {
     rows: u16,
     cursor_col: u16,
     cursor_row: u16,
-    cells: Vec<char>,
+    cells: Vec<TerminalCell>,
+    current_style: TerminalStyle,
     scrollback: Vec<String>,
     alt_screen: Option<AlternateScreen>,
     bracketed_paste: bool,
     title: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TerminalCell {
+    ch: char,
+    style: TerminalStyle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TerminalStyle {
+    fg: Option<TerminalColor>,
+    bg: Option<TerminalColor>,
+    bold: bool,
+    reverse: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TerminalColor(u8, u8, u8);
+
+impl Default for TerminalStyle {
+    fn default() -> Self {
+        Self {
+            fg: None,
+            bg: None,
+            bold: false,
+            reverse: false,
+        }
+    }
+}
+
+impl TerminalCell {
+    fn blank(style: TerminalStyle) -> Self {
+        Self { ch: ' ', style }
+    }
+}
+
 #[derive(Clone)]
 struct AlternateScreen {
-    normal_cells: Vec<char>,
+    normal_cells: Vec<TerminalCell>,
     normal_cursor_col: u16,
     normal_cursor_row: u16,
 }
@@ -262,7 +297,11 @@ impl TerminalState {
             rows,
             cursor_col: 0,
             cursor_row: 0,
-            cells: vec![' '; usize::from(cols) * usize::from(rows)],
+            cells: vec![
+                TerminalCell::blank(TerminalStyle::default());
+                usize::from(cols) * usize::from(rows)
+            ],
+            current_style: TerminalStyle::default(),
             scrollback: Vec::new(),
             alt_screen: None,
             bracketed_paste: false,
@@ -275,6 +314,7 @@ impl TerminalState {
         *self = Self::new(cols, rows);
         self.title = old.title.clone();
         self.scrollback = old.scrollback.clone();
+        self.current_style = old.current_style;
         self.bracketed_paste = old.bracketed_paste;
         self.cells = resize_cells(&old.cells, old.cols, old.rows, cols, rows);
         self.alt_screen = old.alt_screen.map(|alt| AlternateScreen {
@@ -309,6 +349,7 @@ impl TerminalState {
         let end = start + usize::from(self.cols);
         self.cells[start..end]
             .iter()
+            .map(|cell| cell.ch)
             .collect::<String>()
             .trim_end()
             .into()
@@ -325,15 +366,25 @@ impl TerminalState {
     fn put_at(&mut self, col: u16, row: u16, ch: char) {
         if col < self.cols && row < self.rows {
             let idx = usize::from(row) * usize::from(self.cols) + usize::from(col);
-            self.cells[idx] = ch;
+            self.cells[idx] = TerminalCell {
+                ch,
+                style: self.current_style,
+            };
         }
     }
 
-    fn get_at(&self, col: u16, row: u16) -> char {
+    fn put_cell_at(&mut self, col: u16, row: u16, cell: TerminalCell) {
+        if col < self.cols && row < self.rows {
+            let idx = usize::from(row) * usize::from(self.cols) + usize::from(col);
+            self.cells[idx] = cell;
+        }
+    }
+
+    fn get_cell_at(&self, col: u16, row: u16) -> TerminalCell {
         if col < self.cols && row < self.rows {
             self.cells[usize::from(row) * usize::from(self.cols) + usize::from(col)]
         } else {
-            ' '
+            TerminalCell::blank(TerminalStyle::default())
         }
     }
 
@@ -347,7 +398,7 @@ impl TerminalState {
             self.cells.copy_within(cols.., 0);
             let start = self.cells.len().saturating_sub(cols);
             for cell in &mut self.cells[start..] {
-                *cell = ' ';
+                *cell = TerminalCell::blank(self.current_style);
             }
         } else {
             self.cursor_row += 1;
@@ -419,10 +470,10 @@ impl TerminalState {
         }
         let count = count.min(self.cols - self.cursor_col);
         for col in (self.cursor_col..self.cols - count).rev() {
-            self.put_at(
+            self.put_cell_at(
                 col + count,
                 self.cursor_row,
-                self.get_at(col, self.cursor_row),
+                self.get_cell_at(col, self.cursor_row),
             );
         }
         self.clear_line_range(self.cursor_col, self.cursor_col + count - 1);
@@ -434,10 +485,10 @@ impl TerminalState {
         }
         let count = count.min(self.cols - self.cursor_col);
         for col in self.cursor_col + count..self.cols {
-            self.put_at(
+            self.put_cell_at(
                 col - count,
                 self.cursor_row,
-                self.get_at(col, self.cursor_row),
+                self.get_cell_at(col, self.cursor_row),
             );
         }
         self.clear_line_range(self.cols - count, self.cols.saturating_sub(1));
@@ -462,7 +513,7 @@ impl TerminalState {
         let end = self.cells.len().saturating_sub(shift);
         self.cells.copy_within(start..end, start + shift);
         for cell in &mut self.cells[start..start + shift] {
-            *cell = ' ';
+            *cell = TerminalCell::blank(self.current_style);
         }
     }
 
@@ -477,20 +528,23 @@ impl TerminalState {
         self.cells.copy_within(start + shift.., start);
         let clear_start = self.cells.len().saturating_sub(shift);
         for cell in &mut self.cells[clear_start..] {
-            *cell = ' ';
+            *cell = TerminalCell::blank(self.current_style);
         }
     }
 
     fn enter_alternate_screen(&mut self) {
         if self.alt_screen.is_some() {
-            self.cells.fill(' ');
+            self.cells.fill(TerminalCell::blank(self.current_style));
             self.cursor_col = 0;
             self.cursor_row = 0;
             return;
         }
         let normal_cells = std::mem::replace(
             &mut self.cells,
-            vec![' '; usize::from(self.cols) * usize::from(self.rows)],
+            vec![
+                TerminalCell::blank(self.current_style);
+                usize::from(self.cols) * usize::from(self.rows)
+            ],
         );
         self.alt_screen = Some(AlternateScreen {
             normal_cells,
@@ -508,10 +562,68 @@ impl TerminalState {
             self.cursor_row = alt.normal_cursor_row.min(self.rows.saturating_sub(1));
         }
     }
+
+    fn apply_sgr(&mut self, params: &Params) {
+        if params.is_empty() {
+            self.current_style = TerminalStyle::default();
+            return;
+        }
+        for param in params.iter() {
+            let value = param.first().copied().unwrap_or(0);
+            match value {
+                0 => self.current_style = TerminalStyle::default(),
+                1 => self.current_style.bold = true,
+                22 => self.current_style.bold = false,
+                7 => self.current_style.reverse = true,
+                27 => self.current_style.reverse = false,
+                30..=37 => self.current_style.fg = ansi_color(value as u8, false),
+                39 => self.current_style.fg = None,
+                40..=47 => self.current_style.bg = ansi_color((value - 10) as u8, false),
+                49 => self.current_style.bg = None,
+                90..=97 => self.current_style.fg = ansi_color((value - 60) as u8, true),
+                100..=107 => self.current_style.bg = ansi_color((value - 70) as u8, true),
+                _ => {}
+            }
+        }
+    }
 }
 
-fn resize_cells(old: &[char], old_cols: u16, old_rows: u16, cols: u16, rows: u16) -> Vec<char> {
-    let mut cells = vec![' '; usize::from(cols) * usize::from(rows)];
+fn ansi_color(code: u8, bright: bool) -> Option<TerminalColor> {
+    let palette = if bright {
+        [
+            TerminalColor(0x66, 0x6a, 0x73),
+            TerminalColor(0xff, 0x6b, 0x6b),
+            TerminalColor(0x69, 0xdb, 0x7c),
+            TerminalColor(0xff, 0xd4, 0x3b),
+            TerminalColor(0x4d, 0xab, 0xf7),
+            TerminalColor(0xda, 0x77, 0xf2),
+            TerminalColor(0x3b, 0xf0, 0xe4),
+            TerminalColor(0xff, 0xff, 0xff),
+        ]
+    } else {
+        [
+            TerminalColor(0x1b, 0x1f, 0x2a),
+            TerminalColor(0xe0, 0x31, 0x31),
+            TerminalColor(0x2f, 0x9e, 0x44),
+            TerminalColor(0xf0, 0x8c, 0x00),
+            TerminalColor(0x19, 0x71, 0xc2),
+            TerminalColor(0xae, 0x3e, 0xc9),
+            TerminalColor(0x0c, 0x85, 0x99),
+            TerminalColor(0xd7, 0xf8, 0xff),
+        ]
+    };
+    palette.get(usize::from(code.saturating_sub(30))).copied()
+}
+
+fn resize_cells(
+    old: &[TerminalCell],
+    old_cols: u16,
+    old_rows: u16,
+    cols: u16,
+    rows: u16,
+) -> Vec<TerminalCell> {
+    let mut cells =
+        vec![TerminalCell::blank(TerminalStyle::default()); usize::from(cols) * usize::from(rows)];
     let copy_rows = rows.min(old_rows);
     let copy_cols = cols.min(old_cols);
     for row in 0..copy_rows {
@@ -610,7 +722,7 @@ impl Perform for TerminalState {
                     self.cols.saturating_sub(1),
                 ),
                 1 => self.clear_screen_range(0, 0, self.cursor_row, self.cursor_col),
-                2 => self.cells.fill(' '),
+                2 => self.cells.fill(TerminalCell::blank(self.current_style)),
                 _ => {}
             },
             'K' => match first_raw {
@@ -623,6 +735,7 @@ impl Perform for TerminalState {
             'l' if is_dec_private && has_alt_screen_mode => self.leave_alternate_screen(),
             'l' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = false,
             'M' => self.delete_lines(first_count),
+            'm' => self.apply_sgr(params),
             'P' => self.delete_chars(first_count),
             'X' => self.erase_chars(first_count),
             _ => {}
@@ -642,14 +755,58 @@ fn render_terminal_rgba(state: &TerminalState, cell_w: u32, cell_h: u32) -> Vec<
     }
     for row in 0..state.rows {
         for col in 0..state.cols {
-            let ch = state.get_at(col, row);
-            if ch == ' ' {
+            let cell = state.get_cell_at(col, row);
+            let (fg, bg) = terminal_cell_colors(cell.style);
+            fill_cell_background(&mut rgba, width, col, row, cell_w, cell_h, bg);
+            if cell.ch == ' ' {
                 continue;
             }
-            draw_pseudo_glyph(&mut rgba, width, col, row, cell_w, cell_h, ch);
+            draw_pseudo_glyph(&mut rgba, width, col, row, cell_w, cell_h, cell.ch, fg);
         }
     }
     rgba
+}
+
+fn terminal_cell_colors(style: TerminalStyle) -> (TerminalColor, TerminalColor) {
+    let mut fg = style.fg.unwrap_or(TerminalColor(0xd7, 0xf8, 0xff));
+    let mut bg = style.bg.unwrap_or(TerminalColor(0x08, 0x0d, 0x14));
+    if style.bold && style.fg.is_some() {
+        fg = brighten_color(fg);
+    }
+    if style.reverse {
+        std::mem::swap(&mut fg, &mut bg);
+    }
+    (fg, bg)
+}
+
+fn brighten_color(color: TerminalColor) -> TerminalColor {
+    TerminalColor(
+        color.0.saturating_add(0x30),
+        color.1.saturating_add(0x30),
+        color.2.saturating_add(0x30),
+    )
+}
+
+fn fill_cell_background(
+    rgba: &mut [u8],
+    width: u32,
+    col: u16,
+    row: u16,
+    cell_w: u32,
+    cell_h: u32,
+    color: TerminalColor,
+) {
+    let x0 = u32::from(col) * cell_w;
+    let y0 = u32::from(row) * cell_h;
+    for y in 0..cell_h {
+        for x in 0..cell_w {
+            let idx = (((y0 + y) * width + (x0 + x)) as usize) * 4;
+            rgba[idx] = color.0;
+            rgba[idx + 1] = color.1;
+            rgba[idx + 2] = color.2;
+            rgba[idx + 3] = 0xff;
+        }
+    }
 }
 
 fn draw_pseudo_glyph(
@@ -660,6 +817,7 @@ fn draw_pseudo_glyph(
     cell_w: u32,
     cell_h: u32,
     ch: char,
+    color: TerminalColor,
 ) {
     let seed = ch as u32;
     let x0 = u32::from(col) * cell_w;
@@ -673,9 +831,9 @@ fn draw_pseudo_glyph(
                 || ((seed.rotate_left((x % 7) + 1) ^ y) & 0x3) == 0;
             if stroke {
                 let idx = (((y0 + y) * width + (x0 + x)) as usize) * 4;
-                rgba[idx] = 0xd7;
-                rgba[idx + 1] = 0xf8;
-                rgba[idx + 2] = 0xff;
+                rgba[idx] = color.0;
+                rgba[idx + 1] = color.1;
+                rgba[idx + 2] = color.2;
                 rgba[idx + 3] = 0xff;
             }
         }
@@ -975,6 +1133,38 @@ mod tests {
             text.starts_with("x    y\n      z\nk  n\nw"),
             "snapshot was:\n{text}"
         );
+    }
+
+    #[test]
+    fn terminal_state_tracks_sgr_cell_colors() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        parser.advance(&mut state, b"\x1b[31mR\x1b[44mB\x1b[0mD");
+        assert_eq!(state.get_cell_at(0, 0).ch, 'R');
+        assert_eq!(
+            state.get_cell_at(0, 0).style.fg,
+            Some(TerminalColor(0xe0, 0x31, 0x31))
+        );
+        assert_eq!(
+            state.get_cell_at(1, 0).style.bg,
+            Some(TerminalColor(0x19, 0x71, 0xc2))
+        );
+        assert_eq!(state.get_cell_at(2, 0).style, TerminalStyle::default());
+        assert!(state.text_snapshot().starts_with("RBD"));
+    }
+
+    #[test]
+    fn terminal_renderer_uses_sgr_foreground_and_background() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(2, 1);
+        parser.advance(&mut state, b"\x1b[31;44mA");
+        let rgba = render_terminal_rgba(&state, 8, 16);
+        assert!(rgba
+            .chunks_exact(4)
+            .any(|px| px == [0xe0, 0x31, 0x31, 0xff]));
+        assert!(rgba
+            .chunks_exact(4)
+            .any(|px| px == [0x19, 0x71, 0xc2, 0xff]));
     }
 
     #[test]
