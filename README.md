@@ -9,7 +9,8 @@ protocol. It ships as:
 - platform bindings: `bindings/ts` (`koffi`) and `bindings/python` (`ctypes`)
   wrap the C ABI for JS/Python hosts, including render-only PNG bytes,
   render-many manifests with base64 PNG entries, batch placement, and
-  channelized `upload` / `placement` / `embed` output.
+  channelized `upload` / `placement` / `embed` output via
+  `kittui_place_many_json_channels` / `placeManyChannels`.
 - a CLI (`kittui`) — `kittui box`, `kittui gradient`, `kittui glow`,
   `kittui panel --tone assistant`, `kittui chip`, `kittui divider`,
   `kittui title-bar`, `kittui wm-chrome`, `kittui wm-session`, `kittui image --src -`, `kittui place --id 0x...`,
@@ -101,7 +102,7 @@ a flag, env var, YAML, or a built-in default.
 
 v0.3: kittwm now includes backend-independent native app foundations:
 
-- `kittwm` with no backend flags starts a native PTY terminal sized to the host terminal; `Ctrl-A %` creates side-by-side panes, `Ctrl-A -` creates stacked panes, `Ctrl-A +/-` resizes the focused pane weight, `Ctrl-A [`/`]` (or `,`/`.`) moves the focused pane, `Ctrl-A b` balances pane weights, `Ctrl-A Tab` cycles focus, and `Ctrl-A x` closes the focused pane.
+- `kittwm` with no backend flags starts a native PTY terminal sized to the host terminal; `Ctrl-A %` creates side-by-side panes, `Ctrl-A -` creates stacked panes, `Ctrl-A +/-` resizes the focused pane weight, `Ctrl-A [`/`]` (or `,`/`.`) moves the focused pane, `Ctrl-A b` / socket `BALANCE_PANES` balances pane weights, `Ctrl-A Tab` cycles focus, and `Ctrl-A x` closes the focused pane.
 - PTY children inherit `KITTWM_SOCKET`, `KITTWM_DISPLAY`, `KITTUI_WM_DISPLAY`, and `KITTWM_WINDOW`.
 - `kittwm replace ...` can exec in the current window context or ask a socket context to spawn.
 - `kittwm-browser` is a first-class native browser app backed by local headless Chrome screenshots and DevTools input.
