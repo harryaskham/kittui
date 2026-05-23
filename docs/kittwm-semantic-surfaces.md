@@ -316,7 +316,7 @@ flow through kittwm clipboard policy.
 Potential semantic adapters:
 
 - native kittwm SDK apps that construct component trees directly;
-- browser DOM/ARIA/DevTools adapter;
+- browser DOM/ARIA/DevTools adapter (planned in [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md));
 - accessibility tree adapters for macOS AX, AT-SPI, UI Automation, or platform
   equivalents;
 - toolkit plugins/backends for Qt, GTK, egui, iced, Tauri, Electron, etc.;
@@ -355,6 +355,7 @@ Recommended follow-ups to file/implement after this plan:
   plane commands plus capability checks.
 - `examples: add synthetic semantic surface app` — first-party SDK app publishing
   a small settings/form tree and responding to actions.
+- `kittwm: plan browser DOM/ARIA semantic adapter` (`bd-2250e1`) — detailed architecture in [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md).
 - `kittwm: add browser DOM/ARIA semantic surface adapter` — map browser semantics
   when available while retaining screenshot fallback.
 - `kittwm: add accessibility-tree semantic adapter spike` — evaluate platform

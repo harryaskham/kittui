@@ -179,6 +179,6 @@ primitive-only.
 
 - Add stable `kittwm --semantic-publish` CLI wrapper (`bd-c6f2c7`).
 - Add a real standalone semantic surface/app lifecycle around SDK publishing.
-- Add browser DOM/ARIA or accessibility-tree adapter spike.
+- Add browser DOM/ARIA or accessibility-tree adapter spike; the browser-specific plan lives in [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md).
 - Route semantic actions for first-party SDK surfaces.
 - Make semantic renderer output selectable in live kittwm views where useful.
