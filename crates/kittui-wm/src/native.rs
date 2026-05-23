@@ -183,7 +183,11 @@ impl PtyTerminalApp {
 
 impl NativeApp for PtyTerminalApp {
     fn title(&self) -> String {
-        self.title.clone()
+        self.state
+            .lock()
+            .title
+            .clone()
+            .unwrap_or_else(|| self.title.clone())
     }
 
     fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
@@ -220,6 +224,7 @@ struct TerminalState {
     cursor_col: u16,
     cursor_row: u16,
     cells: Vec<char>,
+    title: Option<String>,
 }
 
 impl TerminalState {
@@ -230,12 +235,14 @@ impl TerminalState {
             cursor_col: 0,
             cursor_row: 0,
             cells: vec![' '; usize::from(cols) * usize::from(rows)],
+            title: None,
         }
     }
 
     fn resize(&mut self, cols: u16, rows: u16) {
         let old = self.clone();
         *self = Self::new(cols, rows);
+        self.title = old.title.clone();
         let copy_rows = rows.min(old.rows);
         let copy_cols = cols.min(old.cols);
         for row in 0..copy_rows {
@@ -303,6 +310,28 @@ impl TerminalState {
         self.put_at(self.cursor_col, self.cursor_row, ch);
         self.cursor_col += 1;
     }
+
+    fn set_title_from_osc(&mut self, params: &[&[u8]]) {
+        let Some(kind) = params
+            .first()
+            .and_then(|param| std::str::from_utf8(param).ok())
+        else {
+            return;
+        };
+        if !matches!(kind, "0" | "1" | "2") {
+            return;
+        }
+        let title = params
+            .get(1..)
+            .unwrap_or_default()
+            .iter()
+            .flat_map(|part| std::str::from_utf8(part).ok())
+            .collect::<Vec<_>>()
+            .join(";");
+        if !title.is_empty() {
+            self.title = Some(title);
+        }
+    }
 }
 
 impl Perform for TerminalState {
@@ -317,6 +346,10 @@ impl Perform for TerminalState {
             0x08 => self.cursor_col = self.cursor_col.saturating_sub(1),
             _ => {}
         }
+    }
+
+    fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
+        self.set_title_from_osc(params);
     }
 
     fn csi_dispatch(
@@ -670,6 +703,26 @@ mod tests {
         assert_eq!((width, height), (320, 96));
         assert_eq!(rgba.len(), (width * height * 4) as usize);
         assert!(rgba.chunks_exact(4).any(|px| px[0] == 0xd7));
+    }
+
+    #[test]
+    fn pty_terminal_captures_osc_window_title() {
+        let term = PtyTerminalApp::spawn("printf '\\033]2;editor pane title\\007'", 40, 4)
+            .expect("spawn pty title probe");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && term.title() != "editor pane title" {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(term.title(), "editor pane title");
+    }
+
+    #[test]
+    fn terminal_state_preserves_osc_title_across_resize() {
+        let mut state = TerminalState::new(10, 2);
+        state.osc_dispatch(&[b"0", b"build", b"pane"], true);
+        assert_eq!(state.title.as_deref(), Some("build;pane"));
+        state.resize(20, 4);
+        assert_eq!(state.title.as_deref(), Some("build;pane"));
     }
 
     #[test]
