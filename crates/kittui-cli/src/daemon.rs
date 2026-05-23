@@ -6,6 +6,10 @@
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
+use kittwm_sdk::{
+    ActionKind, ComponentAction, ComponentNode, ComponentRole, ComponentState, ComponentValue,
+    SemanticSurfaceSnapshot,
+};
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -596,6 +600,15 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(target) = cmd.strip_prefix("READ_TEXT ") {
         return native_spawn_read_text_reply(pending, target);
     }
+    if let Some(target) = cmd.strip_prefix("SEMANTIC_SNAPSHOT ") {
+        return native_spawn_semantic_snapshot_reply(pending, target);
+    }
+    if let Some(rest) = cmd.strip_prefix("SEMANTIC_ACTION ") {
+        return native_spawn_semantic_action_reply(pending, rest);
+    }
+    if let Some(rest) = cmd.strip_prefix("SEMANTIC_FOCUS ") {
+        return native_spawn_semantic_focus_reply(pending, rest);
+    }
     match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
@@ -607,7 +620,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -733,6 +746,21 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "READ_SCROLLBACK_JSON <window|focused>",
             "inspect",
             "read native pane scrollback lines as JSON",
+        ),
+        (
+            "SEMANTIC_SNAPSHOT <window|focused>",
+            "semantic",
+            "read a semantic component snapshot for a native pane",
+        ),
+        (
+            "SEMANTIC_ACTION <window|focused> <component> <action> <json>",
+            "semantic",
+            "invoke a semantic component action when supported",
+        ),
+        (
+            "SEMANTIC_FOCUS <window|focused> <component>",
+            "semantic",
+            "focus a semantic component when supported",
         ),
         (
             "WAIT_TEXT <window|focused> <needle>",
@@ -1620,6 +1648,100 @@ fn native_spawn_read_scrollback_json_reply(
     )
 }
 
+fn native_spawn_semantic_snapshot_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    target: &str,
+) -> String {
+    let Ok(state) = pending.lock() else {
+        return "{\"error\":\"registry poisoned\"}\n".to_string();
+    };
+    let Some(pane) = native_find_pane_target(&state.panes, target) else {
+        return format!(
+            "{}\n",
+            serde_json::json!({ "error": "no pane matching target", "target": target.trim() })
+        );
+    };
+    let snapshot = native_semantic_snapshot_for_pane(pane);
+    format!(
+        "{}\n",
+        serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string())
+    )
+}
+
+fn native_semantic_snapshot_for_pane(pane: &NativePaneStatus) -> SemanticSurfaceSnapshot {
+    let text_id = format!("{}.screen", pane.window);
+    let mut text_state = ComponentState {
+        focusable: true,
+        focused: pane.focused,
+        ..ComponentState::default()
+    };
+    text_state.sensitive = false;
+    let text = ComponentNode::new(&text_id, ComponentRole::TextArea)
+        .labeled("terminal screen")
+        .valued(ComponentValue::Text(
+            pane.text_snapshot.clone().unwrap_or_default(),
+        ))
+        .state(text_state)
+        .actions(vec![
+            ComponentAction::new("focus", ActionKind::Focus),
+            ComponentAction::new("insert_text", ActionKind::InsertText),
+        ]);
+    let root = ComponentNode::new(format!("{}.root", pane.window), ComponentRole::Group)
+        .labeled(pane.title.clone())
+        .children(vec![text]);
+    SemanticSurfaceSnapshot::new(pane.window.clone(), 1, root).focused(text_id)
+}
+
+fn native_spawn_semantic_action_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+) -> String {
+    let Some((target, rest)) = rest.trim_start().split_once(' ') else {
+        return "ERR SEMANTIC_ACTION requires window component action json\n".to_string();
+    };
+    let Some((component, rest)) = rest.trim_start().split_once(' ') else {
+        return "ERR SEMANTIC_ACTION requires window component action json\n".to_string();
+    };
+    let Some((action, payload)) = rest.trim_start().split_once(' ') else {
+        return "ERR SEMANTIC_ACTION requires window component action json\n".to_string();
+    };
+    if serde_json::from_str::<serde_json::Value>(payload.trim()).is_err() {
+        return "ERR SEMANTIC_ACTION payload must be JSON\n".to_string();
+    }
+    let Ok(state) = pending.lock() else {
+        return "ERR registry poisoned\n".to_string();
+    };
+    let Some(pane) = native_find_pane_target(&state.panes, target) else {
+        return format!("ERR SEMANTIC_ACTION no pane matching {}\n", target.trim());
+    };
+    format!(
+        "ERR SEMANTIC_ACTION unsupported window={} component={} action={}\n",
+        pane.window,
+        component.trim(),
+        action.trim()
+    )
+}
+
+fn native_spawn_semantic_focus_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+) -> String {
+    let Some((target, component)) = rest.trim_start().split_once(' ') else {
+        return "ERR SEMANTIC_FOCUS requires window and component\n".to_string();
+    };
+    let Ok(state) = pending.lock() else {
+        return "ERR registry poisoned\n".to_string();
+    };
+    let Some(pane) = native_find_pane_target(&state.panes, target) else {
+        return format!("ERR SEMANTIC_FOCUS no pane matching {}\n", target.trim());
+    };
+    format!(
+        "ERR SEMANTIC_FOCUS unsupported window={} component={}\n",
+        pane.window,
+        component.trim()
+    )
+}
+
 fn native_find_pane_target<'a>(
     panes: &'a [NativePaneStatus],
     target: &str,
@@ -2503,6 +2625,53 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "EVENTS [ms]" && entry["category"] == "events" }));
+        assert!(help_json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["command"] == "SEMANTIC_SNAPSHOT <window|focused>"
+                    && entry["category"] == "semantic"
+            }));
+    }
+
+    #[test]
+    fn native_spawn_queue_serves_semantic_snapshot_skeleton() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        pending.lock().unwrap().panes = vec![native_status("native-1", true, 1)];
+        let reply = native_spawn_queue_reply("SEMANTIC_SNAPSHOT focused", &pending);
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["surface"], "native-1");
+        assert_eq!(value["root"]["role"], "group");
+        assert_eq!(value["root"]["children"][0]["role"], "text_area");
+        assert_eq!(value["root"]["children"][0]["value"]["kind"], "text");
+        assert_eq!(value["root"]["children"][0]["state"]["focused"], true);
+        assert_eq!(value["focus"], "native-1.screen");
+    }
+
+    #[test]
+    fn native_spawn_queue_rejects_semantic_action_and_focus_until_supported() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        pending.lock().unwrap().panes = vec![native_status("native-1", true, 1)];
+        let action = native_spawn_queue_reply(
+            "SEMANTIC_ACTION focused native-1.screen insert_text {\"text\":\"hi\"}",
+            &pending,
+        );
+        assert!(
+            action.starts_with("ERR SEMANTIC_ACTION unsupported window=native-1"),
+            "{action}"
+        );
+        let bad_json = native_spawn_queue_reply(
+            "SEMANTIC_ACTION focused native-1.screen insert_text not-json",
+            &pending,
+        );
+        assert_eq!(bad_json, "ERR SEMANTIC_ACTION payload must be JSON\n");
+        let focus = native_spawn_queue_reply("SEMANTIC_FOCUS focused native-1.screen", &pending);
+        assert!(
+            focus.starts_with("ERR SEMANTIC_FOCUS unsupported window=native-1"),
+            "{focus}"
+        );
     }
 
     #[test]
