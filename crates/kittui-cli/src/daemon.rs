@@ -216,6 +216,12 @@ fn handle_native_spawn_request(
 }
 
 fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    if let Some(query) = cmd.strip_prefix("APPS_FIRST ") {
+        return apps_first_reply(query, false);
+    }
+    if let Some(query) = cmd.strip_prefix("APPS_LAUNCH_FIRST ") {
+        return apps_first_reply(query, true);
+    }
     if let Some(argv) = cmd.strip_prefix("SPAWN_PTY ") {
         return queue_native_pane_command(
             pending,
@@ -262,7 +268,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "STATUS_JSON" => native_spawn_status_json_reply(pending),
         "PANES" => native_spawn_panes_reply(pending),
         "PANES_JSON" => native_spawn_panes_json_reply(pending),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | STATUS_JSON | PANES_JSON\n"
+        "APPS" => apps_reply(50),
+        "APPS_JSON" => apps_json_reply(50),
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON\n"
             .to_string(),
     }
 }
@@ -656,6 +664,26 @@ mod tests {
                 NativePaneCommand::Close("focused".to_string()),
                 NativePaneCommand::Layout("rows".to_string())
             ]
+        );
+    }
+
+    #[test]
+    fn native_spawn_queue_serves_app_discovery_commands() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let apps_json = native_spawn_queue_reply("APPS_JSON", &pending);
+        let value: serde_json::Value = serde_json::from_str(&apps_json).unwrap();
+        assert!(value.get("default_command").is_some(), "{apps_json}");
+        assert!(
+            value.get("path_commands").unwrap().is_array(),
+            "{apps_json}"
+        );
+
+        let first = native_spawn_queue_reply("APPS_FIRST sh", &pending);
+        assert!(
+            first.starts_with("APP ")
+                || first.starts_with("APPS_FIRST ")
+                || first.starts_with("ERR no app match"),
+            "{first}"
         );
     }
 

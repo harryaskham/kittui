@@ -31,6 +31,8 @@ kittwm --attach -c STATUS
 kittwm --attach -c STATUS_JSON
 kittwm --attach -c PANES
 kittwm --attach -c PANES_JSON
+kittwm --attach -c APPS_JSON
+kittwm --attach -c 'APPS_FIRST htop'
 kittwm --attach -c 'SPAWN_PTY htop'
 kittwm --attach -c 'LAYOUT rows'
 kittwm --attach -c 'FOCUS_PANE native-2'
