@@ -835,6 +835,23 @@ pub struct EventEnvelope {
     pub detail: Value,
 }
 
+impl EventEnvelope {
+    /// Borrow a string field from the event detail object.
+    pub fn detail_str(&self, key: &str) -> Option<&str> {
+        self.detail.get(key).and_then(Value::as_str)
+    }
+
+    /// Borrow a boolean field from the event detail object.
+    pub fn detail_bool(&self, key: &str) -> Option<bool> {
+        self.detail.get(key).and_then(Value::as_bool)
+    }
+
+    /// Borrow an unsigned integer field from the event detail object.
+    pub fn detail_u64(&self, key: &str) -> Option<u64> {
+        self.detail.get(key).and_then(Value::as_u64)
+    }
+}
+
 /// Native socket event parsed from `EVENTS [ms]`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum KittwmEvent {
@@ -882,6 +899,36 @@ impl KittwmEvent {
     pub fn parse_line(line: &str) -> Result<Self> {
         let value: Value = serde_json::from_str(line)?;
         Ok(parse_event_value(value))
+    }
+
+    /// Return the common event envelope for typed known events.
+    pub fn envelope(&self) -> Option<&EventEnvelope> {
+        match self {
+            Self::Status(envelope)
+            | Self::StatusChanged(envelope)
+            | Self::PaneOpened(envelope)
+            | Self::PaneClosed(envelope)
+            | Self::PaneChanged(envelope)
+            | Self::FocusChanged(envelope)
+            | Self::LayoutChanged(envelope)
+            | Self::SemanticSnapshotReady(envelope)
+            | Self::SemanticFocusChanged(envelope)
+            | Self::SemanticActionInvoked(envelope)
+            | Self::SurfaceTitleChanged(envelope)
+            | Self::SurfaceBell(envelope)
+            | Self::SurfaceClipboardSet(envelope)
+            | Self::SurfaceNotification(envelope)
+            | Self::SemanticValueChanged(envelope) => Some(envelope),
+            Self::Unknown { .. } => None,
+        }
+    }
+
+    /// Return the raw JSON object for unknown events.
+    pub fn unknown_raw(&self) -> Option<&Value> {
+        match self {
+            Self::Unknown { raw, .. } => Some(raw),
+            _ => None,
+        }
     }
 
     /// Return this event's kind label.
@@ -2320,6 +2367,25 @@ mod tests {
             KittwmEvent::parse_line(r#"{"kind":"new_future_event","detail":{"x":1}}"#).unwrap();
         assert_eq!(unknown.kind(), "new_future_event");
         assert!(matches!(unknown, KittwmEvent::Unknown { .. }));
+        assert!(unknown.envelope().is_none());
+        assert_eq!(unknown.unknown_raw().unwrap()["detail"]["x"], 1);
+    }
+
+    #[test]
+    fn event_envelope_accessors_expose_common_details() {
+        let event = KittwmEvent::parse_line(
+            r#"{"schema_version":1,"seq":9,"kind":"surface_bell","window":"native-1","detail":{"visual":true,"audible":false,"bytes":12,"title":"bell"}}"#,
+        )
+        .unwrap();
+        let envelope = event.envelope().unwrap();
+        assert_eq!(event.kind(), "surface_bell");
+        assert_eq!(envelope.seq, Some(9));
+        assert_eq!(envelope.window.as_deref(), Some("native-1"));
+        assert_eq!(envelope.detail_str("title"), Some("bell"));
+        assert_eq!(envelope.detail_bool("visual"), Some(true));
+        assert_eq!(envelope.detail_bool("audible"), Some(false));
+        assert_eq!(envelope.detail_u64("bytes"), Some(12));
+        assert_eq!(envelope.detail_str("missing"), None);
     }
 
     #[test]
