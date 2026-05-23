@@ -2,8 +2,9 @@
 //!
 //! This is a protocol dogfood example: it builds a semantic component tree using
 //! `kittwm-sdk` types and prints the JSON snapshot that future runtime publishing
-//! endpoints can consume. When connected to kittwm, `--query-current` also reads
-//! the current surface's semantic snapshot through the SDK/socket skeleton.
+//! endpoints can consume. When connected to kittwm, `--query-current` reads the
+//! current surface's semantic snapshot, and `--publish-current` / `--publish ID`
+//! publish the generated snapshot through the SDK/socket path.
 
 use std::env;
 
@@ -100,23 +101,36 @@ fn synthetic_settings_snapshot(surface: impl Into<String>) -> SemanticSurfaceSna
     .focused("settings.name")
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SemanticExampleMode {
+    Print,
+    QueryCurrent,
+    Publish(String),
+}
+
 fn print_help() {
     println!(
-        "usage: kittwm_semantic_app [--surface ID] [--query-current]\n\n\
+        "usage: kittwm_semantic_app [--surface ID] [--query-current | --publish-current | --publish WINDOW]\n\n\
          Without flags, prints a synthetic semantic settings snapshot as JSON.\n\
-         --surface ID      set the surface id in the generated snapshot\n\
-         --query-current   read the current kittwm surface semantic snapshot instead"
+         --surface ID       set the surface id in the generated snapshot\n\
+         --query-current    read the current kittwm surface semantic snapshot instead\n\
+         --publish-current  publish the generated snapshot to focused/current surface\n\
+         --publish WINDOW   publish the generated snapshot to an explicit surface"
     );
 }
 
 fn main() -> Result<()> {
     let mut surface = "synthetic-settings".to_string();
-    let mut query_current = false;
+    let mut mode = SemanticExampleMode::Print;
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--surface" => surface = args.next().ok_or("--surface ID")?,
-            "--query-current" => query_current = true,
+            "--query-current" => mode = SemanticExampleMode::QueryCurrent,
+            "--publish-current" => mode = SemanticExampleMode::Publish("focused".to_string()),
+            "--publish" => {
+                mode = SemanticExampleMode::Publish(args.next().ok_or("--publish WINDOW")?)
+            }
             "--help" | "-h" => {
                 print_help();
                 return Ok(());
@@ -125,13 +139,26 @@ fn main() -> Result<()> {
         }
     }
 
-    let snapshot = if query_current {
-        let wm = Kittwm::connect_from_env()?;
-        wm.focused_surface().semantic_snapshot()?
-    } else {
-        synthetic_settings_snapshot(surface)
-    };
-    println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    match mode {
+        SemanticExampleMode::Print => {
+            let snapshot = synthetic_settings_snapshot(surface);
+            println!("{}", serde_json::to_string_pretty(&snapshot)?);
+        }
+        SemanticExampleMode::QueryCurrent => {
+            let wm = Kittwm::connect_from_env()?;
+            let snapshot = wm.focused_surface().semantic_snapshot()?;
+            println!("{}", serde_json::to_string_pretty(&snapshot)?);
+        }
+        SemanticExampleMode::Publish(target) => {
+            let wm = Kittwm::connect_from_env()?;
+            let snapshot = synthetic_settings_snapshot(target.clone());
+            let reply = wm.surface(target).semantic_publish(&snapshot)?;
+            print!("{reply}");
+            if !reply.ends_with('\n') {
+                println!();
+            }
+        }
+    }
     Ok(())
 }
 
@@ -168,6 +195,16 @@ mod tests {
         assert_eq!(value["root"]["children"][2]["value"]["kind"], "bool");
         assert_eq!(value["root"]["children"][3]["role"], "radio_group");
         assert_eq!(value["focus"], "settings.name");
+    }
+
+    #[test]
+    fn publish_mode_targets_focused_or_explicit_surface() {
+        assert_eq!(
+            SemanticExampleMode::Publish("focused".to_string()),
+            SemanticExampleMode::Publish("focused".to_string())
+        );
+        let snapshot = synthetic_settings_snapshot("native-7");
+        assert_eq!(snapshot.surface, "native-7");
     }
 
     #[test]
