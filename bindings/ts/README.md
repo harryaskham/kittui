@@ -41,6 +41,10 @@ const bytes = k.place({
 
 process.stdout.write(bytes);
 
+// Inspect runtime metadata and clean up uploaded images.
+console.log(k.probe());
+process.stdout.write(k.unplace('0x1234'));
+
 // Reuse the same scene/render identity but place it elsewhere.
 process.stdout.write(k.placeAt(sceneJsonOrObject, 10, 4));
 ```

@@ -148,6 +148,8 @@ export class Kittui {
     this._kittui_runtime_new_config = this.lib.func('void* kittui_runtime_new_config(const char* json)');
     this._kittui_runtime_free = this.lib.func('void kittui_runtime_free(void* runtime)');
     this._kittui_string_free = this.lib.func('void kittui_string_free(void* ptr)');
+    this._kittui_probe_json = this.lib.func('KittuiOwnedStr kittui_probe_json(void* runtime)');
+    this._kittui_unplace = this.lib.func('KittuiOwnedStr kittui_unplace(void* runtime, uint32_t image_id)');
     // `KittuiOwnedStr` ties the auto-decoded `char**` to kittui_string_free
     // so ownership of the C buffer transfers cleanly into JS.
     this._kittui_place_json = this.lib.func(
@@ -159,12 +161,47 @@ export class Kittui {
     this._kittui_abi_version = this.lib.func('uint32_t kittui_abi_version()');
   }
 
+  _parseImageId(imageId) {
+    if (typeof imageId === 'number') return imageId >>> 0;
+    if (typeof imageId === 'string') {
+      const trimmed = imageId.trim();
+      const value = trimmed.startsWith('0x') || trimmed.startsWith('0X')
+        ? Number.parseInt(trimmed.slice(2), 16)
+        : Number.parseInt(trimmed, 10);
+      if (Number.isFinite(value) && value >= 0) return value >>> 0;
+    }
+    throw new Error(`invalid image id: ${imageId}`);
+  }
+
   /**
    * Returns the loaded library's ABI version as a `{major, minor}` object.
    */
   abiVersion() {
     const packed = this._kittui_abi_version();
     return { major: (packed >>> 16) & 0xffff, minor: packed & 0xffff };
+  }
+
+  /**
+   * Probe the runtime and return ABI/renderer/transport metadata.
+   * @returns {object}
+   */
+  probe() {
+    if (!this.runtime) throw new Error('kittui runtime closed');
+    const json = this._kittui_probe_json(this.runtime);
+    if (!json) throw new Error('kittui_probe_json returned null');
+    return JSON.parse(json);
+  }
+
+  /**
+   * Delete an uploaded image id from the terminal.
+   * @param {number|string} imageId decimal number/string or 0x-prefixed string.
+   * @returns {string}
+   */
+  unplace(imageId) {
+    if (!this.runtime) throw new Error('kittui runtime closed');
+    const bytes = this._kittui_unplace(this.runtime, this._parseImageId(imageId));
+    if (bytes === null || bytes === undefined) throw new Error('kittui_unplace returned null');
+    return bytes || '';
   }
 
   /**

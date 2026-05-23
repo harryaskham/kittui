@@ -77,6 +77,15 @@ function fakeLib(calls) {
       if (signature.includes('kittui_string_free')) {
         return () => undefined;
       }
+      if (signature.includes('kittui_probe_json')) {
+        return () => '{"abi_major":0,"abi_minor":4,"transport":"Direct"}';
+      }
+      if (signature.includes('kittui_unplace')) {
+        return (_runtime, imageId) => {
+          calls.push(['unplace', imageId]);
+          return 'deleted';
+        };
+      }
       if (signature.includes('kittui_place_json_at')) {
         return (_runtime, sceneJson, x, y, out) => {
           calls.push(['place_at', JSON.parse(sceneJson), x, y]);
@@ -124,6 +133,19 @@ test('constructor uses JSON runtime config when terminal options are present', (
     supports_kitty: true,
     supports_unicode_placeholders: true,
   });
+  k.close();
+});
+
+test('probe parses runtime metadata and unplace forwards image ids', () => {
+  const calls = [];
+  const k = new Kittui(fakeLib(calls), {});
+  assert.deepEqual(k.probe(), { abi_major: 0, abi_minor: 4, transport: 'Direct' });
+  assert.equal(k.unplace('0x1234'), 'deleted');
+  assert.equal(k.unplace(7), 'deleted');
+  assert.deepEqual(calls.filter((call) => call[0] === 'unplace'), [
+    ['unplace', 0x1234],
+    ['unplace', 7],
+  ]);
   k.close();
 });
 

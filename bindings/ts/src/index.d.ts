@@ -113,6 +113,8 @@ export class Kittui {
   static openWithLibrary(libraryPath: string, options?: KittuiOptions): Promise<Kittui>;
 
   abiVersion(): { major: number; minor: number };
+  probe(): Record<string, unknown>;
+  unplace(imageId: number | string): string;
   place(scene: Scene | string): string;
   placeAt(scene: Scene | string, x: number, y: number): string;
   placeMany(scenes: (Scene | string)[]): string[];
