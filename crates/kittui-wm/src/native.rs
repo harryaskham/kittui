@@ -752,6 +752,32 @@ impl TerminalState {
         }
     }
 
+    fn reset_modes(&mut self) {
+        self.cursor_col = 0;
+        self.cursor_row = 0;
+        self.saved_cursor_col = 0;
+        self.saved_cursor_row = 0;
+        self.cursor_visible = true;
+        self.origin_mode = false;
+        self.auto_wrap = true;
+        self.current_style = TerminalStyle::default();
+        self.bracketed_paste = false;
+        self.focus_reporting = false;
+        self.mouse_modes = MouseReportingModes::default();
+        self.reset_scroll_region();
+    }
+
+    fn soft_reset(&mut self) {
+        self.reset_modes();
+    }
+
+    fn full_reset(&mut self) {
+        self.reset_modes();
+        self.alt_screen = None;
+        self.cells.fill(TerminalCell::blank(self.current_style));
+        self.scrollback.clear();
+    }
+
     fn apply_sgr(&mut self, params: &Params) {
         if params.is_empty() {
             self.current_style = TerminalStyle::default();
@@ -1020,6 +1046,7 @@ impl Perform for TerminalState {
             }
             'M' => self.delete_lines(first_count),
             'm' => self.apply_sgr(params),
+            'p' if intermediates.contains(&b'!') => self.soft_reset(),
             'P' => self.delete_chars(first_count),
             'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
@@ -1036,6 +1063,7 @@ impl Perform for TerminalState {
             b'D' => self.index(),
             b'E' => self.next_line(),
             b'M' => self.reverse_index(),
+            b'c' => self.full_reset(),
             _ => {}
         }
     }
@@ -1509,6 +1537,32 @@ mod tests {
         assert!(text.starts_with("X\n\nY"), "snapshot was:\n{text}");
         assert_eq!(state.scroll_top, 0);
         assert_eq!(state.scroll_bottom, 3);
+    }
+
+    #[test]
+    fn terminal_state_honors_full_and_soft_reset_controls() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 3);
+        parser.advance(
+            &mut state,
+            b"\x1b[31mabc\nscrolled\nmore\n\x1b[?7l\x1b[?25l\x1b[2;3r\x1bc",
+        );
+        assert_eq!(state.text_snapshot(), "\n\n\n");
+        assert_eq!(state.scrollback_snapshot(), "");
+        assert_eq!(state.current_style, TerminalStyle::default());
+        assert!(state.auto_wrap);
+        assert!(state.cursor_visible);
+        assert_eq!((state.cursor_col, state.cursor_row), (0, 0));
+        assert_eq!((state.scroll_top, state.scroll_bottom), (0, 2));
+
+        let mut state = TerminalState::new(8, 3);
+        parser.advance(&mut state, b"abc\x1b[31m\x1b[?7l\x1b[?25l\x1b[2;3r\x1b[!p");
+        assert!(state.text_snapshot().starts_with("abc"));
+        assert_eq!(state.current_style, TerminalStyle::default());
+        assert!(state.auto_wrap);
+        assert!(state.cursor_visible);
+        assert_eq!((state.cursor_col, state.cursor_row), (0, 0));
+        assert_eq!((state.scroll_top, state.scroll_bottom), (0, 2));
     }
 
     #[test]
