@@ -359,11 +359,14 @@ struct ComposeArgs {
 
 #[derive(clap::Args)]
 struct RenderArgs {
-    /// Path to a JSON file describing one `kittui::Scene`; use `-` for stdin.
+    /// Path to JSON describing one `kittui::Scene` or an array of scenes; use `-` for stdin.
     path: PathBuf,
-    /// Write PNG bytes to this path instead of stdout.
+    /// Write a single-scene PNG to this path instead of stdout.
     #[arg(long)]
     out: Option<PathBuf>,
+    /// Directory for rendering a scene array to one PNG per scene.
+    #[arg(long)]
+    out_dir: Option<PathBuf>,
 }
 
 #[derive(Copy, Clone, clap::ValueEnum)]
@@ -733,12 +736,24 @@ fn run_render(
     args: &RenderArgs,
     mode: EmitMode,
 ) -> Result<()> {
-    let scene = match read_compose_input(&args.path)? {
-        ComposeInput::Single(scene) => scene,
-        ComposeInput::Batch(_) => {
-            return Err(anyhow!("render expects a single Scene, not an array"))
-        }
-    };
+    match read_compose_input(&args.path)? {
+        ComposeInput::Single(scene) => run_render_single(global, runtime, args, mode, scene),
+        ComposeInput::Batch(scenes) => run_render_batch(global, runtime, args, mode, scenes),
+    }
+}
+
+fn run_render_single(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &RenderArgs,
+    mode: EmitMode,
+    scene: Scene,
+) -> Result<()> {
+    if args.out_dir.is_some() {
+        return Err(anyhow!(
+            "render --out-dir is only supported for scene arrays"
+        ));
+    }
     let png = runtime.render_png(&scene)?;
     if global.json.value || mode.dry_run {
         let mut payload = serde_json::json!({
@@ -762,6 +777,53 @@ fn run_render(
         std::fs::write(path, &png)?;
     } else if !global.json.value {
         std::io::stdout().lock().write_all(&png)?;
+    }
+    Ok(())
+}
+
+fn run_render_batch(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &RenderArgs,
+    mode: EmitMode,
+    scenes: Vec<Scene>,
+) -> Result<()> {
+    if args.out.is_some() {
+        return Err(anyhow!("render --out is only supported for a single Scene"));
+    }
+    let Some(out_dir) = args.out_dir.as_ref() else {
+        return Err(anyhow!("render scene arrays require --out-dir DIR"));
+    };
+    let mut entries = Vec::with_capacity(scenes.len());
+    let mut rendered = Vec::with_capacity(scenes.len());
+    for (idx, scene) in scenes.iter().enumerate() {
+        let png = runtime.render_png(scene)?;
+        let path = out_dir.join(format!("scene-{idx:05}.png"));
+        entries.push(serde_json::json!({
+            "index": idx,
+            "bytes": png.len(),
+            "footprint": scene.footprint,
+            "output": path.display().to_string(),
+        }));
+        rendered.push((path, png));
+    }
+    if global.json.value || mode.dry_run {
+        let mut payload = serde_json::json!({
+            "count": entries.len(),
+            "output_dir": out_dir.display().to_string(),
+            "files": entries,
+        });
+        if mode.dry_run {
+            payload["dry_run"] = serde_json::json!(true);
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        if mode.dry_run {
+            return Ok(());
+        }
+    }
+    std::fs::create_dir_all(out_dir)?;
+    for (path, png) in rendered {
+        std::fs::write(path, png)?;
     }
     Ok(())
 }
