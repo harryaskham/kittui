@@ -83,6 +83,9 @@ Current semantic implementation status:
   spanning terminal plus browser/placeholder surfaces.
 - `kittwm-terminal` — first-party SDK terminal client for spawn/replace plus
   typed `--status` and `--events-ms` inspection.
+- `kittwm-sdk` read automation helpers now include screen text, scrollback,
+  visible-text waits, and screen-plus-scrollback output waits through typed
+  `SurfaceHandle` methods.
 - `kittwm-launch` — first-party SDK launcher with backend planning, typed app
   discovery helpers, URL/browser auto-selection through `kittwm-browser`,
   `--dry-run`, and `--status`.
