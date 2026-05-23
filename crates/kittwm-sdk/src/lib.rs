@@ -625,6 +625,14 @@ pub enum KittwmEvent {
     FocusChanged(EventEnvelope),
     /// Layout changed.
     LayoutChanged(EventEnvelope),
+    /// A semantic snapshot is ready/was published.
+    SemanticSnapshotReady(EventEnvelope),
+    /// Semantic component focus changed.
+    SemanticFocusChanged(EventEnvelope),
+    /// Semantic action was invoked.
+    SemanticActionInvoked(EventEnvelope),
+    /// Semantic component value changed.
+    SemanticValueChanged(EventEnvelope),
     /// Unknown event kind; raw JSON is preserved for forward compatibility.
     Unknown {
         /// Unknown kind string.
@@ -651,6 +659,10 @@ impl KittwmEvent {
             Self::PaneChanged(_) => "pane_changed",
             Self::FocusChanged(_) => "focus_changed",
             Self::LayoutChanged(_) => "layout_changed",
+            Self::SemanticSnapshotReady(_) => "semantic_snapshot_ready",
+            Self::SemanticFocusChanged(_) => "semantic_focus_changed",
+            Self::SemanticActionInvoked(_) => "semantic_action_invoked",
+            Self::SemanticValueChanged(_) => "semantic_value_changed",
             Self::Unknown { kind, .. } => kind.as_str(),
         }
     }
@@ -680,6 +692,10 @@ fn parse_event_value(value: Value) -> KittwmEvent {
         "pane_changed" => KittwmEvent::PaneChanged(envelope()),
         "focus_changed" => KittwmEvent::FocusChanged(envelope()),
         "layout_changed" => KittwmEvent::LayoutChanged(envelope()),
+        "semantic_snapshot_ready" => KittwmEvent::SemanticSnapshotReady(envelope()),
+        "semantic_focus_changed" => KittwmEvent::SemanticFocusChanged(envelope()),
+        "semantic_action_invoked" => KittwmEvent::SemanticActionInvoked(envelope()),
+        "semantic_value_changed" => KittwmEvent::SemanticValueChanged(envelope()),
         _ => KittwmEvent::Unknown { kind, raw: value },
     }
 }
@@ -1375,6 +1391,33 @@ mod tests {
                 assert_eq!(envelope.detail["focus"], "native-2");
             }
             other => panic!("unexpected event: {other:?}"),
+        }
+
+        let semantic = KittwmEvent::parse_line(
+            r#"{"schema_version":1,"seq":8,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
+        )
+        .unwrap();
+        assert_eq!(semantic.kind(), "semantic_value_changed");
+        match semantic {
+            KittwmEvent::SemanticValueChanged(envelope) => {
+                assert_eq!(envelope.window.as_deref(), Some("native-1"));
+                assert_eq!(envelope.detail["component"], "settings.name");
+                assert_eq!(envelope.detail["revision"], 3);
+                assert_eq!(envelope.detail["value"], "Grace");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
+        for (kind, expected) in [
+            ("semantic_snapshot_ready", "semantic_snapshot_ready"),
+            ("semantic_focus_changed", "semantic_focus_changed"),
+            ("semantic_action_invoked", "semantic_action_invoked"),
+        ] {
+            let event = KittwmEvent::parse_line(&format!(
+                r#"{{"kind":"{kind}","window":"native-1","detail":{{}}}}"#
+            ))
+            .unwrap();
+            assert_eq!(event.kind(), expected);
         }
 
         let unknown =
