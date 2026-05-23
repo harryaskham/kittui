@@ -99,6 +99,22 @@ pub struct NativePaneStatus {
     pub title: String,
     pub focused: bool,
     pub weight: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cols: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rows: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_x: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_y: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_cols: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_rows: Option<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -577,12 +593,43 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} title={:?}",
-            pane.window, pane.focused, pane.weight, pane.title
+            "  window={} focused={} weight={} layout={} title={:?}",
+            pane.window,
+            pane.focused,
+            pane.weight,
+            native_pane_layout_label(pane),
+            pane.title
         );
     }
     out.push_str("END\n");
     out
+}
+
+fn native_pane_layout_label(pane: &NativePaneStatus) -> String {
+    match (
+        pane.x,
+        pane.y,
+        pane.cols,
+        pane.rows,
+        pane.app_x,
+        pane.app_y,
+        pane.app_cols,
+        pane.app_rows,
+    ) {
+        (
+            Some(x),
+            Some(y),
+            Some(cols),
+            Some(rows),
+            Some(app_x),
+            Some(app_y),
+            Some(app_cols),
+            Some(app_rows),
+        ) => {
+            format!("{x},{y} {cols}x{rows} app={app_x},{app_y} {app_cols}x{app_rows}")
+        }
+        _ => "-".to_string(),
+    }
 }
 
 fn native_spawn_panes_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
@@ -1063,12 +1110,28 @@ mod tests {
                 title: "shell".to_string(),
                 focused: false,
                 weight: 1,
+                x: Some(0),
+                y: Some(0),
+                cols: Some(40),
+                rows: Some(24),
+                app_x: Some(0),
+                app_y: Some(1),
+                app_cols: Some(40),
+                app_rows: Some(23),
             },
             NativePaneStatus {
                 window: "native-2".to_string(),
                 title: "htop".to_string(),
                 focused: true,
                 weight: 3,
+                x: Some(40),
+                y: Some(0),
+                cols: Some(80),
+                rows: Some(24),
+                app_x: Some(40),
+                app_y: Some(1),
+                app_cols: Some(80),
+                app_rows: Some(23),
             },
         ];
         pending.lock().unwrap().layout = Some("rows".to_string());
@@ -1079,11 +1142,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let status_json: serde_json::Value =
@@ -1098,6 +1161,8 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["window"], "native-2");
         assert_eq!(panes_json["panes_detail"][1]["focused"], true);
         assert_eq!(panes_json["panes_detail"][1]["weight"], 3);
+        assert_eq!(panes_json["panes_detail"][1]["x"], 40);
+        assert_eq!(panes_json["panes_detail"][1]["app_cols"], 80);
     }
 
     #[test]

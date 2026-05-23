@@ -56,7 +56,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut focused = 0usize;
     let mut layout_axis = NativePaneLayoutAxis::Columns;
     resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
-    queue.update_panes(native_pane_statuses(&panes, focused));
+    let initial_layouts = native_layouts_for_panes(cols, rows, &panes, layout_axis);
+    queue.update_panes(native_pane_statuses(&panes, focused, &initial_layouts));
     queue.update_layout(layout_axis.label());
 
     let fps = std::env::var("KITTUI_WM_FPS")
@@ -297,7 +298,6 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 }
             }
         }
-        queue.update_panes(native_pane_statuses(&panes, focused));
         queue.update_layout(layout_axis.label());
         let (new_cols, new_rows) = native_terminal_size();
         if (new_cols, new_rows) != (cols, rows) {
@@ -312,6 +312,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
 
         let layouts = native_layouts_for_panes(cols, rows, &panes, layout_axis);
+        queue.update_panes(native_pane_statuses(&panes, focused, &layouts));
         let stdout = io::stdout();
         let mut handle = stdout.lock();
         if clear {
@@ -579,15 +580,27 @@ fn native_pane_display_title(pane: &NativePane) -> String {
 fn native_pane_statuses(
     panes: &[NativePane],
     focused: usize,
+    layouts: &[NativePaneLayout],
 ) -> Vec<crate::daemon::NativePaneStatus> {
     panes
         .iter()
         .enumerate()
-        .map(|(idx, pane)| crate::daemon::NativePaneStatus {
-            window: pane.window.clone(),
-            title: native_pane_display_title(pane),
-            focused: idx == focused,
-            weight: pane.weight,
+        .map(|(idx, pane)| {
+            let layout = layouts.get(idx).copied();
+            crate::daemon::NativePaneStatus {
+                window: pane.window.clone(),
+                title: native_pane_display_title(pane),
+                focused: idx == focused,
+                weight: pane.weight,
+                x: layout.map(|l| l.x),
+                y: layout.map(|l| l.y),
+                cols: layout.map(|l| l.cols),
+                rows: layout.map(|l| l.app_rows.saturating_add(1)),
+                app_x: layout.map(|l| l.app_x),
+                app_y: layout.map(|l| l.app_y),
+                app_cols: layout.map(|l| l.app_cols),
+                app_rows: layout.map(|l| l.app_rows),
+            }
         })
         .collect()
 }
@@ -857,13 +870,18 @@ mod native_pane_tests {
                 app: dummy_native_pane_app(),
             },
         ];
-        let statuses = native_pane_statuses(&panes, 1);
+        let layouts = native_pane_layouts_weighted(80, 24, &[1, 3], NativePaneLayoutAxis::Columns);
+        let statuses = native_pane_statuses(&panes, 1, &layouts);
         assert_eq!(statuses.len(), 2);
         assert!(!statuses[0].focused);
         assert!(statuses[1].focused);
         assert_eq!(statuses[1].window, "native-2");
         assert_eq!(statuses[1].title, "editor");
         assert_eq!(statuses[1].weight, 3);
+        assert_eq!(statuses[1].x, Some(20));
+        assert_eq!(statuses[1].cols, Some(60));
+        assert_eq!(statuses[1].app_y, Some(1));
+        assert_eq!(statuses[1].app_rows, Some(23));
     }
 
     fn dummy_native_pane_app() -> PtyTerminalApp {
