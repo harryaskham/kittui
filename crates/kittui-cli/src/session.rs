@@ -67,9 +67,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         .clamp(1, 120);
     let frame_target = Duration::from_micros(1_000_000 / fps as u64);
     let mut stdin = io::stdin();
-    let mut frame = 0u64;
     let mut prefix = false;
     let mut clear = true;
+    let mut last_title_rows = Vec::<String>::new();
+    let mut last_footer = String::new();
     loop {
         let frame_start = Instant::now();
         let mut chunk = [0u8; 1024];
@@ -435,13 +436,23 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 ));
             }
         }
+        let redraw_static = clear;
         if clear {
             handle.write_all(b"\x1b[2J")?;
+            last_title_rows.clear();
+            last_footer.clear();
             clear = false;
+        }
+        if last_title_rows.len() != panes.len() {
+            last_title_rows.resize(panes.len(), String::new());
         }
         for (idx, pane) in panes.iter_mut().enumerate() {
             let layout = layouts[idx];
-            write_native_pane_title(&mut handle, pane, layout, idx == focused)?;
+            let title_key = native_pane_title_key(pane, layout, idx == focused);
+            if redraw_static || last_title_rows.get(idx) != Some(&title_key) {
+                write_native_pane_title(&mut handle, pane, layout, idx == focused)?;
+                last_title_rows[idx] = title_key;
+            }
             match pane.app.capture()? {
                 NativeFrame::Rgba {
                     width,
@@ -458,19 +469,19 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 NativeFrame::Png { .. } => {}
             }
         }
-        write!(
-            handle,
-            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a [] move — C-a b balance — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
-            rows + 2,
+        let footer = format!(
+            "kittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a [] move — C-a b balance — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — log: {}",
             panes.len(),
             panes[focused].window,
             panes[focused].weight,
             sock,
-            frame,
             dbg.path_display()
-        )?;
+        );
+        if redraw_static || footer != last_footer {
+            write!(handle, "\x1b[{};1H\x1b[K{}", rows + 2, footer)?;
+            last_footer = footer;
+        }
         handle.flush()?;
-        frame += 1;
         if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
             std::thread::sleep(slack);
         }
@@ -1153,12 +1164,7 @@ fn reap_exited_native_panes(
     Ok(focused.min(panes.len().saturating_sub(1)))
 }
 
-fn write_native_pane_title<W: Write>(
-    out: &mut W,
-    pane: &NativePane,
-    layout: NativePaneLayout,
-    focused: bool,
-) -> Result<()> {
+fn native_pane_title_text(pane: &NativePane, layout: NativePaneLayout, focused: bool) -> String {
     let marker = if focused { "*" } else { " " };
     let title = format!(
         "{marker} {} {}",
@@ -1169,6 +1175,28 @@ fn write_native_pane_title<W: Write>(
     while clipped.chars().count() < layout.cols as usize {
         clipped.push(' ');
     }
+    clipped
+}
+
+fn native_pane_title_key(pane: &NativePane, layout: NativePaneLayout, focused: bool) -> String {
+    format!(
+        "{},{},{}x{}:{}:{}",
+        layout.x,
+        layout.y,
+        layout.cols,
+        layout.app_rows.saturating_add(1),
+        focused,
+        native_pane_title_text(pane, layout, focused)
+    )
+}
+
+fn write_native_pane_title<W: Write>(
+    out: &mut W,
+    pane: &NativePane,
+    layout: NativePaneLayout,
+    focused: bool,
+) -> Result<()> {
+    let clipped = native_pane_title_text(pane, layout, focused);
     let style = if focused { "\x1b[7m" } else { "\x1b[2m" };
     write!(
         out,

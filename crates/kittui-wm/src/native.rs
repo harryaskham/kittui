@@ -1267,7 +1267,7 @@ fn render_terminal_rgba(state: &TerminalState, cell_w: u32, cell_h: u32) -> Vec<
             if cell.ch == ' ' {
                 continue;
             }
-            draw_pseudo_glyph(&mut rgba, width, col, row, cell_w, cell_h, cell.ch, fg);
+            draw_terminal_glyph(&mut rgba, width, col, row, cell_w, cell_h, cell.ch, fg);
         }
     }
     if state.cursor_visible {
@@ -1345,7 +1345,7 @@ fn fill_cell_background(
     }
 }
 
-fn draw_pseudo_glyph(
+fn draw_terminal_glyph(
     rgba: &mut [u8],
     width: u32,
     col: u16,
@@ -1355,24 +1355,273 @@ fn draw_pseudo_glyph(
     ch: char,
     color: TerminalColor,
 ) {
-    let seed = ch as u32;
+    if draw_box_drawing_glyph(rgba, width, col, row, cell_w, cell_h, ch, color) {
+        return;
+    }
+    let bitmap = terminal_bitmap_glyph(ch);
     let x0 = u32::from(col) * cell_w;
     let y0 = u32::from(row) * cell_h;
-    for y in 2..cell_h.saturating_sub(2) {
-        for x in 1..cell_w.saturating_sub(1) {
-            let stroke = x == 1
-                || x == cell_w.saturating_sub(2)
-                || y == 2
-                || y == cell_h.saturating_sub(3)
-                || ((seed.rotate_left((x % 7) + 1) ^ y) & 0x3) == 0;
-            if stroke {
-                let idx = (((y0 + y) * width + (x0 + x)) as usize) * 4;
-                rgba[idx] = color.0;
-                rgba[idx + 1] = color.1;
-                rgba[idx + 2] = color.2;
-                rgba[idx + 3] = 0xff;
+    let scale_x = (cell_w.saturating_sub(2) / 5).max(1);
+    let scale_y = (cell_h.saturating_sub(2) / 7).max(1);
+    let glyph_w = scale_x * 5;
+    let glyph_h = scale_y * 7;
+    let left = 1 + cell_w.saturating_sub(glyph_w) / 2;
+    let top = 1 + cell_h.saturating_sub(glyph_h) / 2;
+    for (gy, bits) in bitmap.iter().enumerate() {
+        for gx in 0..5u32 {
+            if bits & (1 << (4 - gx)) == 0 {
+                continue;
+            }
+            for sy in 0..scale_y {
+                for sx in 0..scale_x {
+                    let px = x0 + left + gx * scale_x + sx;
+                    let py = y0 + top + gy as u32 * scale_y + sy;
+                    set_rgba_pixel(rgba, width, px, py, color);
+                }
             }
         }
+    }
+}
+
+fn set_rgba_pixel(rgba: &mut [u8], width: u32, x: u32, y: u32, color: TerminalColor) {
+    let idx = ((y * width + x) as usize) * 4;
+    if idx + 3 >= rgba.len() {
+        return;
+    }
+    rgba[idx] = color.0;
+    rgba[idx + 1] = color.1;
+    rgba[idx + 2] = color.2;
+    rgba[idx + 3] = 0xff;
+}
+
+fn draw_box_drawing_glyph(
+    rgba: &mut [u8],
+    width: u32,
+    col: u16,
+    row: u16,
+    cell_w: u32,
+    cell_h: u32,
+    ch: char,
+    color: TerminalColor,
+) -> bool {
+    let (left, right, up, down) = match ch {
+        '─' => (true, true, false, false),
+        '│' => (false, false, true, true),
+        '┌' => (false, true, false, true),
+        '┐' => (true, false, false, true),
+        '└' => (false, true, true, false),
+        '┘' => (true, false, true, false),
+        '├' => (false, true, true, true),
+        '┤' => (true, false, true, true),
+        '┬' => (true, true, false, true),
+        '┴' => (true, true, true, false),
+        '┼' => (true, true, true, true),
+        _ => return false,
+    };
+    let x0 = u32::from(col) * cell_w;
+    let y0 = u32::from(row) * cell_h;
+    let cx = cell_w / 2;
+    let cy = cell_h / 2;
+    let thickness = (cell_w.min(cell_h) / 8).max(1);
+    let mut draw_rect = |x_start: u32, y_start: u32, w: u32, h: u32| {
+        for y in y_start..y_start.saturating_add(h).min(cell_h) {
+            for x in x_start..x_start.saturating_add(w).min(cell_w) {
+                set_rgba_pixel(rgba, width, x0 + x, y0 + y, color);
+            }
+        }
+    };
+    if left {
+        draw_rect(0, cy.saturating_sub(thickness / 2), cx + 1, thickness);
+    }
+    if right {
+        draw_rect(cx, cy.saturating_sub(thickness / 2), cell_w - cx, thickness);
+    }
+    if up {
+        draw_rect(cx.saturating_sub(thickness / 2), 0, thickness, cy + 1);
+    }
+    if down {
+        draw_rect(cx.saturating_sub(thickness / 2), cy, thickness, cell_h - cy);
+    }
+    true
+}
+
+fn terminal_bitmap_glyph(ch: char) -> [u8; 7] {
+    match ch.to_ascii_uppercase() {
+        'A' => [
+            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'B' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
+        ],
+        'C' => [
+            0b01111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b01111,
+        ],
+        'D' => [
+            0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110,
+        ],
+        'E' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+        'F' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'G' => [
+            0b01111, 0b10000, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111,
+        ],
+        'H' => [
+            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'I' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111,
+        ],
+        'J' => [
+            0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100,
+        ],
+        'K' => [
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+        'L' => [
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
+        'M' => [
+            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
+        ],
+        'N' => [
+            0b10001, 0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001,
+        ],
+        'O' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'P' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'Q' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
+        ],
+        'R' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+        'S' => [
+            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        'T' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'U' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'V' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
+        ],
+        'W' => [
+            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010,
+        ],
+        'X' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+        'Y' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'Z' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
+        ],
+        '0' => [
+            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
+        ],
+        '1' => [
+            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        '2' => [
+            0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111,
+        ],
+        '3' => [
+            0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        '4' => [
+            0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010,
+        ],
+        '5' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110,
+        ],
+        '6' => [
+            0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110,
+        ],
+        '7' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000,
+        ],
+        '8' => [
+            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
+        ],
+        '9' => [
+            0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110,
+        ],
+        '.' => [0, 0, 0, 0, 0, 0b01100, 0b01100],
+        ',' => [0, 0, 0, 0, 0, 0b01100, 0b01000],
+        ':' => [0, 0b01100, 0b01100, 0, 0b01100, 0b01100, 0],
+        ';' => [0, 0b01100, 0b01100, 0, 0b01100, 0b01000, 0],
+        '-' => [0, 0, 0, 0b11111, 0, 0, 0],
+        '_' => [0, 0, 0, 0, 0, 0, 0b11111],
+        '+' => [0, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0],
+        '/' => [
+            0b00001, 0b00010, 0b00010, 0b00100, 0b01000, 0b01000, 0b10000,
+        ],
+        '\\' => [
+            0b10000, 0b01000, 0b01000, 0b00100, 0b00010, 0b00010, 0b00001,
+        ],
+        '|' => [
+            0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        '$' => [
+            0b00100, 0b01111, 0b10100, 0b01110, 0b00101, 0b11110, 0b00100,
+        ],
+        '#' => [
+            0b01010, 0b01010, 0b11111, 0b01010, 0b11111, 0b01010, 0b01010,
+        ],
+        '@' => [
+            0b01110, 0b10001, 0b10111, 0b10101, 0b10111, 0b10000, 0b01110,
+        ],
+        '*' => [0, 0b10101, 0b01110, 0b11111, 0b01110, 0b10101, 0],
+        '=' => [0, 0, 0b11111, 0, 0b11111, 0, 0],
+        '>' => [
+            0b10000, 0b01000, 0b00100, 0b00010, 0b00100, 0b01000, 0b10000,
+        ],
+        '<' => [
+            0b00001, 0b00010, 0b00100, 0b01000, 0b00100, 0b00010, 0b00001,
+        ],
+        '(' => [
+            0b00010, 0b00100, 0b01000, 0b01000, 0b01000, 0b00100, 0b00010,
+        ],
+        ')' => [
+            0b01000, 0b00100, 0b00010, 0b00010, 0b00010, 0b00100, 0b01000,
+        ],
+        '[' => [
+            0b01110, 0b01000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01110,
+        ],
+        ']' => [
+            0b01110, 0b00010, 0b00010, 0b00010, 0b00010, 0b00010, 0b01110,
+        ],
+        '{' => [
+            0b00110, 0b01000, 0b01000, 0b10000, 0b01000, 0b01000, 0b00110,
+        ],
+        '}' => [
+            0b01100, 0b00010, 0b00010, 0b00001, 0b00010, 0b00010, 0b01100,
+        ],
+        '?' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0, 0b00100],
+        '!' => [0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0, 0b00100],
+        '\'' => [0b00100, 0b00100, 0b01000, 0, 0, 0, 0],
+        '"' => [0b01010, 0b01010, 0, 0, 0, 0, 0],
+        '`' => [0b01000, 0b00100, 0, 0, 0, 0, 0],
+        '~' => [0, 0, 0b01000, 0b10101, 0b00010, 0, 0],
+        '%' => [
+            0b11000, 0b11001, 0b00010, 0b00100, 0b01000, 0b10011, 0b00011,
+        ],
+        '&' => [
+            0b01100, 0b10010, 0b10100, 0b01000, 0b10101, 0b10010, 0b01101,
+        ],
+        '^' => [0b00100, 0b01010, 0b10001, 0, 0, 0, 0],
+        _ => [
+            0b11111, 0b10001, 0b00010, 0b00100, 0b01000, 0b10001, 0b11111,
+        ],
     }
 }
 
@@ -1877,6 +2126,31 @@ mod tests {
         );
         assert_eq!(state.get_cell_at(2, 0).style, TerminalStyle::default());
         assert!(state.text_snapshot().starts_with("RBD"));
+    }
+
+    #[test]
+    fn terminal_renderer_draws_readable_bitmap_glyphs() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(2, 1);
+        parser.advance(&mut state, b"AZ");
+        let rgba = render_terminal_rgba(&state, 8, 16);
+        let fg = [0xd7, 0xf8, 0xff, 0xff];
+        let bg = [0x08, 0x0d, 0x14, 0xff];
+        let first_cell_fg = rgba
+            .chunks_exact(4)
+            .take(8 * 16)
+            .filter(|px| **px == fg)
+            .count();
+        let first_cell_bg = rgba
+            .chunks_exact(4)
+            .take(8 * 16)
+            .filter(|px| **px == bg)
+            .count();
+        assert!(first_cell_fg > 8, "glyph should draw foreground pixels");
+        assert!(
+            first_cell_bg > first_cell_fg,
+            "glyph should not be a filled box"
+        );
     }
 
     #[test]
