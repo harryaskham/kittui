@@ -535,6 +535,24 @@ impl CompositeFrameSurface {
         Ok(())
     }
 
+    /// Append a positioned child from an existing surface capture.
+    ///
+    /// Only RGBA captures are accepted. PNG captures are deliberately rejected
+    /// so callers choose an explicit decode/raster path instead of silently
+    /// dropping or misinterpreting encoded frame bytes.
+    pub fn push_surface_frame(&mut self, x: u32, y: u32, frame: &SurfaceFrame) -> Result<()> {
+        match &frame.frame {
+            NativeFrame::Rgba {
+                width,
+                height,
+                rgba,
+            } => self.push_rgba_child(x, y, *width, *height, rgba.clone()),
+            NativeFrame::Png { .. } => Err(anyhow!(
+                "composite frame surfaces require RGBA child frames; PNG input must be decoded first"
+            )),
+        }
+    }
+
     /// Remove all children while preserving the canvas metadata.
     pub fn clear_children(&mut self) {
         self.children.clear();
@@ -3868,6 +3886,59 @@ mod tests {
         }
         surface.clear_children();
         assert!(surface.children().is_empty());
+    }
+
+    #[test]
+    fn composite_frame_surface_ingests_rgba_surface_frames() {
+        let child = SurfaceFrame {
+            metadata: SurfaceMetadata {
+                id: SurfaceId::new("rgba:child"),
+                kind: SurfaceKind::Composite,
+                title: "child".to_string(),
+                capabilities: SurfaceCapabilities::capture_only(),
+                frame_size: Some((1, 1)),
+            },
+            frame: NativeFrame::Rgba {
+                width: 1,
+                height: 1,
+                rgba: vec![0x22, 0x33, 0x44, 0xff],
+            },
+        };
+        let mut surface = CompositeFrameSurface::new("composite:frame", "frame", 2, 1).unwrap();
+        surface.push_surface_frame(1, 0, &child).unwrap();
+        assert_eq!(surface.children().len(), 1);
+        let frame = NativeSurface::capture_surface(&mut surface).unwrap();
+        match frame.frame {
+            NativeFrame::Rgba { rgba, .. } => {
+                assert_eq!(&rgba[0..4], &[0, 0, 0, 0]);
+                assert_eq!(&rgba[4..8], &[0x22, 0x33, 0x44, 0xff]);
+            }
+            other => panic!("expected RGBA frame, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn composite_frame_surface_rejects_png_surface_frames() {
+        let child = SurfaceFrame {
+            metadata: SurfaceMetadata {
+                id: SurfaceId::new("scene:child"),
+                kind: SurfaceKind::KittuiScene,
+                title: "scene".to_string(),
+                capabilities: SurfaceCapabilities::capture_only(),
+                frame_size: Some((1, 1)),
+            },
+            frame: NativeFrame::Png {
+                width: 1,
+                height: 1,
+                bytes: b"not actually png".to_vec(),
+            },
+        };
+        let mut surface = CompositeFrameSurface::new("composite:frame", "frame", 2, 1).unwrap();
+        let err = surface.push_surface_frame(0, 0, &child).unwrap_err();
+        assert!(
+            err.to_string().contains("PNG input must be decoded"),
+            "{err}"
+        );
     }
 
     #[test]
