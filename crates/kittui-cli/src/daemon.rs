@@ -244,6 +244,16 @@ pub struct NativeSessionRestorePane {
     pub focused: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NativeClipboardCache {
+    source_window: String,
+    selection: String,
+    payload_base64: String,
+    payload_bytes: usize,
+    at_ms: u128,
+    seq: u64,
+}
+
 #[derive(Default, Debug)]
 struct NativeSpawnQueueState {
     pending: Vec<NativePaneCommand>,
@@ -252,6 +262,7 @@ struct NativeSpawnQueueState {
     events: VecDeque<serde_json::Value>,
     next_event_seq: u64,
     semantic_snapshots: HashMap<String, SemanticSurfaceSnapshot>,
+    clipboard: Option<NativeClipboardCache>,
 }
 
 /// In-process socket queue used by the live native PTY session.
@@ -652,6 +663,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
         "STATUS_JSON" => native_spawn_status_json_reply(pending),
+        "CLIPBOARD_JSON" => native_clipboard_json_reply(pending),
         "PANES" => native_spawn_panes_reply(pending),
         "PANES_JSON" => native_spawn_panes_json_reply(pending),
         "SESSION_JSON" => native_spawn_session_json_reply(pending),
@@ -659,7 +671,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -688,6 +700,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "EVENTS [ms]",
             "events",
             "stream JSON status/pane/focus/layout events until timeout",
+        ),
+        (
+            "CLIPBOARD_JSON",
+            "clipboard",
+            "policy-gated read of cached OSC52 clipboard writes",
         ),
         (
             "SPAWN_PTY <cmd>",
@@ -843,6 +860,64 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
     ]
 }
 
+fn native_clipboard_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    native_clipboard_json_reply_with_policy(pending, native_clipboard_read_allowed())
+}
+
+fn native_clipboard_json_reply_with_policy(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    allowed: bool,
+) -> String {
+    if !allowed {
+        return format!(
+            "{}\n",
+            serde_json::json!({
+                "allowed": false,
+                "available": false,
+                "policy": "set KITTWM_CLIPBOARD_READ=allow to read cached OSC52 clipboard writes",
+            })
+        );
+    }
+    match pending.lock() {
+        Ok(state) => match &state.clipboard {
+            Some(clipboard) => format!(
+                "{}\n",
+                serde_json::json!({
+                    "allowed": true,
+                    "available": true,
+                    "source_window": clipboard.source_window,
+                    "selection": clipboard.selection,
+                    "payload_base64": clipboard.payload_base64,
+                    "payload_bytes": clipboard.payload_bytes,
+                    "at_ms": clipboard.at_ms,
+                    "seq": clipboard.seq,
+                    "source": "osc52-cache",
+                })
+            ),
+            None => format!(
+                "{}\n",
+                serde_json::json!({
+                    "allowed": true,
+                    "available": false,
+                    "source": "osc52-cache",
+                })
+            ),
+        },
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
+}
+
+fn native_clipboard_read_allowed() -> bool {
+    std::env::var("KITTWM_CLIPBOARD_READ")
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "allow"
+            )
+        })
+        .unwrap_or(false)
+}
+
 fn native_spawn_help_reply() -> String {
     use std::fmt::Write as _;
     let mut out = String::from("kittwm native socket commands\n");
@@ -889,12 +964,26 @@ fn publish_native_surface_events(
             SurfaceEvent::ClipboardSet {
                 selection,
                 payload_base64,
-            } => push_native_event(
-                state,
-                "surface_clipboard_set",
-                Some(window.clone()),
-                serde_json::json!({ "selection": selection, "payload_base64": payload_base64 }),
-            ),
+            } => {
+                let payload_bytes = base64::engine::general_purpose::STANDARD
+                    .decode(&payload_base64)
+                    .map(|bytes| bytes.len())
+                    .unwrap_or(0);
+                state.clipboard = Some(NativeClipboardCache {
+                    source_window: window.clone(),
+                    selection: selection.clone(),
+                    payload_base64: payload_base64.clone(),
+                    payload_bytes,
+                    at_ms: now_unix_ms(),
+                    seq: state.next_event_seq,
+                });
+                push_native_event(
+                    state,
+                    "surface_clipboard_set",
+                    Some(window.clone()),
+                    serde_json::json!({ "selection": selection, "payload_base64": payload_base64 }),
+                );
+            }
             SurfaceEvent::Notification { title, body } => push_native_event(
                 state,
                 "surface_notification",
@@ -2948,6 +3037,49 @@ mod tests {
         assert_eq!(events[2]["detail"]["payload_base64"], "aGVsbG8=");
         assert_eq!(events[3]["kind"], "surface_notification");
         assert_eq!(events[3]["detail"]["body"], "done");
+    }
+
+    #[test]
+    fn native_clipboard_json_is_policy_gated_and_cache_only() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        {
+            let mut state = pending.lock().unwrap();
+            publish_native_surface_events(
+                &mut state,
+                "native-1".to_string(),
+                vec![SurfaceEvent::ClipboardSet {
+                    selection: "clipboard".to_string(),
+                    payload_base64: "aGVsbG8=".to_string(),
+                }],
+            );
+        }
+
+        let denied: serde_json::Value =
+            serde_json::from_str(&native_clipboard_json_reply_with_policy(&pending, false))
+                .unwrap();
+        assert_eq!(denied["allowed"], false);
+        assert_eq!(denied["available"], false);
+        assert!(denied.get("payload_base64").is_none());
+
+        let allowed: serde_json::Value =
+            serde_json::from_str(&native_clipboard_json_reply_with_policy(&pending, true)).unwrap();
+        assert_eq!(allowed["allowed"], true);
+        assert_eq!(allowed["available"], true);
+        assert_eq!(allowed["source_window"], "native-1");
+        assert_eq!(allowed["selection"], "clipboard");
+        assert_eq!(allowed["payload_base64"], "aGVsbG8=");
+        assert_eq!(allowed["payload_bytes"], 5);
+        assert_eq!(allowed["source"], "osc52-cache");
+    }
+
+    #[test]
+    fn native_clipboard_json_reports_empty_allowed_cache() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let allowed: serde_json::Value =
+            serde_json::from_str(&native_clipboard_json_reply_with_policy(&pending, true)).unwrap();
+        assert_eq!(allowed["allowed"], true);
+        assert_eq!(allowed["available"], false);
+        assert!(allowed.get("payload_base64").is_none());
     }
 
     #[test]
