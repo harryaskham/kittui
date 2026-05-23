@@ -209,8 +209,11 @@ impl NativeSpawnQueue {
                     break;
                 }
                 let Ok(stream) = stream else { continue };
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                let _ = handle_native_spawn_request(stream, &pending_t);
+                let pending_client = pending_t.clone();
+                std::thread::spawn(move || {
+                    let _ = stream.set_read_timeout(Some(CLIENT_READ_TIMEOUT));
+                    let _ = handle_native_spawn_request(stream, &pending_client);
+                });
             }
             let _ = std::fs::remove_file(&path_t);
         });
@@ -1627,6 +1630,42 @@ mod tests {
         let reply = client_request_multi(queue.path(), "READ_TEXT focused").unwrap();
         assert!(reply.starts_with("TEXT window=native-1"), "{reply}");
         assert!(reply.contains("ready\n$ "), "{reply}");
+    }
+
+    #[test]
+    fn native_spawn_queue_wait_text_does_not_block_ping() {
+        let p = tmp_sock().with_file_name(format!(
+            "kittwm-native-concurrent-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&p);
+        let queue = NativeSpawnQueue::bind(p).unwrap();
+        queue.update_panes(vec![NativePaneStatus {
+            window: "native-1".to_string(),
+            title: "shell".to_string(),
+            focused: true,
+            weight: 1,
+            pid: None,
+            command: None,
+            x: None,
+            y: None,
+            cols: None,
+            rows: None,
+            app_x: None,
+            app_y: None,
+            app_cols: None,
+            text_snapshot: Some("waiting\n".to_string()),
+            app_rows: None,
+        }]);
+        let path = queue.path().to_path_buf();
+        let waiter = std::thread::spawn(move || {
+            client_request(&path, "WAIT_TEXT_MS focused 300 never-appears").unwrap()
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        let ping = client_request(queue.path(), "PING").unwrap();
+        assert_eq!(ping.trim(), "PONG");
+        let waited = waiter.join().unwrap();
+        assert!(waited.contains("ERR WAIT_TEXT timeout"), "{waited}");
     }
 
     #[test]
