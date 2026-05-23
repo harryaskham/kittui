@@ -20,7 +20,7 @@ use kittui::{CellSize, RendererKind, Runtime, Scene, TerminalInfo, Transport};
 /// Major version of the FFI ABI. Bumped on any breaking change.
 pub const KITTUI_ABI_MAJOR: u32 = 0;
 /// Minor version of the FFI ABI. Bumped on additive changes.
-pub const KITTUI_ABI_MINOR: u32 = 3;
+pub const KITTUI_ABI_MINOR: u32 = 4;
 
 /// Opaque pointer to a runtime instance. Owned by the caller; freed via
 /// [`kittui_runtime_free`].
@@ -214,6 +214,34 @@ pub unsafe extern "C" fn kittui_place_json(
     scene_json: *const c_char,
     out: *mut *mut c_char,
 ) -> KittuiStatus {
+    place_json_impl(runtime, scene_json, None, None, out)
+}
+
+/// Render/cache a scene JSON document but place it at `(x, y)` terminal cells.
+/// The scene's own width/height are preserved for render/cache identity.
+///
+/// # Safety
+///
+/// `runtime` must be valid. `scene_json` must be a NUL-terminated UTF-8 string.
+/// `out` must point to writable storage.
+#[no_mangle]
+pub unsafe extern "C" fn kittui_place_json_at(
+    runtime: *mut KittuiRuntime,
+    scene_json: *const c_char,
+    x: u16,
+    y: u16,
+    out: *mut *mut c_char,
+) -> KittuiStatus {
+    place_json_impl(runtime, scene_json, Some(x), Some(y), out)
+}
+
+unsafe fn place_json_impl(
+    runtime: *mut KittuiRuntime,
+    scene_json: *const c_char,
+    x: Option<u16>,
+    y: Option<u16>,
+    out: *mut *mut c_char,
+) -> KittuiStatus {
     if runtime.is_null() || scene_json.is_null() || out.is_null() {
         return KittuiStatus::NullPointer;
     }
@@ -230,7 +258,13 @@ pub unsafe extern "C" fn kittui_place_json(
                 return KittuiStatus::BadScene;
             }
         };
-        match rt.inner.place(&scene) {
+        let footprint = kittui::CellRect::new(
+            x.unwrap_or(scene.footprint.x),
+            y.unwrap_or(scene.footprint.y),
+            scene.footprint.cols,
+            scene.footprint.rows,
+        );
+        match rt.inner.place_at(&scene, footprint) {
             Ok(placement) => {
                 let bytes = placement.to_bytes();
                 match CString::new(bytes) {
@@ -498,6 +532,25 @@ mod tests {
             assert_eq!(status, KittuiStatus::Ok);
             let bytes = owned_string(out);
             assert!(bytes.contains("\x1b_G"), "{bytes:?}");
+            kittui_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn place_json_at_overrides_terminal_position() {
+        let config = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": true, "supports_unicode_placeholders": true}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(config.as_ptr());
+            assert!(!runtime.is_null());
+            let mut out: *mut c_char = std::ptr::null_mut();
+            let status = kittui_place_json_at(runtime, scene_json().as_ptr(), 5, 6, &mut out);
+            assert_eq!(status, KittuiStatus::Ok);
+            let bytes = owned_string(out);
+            assert!(bytes.contains("\x1b[7;6H"), "{bytes:?}");
             kittui_runtime_free(runtime);
         }
     }

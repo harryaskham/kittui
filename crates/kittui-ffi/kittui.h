@@ -23,7 +23,7 @@ extern "C" {
 #define KITTUI_ABI_MAJOR 0
 
 /* Minor ABI version. Bumped on additive changes. */
-#define KITTUI_ABI_MINOR 3
+#define KITTUI_ABI_MINOR 4
 
 /* Return value for every fallible entry point. */
 typedef enum KittuiStatus {
@@ -55,6 +55,13 @@ void kittui_runtime_free(KittuiRuntime* runtime);
 KittuiStatus kittui_place_json(KittuiRuntime* runtime,
                                const char* scene_json,
                                char** out);
+
+/* Render/cache a scene JSON document and place it at explicit terminal x/y. */
+KittuiStatus kittui_place_json_at(KittuiRuntime* runtime,
+                                  const char* scene_json,
+                                  uint16_t x,
+                                  uint16_t y,
+                                  char** out);
 
 /* Free a string returned by the FFI. */
 void kittui_string_free(char* ptr);
