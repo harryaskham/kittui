@@ -189,6 +189,11 @@ impl PtyTerminalApp {
         self.state.lock().scrollback_snapshot()
     }
 
+    /// Drain host-terminal OSC/control sequences requested by the nested app.
+    pub fn take_host_sequences(&self) -> Vec<u8> {
+        self.state.lock().take_pending_host_sequences()
+    }
+
     /// Return the current zero-based cursor `(col, row)` in the terminal grid.
     pub fn cursor_position(&self) -> (u16, u16) {
         let state = self.state.lock();
@@ -302,6 +307,7 @@ struct TerminalState {
     current_style: TerminalStyle,
     scrollback: Vec<String>,
     pending_responses: Vec<u8>,
+    pending_host_sequences: Vec<u8>,
     alt_screen: Option<AlternateScreen>,
     bracketed_paste: bool,
     focus_reporting: bool,
@@ -376,6 +382,7 @@ impl TerminalState {
             current_style: TerminalStyle::default(),
             scrollback: Vec::new(),
             pending_responses: Vec::new(),
+            pending_host_sequences: Vec::new(),
             alt_screen: None,
             bracketed_paste: false,
             focus_reporting: false,
@@ -390,6 +397,7 @@ impl TerminalState {
         self.title = old.title.clone();
         self.scrollback = old.scrollback.clone();
         self.pending_responses = old.pending_responses;
+        self.pending_host_sequences = old.pending_host_sequences;
         self.current_style = old.current_style;
         self.cursor_visible = old.cursor_visible;
         self.origin_mode = old.origin_mode;
@@ -441,8 +449,17 @@ impl TerminalState {
         std::mem::take(&mut self.pending_responses)
     }
 
+    fn take_pending_host_sequences(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.pending_host_sequences)
+    }
+
     fn queue_response(&mut self, bytes: impl AsRef<[u8]>) {
         self.pending_responses.extend_from_slice(bytes.as_ref());
+    }
+
+    fn queue_host_sequence(&mut self, bytes: impl AsRef<[u8]>) {
+        self.pending_host_sequences
+            .extend_from_slice(bytes.as_ref());
     }
 
     fn line_snapshot(&self, row: u16) -> String {
@@ -578,16 +595,21 @@ impl TerminalState {
         }
     }
 
-    fn set_title_from_osc(&mut self, params: &[&[u8]]) {
+    fn handle_osc(&mut self, params: &[&[u8]]) {
         let Some(kind) = params
             .first()
             .and_then(|param| std::str::from_utf8(param).ok())
         else {
             return;
         };
-        if !matches!(kind, "0" | "1" | "2") {
-            return;
+        match kind {
+            "0" | "1" | "2" => self.set_title_from_osc(params),
+            "52" => self.forward_osc52_clipboard(params),
+            _ => {}
         }
+    }
+
+    fn set_title_from_osc(&mut self, params: &[&[u8]]) {
         let title = params
             .get(1..)
             .unwrap_or_default()
@@ -598,6 +620,40 @@ impl TerminalState {
         if !title.is_empty() {
             self.title = Some(title);
         }
+    }
+
+    fn forward_osc52_clipboard(&mut self, params: &[&[u8]]) {
+        let selector = params
+            .get(1)
+            .and_then(|param| std::str::from_utf8(param).ok())
+            .filter(|selector| !selector.is_empty())
+            .unwrap_or("c");
+        if !selector
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.' | b'-' | b'_'))
+        {
+            return;
+        }
+        let payload = params
+            .get(2..)
+            .unwrap_or_default()
+            .iter()
+            .flat_map(|part| std::str::from_utf8(part).ok())
+            .collect::<Vec<_>>()
+            .join(";");
+        if payload.is_empty() || payload == "?" {
+            return;
+        }
+        if payload.len() > 1_048_576 {
+            return;
+        }
+        if base64::engine::general_purpose::STANDARD
+            .decode(payload.as_bytes())
+            .is_err()
+        {
+            return;
+        }
+        self.queue_host_sequence(format!("\x1b]52;{selector};{payload}\x07"));
     }
 
     fn clear_line_range(&mut self, start: u16, end_inclusive: u16) {
@@ -1030,7 +1086,7 @@ impl Perform for TerminalState {
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
-        self.set_title_from_osc(params);
+        self.handle_osc(params);
     }
 
     fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
@@ -2064,6 +2120,26 @@ mod tests {
         assert_eq!(state.title.as_deref(), Some("build;pane"));
         state.resize(20, 4);
         assert_eq!(state.title.as_deref(), Some("build;pane"));
+    }
+
+    #[test]
+    fn terminal_state_forwards_osc52_clipboard_writes() {
+        let mut state = TerminalState::new(10, 2);
+        state.osc_dispatch(&[b"52", b"c", b"aGVsbG8="], true);
+        assert_eq!(
+            state.take_pending_host_sequences(),
+            b"\x1b]52;c;aGVsbG8=\x07"
+        );
+        assert!(state.take_pending_host_sequences().is_empty());
+    }
+
+    #[test]
+    fn terminal_state_ignores_osc52_queries_and_invalid_payloads() {
+        let mut state = TerminalState::new(10, 2);
+        state.osc_dispatch(&[b"52", b"c", b"?"], true);
+        state.osc_dispatch(&[b"52", b"c", b"not base64!!!"], true);
+        state.osc_dispatch(&[b"52", b"bad;selector", b"aGVsbG8="], true);
+        assert!(state.take_pending_host_sequences().is_empty());
     }
 
     #[test]

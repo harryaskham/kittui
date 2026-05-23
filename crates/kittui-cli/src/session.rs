@@ -424,6 +424,17 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         queue.update_panes(native_pane_statuses(&panes, focused, &layouts));
         let stdout = io::stdout();
         let mut handle = stdout.lock();
+        for pane in &panes {
+            let sequences = pane.app.take_host_sequences();
+            if !sequences.is_empty() {
+                handle.write_all(&sequences)?;
+                dbg.log(&format!(
+                    "native terminal forwarded host sequence: window={} bytes={}",
+                    pane.window,
+                    sequences.len()
+                ));
+            }
+        }
         if clear {
             handle.write_all(b"\x1b[2J")?;
             clear = false;
