@@ -146,7 +146,36 @@ Automation and renderers must tolerate partial semantics. They should not assume
 - `bd-a17062`: macOS AX proof that associates a captured app/window with an AX window, extracts a bounded snapshot, maps common controls, and reports permission diagnostics.
   - Landed first slice: `kittui_wm::accessibility` provides the safe adapter core: platform/window association metadata, AX-style node input, bounded semantic snapshot mapping, sensitive value redaction, action descriptors, and macOS permission diagnostics. Direct AX FFI remains a follow-up once a safe platform binding is introduced.
 - `bd-dcb522`: Linux AT-SPI proof that finds an app/window tree, extracts roles/names/states/actions, and degrades cleanly when AT-SPI is unavailable.
+  - Landed first slice: the same safe mapper now has AT-SPI-style role coverage (`frame`, `push button`, `text`, `combo box`, `list item`, `progress bar`) plus `AccessibilityDiagnostics::linux_atspi_unavailable(...)`.
 - `bd-eabe22`: route focus/activate/set value/insert text/select through resolved AX/AT-SPI objects with stale-component and permission errors.
-  - Landed first slice: `route_accessibility_action` resolves component ids in the latest accessibility tree and dispatches focus/activate/toggle/set value/insert text/select/scroll/expand/collapse to a platform backend trait, returning stale-component and unsupported-action errors from the safe core.
+  - Landed first slice: `route_accessibility_action` resolves component ids in the latest accessibility tree and dispatches focus/activate/toggle/set value/insert text/select/scroll/expand/collapse to an `AccessibilityActionBackend` trait, returning stale-component, unsupported-action, permission, and backend errors from the safe core.
 
-These should stay separate because platform association/extraction and action routing have different risk profiles.
+## Current accessibility action-routing status
+
+The safe core now separates semantic routing policy from platform bindings:
+
+```rust
+route_accessibility_action(component_id, action, payload, root, backend)
+```
+
+The router resolves `component_id` against the latest extracted accessibility
+tree and calls a backend trait for:
+
+- focus;
+- activate;
+- toggle;
+- set value;
+- insert text;
+- select;
+- scroll;
+- expand;
+- collapse.
+
+If a component id is stale, the router returns a stale-component error so callers
+can refresh the semantic snapshot. If an action is unsupported, permission is
+missing, or the platform backend fails, those errors are explicit and do not fall
+back to global input injection by default.
+
+Direct macOS AX / Linux AT-SPI platform bindings remain follow-up work. The
+landed pieces are the safe mapping and routing cores plus tests that future FFI
+or D-Bus adapters can feed.
