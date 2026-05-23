@@ -50,6 +50,8 @@ kittwm --attach -c 'RENAME_PANE native-2 editor'
 kittwm --attach -c 'SEND_LINE focused echo hello from controller'
 kittwm --attach -c 'SEND_KEY focused ctrl-c'
 kittwm --attach -c 'READ_TEXT focused'
+kittwm --save-session session.json
+kittwm --restore-session session.json
 kittwm --attach -c SESSION_JSON
 kittwm --attach -c 'RESTORE_SESSION_JSON {"layout":"rows","panes":[{"command":"htop","title":"htop","weight":1,"focused":true}]}'
 kittwm --attach -c 'CLOSE_PANE focused'
@@ -57,7 +59,7 @@ kittwm --attach -c 'CLOSE_PANE focused'
 
 Use `Ctrl-]` to exit the current native PTY/browser viewer. Explicit capture-backed demos remain available with `--backend fake|quartz|xvfb`.
 
-Native `PANES_JSON` includes per-pane `window`, `title`, `focused`, `weight`, optional process metadata (`pid`, `command`), and, once a live session has rendered at least one frame, resolved title/app cell geometry: `x`, `y`, `cols`, `rows`, `app_x`, `app_y`, `app_cols`, and `app_rows`. Native `STATUS_JSON` mirrors the same detail in `focused_pane` and `panes_detail`. The text `PANES` reply includes process metadata plus the same geometry as `layout=x,y CxR app=x,y CxR` for simple shell inspection. Controllers can inject pane input with `SEND_TEXT <window|focused> <text>`, `SEND_LINE <window|focused> <text>`, or `SEND_KEY <window|focused> <key>` for named keys such as `ctrl-c`, `escape`, arrows, and paging keys. They can read pane screen text with `READ_TEXT <window|focused>` or `READ_TEXT_JSON <window|focused>` without scraping kitty graphics output. `SESSION_JSON` provides a persistence-oriented, geometry-free manifest containing layout axis, focus, pane order, titles, commands, and weights; `RESTORE_SESSION_JSON <json>` replaces the current native panes from that manifest. `HELP_JSON` is the machine-readable catalog for the socket command set.
+Native `PANES_JSON` includes per-pane `window`, `title`, `focused`, `weight`, optional process metadata (`pid`, `command`), and, once a live session has rendered at least one frame, resolved title/app cell geometry: `x`, `y`, `cols`, `rows`, `app_x`, `app_y`, `app_cols`, and `app_rows`. Native `STATUS_JSON` mirrors the same detail in `focused_pane` and `panes_detail`. The text `PANES` reply includes process metadata plus the same geometry as `layout=x,y CxR app=x,y CxR` for simple shell inspection. Controllers can inject pane input with `SEND_TEXT <window|focused> <text>`, `SEND_LINE <window|focused> <text>`, or `SEND_KEY <window|focused> <key>` for named keys such as `ctrl-c`, `escape`, arrows, and paging keys. They can read pane screen text with `READ_TEXT <window|focused>` or `READ_TEXT_JSON <window|focused>` without scraping kitty graphics output. `SESSION_JSON` provides a persistence-oriented, geometry-free manifest containing layout axis, focus, pane order, titles, commands, and weights; `RESTORE_SESSION_JSON <json>` replaces the current native panes from that manifest. The CLI wrappers `--save-session PATH|-` and `--restore-session PATH|-` avoid manual shell quoting for this flow. `HELP_JSON` is the machine-readable catalog for the socket command set.
 
 ## Architecture
 

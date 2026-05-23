@@ -79,6 +79,8 @@ struct Cli {
     native_browser: bool,
     native_url: Option<String>,
     native_out: Option<String>,
+    save_session: Option<String>,
+    restore_session: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -182,6 +184,18 @@ fn parse_args() -> Result<Cli> {
             "--url" => {
                 out.native_url = Some(args.next().ok_or_else(|| anyhow!("--url URL"))?);
             }
+            "--save-session" => {
+                out.save_session = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("--save-session PATH|-"))?,
+                );
+            }
+            "--restore-session" => {
+                out.restore_session = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("--restore-session PATH|-"))?,
+                );
+            }
             "--launcher-overlay" => out.launcher_overlay = true,
             "--no-launcher-overlay" => out.no_launcher_overlay = true,
             "--kill" => out.mode = Mode::Kill,
@@ -241,6 +255,8 @@ fn print_help() {
          --kill    send QUIT to the running daemon.\n\
          --status  print pid/uptime/sock of the running daemon; exits 1 if\n\
                    no daemon is reachable.\n\
+         --save-session PATH|-    write native SESSION_JSON from the running socket.\n\
+         --restore-session PATH|- read SESSION_JSON and queue RESTORE_SESSION_JSON.\n\
          --backend fake|quartz|xvfb force a specific backend.\n\
          --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
                          one window, then run a kittwm session capturing only it.\n\
@@ -402,6 +418,12 @@ fn real_main() -> Result<()> {
     }
     if cli.list_displays {
         return list_displays_cmd();
+    }
+    if let Some(path) = &cli.save_session {
+        return save_session_cmd(path);
+    }
+    if let Some(path) = &cli.restore_session {
+        return restore_session_cmd(path);
     }
 
     match cli.mode {
@@ -1002,6 +1024,54 @@ fn normalize_daemon_command(cmd: &str) -> String {
         return trimmed.to_ascii_uppercase();
     };
     format!("{} {}", verb.to_ascii_uppercase(), rest.trim_start())
+}
+
+fn save_session_cmd(path_arg: &str) -> Result<()> {
+    use kittui_cli::daemon::{client_request, default_socket_path};
+    let path = default_socket_path();
+    let reply = client_request(&path, "SESSION_JSON")
+        .map_err(|e| anyhow!("could not read SESSION_JSON from {}: {e}", path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&reply)
+        .map_err(|e| anyhow!("daemon returned invalid SESSION_JSON: {e}"))?;
+    let pretty = serde_json::to_string_pretty(&value)?;
+    if path_arg == "-" {
+        println!("{pretty}");
+    } else {
+        std::fs::write(path_arg, format!("{pretty}\n"))?;
+    }
+    Ok(())
+}
+
+fn restore_session_cmd(path_arg: &str) -> Result<()> {
+    use kittui_cli::daemon::{client_request, default_socket_path};
+    use std::io::Read as _;
+    let mut input = String::new();
+    if path_arg == "-" {
+        std::io::stdin().read_to_string(&mut input)?;
+    } else {
+        input = std::fs::read_to_string(path_arg)?;
+    }
+    let request = restore_session_request(&input)?;
+    let path = default_socket_path();
+    let reply = client_request(&path, &request)
+        .map_err(|e| anyhow!("could not queue restore on {}: {e}", path.display()))?;
+    print!("{reply}");
+    if !reply.ends_with('\n') {
+        println!();
+    }
+    if reply.starts_with("ERR ") {
+        std::process::exit(2);
+    }
+    Ok(())
+}
+
+fn restore_session_request(input: &str) -> Result<String> {
+    let value: serde_json::Value = serde_json::from_str(input)
+        .map_err(|e| anyhow!("--restore-session expects valid SESSION_JSON: {e}"))?;
+    Ok(format!(
+        "RESTORE_SESSION_JSON {}",
+        serde_json::to_string(&value)?
+    ))
 }
 
 fn status_cmd() -> Result<()> {
@@ -1737,6 +1807,32 @@ mod tests {
         assert_eq!(
             normalize_daemon_command("apps_first Safari"),
             "APPS_FIRST Safari"
+        );
+    }
+
+    #[test]
+    fn restore_session_request_compacts_pretty_json() {
+        let request = restore_session_request(
+            r#"{
+              "layout": "rows",
+              "panes": [
+                { "command": "htop", "title": "htop", "weight": 2, "focused": true }
+              ]
+            }"#,
+        )
+        .unwrap();
+        assert!(request.starts_with("RESTORE_SESSION_JSON {"), "{request}");
+        assert!(!request.contains('\n'), "{request}");
+        assert!(request.contains(r#""command":"htop""#), "{request}");
+    }
+
+    #[test]
+    fn restore_session_request_rejects_invalid_json() {
+        let err = restore_session_request("not json").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("--restore-session expects valid SESSION_JSON"),
+            "{err}"
         );
     }
 }
