@@ -122,6 +122,7 @@ kittwm --move-pane focused last
 kittwm --balance-panes
 kittwm --send-line focused 'echo hello from controller'
 kittwm --send-key focused ctrl-c
+kittwm --send-mouse focused press-left 7 9
 kittwm --send-bytes-b64 focused aGkKAA==
 kittwm --send-file focused ./payload.txt
 kittwm --paste-file focused ./payload.txt

@@ -180,6 +180,12 @@ pub enum NativePaneCommand {
         window: String,
         bytes: Vec<u8>,
     },
+    SendMouse {
+        window: String,
+        event: String,
+        col: u16,
+        row: u16,
+    },
     RestoreSession(NativeSessionRestore),
 }
 
@@ -470,6 +476,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("SEND_KEY ") {
         return queue_native_send_key(pending, rest);
     }
+    if let Some(rest) = cmd.strip_prefix("SEND_MOUSE ") {
+        return queue_native_send_mouse(pending, rest);
+    }
     if let Some(rest) = cmd.strip_prefix("SEND_BYTES_B64 ") {
         return queue_native_send_bytes_b64(pending, rest);
     }
@@ -511,7 +520,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -597,6 +606,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "SEND_KEY <window|focused> <key>",
             "control",
             "send a named key sequence to a native pane",
+        ),
+        (
+            "SEND_MOUSE <window|focused> <event> <col> <row>",
+            "control",
+            "send an SGR mouse event to a native pane when mouse reporting is enabled",
         ),
         (
             "SEND_BYTES_B64 <window|focused> <base64>",
@@ -889,6 +903,62 @@ fn parse_window_base64(rest: &str, verb: &str) -> Result<(String, Vec<u8>), Stri
         .decode(encoded)
         .map_err(|err| format!("ERR {verb} invalid base64: {err}\n"))?;
     Ok((window.to_string(), bytes))
+}
+
+fn queue_native_send_mouse(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
+    let mut parts = rest.split_whitespace();
+    let Some(window) = parts.next() else {
+        return "ERR SEND_MOUSE requires window, event, col, and row\n".to_string();
+    };
+    let Some(event) = parts.next() else {
+        return "ERR SEND_MOUSE requires window, event, col, and row\n".to_string();
+    };
+    let Some(col) = parts.next().and_then(|value| value.parse::<u16>().ok()) else {
+        return "ERR SEND_MOUSE col must be an integer\n".to_string();
+    };
+    let Some(row) = parts.next().and_then(|value| value.parse::<u16>().ok()) else {
+        return "ERR SEND_MOUSE row must be an integer\n".to_string();
+    };
+    if parts.next().is_some()
+        || window.contains(char::is_whitespace)
+        || !native_mouse_event_known(event)
+        || col == 0
+        || row == 0
+    {
+        return "ERR SEND_MOUSE expects <window|focused> <press-left|press-middle|press-right|release|move|scroll-up|scroll-down> <col> <row>\n".to_string();
+    }
+    match pending.lock() {
+        Ok(mut state) => {
+            state.pending.push(NativePaneCommand::SendMouse {
+                window: window.to_string(),
+                event: event.to_string(),
+                col,
+                row,
+            });
+            format!(
+                "SEND_MOUSE_QUEUED command={} window={} event={} col={} row={}\n",
+                state.pending.len(),
+                window,
+                event,
+                col,
+                row
+            )
+        }
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
+}
+
+fn native_mouse_event_known(event: &str) -> bool {
+    matches!(
+        event,
+        "press-left"
+            | "press-middle"
+            | "press-right"
+            | "release"
+            | "move"
+            | "scroll-up"
+            | "scroll-down"
+    )
 }
 
 fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
@@ -1793,6 +1863,10 @@ mod tests {
                 .starts_with("SEND_KEY_QUEUED")
         );
         assert!(
+            native_spawn_queue_reply("SEND_MOUSE focused press-left 7 9", &pending)
+                .starts_with("SEND_MOUSE_QUEUED")
+        );
+        assert!(
             native_spawn_queue_reply("SEND_BYTES_B64 focused aGkKAA==", &pending)
                 .starts_with("SEND_BYTES_B64_QUEUED")
         );
@@ -1820,6 +1894,7 @@ mod tests {
         assert!(native_spawn_queue_reply("SEND_LINE", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_KEY focused nope", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_KEY focused page down", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("SEND_MOUSE focused drag 7 9", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_BYTES_B64 focused !!!", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("PASTE_BYTES_B64 focused !!!", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RESTORE_SESSION_JSON {}", &pending).contains("ERR"));
@@ -1863,6 +1938,12 @@ mod tests {
                     window: "native-2".to_string(),
                     bytes: b"\x1b[6~".to_vec(),
                     label: "page-down".to_string(),
+                },
+                NativePaneCommand::SendMouse {
+                    window: "focused".to_string(),
+                    event: "press-left".to_string(),
+                    col: 7,
+                    row: 9,
                 },
                 NativePaneCommand::SendBytes {
                     window: "focused".to_string(),
@@ -2003,6 +2084,10 @@ mod tests {
         assert!(help.contains("SEND_TEXT <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_LINE <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_KEY <window|focused> <key>"), "{help}");
+        assert!(
+            help.contains("SEND_MOUSE <window|focused> <event> <col> <row>"),
+            "{help}"
+        );
         assert!(
             help.contains("SEND_BYTES_B64 <window|focused> <base64>"),
             "{help}"

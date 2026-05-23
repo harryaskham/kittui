@@ -233,6 +233,21 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--send-key WINDOW KEY"))?;
                 out.automation_request = Some(automation_request("SEND_KEY", &window, &key)?);
             }
+            "--send-mouse" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-mouse WINDOW EVENT COL ROW"))?;
+                let event = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-mouse WINDOW EVENT COL ROW"))?;
+                let col = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-mouse WINDOW EVENT COL ROW"))?;
+                let row = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-mouse WINDOW EVENT COL ROW"))?;
+                out.automation_request = Some(send_mouse_request(&window, &event, &col, &row)?);
+            }
             "--send-bytes-b64" => {
                 let window = args
                     .next()
@@ -466,6 +481,7 @@ fn print_help() {
          --send-text WINDOW TEXT  send text bytes to a native pane.\n\
          --send-line WINDOW TEXT  send text plus newline to a native pane.\n\
          --send-key WINDOW KEY    send a named key (ctrl-c, escape, arrows, ...).\n\
+         --send-mouse WINDOW EVENT COL ROW send an SGR mouse event if enabled.\n\
          --send-bytes-b64 WINDOW BASE64 send arbitrary base64-decoded bytes.\n\
          --send-file WINDOW PATH|- read bytes from file/stdin and send them.\n\
          --paste-file WINDOW PATH|- paste bytes, respecting bracketed-paste mode.\n\
@@ -1296,6 +1312,36 @@ fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String>
     } else {
         Ok(format!("{verb} {window} {payload}"))
     }
+}
+
+fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result<String> {
+    let event = event.trim();
+    if !matches!(
+        event,
+        "press-left"
+            | "press-middle"
+            | "press-right"
+            | "release"
+            | "move"
+            | "scroll-up"
+            | "scroll-down"
+    ) {
+        return Err(anyhow!("--send-mouse event must be press-left|press-middle|press-right|release|move|scroll-up|scroll-down"));
+    }
+    let col = col
+        .trim()
+        .parse::<u16>()
+        .map_err(|_| anyhow!("--send-mouse COL must be an integer"))?;
+    let row = row
+        .trim()
+        .parse::<u16>()
+        .map_err(|_| anyhow!("--send-mouse ROW must be an integer"))?;
+    if col == 0 || row == 0 {
+        return Err(anyhow!(
+            "--send-mouse COL and ROW are 1-indexed and must be positive"
+        ));
+    }
+    automation_request("SEND_MOUSE", window, &format!("{event} {col} {row}"))
 }
 
 fn send_bytes_request(window: &str, bytes: &[u8]) -> Result<String> {
@@ -2255,6 +2301,10 @@ mod tests {
             "SEND_BYTES_B64 focused aGkKAA=="
         );
         assert_eq!(
+            send_mouse_request("focused", "press-left", "7", "9").unwrap(),
+            "SEND_MOUSE focused press-left 7 9"
+        );
+        assert_eq!(
             send_bytes_request("focused", b"hi\n\0").unwrap(),
             "SEND_BYTES_B64 focused aGkKAA=="
         );
@@ -2267,6 +2317,7 @@ mod tests {
             "WAIT_OUTPUT_MS focused 2500 Ready Now"
         );
         assert!(wait_ms_request("WAIT_TEXT_MS", "0", "focused", "ready").is_err());
+        assert!(send_mouse_request("focused", "drag", "7", "9").is_err());
         assert!(automation_request("SEND_KEY", "bad window", "ctrl-c").is_err());
     }
 

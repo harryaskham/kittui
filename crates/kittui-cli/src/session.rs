@@ -22,7 +22,7 @@ use anyhow::{anyhow, Result};
 use kittui::{CellRect, Runtime};
 use kittui_input::{InputEvent, Key};
 use kittui_wm::compositor::{Compositor, Layout};
-use kittui_wm::native::{NativeApp, NativeFrame, PtyTerminalApp};
+use kittui_wm::native::{MouseReportingModes, NativeApp, NativeFrame, PtyTerminalApp};
 use kittui_xvfb::XServer;
 
 use crate::keymap::{Action, KeyMods, KeySpec, Keymap};
@@ -456,6 +456,32 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         ));
                     }
                 }
+                crate::daemon::NativePaneCommand::SendMouse {
+                    window,
+                    event,
+                    col,
+                    row,
+                } => {
+                    let target = if window == "focused" {
+                        Some(focused)
+                    } else {
+                        native_pane_index(&panes, &window)
+                    };
+                    if let Some(idx) = target {
+                        let modes = panes[idx].app.mouse_reporting_modes();
+                        if let Some(payload) = native_mouse_event_payload(&event, col, row, modes) {
+                            panes[idx].app.send_bytes(&payload)?;
+                            dbg.log(&format!(
+                                "native terminal socket send mouse: {window} event={event} col={col} row={row} bytes={}",
+                                payload.len()
+                            ));
+                        } else {
+                            dbg.log(&format!(
+                                "native terminal socket send mouse ignored: {window} event={event} modes={modes:?}"
+                            ));
+                        }
+                    }
+                }
             }
         }
         queue.update_layout(layout_axis.label());
@@ -763,6 +789,28 @@ fn native_paste_payload(bytes: &[u8], bracketed_paste: bool) -> Vec<u8> {
     wrapped
 }
 
+fn native_mouse_event_payload(
+    event: &str,
+    col: u16,
+    row: u16,
+    modes: MouseReportingModes,
+) -> Option<Vec<u8>> {
+    if col == 0 || row == 0 || !modes.sgr {
+        return None;
+    }
+    let (bits, suffix) = match event {
+        "press-left" if modes.basic => (0, 'M'),
+        "press-middle" if modes.basic => (1, 'M'),
+        "press-right" if modes.basic => (2, 'M'),
+        "release" if modes.basic => (3, 'm'),
+        "move" if modes.all_motion => (35, 'M'),
+        "scroll-up" if modes.basic => (64, 'M'),
+        "scroll-down" if modes.basic => (65, 'M'),
+        _ => return None,
+    };
+    Some(format!("\x1b[<{bits};{col};{row}{suffix}").into_bytes())
+}
+
 fn native_focus_event_payload(focus_reporting: bool, focused: bool) -> Option<&'static [u8]> {
     if !focus_reporting {
         return None;
@@ -936,6 +984,48 @@ mod native_pane_tests {
             native_paste_payload(b"a\nb", true),
             b"\x1b[200~a\nb\x1b[201~".to_vec()
         );
+    }
+
+    #[test]
+    fn native_mouse_event_payload_requires_compatible_modes() {
+        let modes = MouseReportingModes {
+            basic: true,
+            button_motion: false,
+            all_motion: true,
+            sgr: true,
+        };
+        assert_eq!(
+            native_mouse_event_payload("press-left", 7, 9, modes).unwrap(),
+            b"\x1b[<0;7;9M".to_vec()
+        );
+        assert_eq!(
+            native_mouse_event_payload("release", 7, 9, modes).unwrap(),
+            b"\x1b[<3;7;9m".to_vec()
+        );
+        assert_eq!(
+            native_mouse_event_payload("scroll-down", 7, 9, modes).unwrap(),
+            b"\x1b[<65;7;9M".to_vec()
+        );
+        assert!(native_mouse_event_payload(
+            "move",
+            7,
+            9,
+            MouseReportingModes {
+                all_motion: false,
+                ..modes
+            }
+        )
+        .is_none());
+        assert!(native_mouse_event_payload(
+            "press-left",
+            7,
+            9,
+            MouseReportingModes {
+                sgr: false,
+                ..modes
+            }
+        )
+        .is_none());
     }
 
     #[test]
