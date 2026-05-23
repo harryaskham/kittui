@@ -230,7 +230,15 @@ struct TerminalState {
     cursor_col: u16,
     cursor_row: u16,
     cells: Vec<char>,
+    alt_screen: Option<AlternateScreen>,
     title: Option<String>,
+}
+
+#[derive(Clone)]
+struct AlternateScreen {
+    normal_cells: Vec<char>,
+    normal_cursor_col: u16,
+    normal_cursor_row: u16,
 }
 
 impl TerminalState {
@@ -241,6 +249,7 @@ impl TerminalState {
             cursor_col: 0,
             cursor_row: 0,
             cells: vec![' '; usize::from(cols) * usize::from(rows)],
+            alt_screen: None,
             title: None,
         }
     }
@@ -249,13 +258,12 @@ impl TerminalState {
         let old = self.clone();
         *self = Self::new(cols, rows);
         self.title = old.title.clone();
-        let copy_rows = rows.min(old.rows);
-        let copy_cols = cols.min(old.cols);
-        for row in 0..copy_rows {
-            for col in 0..copy_cols {
-                self.put_at(col, row, old.get_at(col, row));
-            }
-        }
+        self.cells = resize_cells(&old.cells, old.cols, old.rows, cols, rows);
+        self.alt_screen = old.alt_screen.map(|alt| AlternateScreen {
+            normal_cells: resize_cells(&alt.normal_cells, old.cols, old.rows, cols, rows),
+            normal_cursor_col: alt.normal_cursor_col.min(cols.saturating_sub(1)),
+            normal_cursor_row: alt.normal_cursor_row.min(rows.saturating_sub(1)),
+        });
         self.cursor_col = old.cursor_col.min(cols.saturating_sub(1));
         self.cursor_row = old.cursor_row.min(rows.saturating_sub(1));
     }
@@ -431,6 +439,50 @@ impl TerminalState {
             *cell = ' ';
         }
     }
+
+    fn enter_alternate_screen(&mut self) {
+        if self.alt_screen.is_some() {
+            self.cells.fill(' ');
+            self.cursor_col = 0;
+            self.cursor_row = 0;
+            return;
+        }
+        let normal_cells = std::mem::replace(
+            &mut self.cells,
+            vec![' '; usize::from(self.cols) * usize::from(self.rows)],
+        );
+        self.alt_screen = Some(AlternateScreen {
+            normal_cells,
+            normal_cursor_col: self.cursor_col,
+            normal_cursor_row: self.cursor_row,
+        });
+        self.cursor_col = 0;
+        self.cursor_row = 0;
+    }
+
+    fn leave_alternate_screen(&mut self) {
+        if let Some(alt) = self.alt_screen.take() {
+            self.cells = alt.normal_cells;
+            self.cursor_col = alt.normal_cursor_col.min(self.cols.saturating_sub(1));
+            self.cursor_row = alt.normal_cursor_row.min(self.rows.saturating_sub(1));
+        }
+    }
+}
+
+fn resize_cells(old: &[char], old_cols: u16, old_rows: u16, cols: u16, rows: u16) -> Vec<char> {
+    let mut cells = vec![' '; usize::from(cols) * usize::from(rows)];
+    let copy_rows = rows.min(old_rows);
+    let copy_cols = cols.min(old_cols);
+    for row in 0..copy_rows {
+        for col in 0..copy_cols {
+            let old_idx = usize::from(row) * usize::from(old_cols) + usize::from(col);
+            let new_idx = usize::from(row) * usize::from(cols) + usize::from(col);
+            if let Some(ch) = old.get(old_idx) {
+                cells[new_idx] = *ch;
+            }
+        }
+    }
+    cells
 }
 
 impl Perform for TerminalState {
@@ -452,19 +504,20 @@ impl Perform for TerminalState {
         self.set_title_from_osc(params);
     }
 
-    fn csi_dispatch(
-        &mut self,
-        params: &Params,
-        _intermediates: &[u8],
-        _ignore: bool,
-        action: char,
-    ) {
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
         let first_raw = params
             .iter()
             .next()
             .and_then(|p| p.first().copied())
             .unwrap_or(0) as u16;
         let first_count = if first_raw == 0 { 1 } else { first_raw };
+        let is_dec_private = intermediates.contains(&b'?');
+        let has_alt_screen_mode = params.iter().any(|param| {
+            param
+                .first()
+                .copied()
+                .is_some_and(|mode| matches!(mode, 47 | 1047 | 1049))
+        });
         match action {
             '@' => self.insert_chars(first_count),
             'A' => self.cursor_row = self.cursor_row.saturating_sub(first_count),
@@ -503,6 +556,7 @@ impl Perform for TerminalState {
                 self.cursor_row = row.saturating_sub(1).min(self.rows.saturating_sub(1));
                 self.cursor_col = col.saturating_sub(1).min(self.cols.saturating_sub(1));
             }
+            'h' if is_dec_private && has_alt_screen_mode => self.enter_alternate_screen(),
             'J' => match first_raw {
                 0 => self.clear_screen_range(
                     self.cursor_row,
@@ -521,6 +575,7 @@ impl Perform for TerminalState {
                 _ => {}
             },
             'L' => self.insert_lines(first_count),
+            'l' if is_dec_private && has_alt_screen_mode => self.leave_alternate_screen(),
             'M' => self.delete_lines(first_count),
             'P' => self.delete_chars(first_count),
             'X' => self.erase_chars(first_count),
@@ -874,6 +929,32 @@ mod tests {
             text.starts_with("x    y\n      z\nk  n\nw"),
             "snapshot was:\n{text}"
         );
+    }
+
+    #[test]
+    fn terminal_state_honors_alternate_screen_modes() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(12, 3);
+        parser.advance(&mut state, b"shell$ \x1b[?1049htui\x1b[2;1Hview");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("tui\nview"), "snapshot was:\n{text}");
+        assert!(!text.contains("shell$"), "snapshot was:\n{text}");
+
+        parser.advance(&mut state, b"\x1b[?1049l!");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("shell$ !"), "snapshot was:\n{text}");
+        assert!(!text.contains("tui"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn terminal_state_resizes_saved_alternate_screen_buffer() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        parser.advance(&mut state, b"normal\x1b[?1049halt");
+        state.resize(12, 3);
+        parser.advance(&mut state, b"\x1b[?1049l");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("normal"), "snapshot was:\n{text}");
     }
 
     #[test]
