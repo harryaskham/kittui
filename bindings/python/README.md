@@ -15,6 +15,7 @@ scene = {
 
 with Kittui.open({"renderer": "cpu", "transport": "direct"}) as k:
     print(k.abi_version())
+    png_bytes = k.render(scene)
     bytes_to_write = k.place_at(scene, 10, 4)
     batch = k.place_many_channels([scene], 10, 4)
     assert "upload" in batch and "placement" in batch and "embed" in batch
@@ -49,6 +50,7 @@ python3 -m kittui --probe --config-json '{"renderer":"cpu"}'
 - `abi_version()`
 - `probe()`
 - `unplace(image_id)`
+- `render(scene)`
 - `place(scene)`
 - `place_at(scene, x, y)`
 - `place_many(scenes)`

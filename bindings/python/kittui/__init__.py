@@ -11,7 +11,7 @@ import ctypes
 import json
 import os
 import sys
-from ctypes import c_char_p, c_int, c_uint16, c_uint32, c_void_p
+from ctypes import POINTER, c_char_p, c_int, c_size_t, c_uint8, c_uint16, c_uint32, c_void_p
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -124,6 +124,19 @@ class Kittui:
             image_id = int(image_id, 16) if image_id.lower().startswith("0x") else int(image_id)
         return self._owned_string(self.lib.kittui_unplace(self.runtime, c_uint32(image_id)))
 
+    def render(self, scene: Any) -> bytes:
+        out_ptr = POINTER(c_uint8)()
+        out_len = c_size_t()
+        self._check(
+            self.lib.kittui_render_json(self.runtime, _json(scene), ctypes.byref(out_ptr), ctypes.byref(out_len)),
+            "kittui_render_json",
+        )
+        try:
+            return bytes(ctypes.string_at(out_ptr, out_len.value))
+        finally:
+            if out_ptr:
+                self.lib.kittui_bytes_free(out_ptr, out_len)
+
     def place(self, scene: Any) -> str:
         out = c_char_p()
         self._check(self.lib.kittui_place_json(self.runtime, _json(scene), ctypes.byref(out)), "kittui_place_json")
@@ -194,6 +207,8 @@ def _wire_library(lib: Any) -> None:
     lib.kittui_runtime_free.restype = None
     lib.kittui_string_free.argtypes = [c_char_p]
     lib.kittui_string_free.restype = None
+    lib.kittui_bytes_free.argtypes = [POINTER(c_uint8), c_size_t]
+    lib.kittui_bytes_free.restype = None
     lib.kittui_abi_version.argtypes = []
     lib.kittui_abi_version.restype = c_uint32
     lib.kittui_probe_json.argtypes = [c_void_p]
@@ -202,6 +217,8 @@ def _wire_library(lib: Any) -> None:
     lib.kittui_unplace.restype = c_char_p
     lib.kittui_last_error.argtypes = [c_void_p]
     lib.kittui_last_error.restype = c_char_p
+    lib.kittui_render_json.argtypes = [c_void_p, c_char_p, ctypes.POINTER(POINTER(c_uint8)), ctypes.POINTER(c_size_t)]
+    lib.kittui_render_json.restype = c_int
     for name in [
         "kittui_place_json",
         "kittui_place_many_json",

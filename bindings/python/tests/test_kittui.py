@@ -25,6 +25,9 @@ class FakeLib:
     def kittui_string_free(self, ptr):
         self.calls.append(("free_string", bool(ptr)))
 
+    def kittui_bytes_free(self, ptr, length):
+        self.calls.append(("free_bytes", bool(ptr), int(length.value if hasattr(length, "value") else length)))
+
     def kittui_abi_version(self):
         return (0 << 16) | 7
 
@@ -37,6 +40,14 @@ class FakeLib:
 
     def kittui_last_error(self, runtime):
         return self.last_error
+
+    def kittui_render_json(self, runtime, scene_json, out_ptr, out_len):
+        self.calls.append(("render", json.loads(scene_json.decode())))
+        data = ctypes.create_string_buffer(b"\x89PNGfake")
+        self._render_buffer = data
+        out_ptr._obj.contents = ctypes.cast(data, ctypes.POINTER(ctypes.c_uint8)).contents
+        out_len._obj.value = len(data.raw) - 1
+        return 0
 
     def kittui_place_json(self, runtime, scene_json, out):
         self.calls.append(("place", json.loads(scene_json.decode())))
@@ -69,6 +80,11 @@ class FailingLib(FakeLib):
         return 3
 
 
+class FailingRenderLib(FakeLib):
+    def kittui_render_json(self, runtime, scene_json, out_ptr, out_len):
+        return 3
+
+
 SCENE = {
     "footprint": {"x": 0, "y": 0, "cols": 2, "rows": 1},
     "cell_size": {"width_px": 8, "height_px": 16},
@@ -98,6 +114,8 @@ class KittuiBindingTests(unittest.TestCase):
     def test_place_variants_normalize_dicts_and_json_strings(self):
         lib = FakeLib()
         k = Kittui.from_library(lib)
+        self.assertEqual(k.render(SCENE), b"\x89PNGfake")
+        self.assertTrue(any(call[0] == "free_bytes" for call in lib.calls))
         self.assertEqual(k.place(SCENE), "placed")
         self.assertEqual(k.place_at(SCENE, 7, 9), "placed-at")
         self.assertEqual(k.place_many([SCENE, json.dumps(SCENE)]), "placed-many")
@@ -112,6 +130,11 @@ class KittuiBindingTests(unittest.TestCase):
         k = Kittui.from_library(FailingLib())
         with self.assertRaisesRegex(KittuiError, "fake error"):
             k.place(SCENE)
+
+    def test_render_errors_include_last_error(self):
+        k = Kittui.from_library(FailingRenderLib())
+        with self.assertRaisesRegex(KittuiError, "kittui_render_json.*fake error"):
+            k.render(SCENE)
 
 
 if __name__ == "__main__":
