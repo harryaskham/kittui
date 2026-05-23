@@ -54,6 +54,10 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// Include upload/placement/embed string channels in JSON output.
+    #[arg(long, global = true)]
+    json_bytes: bool,
+
     /// Print only the upload escape bytes.
     #[arg(long, global = true, group = "channels")]
     upload_only: bool,
@@ -294,6 +298,7 @@ fn main() -> Result<()> {
         placement_only: cli.placement_only,
         embed_only: cli.embed_only,
         scene_json: cli.scene_json,
+        json_bytes: cli.json_bytes,
         dry_run: cli.dry_run,
     };
     match &cli.cmd {
@@ -849,11 +854,43 @@ struct EmitMode {
     placement_only: bool,
     embed_only: bool,
     scene_json: bool,
+    json_bytes: bool,
     dry_run: bool,
 }
 
 fn serialize_scene_json(scene: &Scene) -> Result<String> {
     Ok(serde_json::to_string_pretty(scene)?)
+}
+
+fn placement_json_payload(
+    global: &GlobalConfig,
+    placement: &kittui::Placement,
+    command_sources: Option<serde_json::Value>,
+    dry_run: bool,
+    include_bytes: bool,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "image_id": format!("0x{:08x}", placement.image_id),
+        "footprint": placement.footprint,
+        "upload_bytes": placement.upload.len(),
+        "placement_bytes": placement.placement.len(),
+        "embed_bytes": placement.embed.len(),
+        "config_sources": {
+            "global": global.source_json(),
+            "command": command_sources,
+        },
+    });
+    if dry_run {
+        payload["dry_run"] = serde_json::json!(true);
+    }
+    if include_bytes {
+        payload["upload"] = serde_json::json!(placement.upload);
+        payload["placement"] = serde_json::json!(placement.placement);
+        payload["embed"] = serde_json::json!(placement.embed);
+    } else if !dry_run {
+        payload["embed"] = serde_json::json!(placement.embed);
+    }
+    payload
 }
 
 fn emit_with_mode(
@@ -870,32 +907,14 @@ fn emit_with_mode(
     let placement = runtime.place(scene)?;
     if mode.dry_run {
         // Always JSON shape for dry-run so callers can compare.
-        let payload = serde_json::json!({
-            "dry_run": true,
-            "image_id": format!("0x{:08x}", placement.image_id),
-            "footprint": placement.footprint,
-            "upload_bytes": placement.upload.len(),
-            "placement_bytes": placement.placement.len(),
-            "embed_bytes": placement.embed.len(),
-            "config_sources": {
-                "global": global.source_json(),
-                "command": command_sources,
-            },
-        });
+        let payload =
+            placement_json_payload(global, &placement, command_sources, true, mode.json_bytes);
         println!("{}", serde_json::to_string_pretty(&payload)?);
         return Ok(());
     }
     if global.json.value {
-        let payload = serde_json::json!({
-            "image_id": format!("0x{:08x}", placement.image_id),
-            "footprint": placement.footprint,
-            "upload_bytes": placement.upload.len(),
-            "embed": placement.embed,
-            "config_sources": {
-                "global": global.source_json(),
-                "command": command_sources,
-            },
-        });
+        let payload =
+            placement_json_payload(global, &placement, command_sources, false, mode.json_bytes);
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
         handle.write_all(serde_json::to_string_pretty(&payload)?.as_bytes())?;
@@ -973,6 +992,44 @@ mod tests {
             terminal_rows: Some(43),
             json: true,
         })
+    }
+
+    #[test]
+    fn placement_json_bytes_are_opt_in() {
+        let placement = kittui::Placement {
+            image_id: 0x1234,
+            upload: "upload-bytes".to_string(),
+            placement: "place-bytes".to_string(),
+            embed: "embed-bytes".to_string(),
+            footprint: CellRect::new(0, 0, 2, 1),
+        };
+        let compact = placement_json_payload(&test_global(), &placement, None, false, false);
+        assert_eq!(compact["upload_bytes"], 12);
+        assert_eq!(compact["placement_bytes"], 11);
+        assert!(compact.get("upload").is_none());
+        assert!(compact.get("placement").is_none());
+        assert_eq!(compact["embed"], "embed-bytes");
+
+        let verbose = placement_json_payload(&test_global(), &placement, None, false, true);
+        assert_eq!(verbose["upload"], "upload-bytes");
+        assert_eq!(verbose["placement"], "place-bytes");
+        assert_eq!(verbose["embed"], "embed-bytes");
+    }
+
+    #[test]
+    fn dry_run_json_bytes_include_channels_when_requested() {
+        let placement = kittui::Placement {
+            image_id: 0x1234,
+            upload: "upload-bytes".to_string(),
+            placement: "place-bytes".to_string(),
+            embed: "embed-bytes".to_string(),
+            footprint: CellRect::new(0, 0, 2, 1),
+        };
+        let payload = placement_json_payload(&test_global(), &placement, None, true, true);
+        assert_eq!(payload["dry_run"], true);
+        assert_eq!(payload["upload"], "upload-bytes");
+        assert_eq!(payload["placement"], "place-bytes");
+        assert_eq!(payload["embed"], "embed-bytes");
     }
 
     #[test]
