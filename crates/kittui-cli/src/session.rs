@@ -101,6 +101,20 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             clear = true;
                             dbg.log(&format!("native terminal focus: {}", panes[focused].window));
                         }
+                        b'x' | b'X' => {
+                            if panes.len() > 1 {
+                                panes[focused].app.terminate()?;
+                                panes.remove(focused);
+                                focused = focus_after_remove(focused, focused, panes.len() + 1);
+                                let pane_count = panes.len();
+                                resize_native_panes(
+                                    &mut panes,
+                                    native_pane_layouts(cols, rows, pane_count),
+                                )?;
+                                clear = true;
+                                dbg.log(&format!("native terminal close: panes={}", panes.len()));
+                            }
+                        }
                         0x01 => panes[focused].app.send_bytes(&[0x01])?,
                         other => panes[focused].app.send_bytes(&[other])?,
                     }
@@ -114,6 +128,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             }
         }
 
+        focused = reap_exited_native_panes(&mut panes, focused, &dbg)?;
         let (new_cols, new_rows) = native_terminal_size();
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
@@ -155,7 +170,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         write!(
             handle,
-            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} — C-a % split — C-a Tab focus — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
+            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} — C-a % split — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
             rows + 2,
             panes.len(),
             panes[focused].window,
@@ -250,6 +265,43 @@ fn next_native_focus(current: usize, count: usize) -> usize {
     }
 }
 
+fn focus_after_remove(current: usize, removed: usize, len_before: usize) -> usize {
+    let len_after = len_before.saturating_sub(1);
+    if len_after == 0 {
+        return 0;
+    }
+    if removed < current {
+        current.saturating_sub(1).min(len_after - 1)
+    } else if removed == current {
+        current.min(len_after - 1)
+    } else {
+        current.min(len_after - 1)
+    }
+}
+
+fn reap_exited_native_panes(
+    panes: &mut Vec<NativePane>,
+    mut focused: usize,
+    dbg: &Debugger,
+) -> Result<usize> {
+    if panes.len() <= 1 {
+        return Ok(focused.min(panes.len().saturating_sub(1)));
+    }
+    let mut idx = 0;
+    while idx < panes.len() && panes.len() > 1 {
+        if panes[idx].app.exited()?.is_some() {
+            let len_before = panes.len();
+            let window = panes[idx].window.clone();
+            panes.remove(idx);
+            focused = focus_after_remove(focused, idx, len_before);
+            dbg.log(&format!("native terminal reaped exited pane {window}"));
+        } else {
+            idx += 1;
+        }
+    }
+    Ok(focused.min(panes.len().saturating_sub(1)))
+}
+
 fn write_native_pane_title<W: Write>(
     out: &mut W,
     pane: &NativePane,
@@ -297,6 +349,14 @@ mod native_pane_tests {
         assert_eq!(next_native_focus(0, 3), 1);
         assert_eq!(next_native_focus(2, 3), 0);
         assert_eq!(next_native_focus(0, 0), 0);
+    }
+
+    #[test]
+    fn native_focus_after_remove_stays_on_neighbor() {
+        assert_eq!(focus_after_remove(1, 1, 3), 1);
+        assert_eq!(focus_after_remove(2, 1, 3), 1);
+        assert_eq!(focus_after_remove(0, 2, 3), 0);
+        assert_eq!(focus_after_remove(0, 0, 1), 0);
     }
 }
 

@@ -162,6 +162,12 @@ impl PtyTerminalApp {
         Ok(self.child.try_wait()?.map(|status| status.exit_code()))
     }
 
+    /// Terminate the PTY child process.
+    pub fn terminate(&mut self) -> Result<()> {
+        self.child.kill()?;
+        Ok(())
+    }
+
     /// Send raw bytes to the PTY, preserving control sequences.
     pub fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         self.writer.write_all(bytes)?;
