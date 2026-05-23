@@ -1250,6 +1250,7 @@ dependencies = [
  "kittui-render-cpu",
  "kittui-wm",
  "kittui-xvfb",
+ "kittwm-sdk",
  "libc",
  "ratakittui",
  "ratatui",

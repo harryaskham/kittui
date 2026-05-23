@@ -160,6 +160,11 @@
             program = "${kittui}/bin/kittwm-browser";
             meta.description = "Run the kittwm browser surface helper";
           };
+          kittwm-terminal = {
+            type = "app";
+            program = "${kittui}/bin/kittwm-terminal";
+            meta.description = "Run the kittwm terminal surface client";
+          };
         };
 
         checks = {
