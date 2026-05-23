@@ -94,6 +94,8 @@ enum Cmd {
     Compose(ComposeArgs),
     /// Render an image from a path/bytes through Node::Image.
     Image(ImageArgs),
+    /// Re-place an already-uploaded image id at a terminal footprint.
+    Place(PlaceArgs),
     /// Cache management subcommands.
     #[command(subcommand)]
     Cache(CacheCmd),
@@ -135,6 +137,26 @@ struct ImageArgs {
     /// Optional multiplicative tint (e.g. "#ff0000").
     #[arg(long)]
     tint: Option<String>,
+}
+
+#[derive(clap::Args, Clone)]
+#[command(disable_help_flag = true)]
+struct PlaceArgs {
+    /// Existing kitty image id, decimal or 0x-prefixed hex.
+    #[arg(long)]
+    id: String,
+    /// X column to place at.
+    #[arg(short, long)]
+    x: u16,
+    /// Y row to place at.
+    #[arg(short, long)]
+    y: u16,
+    /// Width in cells.
+    #[arg(short = 'w', long)]
+    cols: u16,
+    /// Height in cells.
+    #[arg(short = 'h', long)]
+    rows: u16,
 }
 
 #[derive(clap::Args, Clone)]
@@ -341,6 +363,7 @@ fn main() -> Result<()> {
         }
         Cmd::Compose(args) => run_compose(&global, &runtime, args, emit_mode),
         Cmd::Image(args) => run_image(&global, &runtime, args, emit_mode),
+        Cmd::Place(args) => run_place(&global, &runtime, args, emit_mode),
         Cmd::Cache(sub) => run_cache(&global, &layers, sub),
         Cmd::Probe(args) => run_probe(&global, args),
         Cmd::Proof(args) => run_proof(&global, args),
@@ -516,6 +539,42 @@ fn read_image_ref(path: &PathBuf) -> Result<kittui_core::node::ImageRef> {
         Ok(kittui_core::node::ImageRef::Path {
             path: path.to_string_lossy().into_owned(),
         })
+    }
+}
+
+fn run_place(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &PlaceArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let image_id = parse_image_id(&args.id)?;
+    let footprint = CellRect::new(args.x, args.y, args.cols, args.rows);
+    let transport = runtime.transport();
+    let placement = kittui::Placement {
+        image_id,
+        upload: String::new(),
+        placement: format!(
+            "{}{}",
+            kittui_kitty::cursor_move(footprint.x, footprint.y, transport),
+            kittui_kitty::placement_command(image_id, footprint, transport)
+        ),
+        embed: kittui_kitty::placeholder_text(image_id, footprint),
+        footprint,
+    };
+    emit_placement_with_mode(global, &placement, None, mode)
+}
+
+fn parse_image_id(value: &str) -> Result<u32> {
+    if let Some(hex) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        u32::from_str_radix(hex, 16).map_err(|e| anyhow!("invalid --id {value:?}: {e}"))
+    } else {
+        value
+            .parse::<u32>()
+            .map_err(|e| anyhow!("invalid --id {value:?}: {e}"))
     }
 }
 
@@ -904,28 +963,21 @@ fn placement_json_payload(
     payload
 }
 
-fn emit_with_mode(
+fn emit_placement_with_mode(
     global: &GlobalConfig,
-    runtime: &Runtime,
-    scene: &Scene,
+    placement: &kittui::Placement,
     command_sources: Option<serde_json::Value>,
     mode: EmitMode,
 ) -> Result<()> {
-    if mode.scene_json {
-        println!("{}", serialize_scene_json(scene)?);
-        return Ok(());
-    }
-    let placement = runtime.place(scene)?;
     if mode.dry_run {
-        // Always JSON shape for dry-run so callers can compare.
         let payload =
-            placement_json_payload(global, &placement, command_sources, true, mode.json_bytes);
+            placement_json_payload(global, placement, command_sources, true, mode.json_bytes);
         println!("{}", serde_json::to_string_pretty(&payload)?);
         return Ok(());
     }
     if global.json.value {
         let payload =
-            placement_json_payload(global, &placement, command_sources, false, mode.json_bytes);
+            placement_json_payload(global, placement, command_sources, false, mode.json_bytes);
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
         handle.write_all(serde_json::to_string_pretty(&payload)?.as_bytes())?;
@@ -945,6 +997,21 @@ fn emit_with_mode(
         }
     }
     Ok(())
+}
+
+fn emit_with_mode(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    scene: &Scene,
+    command_sources: Option<serde_json::Value>,
+    mode: EmitMode,
+) -> Result<()> {
+    if mode.scene_json {
+        println!("{}", serialize_scene_json(scene)?);
+        return Ok(());
+    }
+    let placement = runtime.place(scene)?;
+    emit_placement_with_mode(global, &placement, command_sources, mode)
 }
 
 #[cfg(test)]
@@ -1003,6 +1070,14 @@ mod tests {
             terminal_rows: Some(43),
             json: true,
         })
+    }
+
+    #[test]
+    fn parse_image_id_accepts_decimal_and_hex() {
+        assert_eq!(parse_image_id("4660").unwrap(), 0x1234);
+        assert_eq!(parse_image_id("0x1234").unwrap(), 0x1234);
+        assert_eq!(parse_image_id("0XABCD").unwrap(), 0xabcd);
+        assert!(parse_image_id("not-an-id").is_err());
     }
 
     #[test]
