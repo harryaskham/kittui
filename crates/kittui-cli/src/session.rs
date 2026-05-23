@@ -482,6 +482,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 } => {
                     let footprint =
                         CellRect::new(layout.app_x, layout.app_y, layout.app_cols, layout.app_rows);
+                    let (rgba, width, height) = fit_rgba_frame_to_cells(
+                        rgba,
+                        width,
+                        height,
+                        layout.app_cols,
+                        layout.app_rows,
+                    );
                     let p = runtime.place_raw_frame(pane.image_id, &rgba, width, height, footprint);
                     handle.write_all(p.upload.as_bytes())?;
                     handle.write_all(p.placement.as_bytes())?;
@@ -620,6 +627,45 @@ fn native_shell_view(
             ),
         },
     }
+}
+
+const NATIVE_CELL_WIDTH_PX: u32 = 8;
+const NATIVE_CELL_HEIGHT_PX: u32 = 16;
+const NATIVE_FRAME_BG_RGBA: [u8; 4] = [0x08, 0x0d, 0x14, 0xff];
+
+fn fit_rgba_frame_to_cells(
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+    cols: u16,
+    rows: u16,
+) -> (Vec<u8>, u32, u32) {
+    let target_width = u32::from(cols).saturating_mul(NATIVE_CELL_WIDTH_PX).max(1);
+    let target_height = u32::from(rows).saturating_mul(NATIVE_CELL_HEIGHT_PX).max(1);
+    let expected_len = target_width as usize * target_height as usize * 4;
+    if width == target_width && height == target_height && rgba.len() == expected_len {
+        return (rgba, width, height);
+    }
+    let mut fitted = vec![0u8; expected_len];
+    for px in fitted.chunks_exact_mut(4) {
+        px.copy_from_slice(&NATIVE_FRAME_BG_RGBA);
+    }
+    let copy_width = width.min(target_width) as usize;
+    let copy_height = height.min(target_height) as usize;
+    let src_stride = width as usize * 4;
+    let dst_stride = target_width as usize * 4;
+    let copy_bytes = copy_width * 4;
+    for row in 0..copy_height {
+        let src_start = row * src_stride;
+        let src_end = src_start.saturating_add(copy_bytes).min(rgba.len());
+        let dst_start = row * dst_stride;
+        let dst_end = dst_start + (src_end.saturating_sub(src_start));
+        if src_start >= rgba.len() || dst_end > fitted.len() {
+            break;
+        }
+        fitted[dst_start..dst_end].copy_from_slice(&rgba[src_start..src_end]);
+    }
+    (fitted, target_width, target_height)
 }
 
 fn native_pane_index(panes: &[NativePane], window: &str) -> Option<usize> {
@@ -1340,6 +1386,23 @@ fn write_native_pane_chrome<W: Write>(out: &mut W, chrome: &NativePaneChrome) ->
 #[cfg(test)]
 mod native_pane_tests {
     use super::*;
+
+    #[test]
+    fn fit_rgba_frame_to_cells_crops_and_pads_without_scaling() {
+        let red = [0xff, 0x00, 0x00, 0xff];
+        let green = [0x00, 0xff, 0x00, 0xff];
+        let oversized = [red, green].concat();
+        let (cropped, width, height) = fit_rgba_frame_to_cells(oversized, 2, 1, 1, 1);
+        assert_eq!((width, height), (8, 16));
+        assert_eq!(&cropped[..4], &red);
+        assert_eq!(&cropped[4..8], &green);
+
+        let (padded, width, height) =
+            fit_rgba_frame_to_cells(vec![0xaa, 0xbb, 0xcc, 0xff], 1, 1, 1, 1);
+        assert_eq!((width, height), (8, 16));
+        assert_eq!(&padded[..4], &[0xaa, 0xbb, 0xcc, 0xff]);
+        assert_eq!(&padded[4..8], &NATIVE_FRAME_BG_RGBA);
+    }
 
     #[test]
     fn native_key_event_payload_honors_application_cursor_mode() {
