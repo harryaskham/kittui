@@ -293,6 +293,13 @@ pub trait NativeSurface {
     fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()>;
     /// Send text bytes to the surface.
     fn send_surface_text(&mut self, text: &str) -> Result<()>;
+    /// Send exact bytes to the surface when supported.
+    fn send_surface_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        let text = std::str::from_utf8(bytes).map_err(|_| {
+            anyhow!("surface does not support non-UTF-8 byte input through this adapter")
+        })?;
+        self.send_surface_text(text)
+    }
     /// Capture a frame and pair it with current metadata.
     fn capture_surface(&mut self) -> Result<SurfaceFrame>;
     /// Drain side-effect events emitted by the surface since the previous drain.
@@ -1119,6 +1126,10 @@ impl NativeSurface for PtyTerminalApp {
 
     fn send_surface_text(&mut self, text: &str) -> Result<()> {
         self.surface.send_text(text)
+    }
+
+    fn send_surface_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        self.surface.send_bytes(bytes)
     }
 
     fn capture_surface(&mut self) -> Result<SurfaceFrame> {
@@ -4134,6 +4145,49 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn native_surface_exact_byte_hook_preserves_pty_bytes() {
+        let mut term = PtyTerminalApp::spawn("cat", 40, 6).expect("spawn pty cat");
+        NativeSurface::send_surface_bytes(&mut term, b"raw\x1b[7m-bytes\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !term.text_snapshot().contains("raw-bytes") {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let text = term.text_snapshot();
+        assert!(text.contains("raw-bytes"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn native_surface_default_byte_hook_rejects_non_utf8() {
+        let mut window = XWindowSurface::x11(
+            Box::new(kittui_xvfb::FakeServer::with_windows(vec![(
+                XWindowId(9),
+                kittui_core::geom::PxRect::new(0.0, 0.0, 8.0, 8.0),
+                "xterm",
+                [0, 0, 0, 0xff],
+            )])),
+            kittui_xvfb::XWindow {
+                id: XWindowId(9),
+                rect: kittui_core::geom::PxRect::new(0.0, 0.0, 8.0, 8.0),
+                title: "xterm".to_string(),
+            },
+            8,
+            16,
+        );
+        let err = NativeSurface::send_surface_bytes(&mut window, b"hi\xff").unwrap_err();
+        assert!(err.to_string().contains("non-UTF-8 byte input"), "{err}");
+    }
+
+    #[test]
+    fn capture_only_surface_byte_hook_reports_unsupported_text_input() {
+        let mut surface = RgbaFrameSurface::new("rgba:empty", "empty", 1, 1, vec![0; 4]).unwrap();
+        let err = NativeSurface::send_surface_bytes(&mut surface, b"hello").unwrap_err();
+        assert!(
+            err.to_string().contains("do not accept text input"),
+            "{err}"
+        );
     }
 
     #[test]
