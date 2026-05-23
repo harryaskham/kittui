@@ -165,6 +165,11 @@
             program = "${kittui}/bin/kittwm-terminal";
             meta.description = "Run the kittwm terminal surface client";
           };
+          kittwm-launch = {
+            type = "app";
+            program = "${kittui}/bin/kittwm-launch";
+            meta.description = "Run the kittwm SDK app/surface launcher";
+          };
         };
 
         checks = {

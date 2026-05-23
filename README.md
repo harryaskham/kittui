@@ -92,7 +92,7 @@ a flag, env var, YAML, or a built-in default.
 | `kittui-kitty`       | kitty graphics protocol encoder + placeholder generation |
 | `kittui-cache`       | Content-addressed PNG/APNG cache                         |
 | `kittui`             | Public facade: `Runtime`, `Placement`, builders          |
-| `kittui-cli`         | `kittui`, `kittwm`, `kittwm-browser`, `kittwm-terminal` binaries + examples  |
+| `kittui-cli`         | `kittui`, `kittwm`, `kittwm-browser`, `kittwm-terminal`, `kittwm-launch` binaries + examples  |
 | `kittwm-sdk`         | typed client/window/surface handles for kittwm's socket/DISPLAY control plane |
 | `kittui-ffi`         | `libkittui_ffi` cdylib + staticlib                       |
 | `bindings/ts`        | TypeScript/JavaScript koffi binding over the C ABI        |
@@ -114,7 +114,7 @@ v0.3: kittwm now includes backend-independent native app foundations:
 Try:
 
 ```sh
-# Nix flakes expose kittui plus explicit kittwm/kittwm-browser/kittwm-terminal app targets.
+# Nix flakes expose kittui plus explicit kittwm/kittwm-browser/kittwm-terminal/kittwm-launch app targets.
 # The kittui package builds kittwm with platform-native backend features by
 # default: SCK/Quartz on macOS, Xvfb on Linux.
 nix run .#kittui -- --help
@@ -122,6 +122,7 @@ nix run .#kittwm
 KITTWM_TERMINAL_CMD=htop nix run .#kittwm
 nix run .#kittwm-browser -- https://example.com
 nix run .#kittwm-terminal -- --title shell --command 'zsh -l'
+nix run .#kittwm-launch -- --terminal --title monitor -- htop
 
 cargo run -p kittui-cli --bin kittwm
 KITTWM_TERMINAL_CMD=htop cargo run -p kittui-cli --bin kittwm
