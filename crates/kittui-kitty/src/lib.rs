@@ -37,15 +37,27 @@ pub enum CompressionMode {
     None,
     /// Compress with zlib and mark the transfer with `o=z`.
     Zlib,
+    /// Choose compression based on payload size/heuristics.
+    Auto,
 }
 
 impl CompressionMode {
     fn field(self) -> &'static str {
         match self {
-            CompressionMode::None => "",
+            CompressionMode::None | CompressionMode::Auto => "",
             CompressionMode::Zlib => ",o=z",
         }
     }
+}
+
+const DEFAULT_ZLIB_MIN_BYTES: usize = 16 * 1024;
+
+/// Return the minimum payload size where `KITTUI_KITTY_COMPRESSION=auto` uses zlib.
+pub fn zlib_min_bytes_from_env() -> usize {
+    std::env::var("KITTUI_ZLIB_MIN_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_ZLIB_MIN_BYTES)
 }
 
 /// Select kitty graphics compression from `KITTUI_KITTY_COMPRESSION`.
@@ -55,8 +67,18 @@ pub fn compression_from_env() -> CompressionMode {
         .to_ascii_lowercase()
         .as_str()
     {
-        "z" | "zlib" | "deflate" | "auto" => CompressionMode::Zlib,
+        "z" | "zlib" | "deflate" => CompressionMode::Zlib,
+        "auto" => CompressionMode::Auto,
         _ => CompressionMode::None,
+    }
+}
+
+/// Resolve [`CompressionMode::Auto`] for a payload length using the current env threshold.
+pub fn resolve_compression_for_len(mode: CompressionMode, payload_len: usize) -> CompressionMode {
+    match mode {
+        CompressionMode::Auto if payload_len >= zlib_min_bytes_from_env() => CompressionMode::Zlib,
+        CompressionMode::Auto => CompressionMode::None,
+        other => other,
     }
 }
 
@@ -250,14 +272,16 @@ pub fn upload_still_rgba_compressed(
     transport: Transport,
     compression: CompressionMode,
 ) -> String {
+    let compression = resolve_compression_for_len(compression, rgba.len());
     let payload = compress_payload(rgba, compression).unwrap_or_else(|| rgba.to_vec());
     let b64 = base64::engine::general_purpose::STANDARD.encode(payload);
     encode_chunked_rgba(image_id, &b64, width, height, quiet, transport, compression)
 }
 
 fn compress_payload(bytes: &[u8], compression: CompressionMode) -> Option<Vec<u8>> {
-    match compression {
+    match resolve_compression_for_len(compression, bytes.len()) {
         CompressionMode::None => Some(bytes.to_vec()),
+        CompressionMode::Auto => unreachable!("auto compression must resolve before encoding"),
         CompressionMode::Zlib => {
             let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
             encoder.write_all(bytes).ok()?;
@@ -643,7 +667,7 @@ fn upload(
     };
     match medium {
         UploadMedium::Direct { bytes } => {
-            let compression = compression_from_env();
+            let compression = resolve_compression_for_len(compression_from_env(), bytes.len());
             let payload = compress_payload(bytes, compression).unwrap_or_else(|| bytes.to_vec());
             let b64 = base64::engine::general_purpose::STANDARD.encode(payload);
             encode_chunked(
@@ -790,6 +814,8 @@ pub fn diacritic_for(index_zero_based: u32) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn upload_still_emits_exact_grammar() {
@@ -1022,6 +1048,54 @@ mod tests {
         assert!(escapes.ends_with("\x1b\\"));
         // No PNG signature in the body — must be base64 of raw RGBA only.
         assert!(!escapes.contains("PNG"));
+    }
+
+    #[test]
+    fn compression_auto_respects_min_byte_threshold() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTUI_ZLIB_MIN_BYTES", "32");
+        assert_eq!(
+            resolve_compression_for_len(CompressionMode::Auto, 31),
+            CompressionMode::None
+        );
+        assert_eq!(
+            resolve_compression_for_len(CompressionMode::Auto, 32),
+            CompressionMode::Zlib
+        );
+        std::env::remove_var("KITTUI_ZLIB_MIN_BYTES");
+    }
+
+    #[test]
+    fn upload_still_rgba_auto_compresses_only_large_payloads() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTUI_ZLIB_MIN_BYTES", "32");
+        let small = upload_still_rgba_compressed(
+            4,
+            &[0x55u8; 16],
+            2,
+            2,
+            Quiet::SuppressAll,
+            Transport::Direct,
+            CompressionMode::Auto,
+        );
+        assert!(
+            small.starts_with("\x1b_Ga=t,f=32,s=2,v=2,i=4,m=0,q=2;"),
+            "{small:?}"
+        );
+        let large = upload_still_rgba_compressed(
+            4,
+            &[0x55u8; 64],
+            4,
+            4,
+            Quiet::SuppressAll,
+            Transport::Direct,
+            CompressionMode::Auto,
+        );
+        assert!(
+            large.starts_with("\x1b_Ga=t,f=32,s=4,v=4,i=4,m=0,o=z,q=2;"),
+            "{large:?}"
+        );
+        std::env::remove_var("KITTUI_ZLIB_MIN_BYTES");
     }
 
     #[test]
