@@ -272,6 +272,7 @@ struct TerminalState {
     saved_cursor_col: u16,
     saved_cursor_row: u16,
     cursor_visible: bool,
+    origin_mode: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     cells: Vec<TerminalCell>,
@@ -337,6 +338,7 @@ impl TerminalState {
             saved_cursor_col: 0,
             saved_cursor_row: 0,
             cursor_visible: true,
+            origin_mode: false,
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
             cells: vec![
@@ -360,6 +362,7 @@ impl TerminalState {
         self.scrollback = old.scrollback.clone();
         self.current_style = old.current_style;
         self.cursor_visible = old.cursor_visible;
+        self.origin_mode = old.origin_mode;
         self.bracketed_paste = old.bracketed_paste;
         self.focus_reporting = old.focus_reporting;
         self.mouse_modes = old.mouse_modes;
@@ -670,6 +673,26 @@ impl TerminalState {
         }
     }
 
+    fn set_origin_mode(&mut self, enabled: bool) {
+        self.origin_mode = enabled;
+        self.cursor_col = 0;
+        self.cursor_row = if enabled { self.scroll_top } else { 0 };
+    }
+
+    fn address_cursor(&mut self, row: u16, col: u16) {
+        self.cursor_col = col.saturating_sub(1).min(self.cols.saturating_sub(1));
+        if self.origin_mode {
+            let relative = row.saturating_sub(1);
+            self.cursor_row = self
+                .scroll_top
+                .saturating_add(relative)
+                .min(self.scroll_bottom)
+                .min(self.rows.saturating_sub(1));
+        } else {
+            self.cursor_row = row.saturating_sub(1).min(self.rows.saturating_sub(1));
+        }
+    }
+
     fn save_cursor(&mut self) {
         self.saved_cursor_col = self.cursor_col;
         self.saved_cursor_row = self.cursor_row;
@@ -869,6 +892,7 @@ impl Perform for TerminalState {
         let has_cursor_visibility_mode = params
             .iter()
             .any(|param| param.first().copied() == Some(25));
+        let has_origin_mode = params.iter().any(|param| param.first().copied() == Some(6));
         let mouse_modes = params
             .iter()
             .filter_map(|param| param.first().copied())
@@ -909,13 +933,13 @@ impl Perform for TerminalState {
                 let mut iter = params.iter();
                 let row = iter.next().and_then(|p| p.first().copied()).unwrap_or(1) as u16;
                 let col = iter.next().and_then(|p| p.first().copied()).unwrap_or(1) as u16;
-                self.cursor_row = row.saturating_sub(1).min(self.rows.saturating_sub(1));
-                self.cursor_col = col.saturating_sub(1).min(self.cols.saturating_sub(1));
+                self.address_cursor(row, col);
             }
             'h' if is_dec_private && has_alt_screen_mode => self.enter_alternate_screen(),
             'h' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = true,
             'h' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = true,
             'h' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = true,
+            'h' if is_dec_private && has_origin_mode => self.set_origin_mode(true),
             'h' if is_dec_private && !mouse_modes.is_empty() => {
                 for mode in mouse_modes {
                     self.set_mouse_mode(mode, true);
@@ -943,6 +967,7 @@ impl Perform for TerminalState {
             'l' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = false,
             'l' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = false,
             'l' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = false,
+            'l' if is_dec_private && has_origin_mode => self.set_origin_mode(false),
             'l' if is_dec_private && !mouse_modes.is_empty() => {
                 for mode in mouse_modes {
                     self.set_mouse_mode(mode, false);
@@ -1416,6 +1441,31 @@ mod tests {
         assert!(text.starts_with("X\n\nY"), "snapshot was:\n{text}");
         assert_eq!(state.scroll_top, 0);
         assert_eq!(state.scroll_bottom, 3);
+    }
+
+    #[test]
+    fn terminal_state_honors_origin_mode_with_scroll_region() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 5);
+        parser.advance(&mut state, b"header\nbody1\nbody2\nbody3\nfooter");
+        parser.advance(&mut state, b"\x1b[2;4r\x1b[?6h\x1b[1;1H\x1b[2KORIGIN");
+        let text = state.text_snapshot();
+        assert!(
+            text.starts_with("header\nORIGIN\nbody2\nbody3\nfooter"),
+            "snapshot was:\n{text}"
+        );
+        assert!(state.origin_mode);
+    }
+
+    #[test]
+    fn terminal_state_origin_mode_disable_restores_absolute_addressing() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 5);
+        parser.advance(&mut state, b"header\nbody1\nbody2\nbody3\nfooter");
+        parser.advance(&mut state, b"\x1b[2;4r\x1b[?6h\x1b[1;1HR\x1b[?6l\x1b[1;1HA");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("Aeader\nRody1"), "snapshot was:\n{text}");
+        assert!(!state.origin_mode);
     }
 
     #[test]
