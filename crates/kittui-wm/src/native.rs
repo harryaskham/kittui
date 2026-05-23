@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
-use kittui_xvfb::{XCapture, XWindowId};
+use kittui_xvfb::{XCapture, XServer, XWindow, XWindowId};
 use parking_lot::Mutex;
 use portable_pty::{
     Child as PtyChild, CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem,
@@ -242,6 +242,135 @@ pub trait NativeSurface {
     fn send_surface_text(&mut self, text: &str) -> Result<()>;
     /// Capture a frame and pair it with current metadata.
     fn capture_surface(&mut self) -> Result<SurfaceFrame>;
+}
+
+/// Adapter that exposes an X11/Xvfb/XQuartz window as a common native surface.
+///
+/// The adapter keeps the existing [`XServer`] backend contract as the source of
+/// truth for enumeration, capture, input, and window resizing, then translates it
+/// into the [`NativeSurface`] shape used by PTY and browser surfaces. XQuartz is
+/// an X11 backend under the hood, so it uses the same adapter as Xvfb.
+pub struct XWindowSurface {
+    server: Box<dyn XServer + Send + Sync>,
+    window: XWindow,
+    kind: SurfaceKind,
+    cell_width: u32,
+    cell_height: u32,
+}
+
+impl XWindowSurface {
+    /// Wrap an X11-family backend window (FakeServer, Xvfb, or XQuartz).
+    pub fn x11(
+        server: Box<dyn XServer + Send + Sync>,
+        window: XWindow,
+        cell_width: u32,
+        cell_height: u32,
+    ) -> Self {
+        Self::new(server, window, SurfaceKind::X11, cell_width, cell_height)
+    }
+
+    /// Wrap a Quartz capture target with the same surface interface. Quartz can
+    /// capture and receive input; resize support depends on the backend target.
+    pub fn quartz(
+        server: Box<dyn XServer + Send + Sync>,
+        window: XWindow,
+        cell_width: u32,
+        cell_height: u32,
+    ) -> Self {
+        Self::new(server, window, SurfaceKind::Quartz, cell_width, cell_height)
+    }
+
+    /// Wrap a backend window with an explicit surface kind.
+    pub fn new(
+        server: Box<dyn XServer + Send + Sync>,
+        window: XWindow,
+        kind: SurfaceKind,
+        cell_width: u32,
+        cell_height: u32,
+    ) -> Self {
+        Self {
+            server,
+            window,
+            kind,
+            cell_width: cell_width.max(1),
+            cell_height: cell_height.max(1),
+        }
+    }
+
+    fn current_window(&self) -> XWindow {
+        self.server
+            .windows()
+            .ok()
+            .and_then(|windows| windows.into_iter().find(|w| w.id == self.window.id))
+            .unwrap_or_else(|| self.window.clone())
+    }
+
+    fn metadata_for(&self, window: &XWindow, frame_size: Option<(u32, u32)>) -> SurfaceMetadata {
+        let mut capabilities = SurfaceCapabilities::interactive_capture();
+        if self.kind == SurfaceKind::Quartz {
+            capabilities.resize = false;
+        }
+        SurfaceMetadata {
+            id: SurfaceId::new(format!("xwindow:{}", window.id.0)),
+            kind: self.kind,
+            title: window.title.clone(),
+            capabilities,
+            frame_size,
+        }
+    }
+}
+
+impl NativeSurface for XWindowSurface {
+    fn metadata(&self) -> SurfaceMetadata {
+        let window = self.current_window();
+        self.metadata_for(
+            &window,
+            Some((
+                window.rect.width.max(0.0) as u32,
+                window.rect.height.max(0.0) as u32,
+            )),
+        )
+    }
+
+    fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()> {
+        let width = (cols as u32).saturating_mul(self.cell_width).max(1);
+        let height = (rows as u32).saturating_mul(self.cell_height).max(1);
+        self.server
+            .resize_window(self.window.id, width, height)
+            .with_context(|| format!("resize X window {:?} to {width}x{height}", self.window.id))?;
+        self.window.rect.width = width as f32;
+        self.window.rect.height = height as f32;
+        Ok(())
+    }
+
+    fn send_surface_text(&mut self, text: &str) -> Result<()> {
+        for ch in text.chars() {
+            let sym = ch as u32;
+            self.server
+                .inject_key(sym, true)
+                .with_context(|| format!("press keysym {sym} for X window {:?}", self.window.id))?;
+            self.server.inject_key(sym, false).with_context(|| {
+                format!("release keysym {sym} for X window {:?}", self.window.id)
+            })?;
+        }
+        Ok(())
+    }
+
+    fn capture_surface(&mut self) -> Result<SurfaceFrame> {
+        let capture = self
+            .server
+            .capture(self.window.id)
+            .with_context(|| format!("capture X window {:?}", self.window.id))?;
+        let window = self.current_window();
+        self.window = window.clone();
+        let frame = NativeFrame::Rgba {
+            width: capture.width,
+            height: capture.height,
+            rgba: capture.rgba,
+        };
+        let metadata = self.metadata_for(&window, Some((frame.width(), frame.height())));
+        Ok(SurfaceFrame { metadata, frame })
+    }
 }
 
 /// Reusable terminal surface engine for a PTY-backed kittwm-native app.
@@ -2846,6 +2975,40 @@ mod tests {
         state.osc_dispatch(&[b"52", b"c", b"not base64!!!"], true);
         state.osc_dispatch(&[b"52", b"bad;selector", b"aGVsbG8="], true);
         assert!(state.take_pending_host_sequences().is_empty());
+    }
+
+    #[test]
+    fn xwindow_surface_adapts_xserver_capture_input_and_resize() {
+        let window = (
+            XWindowId(7),
+            kittui_core::geom::PxRect::new(0.0, 0.0, 16.0, 8.0),
+            "xterm",
+            [0x11, 0x22, 0x33, 0xff],
+        );
+        let server = kittui_xvfb::FakeServer::with_windows(vec![window]);
+        let x_window = server.windows().unwrap().pop().unwrap();
+        let mut surface = XWindowSurface::x11(Box::new(server), x_window, 8, 16);
+
+        let metadata = NativeSurface::metadata(&surface);
+        assert_eq!(metadata.id.as_str(), "xwindow:7");
+        assert_eq!(metadata.kind, SurfaceKind::X11);
+        assert!(metadata.capabilities.capture);
+        assert!(metadata.capabilities.input);
+        assert!(metadata.capabilities.resize);
+        assert_eq!(metadata.title, "xterm");
+
+        NativeSurface::send_surface_text(&mut surface, "a").unwrap();
+        NativeSurface::resize_surface(&mut surface, 4, 3).unwrap();
+        let frame = NativeSurface::capture_surface(&mut surface).unwrap();
+        assert_eq!(frame.metadata.frame_size, Some((32, 48)));
+        assert!(matches!(
+            frame.frame,
+            NativeFrame::Rgba {
+                width: 32,
+                height: 48,
+                ..
+            }
+        ));
     }
 
     #[test]

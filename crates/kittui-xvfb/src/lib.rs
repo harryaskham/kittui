@@ -115,6 +115,17 @@ pub trait XServer {
     fn windows(&self) -> Result<Vec<XWindow>, XError>;
     /// Capture the current pixels of a given window.
     fn capture(&self, id: XWindowId) -> Result<XCapture, XError>;
+    /// Resize a window or capture target to the requested pixel size.
+    ///
+    /// Backends that cannot control the target size keep the default
+    /// `Unavailable` implementation. Surface adapters use this hook for the
+    /// common resize path while still allowing read-only capture backends.
+    fn resize_window(&self, id: XWindowId, width: u32, height: u32) -> Result<(), XError> {
+        let _ = (id, width, height);
+        Err(XError::Unavailable(
+            "backend does not support window resize".into(),
+        ))
+    }
     /// Inject a pointer event into the server.
     fn inject_pointer(&self, event: XPointerEvent) -> Result<(), XError>;
     /// Inject a key event (sym = X11 keysym).
@@ -124,7 +135,7 @@ pub trait XServer {
 /// A deterministic in-memory backend that pretends to host a few windows.
 /// Used by the kittui-wm tests and the demo runner on hosts without Xvfb.
 pub struct FakeServer {
-    windows: Vec<XWindow>,
+    windows: parking_lot::Mutex<Vec<XWindow>>,
     captures: parking_lot::Mutex<Vec<XCapture>>,
     routed: parking_lot::Mutex<Vec<XPointerEvent>>,
     keys: parking_lot::Mutex<Vec<(u32, bool)>>,
@@ -158,7 +169,7 @@ impl FakeServer {
             });
         }
         Self {
-            windows: ws,
+            windows: parking_lot::Mutex::new(ws),
             captures: parking_lot::Mutex::new(caps),
             routed: parking_lot::Mutex::new(Vec::new()),
             keys: parking_lot::Mutex::new(Vec::new()),
@@ -178,7 +189,7 @@ impl FakeServer {
 
 impl XServer for FakeServer {
     fn windows(&self) -> Result<Vec<XWindow>, XError> {
-        Ok(self.windows.clone())
+        Ok(self.windows.lock().clone())
     }
 
     fn capture(&self, id: XWindowId) -> Result<XCapture, XError> {
@@ -187,6 +198,33 @@ impl XServer for FakeServer {
             .find(|c| c.id == id)
             .cloned()
             .ok_or_else(|| XError::Unavailable(format!("no capture for {:?}", id)))
+    }
+
+    fn resize_window(&self, id: XWindowId, width: u32, height: u32) -> Result<(), XError> {
+        if width == 0 || height == 0 {
+            return Err(XError::Unavailable(
+                "window resize requires non-zero size".into(),
+            ));
+        }
+        let mut windows = self.windows.lock();
+        if let Some(window) = windows.iter_mut().find(|w| w.id == id) {
+            window.rect.width = width as f32;
+            window.rect.height = height as f32;
+        }
+        let mut captures = self.captures.lock();
+        let capture = captures
+            .iter_mut()
+            .find(|c| c.id == id)
+            .ok_or_else(|| XError::Unavailable(format!("no capture for {:?}", id)))?;
+        let pixel = capture.rgba.get(0..4).unwrap_or(&[0, 0, 0, 0xff]).to_vec();
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        for _ in 0..(width * height) {
+            rgba.extend_from_slice(&pixel);
+        }
+        capture.width = width;
+        capture.height = height;
+        capture.rgba = rgba;
+        Ok(())
     }
 
     fn inject_pointer(&self, event: XPointerEvent) -> Result<(), XError> {
@@ -216,7 +254,8 @@ pub mod xvfb {
 
     use x11rb::connection::Connection;
     use x11rb::protocol::xproto::{
-        AtomEnum, ConnectionExt as _, GetImageReply, ImageFormat, Window as XWindow32,
+        AtomEnum, ConfigureWindowAux, ConnectionExt as _, GetImageReply, ImageFormat,
+        Window as XWindow32,
     };
     use x11rb::protocol::xtest::ConnectionExt as XTestExt;
     use x11rb::rust_connection::RustConnection;
@@ -363,6 +402,21 @@ pub mod xvfb {
             })
         }
 
+        fn resize_window(&self, id: XWindowId, width: u32, height: u32) -> Result<(), XError> {
+            if width == 0 || height == 0 {
+                return Err(XError::Unavailable(
+                    "window resize requires non-zero size".into(),
+                ));
+            }
+            self.conn
+                .configure_window(id.0, &ConfigureWindowAux::new().width(width).height(height))
+                .map_err(|e| XError::Unavailable(format!("configure_window: {e}")))?;
+            self.conn
+                .flush()
+                .map_err(|e| XError::Unavailable(format!("flush: {e}")))?;
+            Ok(())
+        }
+
         fn inject_pointer(&self, event: XPointerEvent) -> Result<(), XError> {
             match event {
                 XPointerEvent::Move { window, x_px, y_px } => {
@@ -376,7 +430,9 @@ pub mod xvfb {
                             y_px as i16,
                             0,
                         )
-                        .map_err(|e| XError::Unavailable(format!("xtest_fake_input motion: {e}")))?;
+                        .map_err(|e| {
+                            XError::Unavailable(format!("xtest_fake_input motion: {e}"))
+                        })?;
                 }
                 XPointerEvent::Press { window, button } => {
                     self.conn
@@ -402,7 +458,9 @@ pub mod xvfb {
                             0,
                             0,
                         )
-                        .map_err(|e| XError::Unavailable(format!("xtest_fake_input release: {e}")))?;
+                        .map_err(|e| {
+                            XError::Unavailable(format!("xtest_fake_input release: {e}"))
+                        })?;
                 }
             }
             self.conn
@@ -422,15 +480,7 @@ pub mod xvfb {
                 x11rb::protocol::xproto::KEY_RELEASE_EVENT
             };
             self.conn
-                .xtest_fake_input(
-                    kind,
-                    code,
-                    x11rb::CURRENT_TIME,
-                    self.screen_root,
-                    0,
-                    0,
-                    0,
-                )
+                .xtest_fake_input(kind, code, x11rb::CURRENT_TIME, self.screen_root, 0, 0, 0)
                 .map_err(|e| XError::Unavailable(format!("xtest_fake_input key: {e}")))?;
             self.conn
                 .flush()
@@ -535,6 +585,10 @@ pub mod xquartz {
             self.inner.capture(id)
         }
 
+        fn resize_window(&self, id: XWindowId, width: u32, height: u32) -> Result<(), XError> {
+            self.inner.resize_window(id, width, height)
+        }
+
         fn inject_pointer(&self, event: XPointerEvent) -> Result<(), XError> {
             self.inner.inject_pointer(event)
         }
@@ -548,11 +602,13 @@ pub mod xquartz {
         std::env::var_os("KITTUI_XQUARTZ_BIN")
             .map(PathBuf::from)
             .filter(|p| p.exists())
-            .or_else(|| first_existing(&[
-                "/opt/X11/bin/Xquartz",
-                "/Applications/Utilities/XQuartz.app/Contents/MacOS/X11.bin",
-                "/Library/Apple/System/Library/CoreServices/X11.app/Contents/MacOS/X11.bin",
-            ]))
+            .or_else(|| {
+                first_existing(&[
+                    "/opt/X11/bin/Xquartz",
+                    "/Applications/Utilities/XQuartz.app/Contents/MacOS/X11.bin",
+                    "/Library/Apple/System/Library/CoreServices/X11.app/Contents/MacOS/X11.bin",
+                ])
+            })
     }
 
     fn first_existing(paths: &[&str]) -> Option<PathBuf> {

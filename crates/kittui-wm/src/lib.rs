@@ -1538,6 +1538,9 @@ pub mod multi {
         fn capture(&self, id: XWindowId) -> Result<XCapture, XError> {
             self.0.capture(id)
         }
+        fn resize_window(&self, id: XWindowId, width: u32, height: u32) -> Result<(), XError> {
+            self.0.resize_window(id, width, height)
+        }
         fn inject_pointer(&self, ev: XPointerEvent) -> Result<(), XError> {
             self.0.inject_pointer(ev)
         }
@@ -1969,6 +1972,9 @@ pub mod multi {
             fn capture(&self, id: XWindowId) -> Result<kittui_xvfb::XCapture, XError> {
                 std::thread::sleep(self.delay);
                 self.inner.capture(id)
+            }
+            fn resize_window(&self, id: XWindowId, width: u32, height: u32) -> Result<(), XError> {
+                self.inner.resize_window(id, width, height)
             }
             fn inject_pointer(&self, ev: XPointerEvent) -> Result<(), XError> {
                 self.inner.inject_pointer(ev)
