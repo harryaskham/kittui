@@ -17,7 +17,7 @@
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use kittui::{CellRect, Runtime};
 use kittui_input::{InputEvent, Key};
@@ -329,34 +329,60 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     }
                 }
                 crate::daemon::NativePaneCommand::RestoreSession(restore) => {
-                    for pane in &mut panes {
-                        let _ = pane.app.terminate();
+                    let restore_result: Result<(NativePaneLayoutAxis, Vec<NativePane>, usize)> =
+                        (|| {
+                            let new_axis = restore
+                                .layout
+                                .as_deref()
+                                .and_then(NativePaneLayoutAxis::parse)
+                                .unwrap_or(layout_axis);
+                            let mut restored = Vec::with_capacity(restore.panes.len());
+                            for (idx, restore_pane) in restore.panes.iter().enumerate() {
+                                let id = (idx + 1).min(u32::MAX as usize) as u32;
+                                let mut pane =
+                                    match spawn_native_pane(id, &restore_pane.command, &sock, 1, 1)
+                                    {
+                                        Ok(pane) => pane,
+                                        Err(err) => {
+                                            terminate_native_panes(&mut restored);
+                                            return Err(err);
+                                        }
+                                    };
+                                pane.weight = restore_pane.weight.max(1);
+                                pane.display_title = restore_pane.title.clone();
+                                restored.push(pane);
+                            }
+                            if restored.is_empty() {
+                                return Err(anyhow!("restore session contains no panes"));
+                            }
+                            if let Err(err) =
+                                resize_native_panes_for_layout(&mut restored, cols, rows, new_axis)
+                            {
+                                terminate_native_panes(&mut restored);
+                                return Err(err);
+                            }
+                            let new_focus =
+                                native_restore_focus_index(restored.len(), restore.focus_index);
+                            Ok((new_axis, restored, new_focus))
+                        })();
+                    match restore_result {
+                        Ok((new_axis, mut restored, new_focus)) => {
+                            terminate_native_panes(&mut panes);
+                            std::mem::swap(&mut panes, &mut restored);
+                            layout_axis = new_axis;
+                            focused = new_focus;
+                            clear = true;
+                            dbg.log(&format!(
+                                "native terminal socket restore session: panes={} focus={focused}",
+                                panes.len()
+                            ));
+                        }
+                        Err(err) => {
+                            dbg.log(&format!(
+                                "native terminal socket restore session failed: {err}"
+                            ));
+                        }
                     }
-                    panes.clear();
-                    if let Some(axis) = restore
-                        .layout
-                        .as_deref()
-                        .and_then(NativePaneLayoutAxis::parse)
-                    {
-                        layout_axis = axis;
-                    }
-                    for (idx, restore_pane) in restore.panes.iter().enumerate() {
-                        let id = (idx + 1).min(u32::MAX as usize) as u32;
-                        let mut pane = spawn_native_pane(id, &restore_pane.command, &sock, 1, 1)?;
-                        pane.weight = restore_pane.weight.max(1);
-                        pane.display_title = restore_pane.title.clone();
-                        panes.push(pane);
-                    }
-                    focused = restore
-                        .focus_index
-                        .unwrap_or(0)
-                        .min(panes.len().saturating_sub(1));
-                    resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
-                    clear = true;
-                    dbg.log(&format!(
-                        "native terminal socket restore session: panes={} focus={focused}",
-                        panes.len()
-                    ));
                 }
                 crate::daemon::NativePaneCommand::SendText {
                     window,
@@ -664,6 +690,16 @@ fn balance_native_pane_weights(panes: &mut [NativePane]) {
     }
 }
 
+fn terminate_native_panes(panes: &mut [NativePane]) {
+    for pane in panes {
+        let _ = pane.app.terminate();
+    }
+}
+
+fn native_restore_focus_index(count: usize, focus_index: Option<usize>) -> usize {
+    focus_index.unwrap_or(0).min(count.saturating_sub(1))
+}
+
 fn native_move_target_index(from: usize, len: usize, direction: &str) -> usize {
     if len == 0 {
         return 0;
@@ -887,6 +923,14 @@ mod native_pane_tests {
             panes.iter().map(|pane| pane.weight).collect::<Vec<_>>(),
             vec![1, 1]
         );
+    }
+
+    #[test]
+    fn native_restore_focus_index_clamps_to_restored_panes() {
+        assert_eq!(native_restore_focus_index(3, Some(1)), 1);
+        assert_eq!(native_restore_focus_index(3, Some(99)), 2);
+        assert_eq!(native_restore_focus_index(3, None), 0);
+        assert_eq!(native_restore_focus_index(0, Some(1)), 0);
     }
 
     #[test]
