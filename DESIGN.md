@@ -566,6 +566,9 @@ KittuiStatus   kittui_render_json(KittuiRuntime*,
                                   const char* scene_json,
                                   uint8_t** out_png,
                                   size_t*   out_len);
+KittuiStatus   kittui_render_many_json(KittuiRuntime*,
+                                       const char* scenes_json,
+                                       char** out_manifest_json);
 
 // Unplace by image id
 KittuiStatus   kittui_unplace(KittuiRuntime*, uint32_t image_id,
@@ -586,7 +589,9 @@ a Rust panic returns `Panic` rather than unwinding into the foreign caller.
 
 Strings are UTF-8 with explicit lengths where applicable; the convenience
 NUL-terminated variants are also exported because they ease N-API
-bindings.
+bindings. `kittui_render_many_json` returns a UTF-8 JSON manifest with `count`
+and `images[]` entries containing `index`, `bytes`, `footprint`, and
+`png_base64` for each rendered PNG.
 
 ### ABI versioning
 
@@ -629,9 +634,10 @@ stays in sync automatically.
 ### Python bindings (`bindings/python/`)
 
 A first-party, stdlib-only `ctypes` wrapper loads `libkittui_ffi` and mirrors
-core platform APIs: runtime config, ABI/probe discovery, `place`, `place_at`,
-`place_many`, `place_many_at`, `place_many_channels`, and `unplace`. It accepts
-scene dictionaries or JSON strings and returns either terminal byte strings or
+core platform APIs: runtime config, ABI/probe discovery, `render`,
+`render_many`, `place`, `place_at`, `place_many`, `place_many_at`,
+`place_many_channels`, and `unplace`. It accepts scene dictionaries or JSON
+strings and returns PNG bytes, render manifests, terminal byte strings, or
 parsed channel JSON (`upload`, `placement`, `embed`, image ids, footprints, and
 byte counts).
 

@@ -7,7 +7,8 @@ protocol. It ships as:
 - a C ABI shared library (`kittui-ffi`) — `libkittui_ffi.{so,dylib,dll}` for
   TypeScript / Python / Lua / shell callers.
 - platform bindings: `bindings/ts` (`koffi`) and `bindings/python` (`ctypes`)
-  wrap the C ABI for JS/Python hosts, including batch placement and
+  wrap the C ABI for JS/Python hosts, including render-only PNG bytes,
+  render-many manifests with base64 PNG entries, batch placement, and
   channelized `upload` / `placement` / `embed` output.
 - a CLI (`kittui`) — `kittui box`, `kittui gradient`, `kittui glow`,
   `kittui panel --tone assistant`, `kittui chip`, `kittui divider`,
