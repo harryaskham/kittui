@@ -253,6 +253,12 @@ struct GlowArgs {
 struct ComposeArgs {
     /// Path to a JSON file describing a `kittui::Scene`; use `-` for stdin.
     path: PathBuf,
+    /// Override terminal placement X column without changing scene JSON.
+    #[arg(long)]
+    x: Option<u16>,
+    /// Override terminal placement Y row without changing scene JSON.
+    #[arg(long)]
+    y: Option<u16>,
 }
 
 #[derive(Copy, Clone, clap::ValueEnum)]
@@ -493,7 +499,17 @@ fn run_compose(
     mode: EmitMode,
 ) -> Result<()> {
     let scene = read_compose_scene(&args.path)?;
-    emit_with_mode(global, runtime, &scene, None, mode)
+    let footprint = compose_placement_footprint(&scene, args.x, args.y);
+    emit_scene_at_with_mode(global, runtime, &scene, footprint, None, mode)
+}
+
+fn compose_placement_footprint(scene: &Scene, x: Option<u16>, y: Option<u16>) -> CellRect {
+    CellRect::new(
+        x.unwrap_or(scene.footprint.x),
+        y.unwrap_or(scene.footprint.y),
+        scene.footprint.cols,
+        scene.footprint.rows,
+    )
 }
 
 fn read_compose_scene(path: &PathBuf) -> Result<Scene> {
@@ -1055,10 +1071,11 @@ fn emit_placement_with_mode(
     Ok(())
 }
 
-fn emit_with_mode(
+fn emit_scene_at_with_mode(
     global: &GlobalConfig,
     runtime: &Runtime,
     scene: &Scene,
+    footprint: CellRect,
     command_sources: Option<serde_json::Value>,
     mode: EmitMode,
 ) -> Result<()> {
@@ -1066,8 +1083,25 @@ fn emit_with_mode(
         println!("{}", serialize_scene_json(scene)?);
         return Ok(());
     }
-    let placement = runtime.place(scene)?;
+    let placement = runtime.place_at(scene, footprint)?;
     emit_placement_with_mode(global, &placement, command_sources, mode)
+}
+
+fn emit_with_mode(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    scene: &Scene,
+    command_sources: Option<serde_json::Value>,
+    mode: EmitMode,
+) -> Result<()> {
+    emit_scene_at_with_mode(
+        global,
+        runtime,
+        scene,
+        scene.footprint,
+        command_sources,
+        mode,
+    )
 }
 
 #[cfg(test)]
@@ -1087,6 +1121,24 @@ mod tests {
             )],
             animation: None,
         }
+    }
+
+    #[test]
+    fn compose_placement_footprint_overrides_position_only() {
+        let scene = tiny_scene();
+        assert_eq!(
+            compose_placement_footprint(&scene, Some(7), Some(9)),
+            CellRect::new(7, 9, scene.footprint.cols, scene.footprint.rows)
+        );
+        assert_eq!(
+            compose_placement_footprint(&scene, Some(7), None),
+            CellRect::new(
+                7,
+                scene.footprint.y,
+                scene.footprint.cols,
+                scene.footprint.rows
+            )
+        );
     }
 
     #[test]
