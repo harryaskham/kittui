@@ -422,6 +422,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
 
         let layouts = native_layouts_for_panes(cols, rows, &panes, layout_axis);
+        let shell_view =
+            native_shell_view(rows, &panes, focused, &layouts, &sock, dbg.path_display());
         queue.update_panes(native_pane_statuses(&panes, focused, &layouts));
         let stdout = io::stdout();
         let mut handle = stdout.lock();
@@ -443,15 +445,15 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             last_footer.clear();
             clear = false;
         }
-        if last_title_rows.len() != panes.len() {
-            last_title_rows.resize(panes.len(), String::new());
+        if last_title_rows.len() != shell_view.panes.len() {
+            last_title_rows.resize(shell_view.panes.len(), String::new());
         }
         for (idx, pane) in panes.iter_mut().enumerate() {
             let layout = layouts[idx];
-            let title_key = native_pane_title_key(pane, layout, idx == focused);
-            if redraw_static || last_title_rows.get(idx) != Some(&title_key) {
-                write_native_pane_title(&mut handle, pane, layout, idx == focused)?;
-                last_title_rows[idx] = title_key;
+            let chrome = &shell_view.panes[idx];
+            if redraw_static || last_title_rows.get(idx) != Some(&chrome.cache_key) {
+                write_native_pane_chrome(&mut handle, chrome)?;
+                last_title_rows[idx] = chrome.cache_key.clone();
             }
             match pane.app.capture()? {
                 NativeFrame::Rgba {
@@ -469,17 +471,14 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 NativeFrame::Png { .. } => {}
             }
         }
-        let footer = format!(
-            "kittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a [] move — C-a b balance — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — log: {}",
-            panes.len(),
-            panes[focused].window,
-            panes[focused].weight,
-            sock,
-            dbg.path_display()
-        );
-        if redraw_static || footer != last_footer {
-            write!(handle, "\x1b[{};1H\x1b[K{}", rows + 2, footer)?;
-            last_footer = footer;
+        if redraw_static || shell_view.footer.text != last_footer {
+            write!(
+                handle,
+                "\x1b[{};1H\x1b[K{}",
+                shell_view.footer.row + 1,
+                shell_view.footer.text
+            )?;
+            last_footer = shell_view.footer.text;
         }
         handle.flush()?;
         if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
@@ -530,6 +529,68 @@ struct NativePaneLayout {
     app_y: u16,
     app_cols: u16,
     app_rows: u16,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct NativeShellView {
+    panes: Vec<NativePaneChrome>,
+    footer: NativeFooterChrome,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct NativePaneChrome {
+    x: u16,
+    y: u16,
+    focused: bool,
+    text: String,
+    cache_key: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct NativeFooterChrome {
+    row: u16,
+    text: String,
+}
+
+fn native_shell_view(
+    rows: u16,
+    panes: &[NativePane],
+    focused: usize,
+    layouts: &[NativePaneLayout],
+    sock: &str,
+    log_path: &str,
+) -> NativeShellView {
+    let pane_chrome = panes
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, pane)| {
+            let layout = layouts.get(idx).copied()?;
+            let is_focused = idx == focused;
+            let text = native_pane_title_text(pane, layout, is_focused);
+            let cache_key = native_pane_title_key_from_text(&text, layout, is_focused);
+            Some(NativePaneChrome {
+                x: layout.x,
+                y: layout.y,
+                focused: is_focused,
+                text,
+                cache_key,
+            })
+        })
+        .collect();
+    let focused_pane = panes.get(focused).or_else(|| panes.first());
+    let (focused_window, focused_weight) = focused_pane
+        .map(|pane| (pane.window.as_str(), pane.weight))
+        .unwrap_or(("-", 0));
+    NativeShellView {
+        panes: pane_chrome,
+        footer: NativeFooterChrome {
+            row: rows.saturating_add(1),
+            text: format!(
+                "kittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a [] move — C-a b balance — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — log: {}",
+                panes.len(), focused_window, focused_weight, sock, log_path
+            ),
+        },
+    }
 }
 
 fn native_pane_index(panes: &[NativePane], window: &str) -> Option<usize> {
@@ -1178,7 +1239,7 @@ fn native_pane_title_text(pane: &NativePane, layout: NativePaneLayout, focused: 
     clipped
 }
 
-fn native_pane_title_key(pane: &NativePane, layout: NativePaneLayout, focused: bool) -> String {
+fn native_pane_title_key_from_text(text: &str, layout: NativePaneLayout, focused: bool) -> String {
     format!(
         "{},{},{}x{}:{}:{}",
         layout.x,
@@ -1186,25 +1247,19 @@ fn native_pane_title_key(pane: &NativePane, layout: NativePaneLayout, focused: b
         layout.cols,
         layout.app_rows.saturating_add(1),
         focused,
-        native_pane_title_text(pane, layout, focused)
+        text
     )
 }
 
-fn write_native_pane_title<W: Write>(
-    out: &mut W,
-    pane: &NativePane,
-    layout: NativePaneLayout,
-    focused: bool,
-) -> Result<()> {
-    let clipped = native_pane_title_text(pane, layout, focused);
-    let style = if focused { "\x1b[7m" } else { "\x1b[2m" };
+fn write_native_pane_chrome<W: Write>(out: &mut W, chrome: &NativePaneChrome) -> Result<()> {
+    let style = if chrome.focused { "\x1b[7m" } else { "\x1b[2m" };
     write!(
         out,
         "\x1b[{};{}H{}{}\x1b[0m",
-        layout.y + 1,
-        layout.x + 1,
+        chrome.y + 1,
+        chrome.x + 1,
         style,
-        clipped
+        chrome.text
     )?;
     Ok(())
 }
@@ -1354,6 +1409,26 @@ mod native_pane_tests {
             native_focus_event_payload(true, false),
             Some(b"\x1b[O".as_slice())
         );
+    }
+
+    #[test]
+    fn native_shell_view_builds_presentation_agnostic_chrome() {
+        let layout = NativePaneLayout {
+            x: 0,
+            y: 0,
+            cols: 12,
+            app_x: 0,
+            app_y: 1,
+            app_cols: 12,
+            app_rows: 5,
+        };
+        let key = native_pane_title_key_from_text("* native-1 sh", layout, true);
+        assert!(key.contains("0,0,12x6:true:* native-1 sh"));
+        let footer =
+            native_shell_view(10, &[], 0, &[], "/tmp/kittwm.sock", "/tmp/kittwm.log").footer;
+        assert_eq!(footer.row, 11);
+        assert!(footer.text.contains("focused=-"));
+        assert!(footer.text.contains("KITTWM_SOCKET=/tmp/kittwm.sock"));
     }
 
     #[test]
