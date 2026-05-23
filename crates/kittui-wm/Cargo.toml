@@ -14,6 +14,7 @@ kittui-render-cpu = { workspace = true }
 kittui-affordances = { path = "../kittui-affordances", version = "0.1.0" }
 kittui-input = { path = "../kittui-input", version = "0.1.0" }
 kittui-xvfb = { path = "../kittui-xvfb", version = "0.1.0" }
+kittwm-sdk = { path = "../kittwm-sdk", version = "0.1.0" }
 ratakittui = { path = "../ratakittui", version = "0.1.0" }
 parking_lot = { workspace = true }
 anyhow = { workspace = true }

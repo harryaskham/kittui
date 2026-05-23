@@ -105,6 +105,7 @@ If an action target no longer exists after a DOM update, return an explicit stal
 ## Minimal proof follow-ups
 
 - `bd-22195b`: implement a DevTools DOM/ARIA snapshot extractor for `HeadlessBrowserApp` that maps common controls (label, button, link, text input, checkbox, select) into `SemanticSurfaceSnapshot`.
+  - Landed first slice: `HeadlessBrowserApp::semantic_snapshot()` evaluates a DOM/ARIA extractor via DevTools and maps common controls into SDK semantic nodes while leaving opaque pages as empty semantic roots over the screenshot fallback.
 - `bd-fea819`: wire the browser adapter to publish snapshots through the kittwm semantic publish path on navigation/focus/change, with screenshot fallback intact.
 - `bd-15cde5`: route `SEMANTIC_ACTION`/`SEMANTIC_FOCUS` for browser semantic nodes to DevTools/DOM operations for focus, activate, set value, insert text, and select.
 

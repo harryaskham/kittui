@@ -16,6 +16,10 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use kittui_xvfb::{XCapture, XServer, XWindow, XWindowId};
+use kittwm_sdk::{
+    ActionKind, ComponentAction, ComponentNode, ComponentRole, ComponentState, ComponentValue,
+    SemanticSurfaceSnapshot,
+};
 use parking_lot::Mutex;
 use portable_pty::{
     Child as PtyChild, CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem,
@@ -2158,6 +2162,29 @@ impl HeadlessBrowserApp {
         })
     }
 
+    /// Extract a best-effort DOM/ARIA semantic snapshot from the page.
+    ///
+    /// This augments, but does not replace, the screenshot path: opaque content
+    /// such as canvas/video remains visible as pixels even when this extractor
+    /// returns only a small or empty component tree.
+    pub fn semantic_snapshot(&mut self) -> Result<SemanticSurfaceSnapshot> {
+        let expression = browser_semantic_extractor_script();
+        let value = self.cdp(
+            "Runtime.evaluate",
+            json!({"expression": expression, "returnByValue": true, "awaitPromise": false}),
+        )?;
+        let extracted = value
+            .get("result")
+            .and_then(|result| result.get("value"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        browser_semantic_snapshot_from_value(
+            format!("browser:{}", self.child.id()),
+            self.title(),
+            extracted,
+        )
+    }
+
     /// Dispatch a mouse click at CSS-pixel coordinates.
     pub fn click(&mut self, x: i32, y: i32) -> Result<()> {
         self.cdp(
@@ -2175,6 +2202,226 @@ impl HeadlessBrowserApp {
         let id = self.next_id;
         self.next_id += 1;
         cdp_send_raw(&mut self.socket, id, method, params)
+    }
+}
+
+fn browser_semantic_extractor_script() -> &'static str {
+    r#"(() => {
+  const nodes = [];
+  const seen = new Set();
+  const roleOf = (el) => {
+    const explicit = (el.getAttribute('role') || '').toLowerCase();
+    if (explicit) return explicit;
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    if (tag === 'button' || ['button', 'submit', 'reset'].includes(type)) return 'button';
+    if (tag === 'a' && el.hasAttribute('href')) return 'link';
+    if (tag === 'textarea') return 'textbox';
+    if (tag === 'select') return 'listbox';
+    if (tag === 'progress' || tag === 'meter') return 'progressbar';
+    if (type === 'checkbox') return 'checkbox';
+    if (type === 'radio') return 'radio';
+    if (type === 'range') return 'slider';
+    if (['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(type)) return 'textbox';
+    if (el.isContentEditable) return 'textbox';
+    if (/^h[1-6]$/.test(tag) || tag === 'label') return 'label';
+    return '';
+  };
+  const text = (el) => (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+  const byIdText = (id) => document.getElementById(id)?.innerText?.trim() || '';
+  const nameOf = (el) => {
+    const labelled = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(byIdText).filter(Boolean).join(' ');
+    if (labelled) return labelled;
+    const aria = el.getAttribute('aria-label');
+    if (aria) return aria.trim();
+    if (el.id) {
+      const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (label) return text(label);
+    }
+    const wrapped = el.closest('label');
+    if (wrapped) return text(wrapped);
+    if (el.alt) return el.alt;
+    return text(el) || el.getAttribute('title') || el.getAttribute('placeholder') || '';
+  };
+  const idOf = (el, role, index) => el.id ? `dom:${el.id}` : `dom:${role || el.tagName.toLowerCase()}:${index}`;
+  const candidates = document.querySelectorAll('button,a[href],input,textarea,select,progress,meter,label,h1,h2,h3,h4,h5,h6,[role],[contenteditable="true"],canvas,video');
+  candidates.forEach((el, index) => {
+    const rect = el.getBoundingClientRect();
+    const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).display !== 'none';
+    if (!visible) return;
+    const role = roleOf(el) || (['CANVAS', 'VIDEO'].includes(el.tagName) ? 'pixel_region' : '');
+    if (!role) return;
+    const id = idOf(el, role, index);
+    if (seen.has(id)) return;
+    seen.add(id);
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    nodes.push({
+      id, role, tag: el.tagName.toLowerCase(), type,
+      label: nameOf(el), text: text(el),
+      value: type === 'password' ? null : ('value' in el ? el.value : null),
+      checked: !!el.checked, selected: !!el.selected, disabled: !!el.disabled,
+      focusable: typeof el.focus === 'function' && (el.tabIndex >= 0 || ['A','BUTTON','INPUT','TEXTAREA','SELECT'].includes(el.tagName) || el.isContentEditable),
+      sensitive: type === 'password', href: el.href || null,
+      x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height)
+    });
+  });
+  return { title: document.title || location.href, nodes };
+})()"#
+}
+
+fn browser_semantic_snapshot_from_value(
+    surface: impl Into<String>,
+    title: impl Into<String>,
+    value: serde_json::Value,
+) -> Result<SemanticSurfaceSnapshot> {
+    let surface = surface.into();
+    let title = value
+        .get("title")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| title.into());
+    let mut children = Vec::new();
+    if let Some(nodes) = value.get("nodes").and_then(|v| v.as_array()) {
+        for node in nodes {
+            if let Some(component) = browser_component_from_value(node) {
+                children.push(component);
+            }
+        }
+    }
+    let root = ComponentNode::new(format!("{surface}.root"), ComponentRole::Group)
+        .labeled(title)
+        .children(children);
+    Ok(SemanticSurfaceSnapshot::new(surface, 1, root))
+}
+
+fn browser_component_from_value(value: &serde_json::Value) -> Option<ComponentNode> {
+    let id = value.get("id")?.as_str()?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let role_text = value.get("role").and_then(|v| v.as_str()).unwrap_or("");
+    let role = browser_component_role(role_text, value.get("tag").and_then(|v| v.as_str()));
+    let mut state = ComponentState {
+        focusable: value
+            .get("focusable")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        disabled: value
+            .get("disabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        checked: value
+            .get("checked")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        selected: value
+            .get("selected")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        sensitive: value
+            .get("sensitive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        ..ComponentState::default()
+    };
+    state.focused = false;
+    let mut component = ComponentNode::new(id, role)
+        .state(state)
+        .actions(browser_actions_for_role(role_text));
+    if let Some(label) = value
+        .get("label")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        component = component.labeled(label.to_string());
+    }
+    if let Some(description) = value
+        .get("href")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        component.description = Some(description.to_string());
+    }
+    if let Some(component_value) = browser_component_value(value, role_text, state.sensitive) {
+        component = component.valued(component_value);
+    }
+    Some(component)
+}
+
+fn browser_component_role(role: &str, tag: Option<&str>) -> ComponentRole {
+    match role {
+        "button" => ComponentRole::Button,
+        "checkbox" => ComponentRole::Checkbox,
+        "radio" => ComponentRole::Radio,
+        "textbox" | "searchbox" => ComponentRole::TextInput,
+        "listbox" | "combobox" => ComponentRole::SelectList,
+        "slider" => ComponentRole::Slider,
+        "progressbar" => ComponentRole::Progress,
+        "menu" | "menubar" => ComponentRole::Menu,
+        "table" | "grid" | "treegrid" => ComponentRole::Table,
+        "label" | "heading" => ComponentRole::Label,
+        "link" => ComponentRole::Custom("browser.link".to_string()),
+        "pixel_region" => ComponentRole::Custom("browser.pixel_region".to_string()),
+        _ if matches!(tag, Some("label")) => ComponentRole::Label,
+        _ => ComponentRole::Custom(format!("browser.{role}")),
+    }
+}
+
+fn browser_component_value(
+    value: &serde_json::Value,
+    role: &str,
+    sensitive: bool,
+) -> Option<ComponentValue> {
+    if sensitive {
+        return None;
+    }
+    match role {
+        "checkbox" | "radio" => value
+            .get("checked")
+            .and_then(|v| v.as_bool())
+            .map(ComponentValue::Bool),
+        "slider" | "progressbar" => value
+            .get("value")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<f32>().ok())
+            .map(ComponentValue::Number),
+        "textbox" | "searchbox" => value
+            .get("value")
+            .and_then(|v| v.as_str())
+            .map(|s| ComponentValue::Text(s.to_string())),
+        _ => value
+            .get("text")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| ComponentValue::Text(s.to_string())),
+    }
+}
+
+fn browser_actions_for_role(role: &str) -> Vec<ComponentAction> {
+    match role {
+        "button" | "link" => vec![
+            ComponentAction::new("focus", ActionKind::Focus),
+            ComponentAction::new("activate", ActionKind::Activate),
+        ],
+        "checkbox" => vec![
+            ComponentAction::new("focus", ActionKind::Focus),
+            ComponentAction::new("toggle", ActionKind::Toggle),
+        ],
+        "radio" | "listbox" | "combobox" => vec![
+            ComponentAction::new("focus", ActionKind::Focus),
+            ComponentAction::new("select", ActionKind::Select),
+        ],
+        "textbox" | "searchbox" => vec![
+            ComponentAction::new("focus", ActionKind::Focus),
+            ComponentAction::new("set_value", ActionKind::SetValue),
+            ComponentAction::new("insert_text", ActionKind::InsertText),
+        ],
+        "slider" => vec![
+            ComponentAction::new("focus", ActionKind::Focus),
+            ComponentAction::new("set_value", ActionKind::SetValue),
+        ],
+        _ => Vec::new(),
     }
 }
 
@@ -3061,6 +3308,60 @@ mod tests {
             ),
             Some(54321)
         );
+    }
+
+    #[test]
+    fn browser_semantic_snapshot_maps_common_dom_controls() {
+        let value = json!({
+            "title": "Settings",
+            "nodes": [
+                {"id":"dom:save","role":"button","label":"Save","focusable":true,"disabled":false},
+                {"id":"dom:name","role":"textbox","label":"Name","value":"Ada","focusable":true},
+                {"id":"dom:subscribe","role":"checkbox","label":"Subscribe","checked":true,"focusable":true},
+                {"id":"dom:home","role":"link","label":"Home","href":"https://example.test/","focusable":true},
+                {"id":"dom:secret","role":"textbox","label":"Password","value":"hidden","sensitive":true,"focusable":true},
+                {"id":"dom:canvas:1","role":"pixel_region","label":"Chart"}
+            ]
+        });
+        let snapshot =
+            browser_semantic_snapshot_from_value("browser:42", "fallback", value).unwrap();
+        assert_eq!(snapshot.surface, "browser:42");
+        assert_eq!(snapshot.root.label.as_deref(), Some("Settings"));
+        assert_eq!(snapshot.root.children.len(), 6);
+        assert_eq!(snapshot.root.children[0].role, ComponentRole::Button);
+        assert_eq!(snapshot.root.children[1].role, ComponentRole::TextInput);
+        assert_eq!(
+            snapshot.root.children[1].value,
+            Some(ComponentValue::Text("Ada".to_string()))
+        );
+        assert_eq!(snapshot.root.children[2].role, ComponentRole::Checkbox);
+        assert!(snapshot.root.children[2].state.checked);
+        assert_eq!(
+            snapshot.root.children[3].role,
+            ComponentRole::Custom("browser.link".to_string())
+        );
+        assert_eq!(
+            snapshot.root.children[3].description.as_deref(),
+            Some("https://example.test/")
+        );
+        assert!(snapshot.root.children[4].state.sensitive);
+        assert!(snapshot.root.children[4].value.is_none());
+        assert_eq!(
+            snapshot.root.children[5].role,
+            ComponentRole::Custom("browser.pixel_region".to_string())
+        );
+    }
+
+    #[test]
+    fn browser_semantic_snapshot_falls_back_to_empty_root_for_opaque_pages() {
+        let snapshot = browser_semantic_snapshot_from_value(
+            "browser:7",
+            "Opaque Canvas",
+            json!({"nodes": []}),
+        )
+        .unwrap();
+        assert_eq!(snapshot.root.label.as_deref(), Some("Opaque Canvas"));
+        assert!(snapshot.root.children.is_empty());
     }
 
     #[test]

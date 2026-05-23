@@ -1392,6 +1392,7 @@ dependencies = [
  "kittui-kitty",
  "kittui-render-cpu",
  "kittui-xvfb",
+ "kittwm-sdk",
  "parking_lot",
  "portable-pty",
  "ratakittui",
