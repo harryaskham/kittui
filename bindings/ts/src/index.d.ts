@@ -136,6 +136,7 @@ export class Kittui {
   static open(options?: KittuiOptions): Promise<Kittui>;
   static openWithLibrary(libraryPath: string, options?: KittuiOptions): Promise<Kittui>;
 
+  configure(options?: KittuiOptions): Kittui;
   abiVersion(): { major: number; minor: number };
   probe(): Record<string, unknown>;
   unplace(imageId: number | string): string;

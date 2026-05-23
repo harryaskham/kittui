@@ -146,6 +146,7 @@ export class Kittui {
     }
     this._kittui_runtime_new = this.lib.func('void* kittui_runtime_new(const char* cache_dir)');
     this._kittui_runtime_new_config = this.lib.func('void* kittui_runtime_new_config(const char* json)');
+    this._kittui_runtime_configure = this.lib.func('int kittui_runtime_configure(void* runtime, const char* json)');
     this._kittui_runtime_free = this.lib.func('void kittui_runtime_free(void* runtime)');
     this._kittui_string_free = this.lib.func('void kittui_string_free(void* ptr)');
     this._kittui_bytes_free = this.lib.func('void kittui_bytes_free(void* ptr, size_t len)');
@@ -200,6 +201,20 @@ export class Kittui {
       if (Number.isFinite(value) && value >= 0) return value >>> 0;
     }
     throw new Error(`invalid image id: ${imageId}`);
+  }
+
+  /**
+   * Reconfigure the live runtime. Accepts the same options as `open()`.
+   * @param {object} options
+   * @returns {Kittui}
+   */
+  configure(options = {}) {
+    if (!this.runtime) throw new Error('kittui runtime closed');
+    const status = this._kittui_runtime_configure(this.runtime, runtimeConfigJson(options));
+    if (status !== KittuiStatus.Ok) {
+      throw this._ffiError('kittui_runtime_configure', status);
+    }
+    return this;
   }
 
   /**

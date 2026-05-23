@@ -71,6 +71,13 @@ function fakeLib(calls, options = {}) {
           return { runtime: 'plain' };
         };
       }
+      if (signature.includes('kittui_runtime_configure')) {
+        return (_runtime, json) => {
+          calls.push(['configure', JSON.parse(json)]);
+          if (options.fail === 'configure') return 2;
+          return 0;
+        };
+      }
       if (signature.includes('kittui_runtime_free')) {
         return () => calls.push(['free']);
       }
@@ -195,6 +202,25 @@ test('constructor uses JSON runtime config when terminal options are present', (
     supports_kitty: true,
     supports_unicode_placeholders: true,
   });
+  k.close();
+});
+
+test('configure forwards normalized runtime config', () => {
+  const calls = [];
+  const k = new Kittui(fakeLib(calls), {});
+  assert.equal(k.configure({ renderer: 'cpu', transport: 'tmux', supportsKitty: false }), k);
+  const call = calls.find((c) => c[0] === 'configure');
+  assert.deepEqual(call[1], {
+    renderer: 'cpu',
+    transport: 'tmux',
+    supports_kitty: false,
+  });
+  k.close();
+});
+
+test('configure failures include last_error detail', () => {
+  const k = new Kittui(fakeLib([], { fail: 'configure' }), {});
+  assert.throws(() => k.configure({ renderer: 'bogus' }), /kittui_runtime_configure failed: status=2: fake ffi detail/);
   k.close();
 });
 

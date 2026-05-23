@@ -22,6 +22,9 @@ const k = await Kittui.open({
   supportsUnicodePlaceholders: true,
 });
 
+// Reconfigure long-lived runtimes without closing the handle.
+k.configure({ transport: 'tmux', supportsKitty: true });
+
 const sceneObject = {
   footprint: { x: 0, y: 0, cols: 60, rows: 8 },
   cell_size: { width_px: 8, height_px: 16 },
