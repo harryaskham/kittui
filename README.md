@@ -12,8 +12,9 @@ protocol. It ships as:
 - a CLI (`kittui`) — `kittui box`, `kittui gradient`, `kittui glow`,
   `kittui panel --tone assistant`, `kittui chip`, `kittui divider`,
   `kittui title-bar`, `kittui image --src -`, `kittui place --id 0x...`,
-  `kittui delete --id 0x...`, `kittui compose scene.json`, and shell
-  pipelines such as `kittui box --scene-json | kittui compose -`.
+  `kittui delete --id 0x...`, `kittui compose scene.json`, `kittui render
+  scene.json --out preview.png`, and shell pipelines such as
+  `kittui box --scene-json | kittui compose -`.
 - a ratatui adapter (`ratakittui`) — widget decoration + lifecycle.
 
 See [`DESIGN.md`](DESIGN.md) for the full design.
@@ -23,6 +24,7 @@ See [`DESIGN.md`](DESIGN.md) for the full design.
 ```sh
 cargo run -p kittui-cli -- box -w 60 -h 8 --fg "#00d8ff" --bg "#08111fcc" --radius 6
 cargo run -p kittui-cli -- box -w 20 -h 4 --scene-json | cargo run -p kittui-cli -- compose - --dry-run --json
+cargo run -p kittui-cli -- box -w 20 -h 4 --scene-json | cargo run -p kittui-cli -- render - --out /tmp/kittui-preview.png
 PYTHONPATH=bindings/python python3 -m kittui --find-library
 cargo run -p kittui-cli --example showcase
 ```

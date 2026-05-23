@@ -472,10 +472,11 @@ changes or when the host explicitly runs `kittui probe --force`.
 
 ## CLI (`kittui-cli`)
 
-The CLI is `clap`-derived and intentionally thin — every subcommand
-constructs a `Scene` from its flags and forwards to `Runtime::place`. The
-v1 surface mirrors the affordance set the JS pi-graphics implementation
-exposes today:
+The CLI is `clap`-derived and intentionally thin — most subcommands
+construct a `Scene` from their flags and forward to `Runtime::place`, while
+`render` forwards to `Runtime::render_png` for non-terminal artifacts. The v1
+surface mirrors the affordance set the JS pi-graphics implementation exposes
+today:
 
 ```
 kittui box       -x X -y Y -w W -h H --fg COLOR --bg COLOR
@@ -490,7 +491,8 @@ kittui chip      --bg COLOR --border COLOR -w W [-h H]
 kittui divider   --left COLOR --right COLOR -w W
 kittui title-bar --left COLOR --right COLOR -w W [-h H]
 kittui image     --src PATH|- -w W -h H [--fit contain|cover|stretch|none] [--tint COLOR]
-kittui compose   <scene.json>|- [--x X --y Y]                # `-` reads Scene JSON from stdin; x/y override placement only
+kittui compose   <scene.json>|- [--x X --y Y]                # place Scene JSON; x/y can move a batch origin
+kittui render    <scene.json>|- [--out preview.png]           # render one Scene JSON to PNG bytes, no kitty escapes
 kittui place     --id 0xID --x X --y Y --cols C --rows R       # re-place a cached id
 kittui cache     info | gc [--budget BYTES] | clear
 kittui probe     [--force]
@@ -522,12 +524,15 @@ Animation curves accept `linear`, `ease-in-out`, `pulse[:harmonics]`, and
 `custom:f0,f1,…,fN-1`. The CLI validates loop closure before invoking
 the runtime.
 
-`--scene-json` plus `compose -` is the integration story for shell pipelines:
+`--scene-json` plus `compose -` is the terminal-placement integration story for
+shell pipelines. `render - --out file.png` is the render-only story for previews,
+artifacts, tests, and non-terminal embedding:
 
 ```sh
 kittui box -w 60 -h 9 --fg '#00d8ff' --bg '#08111fcc' --scene-json > panel.json
 jq '.animation = {"frames": 16, "cycle_ms": 800, "curve": {"Pulse": {"harmonics": 0}}, "loops": 0}' panel.json \
   | kittui compose - --dry-run --json
+kittui box -w 20 -h 4 --scene-json | kittui render - --out /tmp/kittui-preview.png
 ```
 
 ## FFI (`kittui-ffi`)
