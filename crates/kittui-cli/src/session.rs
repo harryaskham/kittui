@@ -485,6 +485,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 write_native_pane_chrome(&mut handle, chrome)?;
                 last_title_rows[idx] = chrome.cache_key.clone();
             }
+            let frame_start = Instant::now();
             let surface_frame = NativeSurface::capture_surface(&mut pane.app)?;
             match surface_frame.frame {
                 NativeFrame::Rgba {
@@ -511,6 +512,26 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     handle.write_all(p.upload.as_bytes())?;
                     handle.write_all(p.placement.as_bytes())?;
                     handle.write_all(p.embed.as_bytes())?;
+                    queue.publish_frame_presented(
+                        pane.window.clone(),
+                        crate::daemon::NativeFramePresented {
+                            renderer: "kitty".to_string(),
+                            format: "rgba".to_string(),
+                            pixel_width: width,
+                            pixel_height: height,
+                            app_x: Some(layout.app_x),
+                            app_y: Some(layout.app_y),
+                            app_cols: Some(layout.app_cols),
+                            app_rows: Some(layout.app_rows),
+                            uploaded: decision.upload,
+                            skipped_upload: decision.metrics.skipped_upload,
+                            changed_tiles: Some(decision.metrics.changed_tiles),
+                            total_tiles: Some(decision.metrics.total_tiles),
+                            elapsed_us: Some(
+                                frame_start.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                            ),
+                        },
+                    );
                 }
                 NativeFrame::Png { .. } => {}
             }

@@ -108,6 +108,23 @@ impl PaneRegistry {
 
 type SharedPanes = Arc<Mutex<PaneRegistry>>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeFramePresented {
+    pub renderer: String,
+    pub format: String,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+    pub app_x: Option<u16>,
+    pub app_y: Option<u16>,
+    pub app_cols: Option<u16>,
+    pub app_rows: Option<u16>,
+    pub uploaded: bool,
+    pub skipped_upload: bool,
+    pub changed_tiles: Option<u32>,
+    pub total_tiles: Option<u32>,
+    pub elapsed_us: Option<u64>,
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct NativeDirtyFrameStatus {
     pub changed_tiles: u32,
@@ -304,6 +321,13 @@ impl NativeSpawnQueue {
         }
         if let Ok(mut state) = self.pending.lock() {
             publish_native_surface_events(&mut state, window.into(), events);
+        }
+    }
+
+    /// Publish a graphics-frame presentation event for EVENTS requests.
+    pub fn publish_frame_presented(&self, window: impl Into<String>, frame: NativeFramePresented) {
+        if let Ok(mut state) = self.pending.lock() {
+            publish_native_frame_presented_event(&mut state, window.into(), frame);
         }
     }
 
@@ -879,6 +903,37 @@ fn publish_native_surface_events(
             ),
         }
     }
+}
+
+fn publish_native_frame_presented_event(
+    state: &mut NativeSpawnQueueState,
+    window: String,
+    frame: NativeFramePresented,
+) {
+    let mut detail = serde_json::json!({
+        "renderer": frame.renderer,
+        "format": frame.format,
+        "pixel_width": frame.pixel_width,
+        "pixel_height": frame.pixel_height,
+        "app_bounds": native_bounds_value(frame.app_x, frame.app_y, frame.app_cols, frame.app_rows),
+        "uploaded": frame.uploaded,
+        "skipped_upload": frame.skipped_upload,
+    });
+    if let Some(obj) = detail.as_object_mut() {
+        if let Some(changed_tiles) = frame.changed_tiles {
+            obj.insert(
+                "changed_tiles".to_string(),
+                serde_json::json!(changed_tiles),
+            );
+        }
+        if let Some(total_tiles) = frame.total_tiles {
+            obj.insert("total_tiles".to_string(), serde_json::json!(total_tiles));
+        }
+        if let Some(elapsed_us) = frame.elapsed_us {
+            obj.insert("elapsed_us".to_string(), serde_json::json!(elapsed_us));
+        }
+    }
+    push_native_event(state, "pane_frame_presented", Some(window), detail);
 }
 
 fn publish_native_layout_event(state: &mut NativeSpawnQueueState, layout: String) {
@@ -2893,6 +2948,45 @@ mod tests {
         assert_eq!(events[2]["detail"]["payload_base64"], "aGVsbG8=");
         assert_eq!(events[3]["kind"], "surface_notification");
         assert_eq!(events[3]["detail"]["body"], "done");
+    }
+
+    #[test]
+    fn native_frame_presented_event_reports_metadata_without_payload() {
+        let mut state = NativeSpawnQueueState::default();
+        publish_native_frame_presented_event(
+            &mut state,
+            "native-1".to_string(),
+            NativeFramePresented {
+                renderer: "kitty".to_string(),
+                format: "rgba".to_string(),
+                pixel_width: 640,
+                pixel_height: 384,
+                app_x: Some(0),
+                app_y: Some(1),
+                app_cols: Some(80),
+                app_rows: Some(24),
+                uploaded: false,
+                skipped_upload: true,
+                changed_tiles: Some(0),
+                total_tiles: Some(120),
+                elapsed_us: Some(321),
+            },
+        );
+        let event = state.events.pop_front().expect("frame event");
+        assert_eq!(event["kind"], "pane_frame_presented");
+        assert_eq!(event["window"], "native-1");
+        assert_eq!(event["detail"]["renderer"], "kitty");
+        assert_eq!(event["detail"]["format"], "rgba");
+        assert_eq!(event["detail"]["pixel_width"], 640);
+        assert_eq!(event["detail"]["pixel_height"], 384);
+        assert_eq!(event["detail"]["app_bounds"]["cols"], 80);
+        assert_eq!(event["detail"]["uploaded"], false);
+        assert_eq!(event["detail"]["skipped_upload"], true);
+        assert_eq!(event["detail"]["changed_tiles"], 0);
+        assert_eq!(event["detail"]["total_tiles"], 120);
+        assert_eq!(event["detail"]["elapsed_us"], 321);
+        assert!(!event.to_string().contains("rgba_bytes"));
+        assert_eq!(event["schema_version"], NATIVE_EVENT_SCHEMA_VERSION);
     }
 
     #[test]
