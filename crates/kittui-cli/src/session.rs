@@ -1763,6 +1763,13 @@ fn native_top_bar_scene(view: &NativeShellView, cols: u16, cell_size: CellSize) 
             ));
         }
     }
+    scene.layers.push(kittui::Layer::new(
+        format!("kittwm-live-top-bar-text:{}", view.top_bar.text.trim()),
+        kittui::Node::Group {
+            opacity: 1.0,
+            children: Vec::new(),
+        },
+    ));
     scene
 }
 
@@ -2295,6 +2302,11 @@ mod native_pane_tests {
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("kittwm-live-top-bar:empty")));
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("kittui-bar  ws:1  empty  12:00 UTC")));
     }
 
     #[test]
