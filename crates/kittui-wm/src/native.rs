@@ -2484,8 +2484,8 @@ fn browser_component_role(role: &str, tag: Option<&str>) -> ComponentRole {
         "menu" | "menubar" => ComponentRole::Menu,
         "table" | "grid" | "treegrid" => ComponentRole::Table,
         "label" | "heading" => ComponentRole::Label,
-        "link" => ComponentRole::Custom("browser.link".to_string()),
-        "pixel_region" => ComponentRole::Custom("browser.pixel_region".to_string()),
+        "link" => ComponentRole::Link,
+        "pixel_region" => ComponentRole::Canvas,
         _ if matches!(tag, Some("label")) => ComponentRole::Label,
         _ => ComponentRole::Custom(format!("browser.{role}")),
     }
@@ -3459,20 +3459,14 @@ mod tests {
         );
         assert_eq!(snapshot.root.children[2].role, ComponentRole::Checkbox);
         assert!(snapshot.root.children[2].state.checked);
-        assert_eq!(
-            snapshot.root.children[3].role,
-            ComponentRole::Custom("browser.link".to_string())
-        );
+        assert_eq!(snapshot.root.children[3].role, ComponentRole::Link);
         assert_eq!(
             snapshot.root.children[3].description.as_deref(),
             Some("https://example.test/")
         );
         assert!(snapshot.root.children[4].state.sensitive);
         assert!(snapshot.root.children[4].value.is_none());
-        assert_eq!(
-            snapshot.root.children[5].role,
-            ComponentRole::Custom("browser.pixel_region".to_string())
-        );
+        assert_eq!(snapshot.root.children[5].role, ComponentRole::Canvas);
     }
 
     #[test]

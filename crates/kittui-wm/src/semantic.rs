@@ -311,7 +311,21 @@ fn sdk_node_to_control(node: &sdk::ComponentNode) -> Option<ControlComponent> {
         }
         sdk::ComponentRole::Group
         | sdk::ComponentRole::Label
+        | sdk::ComponentRole::Heading
+        | sdk::ComponentRole::Paragraph
+        | sdk::ComponentRole::Code
+        | sdk::ComponentRole::Link
         | sdk::ComponentRole::Table
+        | sdk::ComponentRole::Row
+        | sdk::ComponentRole::Cell
+        | sdk::ComponentRole::List
+        | sdk::ComponentRole::ListItem
+        | sdk::ComponentRole::Tree
+        | sdk::ComponentRole::TreeItem
+        | sdk::ComponentRole::Image
+        | sdk::ComponentRole::Canvas
+        | sdk::ComponentRole::Terminal
+        | sdk::ComponentRole::BrowserDocument
         | sdk::ComponentRole::Custom(_) => return None,
     };
     Some(control)
