@@ -6,6 +6,9 @@ protocol. It ships as:
 - a Rust crate (`kittui`) — `Runtime`, `Scene`, builders, and `Runtime::place_at` for moving cached scenes without re-rendering.
 - a C ABI shared library (`kittui-ffi`) — `libkittui_ffi.{so,dylib,dll}` for
   TypeScript / Python / Lua / shell callers.
+- platform bindings: `bindings/ts` (`koffi`) and `bindings/python` (`ctypes`)
+  wrap the C ABI for JS/Python hosts, including batch placement and
+  channelized `upload` / `placement` / `embed` output.
 - a CLI (`kittui`) — `kittui box`, `kittui gradient`, `kittui glow`,
   `kittui panel --tone assistant`, `kittui chip`, `kittui divider`,
   `kittui title-bar`, `kittui image --src -`, `kittui place --id 0x...`,
@@ -20,6 +23,7 @@ See [`DESIGN.md`](DESIGN.md) for the full design.
 ```sh
 cargo run -p kittui-cli -- box -w 60 -h 8 --fg "#00d8ff" --bg "#08111fcc" --radius 6
 cargo run -p kittui-cli -- box -w 20 -h 4 --scene-json | cargo run -p kittui-cli -- compose - --dry-run --json
+PYTHONPATH=bindings/python python3 -m kittui --find-library
 cargo run -p kittui-cli --example showcase
 ```
 
@@ -85,6 +89,8 @@ a flag, env var, YAML, or a built-in default.
 | `kittui`             | Public facade: `Runtime`, `Placement`, builders          |
 | `kittui-cli`         | `kittui`, `kittwm`, `kittwm-browser` binaries + examples  |
 | `kittui-ffi`         | `libkittui_ffi` cdylib + staticlib                       |
+| `bindings/ts`        | TypeScript/JavaScript koffi binding over the C ABI        |
+| `bindings/python`    | Python stdlib ctypes binding over the C ABI               |
 | `ratakittui`         | ratatui adapter (decoration + lifecycle scaffold)        |
 
 ## Status

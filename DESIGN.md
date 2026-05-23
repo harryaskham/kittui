@@ -617,12 +617,25 @@ Both paths consume the same `Scene` JSON; the TS surface is generated
 from the Rust scene types via `serde-reflection` + `quicktype` so it
 stays in sync automatically.
 
+### Python bindings (`bindings/python/`)
+
+A first-party, stdlib-only `ctypes` wrapper loads `libkittui_ffi` and mirrors
+core platform APIs: runtime config, ABI/probe discovery, `place`, `place_at`,
+`place_many`, `place_many_at`, `place_many_channels`, and `unplace`. It accepts
+scene dictionaries or JSON strings and returns either terminal byte strings or
+parsed channel JSON (`upload`, `placement`, `embed`, image ids, footprints, and
+byte counts).
+
+`python -m kittui --find-library` reports the library path it will try;
+`python -m kittui --abi` and `--probe` provide cheap smoke checks once the shared
+library is built. The package metadata in `bindings/python/pyproject.toml` is
+minimal so shell/platform users can install it editable while developing.
+
 ### Future bindings
 
-The same C ABI gives Python (`ctypes` / `cffi`), Lua
-(`luajit ffi`), Ruby (`Fiddle`), and Zig (`@cImport`) zero-cost paths.
-We do not commit to packaging these in this repo; they live in their
-own places and depend on a pinned `libkittui_ffi` version.
+The same C ABI gives Lua (`luajit ffi`), Ruby (`Fiddle`), Zig (`@cImport`), and
+other host languages zero-cost paths. These can live in their own packages and
+depend on a pinned `libkittui_ffi` ABI version.
 
 ## Threading & concurrency
 
@@ -705,10 +718,14 @@ Numbers reflect what's already landed vs. still ahead.
    fallback under `Auto`.
 5. ✅ **TS bindings.** `@kittui/koffi`: zero-build-step JS binding that
    dlopens `libkittui_ffi`, ties ownership cleanly via
-   `koffi.disposable`, ships scene helpers + type declarations + tests.
-   `@kittui/napi` with `prebuildify` per platform remains a future
-   higher-performance path that consumes the same JSON.
-6. ✅ **`kittui-tmux`.** Deterministic parser for
+   `koffi.disposable`, ships scene helpers + type declarations + tests,
+   including batch, origin, and channelized placement APIs. `@kittui/napi`
+   with `prebuildify` per platform remains a future higher-performance path
+   that consumes the same JSON.
+6. ✅ **Python bindings.** `bindings/python`: stdlib `ctypes` binding with
+   package metadata, `python -m kittui` discovery/probe entrypoint, runtime
+   config, lifecycle, batch, origin, and channelized placement APIs.
+7. ✅ **`kittui-tmux`.** Deterministic parser for
    `tmux list-panes -F` plus a composer that builds a ratakittui
    `JoinGroup` of pane chromes and a CLI binary that emits the
    chrome escape stream. The live hook integration is host-side glue.
