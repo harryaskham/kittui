@@ -3,8 +3,9 @@
 // Locates a built libkittui_ffi via the same probe order the binding
 // uses; skips with a clear message if the library isn't present.
 
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
@@ -250,7 +251,7 @@ test('render returns PNG bytes and frees byte buffer', () => {
   k.close();
 });
 
-test('renderMany returns parsed PNG manifest', () => {
+test('renderMany returns parsed PNG manifest and writes directories', () => {
   const calls = [];
   const k = new Kittui(fakeLib(calls), {});
   const s = scene.build({
@@ -262,6 +263,15 @@ test('renderMany returns parsed PNG manifest', () => {
   assert.equal(manifest.images[0].index, 0);
   assert.equal(manifest.images[0].png_base64, 'iVBORw==');
   assert.equal(manifest.images[0].footprint.cols, 4);
+  const outDir = mkdtempSync(join(tmpdir(), 'kittui-render-many-'));
+  try {
+    const written = k.renderManyToDir([s], outDir, { prefix: 'preview' });
+    assert.deepEqual([...readFileSync(join(outDir, 'preview-00000.png'))], [0x89, 0x50, 0x4e, 0x47]);
+    assert.equal(JSON.parse(readFileSync(join(outDir, 'manifest.json'), 'utf8')).images[0].file, 'preview-00000.png');
+    assert.equal(written.images[0].file, 'preview-00000.png');
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
   const call = calls.find((c) => c[0] === 'render_many');
   assert.equal(call[1].length, 2);
   k.close();

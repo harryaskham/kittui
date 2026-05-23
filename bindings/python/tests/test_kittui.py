@@ -1,6 +1,8 @@
 import ctypes
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from kittui import Kittui, KittuiError
 from kittui.__main__ import build_parser
@@ -143,6 +145,11 @@ class KittuiBindingTests(unittest.TestCase):
         manifest = k.render_many([SCENE, json.dumps(SCENE)])
         self.assertEqual(manifest["count"], 2)
         self.assertEqual(manifest["images"][0]["png_base64"], "iVBORw==")
+        with tempfile.TemporaryDirectory() as tmp:
+            written = k.render_many_to_dir([SCENE], tmp, prefix="preview")
+            self.assertEqual((Path(tmp) / "preview-00000.png").read_bytes(), b"\x89PNG")
+            self.assertTrue((Path(tmp) / "manifest.json").exists())
+            self.assertEqual(written["images"][0]["file"], "preview-00000.png")
         self.assertEqual(k.place(SCENE), "placed")
         self.assertEqual(k.place_at(SCENE, 7, 9), "placed-at")
         self.assertEqual(k.place_many([SCENE, json.dumps(SCENE)]), "placed-many")

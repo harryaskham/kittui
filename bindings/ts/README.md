@@ -46,6 +46,8 @@ const sceneObject = {
 const png = k.render(sceneObject);
 const renderManifest = k.renderMany([sceneObject, sceneObject]);
 console.log(renderManifest.images[0].png_base64);
+const written = k.renderManyToDir([sceneObject, sceneObject], 'previews', { prefix: 'scene' });
+console.log(written.manifest, written.images[0].file);
 
 const bytes = k.place(sceneObject);
 

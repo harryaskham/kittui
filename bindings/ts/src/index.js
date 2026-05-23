@@ -13,7 +13,7 @@
 // The first that loads wins. Hosts that ship their own binary should
 // either set KITTUI_LIB_PATH or call Kittui.openWithLibrary(path).
 
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import koffi from 'koffi';
@@ -290,6 +290,29 @@ export class Kittui {
       throw this._ffiError('kittui_render_many_json', status);
     }
     return JSON.parse(outBox[0] || '{"count":0,"images":[]}');
+  }
+
+  /**
+   * Render multiple scenes and write deterministic PNG files plus manifest.json.
+   * @param {(object|string)[]} scenes
+   * @param {string} outDir
+   * @param {{ prefix?: string }} options
+   * @returns {object}
+   */
+  renderManyToDir(scenes, outDir, options = {}) {
+    const prefix = options.prefix || 'scene';
+    const manifest = this.renderMany(scenes);
+    mkdirSync(outDir, { recursive: true });
+    const images = (manifest.images || []).map((image, fallbackIndex) => {
+      const index = Number.isInteger(image.index) ? image.index : fallbackIndex;
+      const file = `${prefix}-${String(index).padStart(5, '0')}.png`;
+      writeFileSync(join(outDir, file), Buffer.from(image.png_base64 || '', 'base64'));
+      return { ...image, file };
+    });
+    const written = { ...manifest, images, out_dir: outDir };
+    const manifestPath = join(outDir, 'manifest.json');
+    writeFileSync(manifestPath, `${JSON.stringify(written, null, 2)}\n`);
+    return { ...written, manifest: manifestPath };
   }
 
   /**

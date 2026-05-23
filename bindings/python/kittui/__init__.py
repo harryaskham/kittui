@@ -7,6 +7,7 @@ Python's standard library so shell automation can vendor or copy it easily.
 
 from __future__ import annotations
 
+import base64
 import ctypes
 import json
 import os
@@ -154,6 +155,29 @@ class Kittui:
             "kittui_render_many_json",
         )
         return json.loads(self._consume_out(out))
+
+    def render_many_to_dir(self, scenes: Iterable[Any], out_dir: str | os.PathLike[str], prefix: str = "scene") -> dict[str, Any]:
+        """Render many scenes and write deterministic PNG files plus manifest.json."""
+        manifest = self.render_many(scenes)
+        out_path = Path(out_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+        images = []
+        for image in manifest.get("images", []):
+            index = int(image.get("index", len(images)))
+            filename = f"{prefix}-{index:05d}.png"
+            png_base64 = image.get("png_base64") or ""
+            data = base64.b64decode(png_base64)
+            (out_path / filename).write_bytes(data)
+            entry = dict(image)
+            entry["file"] = filename
+            images.append(entry)
+        written = dict(manifest)
+        written["images"] = images
+        written["out_dir"] = str(out_path)
+        manifest_path = out_path / "manifest.json"
+        manifest_path.write_text(json.dumps(written, indent=2) + "\n", encoding="utf-8")
+        written["manifest"] = str(manifest_path)
+        return written
 
     def place(self, scene: Any) -> str:
         out = c_char_p()

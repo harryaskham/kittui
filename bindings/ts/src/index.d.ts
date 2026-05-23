@@ -108,6 +108,16 @@ export interface RenderManyManifest {
   images: RenderImage[];
 }
 
+export interface RenderImageFile extends RenderImage {
+  file: string;
+}
+
+export interface RenderManyDirectoryManifest extends Omit<RenderManyManifest, 'images'> {
+  images: RenderImageFile[];
+  out_dir: string;
+  manifest: string;
+}
+
 export interface BatchChannels {
   count: number;
   image_ids: string[];
@@ -142,6 +152,7 @@ export class Kittui {
   unplace(imageId: number | string): string;
   render(scene: Scene | string): Uint8Array;
   renderMany(scenes: (Scene | string)[]): RenderManyManifest;
+  renderManyToDir(scenes: (Scene | string)[], outDir: string, options?: { prefix?: string }): RenderManyDirectoryManifest;
   place(scene: Scene | string): string;
   placeAt(scene: Scene | string, x: number, y: number): string;
   placeMany(scenes: (Scene | string)[]): string;
