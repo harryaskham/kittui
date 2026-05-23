@@ -4,6 +4,8 @@ Tracking bead: `bd-911832`
 
 ## Why this exists
 
+For a runnable workflow, see [`kittwm-semantic-quickstart.md`](kittwm-semantic-quickstart.md).
+
 `kittwm` already has useful surface forms:
 
 - terminal/cell surfaces from the native PTY engine;
