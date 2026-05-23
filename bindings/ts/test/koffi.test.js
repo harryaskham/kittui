@@ -374,4 +374,9 @@ test('scene helpers produce JSON-compatible plain objects', () => {
   });
   assert.equal(s.footprint.cols, 4);
   assert.equal(s.layers.length, 1);
+  const solid = scene.solidBox({ cols: 4, rows: 2, rgba: [0, 216, 255, 255], radius: 3 });
+  assert.equal(solid.footprint.cols, 4);
+  assert.equal(solid.layers[0].root.rect.width, 32);
+  assert.equal(solid.layers[0].root.rect.height, 32);
+  assert.equal(solid.layers[0].root.corners.tl, 3);
 });

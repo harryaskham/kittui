@@ -25,22 +25,12 @@ const k = await Kittui.open({
 // Reconfigure long-lived runtimes without closing the handle.
 k.configure({ transport: 'tmux', supportsKitty: true });
 
-const sceneObject = {
-  footprint: { x: 0, y: 0, cols: 60, rows: 8 },
-  cell_size: { width_px: 8, height_px: 16 },
-  layers: [
-    {
-      label: 'background',
-      root: {
-        kind: 'rect',
-        rect: { origin: [0, 0], width: 480, height: 128 },
-        fill: { kind: 'solid', color: [0, 216, 255, 255] },
-        stroke: null,
-        corners: { tl: 6, tr: 6, bl: 6, br: 6 },
-      },
-    },
-  ],
-};
+const sceneObject = scene.solidBox({
+  cols: 60,
+  rows: 8,
+  rgba: [0, 216, 255, 255],
+  radius: 6,
+});
 
 // Render-only PNG bytes for previews/artifacts.
 const png = k.render(sceneObject);

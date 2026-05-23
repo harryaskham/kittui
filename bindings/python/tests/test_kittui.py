@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kittui import Kittui, KittuiError
+from kittui import Kittui, KittuiError, scene
 from kittui.__main__ import build_parser
 
 
@@ -136,6 +136,15 @@ class KittuiBindingTests(unittest.TestCase):
         self.assertEqual(k.unplace("0x10"), "deleted")
         k.close()
         self.assertEqual(lib.calls[-1][0], "free")
+
+    def test_scene_helpers_build_valid_solid_scene(self):
+        solid = scene.solid_box(4, 2, [0, 216, 255, 255], radius=3)
+        self.assertEqual(solid["footprint"], {"x": 0, "y": 0, "cols": 4, "rows": 2})
+        root = solid["layers"][0]["root"]
+        self.assertEqual(root["rect"]["width"], 32)
+        self.assertEqual(root["rect"]["height"], 32)
+        self.assertEqual(root["fill"]["color"], [0, 216, 255, 255])
+        self.assertEqual(root["corners"]["tl"], 3)
 
     def test_place_variants_normalize_dicts_and_json_strings(self):
         lib = FakeLib()

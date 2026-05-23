@@ -444,13 +444,36 @@ export const scene = {
     };
   },
 
-  /** Solid-background layer. */
+  /** Solid rectangle layer sized in cells. */
+  rectLayer({ cols, rows, rgba, cellSize = { width_px: 8, height_px: 16 }, label = 'background', radius = 0 }) {
+    return {
+      label,
+      root: {
+        kind: 'rect',
+        rect: { origin: [0, 0], width: cols * cellSize.width_px, height: rows * cellSize.height_px },
+        fill: { kind: 'solid', color: rgba },
+        stroke: null,
+        corners: { tl: radius, tr: radius, bl: radius, br: radius },
+      },
+    };
+  },
+
+  /** Complete solid-box scene. */
+  solidBox({ cols, rows, rgba, cellSize = { width_px: 8, height_px: 16 }, label = 'background', radius = 0 }) {
+    return this.build({
+      footprintCells: [cols, rows],
+      cellSize,
+      layers: [this.rectLayer({ cols, rows, rgba, cellSize, label, radius })],
+    });
+  },
+
+  /** Solid-background layer placeholder for callers that size rects themselves. */
   backgroundSolid(rgba) {
     return {
       label: 'background',
       root: {
         kind: 'rect',
-        rect: { origin: [0, 0], width: 0, height: 0 }, // placeholder; sized at place time
+        rect: { origin: [0, 0], width: 0, height: 0 },
         fill: { kind: 'solid', color: rgba },
         stroke: null,
         corners: { tl: 0, tr: 0, bl: 0, br: 0 },

@@ -163,6 +163,8 @@ export class Kittui {
 
 export const scene: {
   build(args: { footprintCells: [number, number]; cellSize?: CellSize; layers: Layer[]; animation?: Animation }): Scene;
+  rectLayer(args: { cols: number; rows: number; rgba: Rgba; cellSize?: CellSize; label?: string; radius?: number }): Layer;
+  solidBox(args: { cols: number; rows: number; rgba: Rgba; cellSize?: CellSize; label?: string; radius?: number }): Scene;
   backgroundSolid(rgba: Rgba): Layer;
   backgroundLinear(direction: Direction, startRgba: Rgba, endRgba: Rgba): Layer;
 };

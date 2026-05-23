@@ -73,6 +73,54 @@ def _scene_array(scenes: Iterable[Any]) -> bytes:
     return _json(normalized)
 
 
+class _SceneHelpers:
+    """Primitive-only helpers for constructing JSON-compatible Scene objects."""
+
+    @staticmethod
+    def build(footprint_cells: tuple[int, int] | list[int], layers: list[dict[str, Any]], cell_size: dict[str, int] | None = None, animation: dict[str, Any] | None = None) -> dict[str, Any]:
+        cols, rows = footprint_cells
+        out = {
+            "footprint": {"x": 0, "y": 0, "cols": int(cols), "rows": int(rows)},
+            "cell_size": cell_size or {"width_px": 8, "height_px": 16},
+            "layers": layers,
+        }
+        if animation is not None:
+            out["animation"] = animation
+        return out
+
+    @staticmethod
+    def rect_layer(cols: int, rows: int, rgba: list[int] | tuple[int, int, int, int], *, cell_size: dict[str, int] | None = None, label: str = "background", radius: float = 0.0) -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        width = int(cols) * int(cell.get("width_px", 8))
+        height = int(rows) * int(cell.get("height_px", 16))
+        return {
+            "label": label,
+            "root": {
+                "kind": "rect",
+                "rect": {"origin": [0, 0], "width": width, "height": height},
+                "fill": {"kind": "solid", "color": list(rgba)},
+                "stroke": None,
+                "corners": {"tl": radius, "tr": radius, "bl": radius, "br": radius},
+            },
+        }
+
+    @staticmethod
+    def solid_box(cols: int, rows: int, rgba: list[int] | tuple[int, int, int, int], *, cell_size: dict[str, int] | None = None, label: str = "background", radius: float = 0.0) -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        return _SceneHelpers.build(
+            (cols, rows),
+            [_SceneHelpers.rect_layer(cols, rows, rgba, cell_size=cell, label=label, radius=radius)],
+            cell,
+        )
+
+    @staticmethod
+    def background_solid(rgba: list[int] | tuple[int, int, int, int]) -> dict[str, Any]:
+        return _SceneHelpers.rect_layer(0, 0, rgba)
+
+
+scene = _SceneHelpers()
+
+
 class Kittui:
     """High-level wrapper around ``libkittui_ffi``."""
 
@@ -279,4 +327,4 @@ def _wire_library(lib: Any) -> None:
         fn.restype = c_int
 
 
-__all__ = ["Kittui", "KittuiError", "KittuiStatus", "find_library"]
+__all__ = ["Kittui", "KittuiError", "KittuiStatus", "find_library", "scene"]

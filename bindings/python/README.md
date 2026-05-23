@@ -5,22 +5,18 @@ for shell automation and platform glue that wants to use kittui as a terminal
 renderer without spawning the CLI for every frame.
 
 ```python
-from kittui import Kittui
+from kittui import Kittui, scene
 
-scene = {
-    "footprint": {"x": 0, "y": 0, "cols": 8, "rows": 3},
-    "cell_size": {"width_px": 8, "height_px": 16},
-    "layers": [],
-}
+scene_obj = scene.solid_box(8, 3, [0, 216, 255, 255], radius=6)
 
 with Kittui.open({"renderer": "cpu", "transport": "direct"}) as k:
     k.configure({"renderer": "cpu", "transport": "tmux"})
     print(k.abi_version())
-    png_bytes = k.render(scene)
-    png_manifest = k.render_many([scene, scene])
-    written = k.render_many_to_dir([scene, scene], "previews", prefix="scene")
-    bytes_to_write = k.place_at(scene, 10, 4)
-    batch = k.place_many_channels([scene], 10, 4)
+    png_bytes = k.render(scene_obj)
+    png_manifest = k.render_many([scene_obj, scene_obj])
+    written = k.render_many_to_dir([scene_obj, scene_obj], "previews", prefix="scene")
+    bytes_to_write = k.place_at(scene_obj, 10, 4)
+    batch = k.place_many_channels([scene_obj], 10, 4)
     assert "upload" in batch and "placement" in batch and "embed" in batch
 ```
 
@@ -62,9 +58,11 @@ python3 -m kittui --probe --config-json '{"renderer":"cpu"}'
 - `place_many(scenes)`
 - `place_many_at(scenes, x, y)`
 - `place_many_channels(scenes, x=0, y=0)`
+- `scene.build(...)`, `scene.rect_layer(...)`, `scene.solid_box(...)`
 
 Scenes can be Python dictionaries or JSON strings. Batch methods accept a mix of
-both.
+both. The `scene` helper builds primitive-only JSON-compatible Scene objects for
+common platform/shell previews.
 
 ## Tests
 
