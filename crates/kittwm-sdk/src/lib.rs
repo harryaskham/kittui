@@ -57,6 +57,10 @@ pub enum Capability {
     Clipboard,
     /// Subscribe to global or surface event streams.
     SubscribeEvents,
+    /// Read semantic component trees.
+    ReadSemanticTree,
+    /// Invoke semantic component actions.
+    InvokeSemanticAction,
 }
 
 /// Local SDK capability scope for a client.
@@ -78,6 +82,8 @@ impl ClientCapabilities {
                 Capability::ReadText,
                 Capability::Clipboard,
                 Capability::SubscribeEvents,
+                Capability::ReadSemanticTree,
+                Capability::InvokeSemanticAction,
             ],
         }
     }
@@ -194,6 +200,381 @@ pub struct TextSnapshot {
     /// Cursor row, when the daemon provides it.
     #[serde(default)]
     pub cursor_row: Option<u16>,
+}
+
+/// Stable semantic component identifier.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SemanticComponentId(pub String);
+
+impl SemanticComponentId {
+    /// Create a semantic component id.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// Borrow the raw id string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Role of a semantic component node.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComponentRole {
+    /// Generic container/group.
+    Group,
+    /// Static label.
+    Label,
+    /// Action button.
+    Button,
+    /// Checkbox.
+    Checkbox,
+    /// Single radio option.
+    Radio,
+    /// Radio group.
+    RadioGroup,
+    /// Single-line text input.
+    TextInput,
+    /// Multi-line text area.
+    TextArea,
+    /// Select/list control.
+    SelectList,
+    /// Menu or command list.
+    Menu,
+    /// Slider.
+    Slider,
+    /// Progress bar.
+    Progress,
+    /// Tab strip/list.
+    Tabs,
+    /// Split-pane container.
+    SplitPane,
+    /// Table.
+    Table,
+    /// Unknown/custom role with namespaced type.
+    Custom(String),
+}
+
+/// Typed value carried by a semantic component.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
+pub enum ComponentValue {
+    /// Boolean value.
+    Bool(bool),
+    /// Text value.
+    Text(String),
+    /// Numeric value, usually normalized unless role-specific docs say otherwise.
+    Number(f32),
+    /// Selected component/option ids.
+    Selection(Vec<String>),
+}
+
+/// Common semantic component state flags.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComponentState {
+    /// Component currently has semantic focus.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub focused: bool,
+    /// Component can receive focus.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub focusable: bool,
+    /// Component is disabled.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disabled: bool,
+    /// Component is active/pressed.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub active: bool,
+    /// Component is selected.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub selected: bool,
+    /// Component is checked.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub checked: bool,
+    /// Component is expanded.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub expanded: bool,
+    /// Component value is redacted/sensitive.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sensitive: bool,
+}
+
+/// Semantic layout kind hint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComponentLayoutKind {
+    /// Renderer may flow/re-wrap children.
+    Flow,
+    /// Row layout.
+    Row,
+    /// Column layout.
+    Column,
+    /// Grid layout.
+    Grid,
+    /// Stack/overlay layout.
+    Stack,
+    /// Absolute/fixed rectangle layout.
+    Absolute,
+}
+
+impl Default for ComponentLayoutKind {
+    fn default() -> Self {
+        Self::Flow
+    }
+}
+
+/// Optional semantic layout hints.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComponentLayout {
+    /// Layout kind.
+    #[serde(default)]
+    pub kind: ComponentLayoutKind,
+    /// Optional logical x coordinate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<u16>,
+    /// Optional logical y coordinate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<u16>,
+    /// Optional width in cells/logical units.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cols: Option<u16>,
+    /// Optional height in cells/logical units.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<u16>,
+}
+
+/// Kind of semantic action a component supports.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionKind {
+    /// Activate/click.
+    Activate,
+    /// Toggle checked/pressed state.
+    Toggle,
+    /// Set full value.
+    SetValue,
+    /// Insert text.
+    InsertText,
+    /// Select an option.
+    Select,
+    /// Move focus.
+    Focus,
+    /// Expand.
+    Expand,
+    /// Collapse.
+    Collapse,
+    /// Open a menu/popup.
+    OpenMenu,
+    /// Close/dismiss.
+    Close,
+    /// Scroll.
+    Scroll,
+    /// Custom namespaced action.
+    Custom(String),
+}
+
+/// Semantic action descriptor.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComponentAction {
+    /// Stable action id within the component.
+    pub id: String,
+    /// Action kind.
+    pub kind: ActionKind,
+    /// Optional human label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Whether this action can currently be invoked.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl ComponentAction {
+    /// Build an enabled action with id and kind.
+    pub fn new(id: impl Into<String>, kind: ActionKind) -> Self {
+        Self {
+            id: id.into(),
+            kind,
+            label: None,
+            enabled: true,
+        }
+    }
+
+    /// Attach a label.
+    pub fn labeled(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Set enabled state.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+/// Semantic component tree node.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ComponentNode {
+    /// Stable component id.
+    pub id: SemanticComponentId,
+    /// Component role.
+    pub role: ComponentRole,
+    /// Optional accessible label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Optional accessible description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Optional typed value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<ComponentValue>,
+    /// State flags.
+    #[serde(default)]
+    pub state: ComponentState,
+    /// Layout hints.
+    #[serde(default)]
+    pub layout: ComponentLayout,
+    /// Supported actions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<ComponentAction>,
+    /// Child nodes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<ComponentNode>,
+}
+
+impl ComponentNode {
+    /// Build a component node.
+    pub fn new(id: impl Into<String>, role: ComponentRole) -> Self {
+        Self {
+            id: SemanticComponentId::new(id),
+            role,
+            label: None,
+            description: None,
+            value: None,
+            state: ComponentState::default(),
+            layout: ComponentLayout::default(),
+            actions: Vec::new(),
+            children: Vec::new(),
+        }
+    }
+
+    /// Set label.
+    pub fn labeled(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Set value.
+    pub fn valued(mut self, value: ComponentValue) -> Self {
+        self.value = Some(value);
+        self
+    }
+
+    /// Set state.
+    pub fn state(mut self, state: ComponentState) -> Self {
+        self.state = state;
+        self
+    }
+
+    /// Set actions.
+    pub fn actions(mut self, actions: Vec<ComponentAction>) -> Self {
+        self.actions = actions;
+        self
+    }
+
+    /// Set children.
+    pub fn children(mut self, children: Vec<ComponentNode>) -> Self {
+        self.children = children;
+        self
+    }
+}
+
+/// Snapshot of one semantic surface revision.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticSurfaceSnapshot {
+    /// Schema version.
+    pub schema_version: u32,
+    /// Surface/window id.
+    pub surface: String,
+    /// Monotonic revision.
+    pub revision: u64,
+    /// Root component node.
+    pub root: ComponentNode,
+    /// Focused component id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus: Option<SemanticComponentId>,
+}
+
+impl SemanticSurfaceSnapshot {
+    /// Build a schema v1 snapshot.
+    pub fn new(surface: impl Into<String>, revision: u64, root: ComponentNode) -> Self {
+        Self {
+            schema_version: 1,
+            surface: surface.into(),
+            revision,
+            root,
+            focus: None,
+        }
+    }
+
+    /// Set focused component id.
+    pub fn focused(mut self, id: impl Into<String>) -> Self {
+        self.focus = Some(SemanticComponentId::new(id));
+        self
+    }
+}
+
+/// Semantic event emitted by a surface/runtime.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum SemanticSurfaceEvent {
+    /// A new snapshot is available.
+    SnapshotReady {
+        /// Surface id.
+        surface: String,
+        /// Snapshot revision.
+        revision: u64,
+    },
+    /// Focus changed.
+    FocusChanged {
+        /// Surface id.
+        surface: String,
+        /// Focused component id.
+        component: Option<SemanticComponentId>,
+    },
+    /// Component value changed.
+    ValueChanged {
+        /// Surface id.
+        surface: String,
+        /// Component id.
+        component: SemanticComponentId,
+        /// New value.
+        value: ComponentValue,
+    },
+    /// Component action was invoked.
+    ActionInvoked {
+        /// Surface id.
+        surface: String,
+        /// Component id.
+        component: SemanticComponentId,
+        /// Action id.
+        action: String,
+    },
+    /// Accessibility/live-region announcement.
+    Announcement {
+        /// Surface id.
+        surface: String,
+        /// Announcement message.
+        message: String,
+    },
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// A typed handle to a kittwm window.
@@ -577,6 +958,62 @@ mod tests {
         assert!(caps.allows(Capability::ReadText));
         assert!(!caps.allows(Capability::CreateWindow));
         assert!(ClientCapabilities::all().allows(Capability::SubscribeEvents));
+        assert!(ClientCapabilities::all().allows(Capability::ReadSemanticTree));
+        assert!(ClientCapabilities::all().allows(Capability::InvokeSemanticAction));
+    }
+
+    #[test]
+    fn semantic_snapshot_serializes_stable_json_shape() {
+        let snapshot = SemanticSurfaceSnapshot::new(
+            "native-1",
+            42,
+            ComponentNode::new("settings", ComponentRole::Group)
+                .labeled("Settings")
+                .children(vec![
+                    ComponentNode::new("notify", ComponentRole::Checkbox)
+                        .labeled("Notifications")
+                        .valued(ComponentValue::Bool(true))
+                        .state(ComponentState {
+                            checked: true,
+                            focusable: true,
+                            ..ComponentState::default()
+                        })
+                        .actions(vec![ComponentAction::new("toggle", ActionKind::Toggle)]),
+                    ComponentNode::new("theme", ComponentRole::RadioGroup)
+                        .labeled("Theme")
+                        .valued(ComponentValue::Selection(vec!["dark".to_string()])),
+                ]),
+        )
+        .focused("notify");
+        let value = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["surface"], "native-1");
+        assert_eq!(value["root"]["role"], "group");
+        assert_eq!(value["root"]["children"][0]["role"], "checkbox");
+        assert_eq!(value["root"]["children"][0]["state"]["checked"], true);
+        assert_eq!(value["root"]["children"][0]["actions"][0]["kind"], "toggle");
+        assert_eq!(value["root"]["children"][1]["value"]["kind"], "selection");
+        assert_eq!(value["focus"], "notify");
+
+        let decoded: SemanticSurfaceSnapshot = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.revision, 42);
+        assert_eq!(decoded.root.children.len(), 2);
+    }
+
+    #[test]
+    fn semantic_event_decodes_snake_case_tagged_shape() {
+        let event: SemanticSurfaceEvent = serde_json::from_str(
+            r#"{"kind":"value_changed","surface":"native-1","component":"field","value":{"kind":"text","value":"Ada"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            event,
+            SemanticSurfaceEvent::ValueChanged {
+                surface: "native-1".to_string(),
+                component: SemanticComponentId::new("field"),
+                value: ComponentValue::Text("Ada".to_string())
+            }
+        );
     }
 
     #[test]
