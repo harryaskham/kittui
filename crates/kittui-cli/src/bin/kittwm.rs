@@ -28,6 +28,7 @@
 use std::process::ExitCode;
 
 use anyhow::{anyhow, Result};
+use base64::Engine;
 
 use kittui::{CellSize, Runtime, TerminalInfo};
 use kittui_core::geom::PxRect;
@@ -242,6 +243,15 @@ fn parse_args() -> Result<Cli> {
                 out.automation_request =
                     Some(automation_request("SEND_BYTES_B64", &window, &encoded)?);
             }
+            "--send-file" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-file WINDOW PATH|-"))?;
+                let path = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-file WINDOW PATH|-"))?;
+                out.automation_request = Some(send_file_request(&window, &path)?);
+            }
             "--read-text" => {
                 let window = args.next().ok_or_else(|| anyhow!("--read-text WINDOW"))?;
                 out.automation_request = Some(automation_request("READ_TEXT", &window, "")?);
@@ -419,6 +429,7 @@ fn print_help() {
          --send-line WINDOW TEXT  send text plus newline to a native pane.\n\
          --send-key WINDOW KEY    send a named key (ctrl-c, escape, arrows, ...).\n\
          --send-bytes-b64 WINDOW BASE64 send arbitrary base64-decoded bytes.\n\
+         --send-file WINDOW PATH|- read bytes from file/stdin and send them.\n\
          --read-text WINDOW       print a native pane text snapshot.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
          --wait-text-ms MS WINDOW TEXT  wait with explicit millisecond timeout.\n\
@@ -1243,6 +1254,25 @@ fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String>
     } else {
         Ok(format!("{verb} {window} {payload}"))
     }
+}
+
+fn send_bytes_request(window: &str, bytes: &[u8]) -> Result<String> {
+    automation_request(
+        "SEND_BYTES_B64",
+        window,
+        &base64::engine::general_purpose::STANDARD.encode(bytes),
+    )
+}
+
+fn send_file_request(window: &str, path: &str) -> Result<String> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    if path == "-" {
+        std::io::stdin().read_to_end(&mut bytes)?;
+    } else {
+        bytes = std::fs::read(path)?;
+    }
+    send_bytes_request(window, &bytes)
 }
 
 fn layout_request(axis: &str) -> Result<String> {
@@ -2160,6 +2190,10 @@ mod tests {
         );
         assert_eq!(
             automation_request("send_bytes_b64", "focused", "aGkKAA==").unwrap(),
+            "SEND_BYTES_B64 focused aGkKAA=="
+        );
+        assert_eq!(
+            send_bytes_request("focused", b"hi\n\0").unwrap(),
             "SEND_BYTES_B64 focused aGkKAA=="
         );
         assert!(wait_text_ms_request("0", "focused", "ready").is_err());
