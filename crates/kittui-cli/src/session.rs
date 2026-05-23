@@ -328,6 +328,27 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         ));
                     }
                 }
+                crate::daemon::NativePaneCommand::SendText {
+                    window,
+                    mut text,
+                    newline,
+                } => {
+                    let target = if window == "focused" {
+                        Some(focused)
+                    } else {
+                        native_pane_index(&panes, &window)
+                    };
+                    if let Some(idx) = target {
+                        if newline {
+                            text.push('\n');
+                        }
+                        panes[idx].app.send_bytes(text.as_bytes())?;
+                        dbg.log(&format!(
+                            "native terminal socket send text: {window} bytes={}",
+                            text.len()
+                        ));
+                    }
+                }
             }
         }
         queue.update_layout(layout_axis.label());

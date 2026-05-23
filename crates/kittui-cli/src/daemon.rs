@@ -129,10 +129,24 @@ pub enum NativePaneCommand {
     FocusPrev,
     Close(String),
     Layout(String),
-    Move { window: String, direction: String },
-    Resize { window: String, delta: i16 },
+    Move {
+        window: String,
+        direction: String,
+    },
+    Resize {
+        window: String,
+        delta: i16,
+    },
     Balance,
-    Rename { window: String, title: String },
+    Rename {
+        window: String,
+        title: String,
+    },
+    SendText {
+        window: String,
+        text: String,
+        newline: bool,
+    },
 }
 
 #[derive(Default, Debug)]
@@ -392,6 +406,12 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
             "RENAME_QUEUED",
         );
     }
+    if let Some(rest) = cmd.strip_prefix("SEND_TEXT ") {
+        return queue_native_send_text(pending, rest, false);
+    }
+    if let Some(rest) = cmd.strip_prefix("SEND_LINE ") {
+        return queue_native_send_text(pending, rest, true);
+    }
     match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
@@ -402,7 +422,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -463,6 +483,16 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "RENAME_PANE <window> <title>",
             "control",
             "set display title for a native pane",
+        ),
+        (
+            "SEND_TEXT <window|focused> <text>",
+            "control",
+            "send UTF-8 text bytes to a native pane",
+        ),
+        (
+            "SEND_LINE <window|focused> <text>",
+            "control",
+            "send UTF-8 text plus newline to a native pane",
         ),
         ("APPS", "apps", "text app discovery listing"),
         ("APPS_JSON", "apps", "JSON app discovery listing"),
@@ -534,6 +564,49 @@ fn queue_native_pane_command(
         Ok(mut state) => {
             state.pending.push(build(arg.to_string()));
             format!("{ok_prefix} command={} arg={}\n", state.pending.len(), arg)
+        }
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
+}
+
+fn queue_native_send_text(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+    newline: bool,
+) -> String {
+    let Some((window, text)) = rest.trim_start().split_once(' ') else {
+        return if newline {
+            "ERR SEND_LINE requires window and text\n".to_string()
+        } else {
+            "ERR SEND_TEXT requires window and text\n".to_string()
+        };
+    };
+    let window = window.trim();
+    if window.is_empty() || text.is_empty() {
+        return if newline {
+            "ERR SEND_LINE requires window and text\n".to_string()
+        } else {
+            "ERR SEND_TEXT requires window and text\n".to_string()
+        };
+    }
+    match pending.lock() {
+        Ok(mut state) => {
+            state.pending.push(NativePaneCommand::SendText {
+                window: window.to_string(),
+                text: text.to_string(),
+                newline,
+            });
+            let prefix = if newline {
+                "SEND_LINE_QUEUED"
+            } else {
+                "SEND_TEXT_QUEUED"
+            };
+            format!(
+                "{prefix} command={} window={} bytes={}\n",
+                state.pending.len(),
+                window,
+                text.len() + usize::from(newline)
+            )
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
@@ -1035,11 +1108,19 @@ mod tests {
             native_spawn_queue_reply("RENAME_PANE native-2 editor pane", &pending)
                 .starts_with("RENAME_QUEUED")
         );
+        assert!(
+            native_spawn_queue_reply("SEND_TEXT focused echo hi", &pending)
+                .starts_with("SEND_TEXT_QUEUED")
+        );
+        assert!(native_spawn_queue_reply("SEND_LINE native-2 pwd", &pending)
+            .starts_with("SEND_LINE_QUEUED"));
         assert!(native_spawn_queue_reply("LAYOUT diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("FOCUS_PANE", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("MOVE_PANE focused diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RESIZE_PANE focused nope", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RENAME_PANE native-2", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("SEND_TEXT focused", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("SEND_LINE", &pending).contains("ERR"));
         assert_eq!(
             drain_native_spawn_pending(&pending),
             vec![
@@ -1060,6 +1141,16 @@ mod tests {
                 NativePaneCommand::Rename {
                     window: "native-2".to_string(),
                     title: "editor pane".to_string(),
+                },
+                NativePaneCommand::SendText {
+                    window: "focused".to_string(),
+                    text: "echo hi".to_string(),
+                    newline: false,
+                },
+                NativePaneCommand::SendText {
+                    window: "native-2".to_string(),
+                    text: "pwd".to_string(),
+                    newline: true,
                 }
             ]
         );
@@ -1079,6 +1170,8 @@ mod tests {
         assert!(help.contains("RESIZE_PANE <window|focused>"), "{help}");
         assert!(help.contains("BALANCE_PANES"), "{help}");
         assert!(help.contains("RENAME_PANE <window> <title>"), "{help}");
+        assert!(help.contains("SEND_TEXT <window|focused> <text>"), "{help}");
+        assert!(help.contains("SEND_LINE <window|focused> <text>"), "{help}");
         assert!(help.contains("APPS_JSON"), "{help}");
 
         let help_json: serde_json::Value =
