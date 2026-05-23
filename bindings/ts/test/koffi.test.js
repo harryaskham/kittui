@@ -56,6 +56,92 @@ test('koffi binding round-trips a still scene through the FFI', { skip: !libBuil
   k.close();
 });
 
+function fakeLib(calls) {
+  return {
+    func(signature) {
+      if (signature.includes('kittui_runtime_new_config')) {
+        return (json) => {
+          calls.push(['new_config', JSON.parse(json)]);
+          return { runtime: 'configured' };
+        };
+      }
+      if (signature.includes('kittui_runtime_new(')) {
+        return (cacheDir) => {
+          calls.push(['new', cacheDir]);
+          return { runtime: 'plain' };
+        };
+      }
+      if (signature.includes('kittui_runtime_free')) {
+        return () => calls.push(['free']);
+      }
+      if (signature.includes('kittui_string_free')) {
+        return () => undefined;
+      }
+      if (signature.includes('kittui_place_json_at')) {
+        return (_runtime, sceneJson, x, y, out) => {
+          calls.push(['place_at', JSON.parse(sceneJson), x, y]);
+          out[0] = 'placed-at';
+          return 0;
+        };
+      }
+      if (signature.includes('kittui_place_json')) {
+        return (_runtime, sceneJson, out) => {
+          calls.push(['place', JSON.parse(sceneJson)]);
+          out[0] = 'placed';
+          return 0;
+        };
+      }
+      if (signature.includes('kittui_abi_version')) {
+        return () => (0 << 16) | 4;
+      }
+      throw new Error(`unexpected signature ${signature}`);
+    },
+  };
+}
+
+test('constructor uses JSON runtime config when terminal options are present', () => {
+  const calls = [];
+  const k = new Kittui(fakeLib(calls), {
+    cacheDir: '/tmp/kittui-cache',
+    renderer: 'cpu',
+    transport: 'direct',
+    columns: 100,
+    rows: 40,
+    cellWidthPx: 9,
+    cellHeightPx: 18,
+    supportsKitty: true,
+    supportsUnicodePlaceholders: true,
+  });
+  assert.equal(calls[0][0], 'new_config');
+  assert.deepEqual(calls[0][1], {
+    cache_dir: '/tmp/kittui-cache',
+    renderer: 'cpu',
+    transport: 'direct',
+    columns: 100,
+    rows: 40,
+    cell_width_px: 9,
+    cell_height_px: 18,
+    supports_kitty: true,
+    supports_unicode_placeholders: true,
+  });
+  k.close();
+});
+
+test('placeAt forwards explicit x/y to FFI', () => {
+  const calls = [];
+  const k = new Kittui(fakeLib(calls), {});
+  const s = scene.build({
+    footprintCells: [4, 2],
+    layers: [scene.backgroundSolid([0, 216, 255, 255])],
+  });
+  assert.equal(k.placeAt(s, 7, 9), 'placed-at');
+  const placeAtCall = calls.find((call) => call[0] === 'place_at');
+  assert.equal(placeAtCall[2], 7);
+  assert.equal(placeAtCall[3], 9);
+  assert.equal(placeAtCall[1].footprint.cols, 4);
+  k.close();
+});
+
 test('scene helpers produce JSON-compatible plain objects', () => {
   const s = scene.build({
     footprintCells: [4, 2],

@@ -16,7 +16,11 @@ cargo build --release -p kittui-ffi
 ```js
 import { Kittui } from '@kittui/koffi';
 
-const k = await Kittui.open();
+const k = await Kittui.open({
+  transport: 'direct',
+  supportsKitty: true,
+  supportsUnicodePlaceholders: true,
+});
 
 const bytes = k.place({
   footprint: { x: 0, y: 0, cols: 60, rows: 8 },
@@ -36,12 +40,15 @@ const bytes = k.place({
 });
 
 process.stdout.write(bytes);
+
+// Reuse the same scene/render identity but place it elsewhere.
+process.stdout.write(k.placeAt(sceneJsonOrObject, 10, 4));
 ```
 
 The returned string is the concatenated `upload + placement + embed`
-escape sequences ready to write at the cursor's current position. Hosts
-that want to interleave with their own output can call the FFI surface
-directly through the loaded `koffi` library; see `src/index.js`.
+escape sequences ready to write at the cursor's current position. Use
+`placeAt(scene, x, y)` when the host wants to control terminal placement
+without mutating the scene JSON.
 
 ## Library discovery
 

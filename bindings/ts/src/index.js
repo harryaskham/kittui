@@ -69,6 +69,37 @@ const KittuiStatus = Object.freeze({
   Panic: 4,
 });
 
+let ffiTypesWired = false;
+
+function hasRuntimeConfig(options) {
+  return [
+    'renderer',
+    'transport',
+    'columns',
+    'rows',
+    'cellWidthPx',
+    'cellHeightPx',
+    'supportsKitty',
+    'supportsUnicodePlaceholders',
+  ].some((key) => Object.prototype.hasOwnProperty.call(options, key));
+}
+
+function runtimeConfigJson(options) {
+  const cfg = {};
+  if (options.cacheDir !== undefined) cfg.cache_dir = options.cacheDir;
+  if (options.renderer !== undefined) cfg.renderer = options.renderer;
+  if (options.transport !== undefined) cfg.transport = options.transport;
+  if (options.columns !== undefined) cfg.columns = options.columns;
+  if (options.rows !== undefined) cfg.rows = options.rows;
+  if (options.cellWidthPx !== undefined) cfg.cell_width_px = options.cellWidthPx;
+  if (options.cellHeightPx !== undefined) cfg.cell_height_px = options.cellHeightPx;
+  if (options.supportsKitty !== undefined) cfg.supports_kitty = options.supportsKitty;
+  if (options.supportsUnicodePlaceholders !== undefined) {
+    cfg.supports_unicode_placeholders = options.supportsUnicodePlaceholders;
+  }
+  return JSON.stringify(cfg);
+}
+
 /**
  * High-level wrapper around the kittui FFI surface.
  */
@@ -93,24 +124,37 @@ export class Kittui {
   constructor(lib, options) {
     this.lib = lib;
     this._wire();
-    const cachePtr = options.cacheDir ? options.cacheDir : null;
-    this.runtime = this._kittui_runtime_new(cachePtr);
-    if (this.runtime === null || this.runtime === undefined) {
-      throw new Error('kittui_runtime_new returned null');
+    if (hasRuntimeConfig(options)) {
+      this.runtime = this._kittui_runtime_new_config(runtimeConfigJson(options));
+      if (this.runtime === null || this.runtime === undefined) {
+        throw new Error('kittui_runtime_new_config returned null');
+      }
+    } else {
+      const cachePtr = options.cacheDir ? options.cacheDir : null;
+      this.runtime = this._kittui_runtime_new(cachePtr);
+      if (this.runtime === null || this.runtime === undefined) {
+        throw new Error('kittui_runtime_new returned null');
+      }
     }
   }
 
   _wire() {
-    this.KittuiRuntime = koffi.opaque('KittuiRuntime');
+    if (!ffiTypesWired) {
+      koffi.opaque('KittuiRuntime');
+      koffi.alias('KittuiOwnedStr', koffi.disposable('char*', this.lib.func('void kittui_string_free(void* ptr)')));
+      ffiTypesWired = true;
+    }
     this._kittui_runtime_new = this.lib.func('void* kittui_runtime_new(const char* cache_dir)');
+    this._kittui_runtime_new_config = this.lib.func('void* kittui_runtime_new_config(const char* json)');
     this._kittui_runtime_free = this.lib.func('void kittui_runtime_free(void* runtime)');
     this._kittui_string_free = this.lib.func('void kittui_string_free(void* ptr)');
-    // `disposable` ties the auto-decoded `char**` to our string free fn so
-    // ownership of the C buffer transfers cleanly into JS. koffi calls
-    // `kittui_string_free` once it has read the bytes.
-    koffi.alias('KittuiOwnedStr', koffi.disposable('char*', this._kittui_string_free));
+    // `KittuiOwnedStr` ties the auto-decoded `char**` to kittui_string_free
+    // so ownership of the C buffer transfers cleanly into JS.
     this._kittui_place_json = this.lib.func(
       'int kittui_place_json(void* runtime, const char* scene_json, _Out_ KittuiOwnedStr* out)',
+    );
+    this._kittui_place_json_at = this.lib.func(
+      'int kittui_place_json_at(void* runtime, const char* scene_json, uint16_t x, uint16_t y, _Out_ KittuiOwnedStr* out)',
     );
     this._kittui_abi_version = this.lib.func('uint32_t kittui_abi_version()');
   }
@@ -141,6 +185,26 @@ export class Kittui {
     }
     // koffi decodes the C string into JS and runs the disposable's
     // destructor (kittui_string_free) once decoding completes.
+    return outBox[0] || '';
+  }
+
+  /**
+   * Render/cache a scene but place it at explicit terminal coordinates.
+   * The scene's own width/height remain the render/cache footprint.
+   *
+   * @param {object|string} scene A kittui Scene as a plain JS object or JSON string.
+   * @param {number} x Terminal x column.
+   * @param {number} y Terminal y row.
+   * @returns {string}
+   */
+  placeAt(scene, x, y) {
+    if (!this.runtime) throw new Error('kittui runtime closed');
+    const json = typeof scene === 'string' ? scene : JSON.stringify(scene);
+    const outBox = [null];
+    const status = this._kittui_place_json_at(this.runtime, json, x, y, outBox);
+    if (status !== KittuiStatus.Ok) {
+      throw new Error(`kittui_place_json_at failed: status=${status}`);
+    }
     return outBox[0] || '';
   }
 

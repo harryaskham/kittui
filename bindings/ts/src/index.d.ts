@@ -98,6 +98,14 @@ export interface Scene {
 
 export interface KittuiOptions {
   cacheDir?: string;
+  renderer?: 'cpu' | 'gpu' | 'auto';
+  transport?: 'direct' | 'tmux' | 'tmux_passthrough' | 'file' | 'memory' | 'shm' | 'shared';
+  columns?: number;
+  rows?: number;
+  cellWidthPx?: number;
+  cellHeightPx?: number;
+  supportsKitty?: boolean;
+  supportsUnicodePlaceholders?: boolean;
 }
 
 export class Kittui {
@@ -106,6 +114,7 @@ export class Kittui {
 
   abiVersion(): { major: number; minor: number };
   place(scene: Scene | string): string;
+  placeAt(scene: Scene | string, x: number, y: number): string;
   placeMany(scenes: (Scene | string)[]): string[];
   close(): void;
 }
