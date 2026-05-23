@@ -916,7 +916,15 @@ fn native_mouse_event_name_and_position(
             _ => None,
         },
         InputEvent::MouseRelease { col, row, .. } => Some(("release", *col, *row, false)),
-        InputEvent::MouseMove { col, row, .. } => Some(("move", *col, *row, false)),
+        InputEvent::MouseMove {
+            button, col, row, ..
+        } => match button {
+            MouseButton::Left => Some(("move-left", *col, *row, false)),
+            MouseButton::Middle => Some(("move-middle", *col, *row, false)),
+            MouseButton::Right => Some(("move-right", *col, *row, false)),
+            MouseButton::None => Some(("move", *col, *row, false)),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -956,6 +964,9 @@ fn native_mouse_event_payload(
         "press-right" if modes.basic => (2, 'M'),
         "release" if modes.basic => (3, 'm'),
         "move" if modes.all_motion => (35, 'M'),
+        "move-left" if modes.button_motion || modes.all_motion => (32, 'M'),
+        "move-middle" if modes.button_motion || modes.all_motion => (33, 'M'),
+        "move-right" if modes.button_motion || modes.all_motion => (34, 'M'),
         "scroll-up" if modes.basic => (64, 'M'),
         "scroll-down" if modes.basic => (65, 'M'),
         _ => return None,
@@ -1187,6 +1198,20 @@ mod native_pane_tests {
             native_mouse_event_payload("scroll-down", 7, 9, modes).unwrap(),
             b"\x1b[<65;7;9M".to_vec()
         );
+        assert_eq!(
+            native_mouse_event_payload(
+                "move-left",
+                7,
+                9,
+                MouseReportingModes {
+                    button_motion: true,
+                    all_motion: false,
+                    ..modes
+                },
+            )
+            .unwrap(),
+            b"\x1b[<32;7;9M".to_vec()
+        );
         assert!(native_mouse_event_payload(
             "move",
             7,
@@ -1207,6 +1232,28 @@ mod native_pane_tests {
             }
         )
         .is_none());
+    }
+
+    #[test]
+    fn native_mouse_event_mapping_preserves_drag_buttons() {
+        assert_eq!(
+            native_mouse_event_name_and_position(&InputEvent::MouseMove {
+                button: MouseButton::Left,
+                col: 5,
+                row: 6,
+                mods: Default::default(),
+            }),
+            Some(("move-left", 5, 6, false))
+        );
+        assert_eq!(
+            native_mouse_event_name_and_position(&InputEvent::MouseMove {
+                button: MouseButton::None,
+                col: 5,
+                row: 6,
+                mods: Default::default(),
+            }),
+            Some(("move", 5, 6, false))
+        );
     }
 
     #[test]
