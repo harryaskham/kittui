@@ -915,11 +915,23 @@ fn publish_native_pane_events(state: &mut NativeSpawnQueueState, panes: Vec<Nati
                 Some(window.clone()),
                 serde_json::json!({ "pane": native_pane_status_value(pane) }),
             )),
-            Some(old) if old != pane => events.push((
-                "pane_changed",
-                Some(window.clone()),
-                serde_json::json!({ "pane": native_pane_status_value(pane) }),
-            )),
+            Some(old) if old != pane => {
+                if native_pane_geometry(old) != native_pane_geometry(pane) {
+                    events.push((
+                        "pane_resized",
+                        Some(window.clone()),
+                        serde_json::json!({
+                            "old": native_pane_geometry_value(old),
+                            "new": native_pane_geometry_value(pane),
+                        }),
+                    ));
+                }
+                events.push((
+                    "pane_changed",
+                    Some(window.clone()),
+                    serde_json::json!({ "pane": native_pane_status_value(pane) }),
+                ));
+            }
             _ => {}
         }
     }
@@ -1013,6 +1025,51 @@ fn native_status_event(state: &NativeSpawnQueueState, seq: u64) -> serde_json::V
 
 fn native_pane_status_value(pane: &NativePaneStatus) -> serde_json::Value {
     serde_json::to_value(pane).unwrap_or_else(|_| serde_json::json!({ "window": pane.window }))
+}
+
+fn native_pane_geometry(
+    pane: &NativePaneStatus,
+) -> (
+    Option<u16>,
+    Option<u16>,
+    Option<u16>,
+    Option<u16>,
+    Option<u16>,
+    Option<u16>,
+    Option<u16>,
+    Option<u16>,
+) {
+    (
+        pane.x,
+        pane.y,
+        pane.cols,
+        pane.rows,
+        pane.app_x,
+        pane.app_y,
+        pane.app_cols,
+        pane.app_rows,
+    )
+}
+
+fn native_pane_geometry_value(pane: &NativePaneStatus) -> serde_json::Value {
+    serde_json::json!({
+        "bounds": native_bounds_value(pane.x, pane.y, pane.cols, pane.rows),
+        "app_bounds": native_bounds_value(pane.app_x, pane.app_y, pane.app_cols, pane.app_rows),
+    })
+}
+
+fn native_bounds_value(
+    x: Option<u16>,
+    y: Option<u16>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> serde_json::Value {
+    match (x, y, cols, rows) {
+        (Some(x), Some(y), Some(cols), Some(rows)) => {
+            serde_json::json!({ "x": x, "y": y, "cols": cols, "rows": rows })
+        }
+        _ => serde_json::Value::Null,
+    }
 }
 
 fn now_unix_ms() -> u128 {
@@ -2791,6 +2848,38 @@ mod tests {
         assert_eq!(events[2]["detail"]["payload_base64"], "aGVsbG8=");
         assert_eq!(events[3]["kind"], "surface_notification");
         assert_eq!(events[3]["detail"]["body"], "done");
+    }
+
+    #[test]
+    fn native_pane_resize_event_reports_old_and_new_bounds() {
+        let mut state = NativeSpawnQueueState::default();
+        let mut old = native_status("native-1", true, 1);
+        old.x = Some(0);
+        old.y = Some(0);
+        old.cols = Some(80);
+        old.rows = Some(24);
+        old.app_x = Some(0);
+        old.app_y = Some(1);
+        old.app_cols = Some(80);
+        old.app_rows = Some(23);
+        publish_native_pane_events(&mut state, vec![old.clone()]);
+        state.events.clear();
+
+        let mut new = old;
+        new.cols = Some(100);
+        new.app_cols = Some(100);
+        publish_native_pane_events(&mut state, vec![new]);
+        let events = state.events.into_iter().collect::<Vec<_>>();
+        assert!(events.iter().any(|event| event["kind"] == "pane_changed"));
+        let resized = events
+            .iter()
+            .find(|event| event["kind"] == "pane_resized")
+            .expect("pane_resized event");
+        assert_eq!(resized["window"], "native-1");
+        assert_eq!(resized["detail"]["old"]["bounds"]["cols"], 80);
+        assert_eq!(resized["detail"]["new"]["bounds"]["cols"], 100);
+        assert_eq!(resized["detail"]["old"]["app_bounds"]["cols"], 80);
+        assert_eq!(resized["detail"]["new"]["app_bounds"]["cols"], 100);
     }
 
     #[test]
