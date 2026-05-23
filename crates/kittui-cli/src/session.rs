@@ -83,7 +83,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 let remaining = &chunk[offset..n];
                 if let Some((event, consumed)) = kittui_input::parse(remaining) {
                     if native_route_mouse_event(
-                        event,
+                        event.clone(),
                         &mut panes,
                         &mut focused,
                         cols,
@@ -93,6 +93,16 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     )? {
                         offset += consumed;
                         continue;
+                    }
+                    if !prefix {
+                        if let Some(payload) = native_key_event_payload(
+                            &event,
+                            panes[focused].app.application_cursor_keys_enabled(),
+                        ) {
+                            panes[focused].app.send_bytes(payload)?;
+                            offset += consumed;
+                            continue;
+                        }
                     }
                     for &byte in &remaining[..consumed] {
                         if process_native_terminal_byte(
@@ -974,6 +984,29 @@ fn native_mouse_event_payload(
     Some(format!("\x1b[<{bits};{col};{row}{suffix}").into_bytes())
 }
 
+fn native_key_event_payload(
+    event: &InputEvent,
+    application_cursor_keys: bool,
+) -> Option<&'static [u8]> {
+    let InputEvent::Key { key, mods } = event else {
+        return None;
+    };
+    if mods.shift || mods.alt || mods.ctrl {
+        return None;
+    }
+    match (key, application_cursor_keys) {
+        (Key::Up, true) => Some(b"\x1bOA"),
+        (Key::Down, true) => Some(b"\x1bOB"),
+        (Key::Right, true) => Some(b"\x1bOC"),
+        (Key::Left, true) => Some(b"\x1bOD"),
+        (Key::Up, false) => Some(b"\x1b[A"),
+        (Key::Down, false) => Some(b"\x1b[B"),
+        (Key::Right, false) => Some(b"\x1b[C"),
+        (Key::Left, false) => Some(b"\x1b[D"),
+        _ => None,
+    }
+}
+
 fn native_focus_event_payload(focus_reporting: bool, focused: bool) -> Option<&'static [u8]> {
     if !focus_reporting {
         return None;
@@ -1039,6 +1072,7 @@ fn native_pane_statuses(
                 cursor_row: Some(cursor_row),
                 cursor_visible: Some(pane.app.cursor_visible()),
                 bracketed_paste: Some(pane.app.bracketed_paste_enabled()),
+                application_cursor_keys: Some(pane.app.application_cursor_keys_enabled()),
                 mouse_reporting: Some(mouse.basic),
                 mouse_button_motion: Some(mouse.button_motion),
                 mouse_all_motion: Some(mouse.all_motion),
@@ -1139,6 +1173,19 @@ fn write_native_pane_title<W: Write>(
 #[cfg(test)]
 mod native_pane_tests {
     use super::*;
+
+    #[test]
+    fn native_key_event_payload_honors_application_cursor_mode() {
+        let event = InputEvent::Key {
+            key: Key::Up,
+            mods: kittui_input::Modifiers::default(),
+        };
+        assert_eq!(
+            native_key_event_payload(&event, false),
+            Some(&b"\x1b[A"[..])
+        );
+        assert_eq!(native_key_event_payload(&event, true), Some(&b"\x1bOA"[..]));
+    }
 
     #[test]
     fn native_paste_payload_wraps_when_bracketed() {

@@ -210,6 +210,11 @@ impl PtyTerminalApp {
         self.state.lock().focus_reporting
     }
 
+    /// Whether the terminal application has enabled application cursor-key mode.
+    pub fn application_cursor_keys_enabled(&self) -> bool {
+        self.state.lock().application_cursor_keys
+    }
+
     /// Mouse reporting modes requested by the terminal application.
     pub fn mouse_reporting_modes(&self) -> MouseReportingModes {
         self.state.lock().mouse_modes
@@ -288,6 +293,7 @@ struct TerminalState {
     cursor_visible: bool,
     origin_mode: bool,
     auto_wrap: bool,
+    application_cursor_keys: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     cells: Vec<TerminalCell>,
@@ -356,6 +362,7 @@ impl TerminalState {
             cursor_visible: true,
             origin_mode: false,
             auto_wrap: true,
+            application_cursor_keys: false,
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
             cells: vec![
@@ -383,6 +390,7 @@ impl TerminalState {
         self.cursor_visible = old.cursor_visible;
         self.origin_mode = old.origin_mode;
         self.auto_wrap = old.auto_wrap;
+        self.application_cursor_keys = old.application_cursor_keys;
         self.bracketed_paste = old.bracketed_paste;
         self.focus_reporting = old.focus_reporting;
         self.mouse_modes = old.mouse_modes;
@@ -785,6 +793,7 @@ impl TerminalState {
         self.cursor_visible = true;
         self.origin_mode = false;
         self.auto_wrap = true;
+        self.application_cursor_keys = false;
         self.current_style = TerminalStyle::default();
         self.bracketed_paste = false;
         self.focus_reporting = false;
@@ -997,6 +1006,8 @@ impl Perform for TerminalState {
         let has_cursor_visibility_mode = params
             .iter()
             .any(|param| param.first().copied() == Some(25));
+        let has_application_cursor_mode =
+            params.iter().any(|param| param.first().copied() == Some(1));
         let has_origin_mode = params.iter().any(|param| param.first().copied() == Some(6));
         let has_autowrap_mode = params.iter().any(|param| param.first().copied() == Some(7));
         let mouse_modes = params
@@ -1042,6 +1053,9 @@ impl Perform for TerminalState {
                 self.address_cursor(row, col);
             }
             'h' if is_dec_private && has_alt_screen_mode => self.enter_alternate_screen(),
+            'h' if is_dec_private && has_application_cursor_mode => {
+                self.application_cursor_keys = true
+            }
             'h' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = true,
             'h' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = true,
             'h' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = true,
@@ -1071,6 +1085,9 @@ impl Perform for TerminalState {
             },
             'L' => self.insert_lines(first_count),
             'l' if is_dec_private && has_alt_screen_mode => self.leave_alternate_screen(),
+            'l' if is_dec_private && has_application_cursor_mode => {
+                self.application_cursor_keys = false
+            }
             'l' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = false,
             'l' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = false,
             'l' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = false,
@@ -1575,6 +1592,17 @@ mod tests {
         assert!(text.starts_with("X\n\nY"), "snapshot was:\n{text}");
         assert_eq!(state.scroll_top, 0);
         assert_eq!(state.scroll_bottom, 3);
+    }
+
+    #[test]
+    fn terminal_state_tracks_application_cursor_key_mode() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 3);
+        assert!(!state.application_cursor_keys);
+        parser.advance(&mut state, b"\x1b[?1h");
+        assert!(state.application_cursor_keys);
+        parser.advance(&mut state, b"\x1b[?1l");
+        assert!(!state.application_cursor_keys);
     }
 
     #[test]
