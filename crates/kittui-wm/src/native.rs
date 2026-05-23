@@ -99,7 +99,7 @@ pub struct PtyTerminalApp {
     title: String,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn PtyChild + Send + Sync>,
-    writer: Box<dyn Write + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     state: Arc<Mutex<TerminalState>>,
     _reader: JoinHandle<()>,
     cell_width: u32,
@@ -140,9 +140,12 @@ impl PtyTerminalApp {
             .context("spawn PTY child")?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().context("clone PTY reader")?;
-        let writer = pair.master.take_writer().context("take PTY writer")?;
+        let writer = Arc::new(Mutex::new(
+            pair.master.take_writer().context("take PTY writer")?,
+        ));
         let state = Arc::new(Mutex::new(TerminalState::new(cols, rows)));
         let reader_state = state.clone();
+        let reader_writer = writer.clone();
         let join = std::thread::spawn(move || {
             let mut parser = Parser::new();
             let mut buf = [0u8; 4096];
@@ -151,8 +154,17 @@ impl PtyTerminalApp {
                 if n == 0 {
                     break;
                 }
-                let mut state = reader_state.lock();
-                parser.advance(&mut *state, &buf[..n]);
+                let responses = {
+                    let mut state = reader_state.lock();
+                    parser.advance(&mut *state, &buf[..n]);
+                    state.take_pending_responses()
+                };
+                if !responses.is_empty() {
+                    let mut writer = reader_writer.lock();
+                    if writer.write_all(&responses).is_err() || writer.flush().is_err() {
+                        break;
+                    }
+                }
             }
         });
         Ok(Self {
@@ -221,8 +233,9 @@ impl PtyTerminalApp {
 
     /// Send raw bytes to the PTY, preserving control sequences.
     pub fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        self.writer.write_all(bytes)?;
-        self.writer.flush()?;
+        let mut writer = self.writer.lock();
+        writer.write_all(bytes)?;
+        writer.flush()?;
         Ok(())
     }
 }
@@ -248,8 +261,9 @@ impl NativeApp for PtyTerminalApp {
     }
 
     fn send_text(&mut self, text: &str) -> Result<()> {
-        self.writer.write_all(text.as_bytes())?;
-        self.writer.flush()?;
+        let mut writer = self.writer.lock();
+        writer.write_all(text.as_bytes())?;
+        writer.flush()?;
         Ok(())
     }
 
@@ -279,6 +293,7 @@ struct TerminalState {
     cells: Vec<TerminalCell>,
     current_style: TerminalStyle,
     scrollback: Vec<String>,
+    pending_responses: Vec<u8>,
     alt_screen: Option<AlternateScreen>,
     bracketed_paste: bool,
     focus_reporting: bool,
@@ -349,6 +364,7 @@ impl TerminalState {
             ],
             current_style: TerminalStyle::default(),
             scrollback: Vec::new(),
+            pending_responses: Vec::new(),
             alt_screen: None,
             bracketed_paste: false,
             focus_reporting: false,
@@ -362,6 +378,7 @@ impl TerminalState {
         *self = Self::new(cols, rows);
         self.title = old.title.clone();
         self.scrollback = old.scrollback.clone();
+        self.pending_responses = old.pending_responses;
         self.current_style = old.current_style;
         self.cursor_visible = old.cursor_visible;
         self.origin_mode = old.origin_mode;
@@ -404,6 +421,14 @@ impl TerminalState {
         let mut out = self.scrollback.join("\n");
         out.push('\n');
         out
+    }
+
+    fn take_pending_responses(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.pending_responses)
+    }
+
+    fn queue_response(&mut self, bytes: impl AsRef<[u8]>) {
+        self.pending_responses.extend_from_slice(bytes.as_ref());
     }
 
     fn line_snapshot(&self, row: u16) -> String {
@@ -778,6 +803,18 @@ impl TerminalState {
         self.scrollback.clear();
     }
 
+    fn device_status_report(&mut self, mode: u16) {
+        match mode {
+            5 => self.queue_response(b"\x1b[0n"),
+            6 => self.queue_response(format!(
+                "\x1b[{};{}R",
+                self.cursor_row.saturating_add(1),
+                self.cursor_col.saturating_add(1)
+            )),
+            _ => {}
+        }
+    }
+
     fn apply_sgr(&mut self, params: &Params) {
         if params.is_empty() {
             self.current_style = TerminalStyle::default();
@@ -1046,6 +1083,7 @@ impl Perform for TerminalState {
             }
             'M' => self.delete_lines(first_count),
             'm' => self.apply_sgr(params),
+            'n' if !is_dec_private => self.device_status_report(first_raw),
             'p' if intermediates.contains(&b'!') => self.soft_reset(),
             'P' => self.delete_chars(first_count),
             'r' => self.set_scroll_region(params),
@@ -1537,6 +1575,18 @@ mod tests {
         assert!(text.starts_with("X\n\nY"), "snapshot was:\n{text}");
         assert_eq!(state.scroll_top, 0);
         assert_eq!(state.scroll_bottom, 3);
+    }
+
+    #[test]
+    fn terminal_state_queues_device_status_responses() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 3);
+        parser.advance(&mut state, b"\x1b[5n");
+        assert_eq!(state.take_pending_responses(), b"\x1b[0n");
+
+        parser.advance(&mut state, b"\x1b[2;4H\x1b[6n");
+        assert_eq!(state.take_pending_responses(), b"\x1b[2;4R");
+        assert!(state.take_pending_responses().is_empty());
     }
 
     #[test]
