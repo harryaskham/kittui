@@ -1,5 +1,8 @@
 //! Terminal capability descriptor used by every kittui layer.
 
+use std::io::{self, ErrorKind, Read};
+use std::time::{Duration, Instant};
+
 use serde::{Deserialize, Serialize};
 
 use crate::geom::CellSize;
@@ -253,6 +256,128 @@ impl Default for TerminalInfo {
     }
 }
 
+/// Configuration for a bounded foreground kitty response read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KittyResponseReadConfig {
+    /// Maximum wall-clock time to spend reading.
+    pub timeout: Duration,
+    /// Maximum bytes to keep before aborting.
+    pub max_bytes: usize,
+    /// Sleep interval after `WouldBlock` reads.
+    pub poll_interval: Duration,
+}
+
+impl Default for KittyResponseReadConfig {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_millis(250),
+            max_bytes: 16 * 1024,
+            poll_interval: Duration::from_millis(5),
+        }
+    }
+}
+
+/// Terminal response reader outcome.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KittyResponseReadStatus {
+    /// A response satisfying the caller predicate was read.
+    Matched,
+    /// Timeout elapsed before a match appeared.
+    Timeout,
+    /// Reader returned EOF before a match appeared.
+    Eof,
+    /// The configured byte limit was exceeded before a match appeared.
+    ByteLimitExceeded,
+}
+
+/// Result of a bounded foreground kitty response read.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct KittyResponseRead {
+    /// Read status.
+    pub status: KittyResponseReadStatus,
+    /// Buffered terminal response/noise bytes decoded lossily as UTF-8.
+    pub response: String,
+    /// Number of bytes read into `response`.
+    pub bytes_read: usize,
+    /// Elapsed wall-clock time in milliseconds.
+    pub elapsed_ms: u64,
+}
+
+impl KittyResponseRead {
+    fn new(status: KittyResponseReadStatus, bytes: Vec<u8>, started: Instant) -> Self {
+        Self {
+            status,
+            bytes_read: bytes.len(),
+            response: String::from_utf8_lossy(&bytes).into_owned(),
+            elapsed_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+        }
+    }
+}
+
+/// Read from an already-prepared foreground terminal stream until a matching
+/// kitty response arrives, a timeout occurs, EOF is reached, or the byte limit
+/// is exceeded.
+///
+/// This helper intentionally does not change terminal modes, spawn background
+/// reader threads, or write query bytes. Callers that use a real terminal should
+/// put the file descriptor in a nonblocking/raw-compatible mode before calling
+/// so hosted applications do not lose input and normal render loops never block.
+pub fn read_kitty_response<R, F>(
+    reader: &mut R,
+    config: KittyResponseReadConfig,
+    mut is_match: F,
+) -> io::Result<KittyResponseRead>
+where
+    R: Read,
+    F: FnMut(&str) -> bool,
+{
+    let started = Instant::now();
+    let mut bytes = Vec::new();
+    let mut one = [0u8; 1];
+    loop {
+        if started.elapsed() >= config.timeout {
+            return Ok(KittyResponseRead::new(
+                KittyResponseReadStatus::Timeout,
+                bytes,
+                started,
+            ));
+        }
+        match reader.read(&mut one) {
+            Ok(0) => {
+                return Ok(KittyResponseRead::new(
+                    KittyResponseReadStatus::Eof,
+                    bytes,
+                    started,
+                ))
+            }
+            Ok(_) => {
+                bytes.push(one[0]);
+                if bytes.len() > config.max_bytes {
+                    return Ok(KittyResponseRead::new(
+                        KittyResponseReadStatus::ByteLimitExceeded,
+                        bytes,
+                        started,
+                    ));
+                }
+                let text = String::from_utf8_lossy(&bytes);
+                if is_match(&text) {
+                    return Ok(KittyResponseRead::new(
+                        KittyResponseReadStatus::Matched,
+                        bytes,
+                        started,
+                    ));
+                }
+            }
+            Err(err) if err.kind() == ErrorKind::Interrupted => continue,
+            Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                std::thread::sleep(config.poll_interval);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,6 +407,60 @@ mod tests {
         if let Err(p) = result {
             std::panic::resume_unwind(p);
         }
+    }
+
+    struct WouldBlockReader;
+
+    impl std::io::Read for WouldBlockReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "wait"))
+        }
+    }
+
+    #[test]
+    fn kitty_response_reader_matches_buffered_escape() {
+        let mut input = std::io::Cursor::new(b"noise\x1b_Gi=7;OK\x1b\\tail".to_vec());
+        let result = read_kitty_response(&mut input, KittyResponseReadConfig::default(), |text| {
+            text.contains("i=7") && text.contains("OK") && text.contains("\x1b\\")
+        })
+        .unwrap();
+        assert_eq!(result.status, KittyResponseReadStatus::Matched);
+        assert!(result.response.contains("noise"));
+        assert!(result.response.contains("i=7;OK"));
+        assert!(!result.response.contains("tail"));
+    }
+
+    #[test]
+    fn kitty_response_reader_times_out_on_wouldblock() {
+        let mut input = WouldBlockReader;
+        let result = read_kitty_response(
+            &mut input,
+            KittyResponseReadConfig {
+                timeout: std::time::Duration::from_millis(1),
+                poll_interval: std::time::Duration::from_millis(1),
+                ..KittyResponseReadConfig::default()
+            },
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(result.status, KittyResponseReadStatus::Timeout);
+        assert_eq!(result.bytes_read, 0);
+    }
+
+    #[test]
+    fn kitty_response_reader_enforces_byte_limit() {
+        let mut input = std::io::Cursor::new(b"abcdef".to_vec());
+        let result = read_kitty_response(
+            &mut input,
+            KittyResponseReadConfig {
+                max_bytes: 3,
+                ..KittyResponseReadConfig::default()
+            },
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(result.status, KittyResponseReadStatus::ByteLimitExceeded);
+        assert_eq!(result.bytes_read, 4);
     }
 
     #[test]
