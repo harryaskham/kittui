@@ -1055,9 +1055,10 @@ fn native_spawn_read_text_reply(
     };
     let text = pane.text_snapshot.as_deref().unwrap_or("");
     format!(
-        "TEXT window={} bytes={}\n{}END\n",
+        "TEXT window={} bytes={} cursor={}\n{}END\n",
         pane.window,
         text.len(),
+        native_pane_cursor_label(pane),
         text
     )
 }
@@ -1080,6 +1081,8 @@ fn native_spawn_read_text_json_reply(
         serde_json::json!({
             "window": pane.window,
             "text": pane.text_snapshot.as_deref().unwrap_or(""),
+            "cursor_col": pane.cursor_col,
+            "cursor_row": pane.cursor_row,
         })
     )
 }
@@ -1899,7 +1902,10 @@ mod tests {
         assert!(session_json["panes"][1].get("text_snapshot").is_none());
 
         let text = native_spawn_queue_reply("READ_TEXT focused", &pending);
-        assert!(text.starts_with("TEXT window=native-2 bytes="), "{text}");
+        assert!(
+            text.starts_with("TEXT window=native-2 bytes=17 cursor=12,2"),
+            "{text}"
+        );
         assert!(text.contains("htop line\nsecond\nEND\n"), "{text}");
         let text_json: serde_json::Value = serde_json::from_str(&native_spawn_queue_reply(
             "READ_TEXT_JSON native-1",
@@ -1908,6 +1914,8 @@ mod tests {
         .unwrap();
         assert_eq!(text_json["window"], "native-1");
         assert_eq!(text_json["text"], "shell line\n");
+        assert_eq!(text_json["cursor_col"], 4);
+        assert_eq!(text_json["cursor_row"], 1);
         assert_eq!(
             native_spawn_wait_text_reply(&pending, "focused second", Duration::from_millis(1))
                 .trim(),
