@@ -1104,6 +1104,82 @@ impl SurfaceHandle {
         self.client
             .request_protocol(format!("SEMANTIC_FOCUS {} {}", self.id, component.as_ref()))
     }
+
+    /// Convenience alias for [`SurfaceHandle::semantic_focus`].
+    pub fn semantic_focus_component(&self, component: impl AsRef<str>) -> Result<String> {
+        self.semantic_focus(component)
+    }
+
+    /// Toggle a semantic boolean/checked component.
+    pub fn semantic_toggle(&self, component: impl AsRef<str>) -> Result<String> {
+        self.semantic_action(component, "toggle", serde_json::json!({}))
+    }
+
+    /// Set a semantic text component value.
+    pub fn semantic_set_text(
+        &self,
+        component: impl AsRef<str>,
+        text: impl AsRef<str>,
+    ) -> Result<String> {
+        self.semantic_action(
+            component,
+            "set",
+            serde_json::json!({ "text": text.as_ref() }),
+        )
+    }
+
+    /// Insert text into a semantic text component.
+    pub fn semantic_insert_text(
+        &self,
+        component: impl AsRef<str>,
+        text: impl AsRef<str>,
+    ) -> Result<String> {
+        self.semantic_action(
+            component,
+            "insert_text",
+            serde_json::json!({ "text": text.as_ref() }),
+        )
+    }
+
+    /// Set a semantic numeric component value.
+    pub fn semantic_set_number(&self, component: impl AsRef<str>, value: f32) -> Result<String> {
+        self.semantic_action(component, "set", serde_json::json!({ "value": value }))
+    }
+
+    /// Set a semantic boolean component value.
+    pub fn semantic_set_bool(&self, component: impl AsRef<str>, value: bool) -> Result<String> {
+        self.semantic_action(component, "set", serde_json::json!({ "value": value }))
+    }
+
+    /// Select one option id on a semantic select/list/radio-group component.
+    pub fn semantic_select_one(
+        &self,
+        component: impl AsRef<str>,
+        id: impl AsRef<str>,
+    ) -> Result<String> {
+        self.semantic_action(
+            component,
+            "select",
+            serde_json::json!({ "id": id.as_ref() }),
+        )
+    }
+
+    /// Select many option ids on a semantic multi-select component.
+    pub fn semantic_select_many<I, S>(&self, component: impl AsRef<str>, ids: I) -> Result<String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let selection = ids
+            .into_iter()
+            .map(|id| id.as_ref().to_string())
+            .collect::<Vec<_>>();
+        self.semantic_action(
+            component,
+            "select",
+            serde_json::json!({ "selection": selection }),
+        )
+    }
 }
 
 /// Resolve a socket path using kittwm's current environment conventions.
@@ -1562,6 +1638,64 @@ mod tests {
             "SEMANTIC_ACTION native-1 field set {\"value\":\"x\"}"
         );
         assert_eq!(seen[3], "SEMANTIC_FOCUS native-1 field");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn semantic_convenience_helpers_send_expected_commands() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwh-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..7 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                seen.push(request.trim().to_string());
+                stream.write_all(b"OK\n").unwrap();
+            }
+            seen
+        });
+
+        let surface = Kittwm::connect_path(&path).surface("native-1");
+        let _ = surface.semantic_focus_component("field");
+        let _ = surface.semantic_toggle("flag");
+        let _ = surface.semantic_set_text("name", "Ada");
+        let _ = surface.semantic_insert_text("name", "!");
+        let _ = surface.semantic_set_number("volume", 0.5);
+        let _ = surface.semantic_set_bool("flag", true);
+        let _ = surface.semantic_select_many("choices", ["a", "b"]);
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen[0], "SEMANTIC_FOCUS native-1 field");
+        assert_eq!(seen[1], "SEMANTIC_ACTION native-1 flag toggle {}");
+        assert_eq!(
+            seen[2],
+            "SEMANTIC_ACTION native-1 name set {\"text\":\"Ada\"}"
+        );
+        assert_eq!(
+            seen[3],
+            "SEMANTIC_ACTION native-1 name insert_text {\"text\":\"!\"}"
+        );
+        assert_eq!(
+            seen[4],
+            "SEMANTIC_ACTION native-1 volume set {\"value\":0.5}"
+        );
+        assert_eq!(
+            seen[5],
+            "SEMANTIC_ACTION native-1 flag set {\"value\":true}"
+        );
+        assert_eq!(
+            seen[6],
+            "SEMANTIC_ACTION native-1 choices select {\"selection\":[\"a\",\"b\"]}"
+        );
     }
 
     #[cfg(unix)]
