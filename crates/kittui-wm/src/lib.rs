@@ -91,12 +91,7 @@ impl WindowTree {
     }
 }
 
-fn layout_node(
-    node: &LayoutNode,
-    rect: CellRect,
-    z_base: u16,
-    out: &mut Vec<WindowGeometry>,
-) {
+fn layout_node(node: &LayoutNode, rect: CellRect, z_base: u16, out: &mut Vec<WindowGeometry>) {
     match node {
         LayoutNode::Window { id, z } => {
             out.push(WindowGeometry {
@@ -263,17 +258,139 @@ mod tests {
     }
 }
 
+/// Reusable kittwm window chrome theme helpers.
+pub mod chrome {
+    use kittui::{PxRect, Rgba};
+    use kittui_core::node::{Corners, Layer, Node, Stroke, StrokeAlign};
+    use kittui_core::paint::Paint;
+
+    /// Render-time state for a single window's chrome.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct WindowChromeState {
+        /// Whether this window is currently focused.
+        pub focused: bool,
+        /// Whether this window is tiled by the WM layout tree.
+        pub tiled: bool,
+        /// Human-readable title or source label.
+        pub title: String,
+    }
+
+    impl WindowChromeState {
+        /// Construct a window chrome state record.
+        pub fn new(focused: bool, tiled: bool, title: impl Into<String>) -> Self {
+            Self {
+                focused,
+                tiled,
+                title: title.into(),
+            }
+        }
+    }
+
+    /// Default color/shape tokens for kittwm chrome.
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    pub struct WindowChromeTheme {
+        /// Border for focused windows.
+        pub focused_border: Rgba,
+        /// Border for unfocused windows.
+        pub unfocused_border: Rgba,
+        /// Transparent overlay fill.
+        pub overlay_fill: Rgba,
+        /// Focused border width.
+        pub focused_border_width_px: f32,
+        /// Unfocused border width.
+        pub unfocused_border_width_px: f32,
+        /// Rounded corner radius.
+        pub corner_radius_px: f32,
+    }
+
+    impl Default for WindowChromeTheme {
+        fn default() -> Self {
+            Self {
+                focused_border: Rgba::parse("#00d8ff").expect("default focused border color"),
+                unfocused_border: Rgba::parse("#53647a").expect("default unfocused border color"),
+                overlay_fill: Rgba::parse("#00000080").expect("default overlay fill color"),
+                focused_border_width_px: 2.0,
+                unfocused_border_width_px: 1.0,
+                corner_radius_px: 4.0,
+            }
+        }
+    }
+
+    impl WindowChromeTheme {
+        /// Build the chrome layers for a window rectangle and state.
+        pub fn layers(&self, rect: PxRect, state: &WindowChromeState) -> Vec<Layer> {
+            let border = if state.focused {
+                self.focused_border
+            } else {
+                self.unfocused_border
+            };
+            let width_px = if state.focused {
+                self.focused_border_width_px
+            } else {
+                self.unfocused_border_width_px
+            };
+            let mode_label = if state.tiled { "tiled" } else { "floating" };
+            vec![Layer::new(
+                format!("wm-chrome:{mode_label}:{}", state.title),
+                Node::Rect {
+                    rect,
+                    fill: Paint::Solid {
+                        color: self.overlay_fill,
+                    },
+                    stroke: Some(Stroke {
+                        align: StrokeAlign::Inside,
+                        width_px,
+                        paint: Paint::Solid { color: border },
+                    }),
+                    corners: Corners::uniform(self.corner_radius_px),
+                },
+            )]
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn default_theme_distinguishes_focused_and_unfocused_chrome() {
+            let theme = WindowChromeTheme::default();
+            let rect = PxRect::new(0.0, 0.0, 80.0, 48.0);
+            let focused = theme.layers(rect, &WindowChromeState::new(true, true, "term"));
+            let unfocused = theme.layers(rect, &WindowChromeState::new(false, true, "term"));
+            assert_eq!(focused.len(), 1);
+            assert_eq!(unfocused.len(), 1);
+            assert_eq!(focused[0].label.as_deref(), Some("wm-chrome:tiled:term"));
+            match (&focused[0].root, &unfocused[0].root) {
+                (
+                    Node::Rect {
+                        stroke: Some(a), ..
+                    },
+                    Node::Rect {
+                        stroke: Some(b), ..
+                    },
+                ) => {
+                    assert_ne!(a.width_px, b.width_px);
+                    assert_ne!(a.paint, b.paint);
+                }
+                other => panic!("expected stroked rect chrome, got {other:?}"),
+            }
+        }
+    }
+}
+
 /// Compositor that turns Xvfb-backed `XServer` windows into placed kittui
 /// scenes, routes pointer events back to the X server, and tracks per-window
 /// chrome through a `LifecycleTracker`-compatible delete pass.
 pub mod compositor {
     use std::collections::HashMap;
 
-    use kittui::{CellRect, CellSize, Rgba, Scene};
+    use kittui::{CellRect, CellSize, Scene};
     use kittui_core::geom::PxRect;
-    use kittui_core::node::{Corners, Layer, Node};
-    use kittui_core::paint::Paint;
+    use kittui_core::node::{Layer, Node};
     use kittui_input::{InputEvent, MouseButton};
+
+    use crate::chrome::{WindowChromeState, WindowChromeTheme};
     use kittui_xvfb::{XButton, XPointerEvent, XServer, XWindowId};
     use parking_lot::Mutex;
 
@@ -349,6 +466,16 @@ pub mod compositor {
             self.modes.lock().insert(id, mode);
         }
 
+        /// Set the focused backend window for chrome and key routing.
+        pub fn set_focused(&self, id: XWindowId) {
+            *self.focused.lock() = Some(id);
+        }
+
+        /// Return the focused backend window, if any.
+        pub fn focused_window(&self) -> Option<XWindowId> {
+            *self.focused.lock()
+        }
+
         /// Borrow the underlying X server for direct access (advanced use).
         pub fn server(&self) -> &S {
             &self.server
@@ -364,10 +491,7 @@ pub mod compositor {
         /// session loop forwards each `RawFrame` straight to
         /// `kittui::Runtime::place_raw_frame` so the per-frame cost drops to
         /// one base64 + one write, no PNG encode.
-        pub fn raw_frames(
-            &self,
-            layout: &Layout,
-        ) -> Result<Vec<RawFrame>, kittui_xvfb::XError> {
+        pub fn raw_frames(&self, layout: &Layout) -> Result<Vec<RawFrame>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
             let modes = self.modes.lock().clone();
             let mut placements_snapshot = HashMap::new();
@@ -392,12 +516,7 @@ pub mod compositor {
                 placements_snapshot.insert(
                     w.id,
                     WindowPlacement {
-                        source_rect: PxRect::new(
-                            0.0,
-                            0.0,
-                            cap.width as f32,
-                            cap.height as f32,
-                        ),
+                        source_rect: PxRect::new(0.0, 0.0, cap.width as f32, cap.height as f32),
                         footprint,
                     },
                 );
@@ -454,27 +573,19 @@ pub mod compositor {
                     },
                 );
                 let rect = PxRect::new(0.0, 0.0, target_rect.width, target_rect.height);
-                let border = Rgba::parse("#00d8ff").unwrap();
-                let bg = Rgba::parse("#00000080").unwrap();
                 let png = encode_rgba(&cap.rgba, cap.width, cap.height);
-                let layers = vec![
-                    Layer::anon(Node::Image {
-                        rect,
-                        src: kittui_core::node::ImageRef::Bytes { bytes: png },
-                        fit: kittui_core::node::Fit::Stretch,
-                        tint: None,
-                    }),
-                    Layer::anon(Node::Rect {
-                        rect,
-                        fill: Paint::Solid { color: bg },
-                        stroke: Some(kittui_core::node::Stroke {
-                            align: kittui_core::node::StrokeAlign::Inside,
-                            width_px: 1.5,
-                            paint: Paint::Solid { color: border },
-                        }),
-                        corners: Corners::uniform(4.0),
-                    }),
-                ];
+                let mut layers = vec![Layer::anon(Node::Image {
+                    rect,
+                    src: kittui_core::node::ImageRef::Bytes { bytes: png },
+                    fit: kittui_core::node::Fit::Stretch,
+                    tint: None,
+                })];
+                let focused = self.focused_window().unwrap_or(w.id) == w.id;
+                let title = format!("x11:{}", w.id.0);
+                layers.extend(WindowChromeTheme::default().layers(
+                    rect,
+                    &WindowChromeState::new(focused, mode == WindowMode::Tiled, title),
+                ));
                 out.push(Scene {
                     footprint,
                     cell_size: self.cell,
@@ -507,9 +618,15 @@ pub mod compositor {
         pub fn route_pointer(&self, ev: &InputEvent) -> Vec<XPointerEvent> {
             let mut routed = Vec::new();
             match ev {
-                InputEvent::MousePress { col, row, button, .. }
-                | InputEvent::MouseRelease { col, row, button, .. }
-                | InputEvent::MouseMove { col, row, button, .. } => {
+                InputEvent::MousePress {
+                    col, row, button, ..
+                }
+                | InputEvent::MouseRelease {
+                    col, row, button, ..
+                }
+                | InputEvent::MouseMove {
+                    col, row, button, ..
+                } => {
                     let Some(id) = self.hit_test(*col, *row) else {
                         return routed;
                     };
@@ -592,10 +709,7 @@ pub mod compositor {
     }
 
     fn footprint_contains(fp: &CellRect, col: u16, row: u16) -> bool {
-        col >= fp.x
-            && col < fp.x + fp.cols
-            && row >= fp.y
-            && row < fp.y + fp.rows
+        col >= fp.x && col < fp.x + fp.cols && row >= fp.y && row < fp.y + fp.rows
     }
 
     /// Map a terminal cell `(col, row)` inside `footprint` to the source
@@ -796,17 +910,33 @@ pub mod compositor {
             if let XPointerEvent::Move { x_px, y_px, .. } = routed[0] {
                 // Allow a few pixels of half-cell rounding either side of
                 // (1000/2, 500/2) = (500, 250).
-                assert!(
-                    (x_px - 500).abs() < 20,
-                    "x_px should be ~500, got {x_px}"
-                );
-                assert!(
-                    (y_px - 250).abs() < 20,
-                    "y_px should be ~250, got {y_px}"
-                );
+                assert!((x_px - 500).abs() < 20, "x_px should be ~500, got {x_px}");
+                assert!((y_px - 250).abs() < 20, "y_px should be ~250, got {y_px}");
             } else {
                 panic!("expected Move, got {:?}", routed[0]);
             }
+        }
+
+        #[test]
+        fn compositor_chrome_labels_focus_and_layout_mode() {
+            let comp = Compositor::new(server(), CellSize::new(8, 16));
+            comp.set_mode(XWindowId(2), WindowMode::Tiled);
+            comp.set_focused(XWindowId(2));
+            let mut layout = Layout::all_floating();
+            layout.tile(XWindowId(2), PxRect::new(0.0, 0.0, 32.0, 16.0));
+            let scenes = comp.compose_with_layout(&layout).unwrap();
+            let labels = scenes
+                .iter()
+                .flat_map(|scene| {
+                    scene
+                        .layers
+                        .iter()
+                        .filter_map(|layer| layer.label.as_deref())
+                })
+                .collect::<Vec<_>>();
+            assert!(labels.contains(&"wm-chrome:floating:x11:1"), "{labels:?}");
+            assert!(labels.contains(&"wm-chrome:tiled:x11:2"), "{labels:?}");
+            assert_eq!(comp.focused_window(), Some(XWindowId(2)));
         }
 
         #[test]
@@ -844,8 +974,8 @@ pub mod multi {
     use kittui_xvfb::{XButton, XCapture, XError, XPointerEvent, XServer, XWindow, XWindowId};
     use parking_lot::Mutex;
     use std::collections::HashMap;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     /// Globally-unique window identifier across all attached backends.
     #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -1030,8 +1160,7 @@ pub mod multi {
                                 slot.captures.lock().insert(w.id, cap);
                             }
                             Err(e) => {
-                                *slot.last_err.lock() =
-                                    Some(format!("capture {:?}: {e}", w.id));
+                                *slot.last_err.lock() = Some(format!("capture {:?}: {e}", w.id));
                             }
                         }
                     }
@@ -1080,10 +1209,7 @@ pub mod multi {
         /// keeps working; new async API reads from the pump's slot.
         ///
         /// Returns the backend's index.
-        pub fn attach_pump(
-            &mut self,
-            backend: Arc<dyn XServer + Send + Sync>,
-        ) -> usize {
+        pub fn attach_pump(&mut self, backend: Arc<dyn XServer + Send + Sync>) -> usize {
             let pump = Pump::spawn(backend.clone());
             self.backends.push(Box::new(SharedServer(backend)));
             self.pumps.push(Some(pump));
@@ -1117,10 +1243,10 @@ pub mod multi {
                         WindowMode::Tiled => layout.tiled_rect(key).unwrap_or(w.rect),
                     };
                     let cap = server.capture(w.id)?;
-                    let cols = ((target_rect.width / self.cell.width_px as f32).ceil() as u16)
-                        .max(1);
-                    let rows = ((target_rect.height / self.cell.height_px as f32).ceil() as u16)
-                        .max(1);
+                    let cols =
+                        ((target_rect.width / self.cell.width_px as f32).ceil() as u16).max(1);
+                    let rows =
+                        ((target_rect.height / self.cell.height_px as f32).ceil() as u16).max(1);
                     let footprint = CellRect::new(
                         (target_rect.origin.0 / self.cell.width_px as f32) as u16,
                         (target_rect.origin.1 / self.cell.height_px as f32) as u16,
@@ -1179,10 +1305,7 @@ pub mod multi {
         ///
         /// This method never blocks on backend work and is the path the
         /// daemon's UI thread should call once `bd-fb5d9d` lands.
-        pub fn compose_via_pumps(
-            &self,
-            layout: &Layout,
-        ) -> Vec<(WindowKey, Scene)> {
+        pub fn compose_via_pumps(&self, layout: &Layout) -> Vec<(WindowKey, Scene)> {
             let modes = self.modes.lock().clone();
             let mut out = Vec::new();
             for (i, pump_opt) in self.pumps.iter().enumerate() {
@@ -1197,10 +1320,10 @@ pub mod multi {
                         WindowMode::Floating => frame.window.rect,
                         WindowMode::Tiled => layout.tiled_rect(key).unwrap_or(frame.window.rect),
                     };
-                    let cols = ((target_rect.width / self.cell.width_px as f32).ceil() as u16)
-                        .max(1);
-                    let rows = ((target_rect.height / self.cell.height_px as f32).ceil() as u16)
-                        .max(1);
+                    let cols =
+                        ((target_rect.width / self.cell.width_px as f32).ceil() as u16).max(1);
+                    let rows =
+                        ((target_rect.height / self.cell.height_px as f32).ceil() as u16).max(1);
                     let footprint = CellRect::new(
                         (target_rect.origin.0 / self.cell.width_px as f32) as u16,
                         (target_rect.origin.1 / self.cell.height_px as f32) as u16,
@@ -1276,9 +1399,15 @@ pub mod multi {
         /// Route a parsed pointer event to the topmost window's owning backend.
         pub fn route_pointer(&self, ev: &InputEvent) -> Vec<(WindowKey, XPointerEvent)> {
             let (col, row, button) = match ev {
-                InputEvent::MousePress { col, row, button, .. }
-                | InputEvent::MouseRelease { col, row, button, .. }
-                | InputEvent::MouseMove { col, row, button, .. } => (*col, *row, *button),
+                InputEvent::MousePress {
+                    col, row, button, ..
+                }
+                | InputEvent::MouseRelease {
+                    col, row, button, ..
+                }
+                | InputEvent::MouseMove {
+                    col, row, button, ..
+                } => (*col, *row, *button),
                 _ => return Vec::new(),
             };
             let Some(key) = self.hit_test(col, row) else {
@@ -1431,10 +1560,7 @@ pub mod multi {
             fn windows(&self) -> Result<Vec<kittui_xvfb::XWindow>, XError> {
                 self.inner.windows()
             }
-            fn capture(
-                &self,
-                id: XWindowId,
-            ) -> Result<kittui_xvfb::XCapture, XError> {
+            fn capture(&self, id: XWindowId) -> Result<kittui_xvfb::XCapture, XError> {
                 std::thread::sleep(self.delay);
                 self.inner.capture(id)
             }
@@ -1483,9 +1609,11 @@ pub mod multi {
                 std::thread::sleep(std::time::Duration::from_millis(20));
                 let scenes = comp.compose_via_pumps(&Layout::empty());
                 if scenes.len() == 2
-                    && scenes
-                        .iter()
-                        .all(|(_, s)| s.layers.iter().any(|l| matches!(l.root, Node::Image { .. })))
+                    && scenes.iter().all(|(_, s)| {
+                        s.layers
+                            .iter()
+                            .any(|l| matches!(l.root, Node::Image { .. }))
+                    })
                 {
                     break;
                 }

@@ -54,7 +54,10 @@ Use `Ctrl-]` to exit the current native PTY/browser viewer. Explicit capture-bac
   follow-up.)
 - **kittui-wm::compositor::Compositor** ties them together. `compose` or
   `compose_with_layout` produces one kittui `Scene` per X window with
-  border chrome. `route_pointer` and `route_key` translate kittui-input
+  border chrome from the reusable `kittui_wm::chrome::WindowChromeTheme`.
+  Hosts can build their own `WindowChromeState`/theme pair to preview or
+  override focused/unfocused, tiled/floating, and title/source styling.
+  `route_pointer` and `route_key` translate kittui-input
   events back into `XPointerEvent`/keysyms and inject them via the
   `XServer` backend.
 - **kittui::Runtime** does the real work — uploads, placements,
