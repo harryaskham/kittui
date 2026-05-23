@@ -96,6 +96,18 @@ export interface Scene {
   animation?: Animation;
 }
 
+export interface RenderImage {
+  index: number;
+  bytes: number;
+  footprint: CellRect;
+  png_base64: string;
+}
+
+export interface RenderManyManifest {
+  count: number;
+  images: RenderImage[];
+}
+
 export interface BatchChannels {
   count: number;
   image_ids: string[];
@@ -128,6 +140,7 @@ export class Kittui {
   probe(): Record<string, unknown>;
   unplace(imageId: number | string): string;
   render(scene: Scene | string): Uint8Array;
+  renderMany(scenes: (Scene | string)[]): RenderManyManifest;
   place(scene: Scene | string): string;
   placeAt(scene: Scene | string, x: number, y: number): string;
   placeMany(scenes: (Scene | string)[]): string;

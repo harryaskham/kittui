@@ -157,6 +157,9 @@ export class Kittui {
     this._kittui_render_json = this.lib.func(
       'int kittui_render_json(void* runtime, const char* scene_json, _Out_ void** out_ptr, _Out_ size_t* out_len)',
     );
+    this._kittui_render_many_json = this.lib.func(
+      'int kittui_render_many_json(void* runtime, const char* scenes_json, _Out_ KittuiOwnedStr* out)',
+    );
     this._kittui_place_json = this.lib.func(
       'int kittui_place_json(void* runtime, const char* scene_json, _Out_ KittuiOwnedStr* out)',
     );
@@ -255,6 +258,23 @@ export class Kittui {
     } finally {
       if (ptr) this._kittui_bytes_free(ptr, len);
     }
+  }
+
+  /**
+   * Render multiple scenes to a JSON manifest with base64 PNG entries.
+   *
+   * @param {(object|string)[]} scenes
+   * @returns {object}
+   */
+  renderMany(scenes) {
+    if (!this.runtime) throw new Error('kittui runtime closed');
+    const normalized = scenes.map((scene) => (typeof scene === 'string' ? JSON.parse(scene) : scene));
+    const outBox = [null];
+    const status = this._kittui_render_many_json(this.runtime, JSON.stringify(normalized), outBox);
+    if (status !== KittuiStatus.Ok) {
+      throw this._ffiError('kittui_render_many_json', status);
+    }
+    return JSON.parse(outBox[0] || '{"count":0,"images":[]}');
   }
 
   /**

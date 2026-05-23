@@ -41,6 +41,8 @@ const sceneObject = {
 
 // Render-only PNG bytes for previews/artifacts.
 const png = k.render(sceneObject);
+const renderManifest = k.renderMany([sceneObject, sceneObject]);
+console.log(renderManifest.images[0].png_base64);
 
 const bytes = k.place(sceneObject);
 

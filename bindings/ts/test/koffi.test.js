@@ -92,6 +92,17 @@ function fakeLib(calls, options = {}) {
       if (signature.includes('kittui_last_error')) {
         return () => 'fake ffi detail';
       }
+      if (signature.includes('kittui_render_many_json')) {
+        return (_runtime, scenesJson, out) => {
+          calls.push(['render_many', JSON.parse(scenesJson)]);
+          if (options.fail === 'render_many') return 3;
+          out[0] = JSON.stringify({
+            count: 2,
+            images: [{ index: 0, bytes: 8, footprint: { x: 0, y: 0, cols: 4, rows: 2 }, png_base64: 'iVBORw==' }],
+          });
+          return 0;
+        };
+      }
       if (signature.includes('kittui_render_json')) {
         return (_runtime, sceneJson, ptrOut, lenOut) => {
           calls.push(['render', JSON.parse(sceneJson)]);
@@ -213,6 +224,23 @@ test('render returns PNG bytes and frees byte buffer', () => {
   k.close();
 });
 
+test('renderMany returns parsed PNG manifest', () => {
+  const calls = [];
+  const k = new Kittui(fakeLib(calls), {});
+  const s = scene.build({
+    footprintCells: [4, 2],
+    layers: [scene.backgroundSolid([0, 216, 255, 255])],
+  });
+  const manifest = k.renderMany([s, JSON.stringify(s)]);
+  assert.equal(manifest.count, 2);
+  assert.equal(manifest.images[0].index, 0);
+  assert.equal(manifest.images[0].png_base64, 'iVBORw==');
+  assert.equal(manifest.images[0].footprint.cols, 4);
+  const call = calls.find((c) => c[0] === 'render_many');
+  assert.equal(call[1].length, 2);
+  k.close();
+});
+
 test('placeAt forwards explicit x/y to FFI', () => {
   const calls = [];
   const k = new Kittui(fakeLib(calls), {});
@@ -290,6 +318,7 @@ test('placement failures include FFI last_error detail', () => {
   });
   for (const [fail, call] of [
     ['render', (k) => k.render(s)],
+    ['render_many', (k) => k.renderMany([s])],
     ['place', (k) => k.place(s)],
     ['place_at', (k) => k.placeAt(s, 1, 2)],
     ['place_many', (k) => k.placeMany([s])],
