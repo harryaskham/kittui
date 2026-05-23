@@ -71,6 +71,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut clear = true;
     let mut last_title_rows = Vec::<String>::new();
     let mut last_footer = String::new();
+    let pure_terminal_renderer = std::env::var("KITTWM_NATIVE_RENDERER")
+        .map(|value| matches!(value.as_str(), "terminal" | "text" | "ansi" | "dec"))
+        .unwrap_or(false);
     loop {
         let frame_start = Instant::now();
         let mut chunk = [0u8; 1024];
@@ -439,6 +442,19 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             }
         }
         let redraw_static = clear;
+        if pure_terminal_renderer {
+            let rendered = render_native_shell_view_terminal(&shell_view, cols, rows);
+            if redraw_static {
+                handle.write_all(b"\x1b[2J")?;
+            }
+            handle.write_all(rendered.as_bytes())?;
+            handle.flush()?;
+            clear = false;
+            if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
+                std::thread::sleep(slack);
+            }
+            continue;
+        }
         if clear {
             handle.write_all(b"\x1b[2J")?;
             last_title_rows.clear();
@@ -544,6 +560,11 @@ struct NativePaneChrome {
     focused: bool,
     text: String,
     cache_key: String,
+    app_x: u16,
+    app_y: u16,
+    app_cols: u16,
+    app_rows: u16,
+    text_snapshot: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -574,6 +595,11 @@ fn native_shell_view(
                 focused: is_focused,
                 text,
                 cache_key,
+                app_x: layout.app_x,
+                app_y: layout.app_y,
+                app_cols: layout.app_cols,
+                app_rows: layout.app_rows,
+                text_snapshot: pane.app.text_snapshot(),
             })
         })
         .collect();
@@ -1239,6 +1265,50 @@ fn native_pane_title_text(pane: &NativePane, layout: NativePaneLayout, focused: 
     clipped
 }
 
+fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u16) -> String {
+    let mut out = String::new();
+    out.push_str("\x1b[H");
+    for pane in &view.panes {
+        let title_style = if pane.focused { "\x1b[7m" } else { "\x1b[2m" };
+        out.push_str(&format!(
+            "\x1b[{};{}H{}{}\x1b[0m",
+            pane.y + 1,
+            pane.x + 1,
+            title_style,
+            pane.text
+        ));
+        for (line_idx, line) in pane
+            .text_snapshot
+            .lines()
+            .take(pane.app_rows as usize)
+            .enumerate()
+        {
+            let clipped = clip_and_pad(line, pane.app_cols as usize);
+            out.push_str(&format!(
+                "\x1b[{};{}H{}",
+                pane.app_y + line_idx as u16 + 1,
+                pane.app_x + 1,
+                clipped
+            ));
+        }
+    }
+    let footer = clip_and_pad(&view.footer.text, cols as usize);
+    out.push_str(&format!(
+        "\x1b[{};1H\x1b[K{}",
+        view.footer.row.min(rows.saturating_add(1)) + 1,
+        footer
+    ));
+    out
+}
+
+fn clip_and_pad(text: &str, width: usize) -> String {
+    let mut clipped = text.chars().take(width).collect::<String>();
+    while clipped.chars().count() < width {
+        clipped.push(' ');
+    }
+    clipped
+}
+
 fn native_pane_title_key_from_text(text: &str, layout: NativePaneLayout, focused: bool) -> String {
     format!(
         "{},{},{}x{}:{}:{}",
@@ -1409,6 +1479,37 @@ mod native_pane_tests {
             native_focus_event_payload(true, false),
             Some(b"\x1b[O".as_slice())
         );
+    }
+
+    #[test]
+    fn native_shell_terminal_renderer_draws_chrome_and_snapshots() {
+        let view = NativeShellView {
+            panes: vec![NativePaneChrome {
+                x: 0,
+                y: 0,
+                focused: true,
+                text: "* native-1 shell".to_string(),
+                cache_key: "key".to_string(),
+                app_x: 0,
+                app_y: 1,
+                app_cols: 8,
+                app_rows: 2,
+                text_snapshot: "hello\nworld\nignored\n".to_string(),
+            }],
+            footer: NativeFooterChrome {
+                row: 4,
+                text: "footer".to_string(),
+            },
+        };
+        let rendered = render_native_shell_view_terminal(&view, 12, 4);
+        assert!(
+            rendered.contains("\x1b[1;1H\x1b[7m* native-1 shell\x1b[0m"),
+            "{rendered:?}"
+        );
+        assert!(rendered.contains("\x1b[2;1Hhello   "), "{rendered:?}");
+        assert!(rendered.contains("\x1b[3;1Hworld   "), "{rendered:?}");
+        assert!(!rendered.contains("ignored"), "{rendered:?}");
+        assert!(rendered.contains("footer"), "{rendered:?}");
     }
 
     #[test]
