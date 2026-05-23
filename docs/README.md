@@ -98,8 +98,11 @@ Current semantic implementation status:
   typed `--status` and `--events-ms` inspection.
 - `kittwm-sdk` automation helpers now include screen text, scrollback,
   visible-text waits, screen-plus-scrollback output waits, typed wait-match
-  results, exact byte sends, bracketed paste byte payloads, and typed
-  `MouseEvent` injection through `SurfaceHandle` methods; event helpers expose
+  results, exact byte sends (`send_bytes` / `send_bytes_b64`), bracketed paste
+  byte payloads (`paste_bytes` / `paste_bytes_b64`), and typed `MouseEvent`
+  injection through `SurfaceHandle` methods; these are `SendInput`-gated and map
+  to the native `SEND_BYTES_B64`, `PASTE_BYTES_B64`, and `SEND_MOUSE` socket
+  paths. Event helpers expose
   bounded iterators and common envelope/detail accessors; control helpers cover
   focus cycling, layout, balance, and pane movement; `NativePaneDetail` has
   convenience accessors for bounds/cursor/modes/dirty/transport status; local

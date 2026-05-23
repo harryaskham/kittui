@@ -325,13 +325,15 @@ Potential semantic adapters:
 
 - native kittwm SDK apps that construct component trees directly;
 - browser DOM/ARIA/DevTools adapter, now landed for first-party browser surfaces
-  with extraction, best-effort publishing, CLI inspection, and DevTools-backed
-  action routing; see [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md);
+  with snapshot extraction, best-effort publish/debounce, CLI one-shot
+  inspection, DevTools-backed focus/action routing, stale-component errors, and
+  first-class link/canvas role remaps; see [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md);
 - accessibility tree adapters for macOS AX, AT-SPI, UI Automation, or platform
-  equivalents; the safe platform-neutral core now maps extracted trees, routes
-  actions through an `AccessibilityActionBackend`, and uses first-class roles for
-  obvious document/list/tree/media nodes, while direct platform bindings remain
-  follow-up work; see [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md);
+  equivalents; the safe platform-neutral core now maps extracted macOS AX-style
+  and Linux AT-SPI-style trees, reports permission/unavailable diagnostics,
+  routes actions through an `AccessibilityActionBackend`, and uses first-class
+  roles for obvious document/list/tree/media nodes, while direct platform
+  bindings remain follow-up work; see [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md);
 - toolkit plugins/backends for Qt, GTK, egui, iced, Tauri, Electron, etc.;
 - terminal apps with future semantic escape extensions, while classic TUIs remain
   terminal/cell surfaces.
