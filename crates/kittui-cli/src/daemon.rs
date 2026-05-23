@@ -154,6 +154,22 @@ pub enum NativePaneCommand {
         bytes: Vec<u8>,
         label: String,
     },
+    RestoreSession(NativeSessionRestore),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeSessionRestore {
+    pub layout: Option<String>,
+    pub panes: Vec<NativeSessionRestorePane>,
+    pub focus_index: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeSessionRestorePane {
+    pub title: Option<String>,
+    pub command: String,
+    pub weight: u16,
+    pub focused: bool,
 }
 
 #[derive(Default, Debug)]
@@ -390,6 +406,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if cmd == "BALANCE_PANES" {
         return queue_native_pane_action(pending, NativePaneCommand::Balance, "BALANCE_QUEUED");
     }
+    if let Some(rest) = cmd.strip_prefix("RESTORE_SESSION_JSON ") {
+        return queue_native_restore_session(pending, rest);
+    }
     if let Some(rest) = cmd.strip_prefix("RENAME_PANE ") {
         let Some((window, title)) = rest.trim().split_once(' ') else {
             return "ERR RENAME_PANE requires window and title\n".to_string();
@@ -439,7 +458,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -500,6 +519,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "BALANCE_PANES",
             "control",
             "reset native pane weights to equal values",
+        ),
+        (
+            "RESTORE_SESSION_JSON <json>",
+            "control",
+            "replace native panes from a SESSION_JSON manifest",
         ),
         (
             "RENAME_PANE <window> <title>",
@@ -601,6 +625,71 @@ fn queue_native_pane_command(
         Ok(mut state) => {
             state.pending.push(build(arg.to_string()));
             format!("{ok_prefix} command={} arg={}\n", state.pending.len(), arg)
+        }
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
+}
+
+fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, json: &str) -> String {
+    let json = json.trim();
+    if json.is_empty() {
+        return "ERR RESTORE_SESSION_JSON requires json\n".to_string();
+    }
+    let value: serde_json::Value = match serde_json::from_str(json) {
+        Ok(value) => value,
+        Err(err) => return format!("ERR RESTORE_SESSION_JSON invalid json: {err}\n"),
+    };
+    let layout = value
+        .get("layout")
+        .and_then(|v| v.as_str())
+        .filter(|layout| matches!(*layout, "columns" | "rows"))
+        .map(str::to_string);
+    let Some(items) = value.get("panes").and_then(|v| v.as_array()) else {
+        return "ERR RESTORE_SESSION_JSON requires panes array\n".to_string();
+    };
+    if items.is_empty() {
+        return "ERR RESTORE_SESSION_JSON requires at least one pane\n".to_string();
+    }
+    let mut panes = Vec::with_capacity(items.len());
+    for (idx, item) in items.iter().enumerate() {
+        let command = item
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if command.is_empty() {
+            return format!("ERR RESTORE_SESSION_JSON pane {idx} missing command\n");
+        }
+        let weight = item
+            .get("weight")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1)
+            .clamp(1, u64::from(u16::MAX)) as u16;
+        panes.push(NativeSessionRestorePane {
+            title: item
+                .get("title")
+                .and_then(|v| v.as_str())
+                .filter(|title| !title.trim().is_empty())
+                .map(str::to_string),
+            command: command.to_string(),
+            weight,
+            focused: item
+                .get("focused")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        });
+    }
+    let focus_index = panes.iter().position(|pane| pane.focused);
+    match pending.lock() {
+        Ok(mut state) => {
+            state
+                .pending
+                .push(NativePaneCommand::RestoreSession(NativeSessionRestore {
+                    layout,
+                    panes,
+                    focus_index,
+                }));
+            format!("RESTORE_SESSION_QUEUED command={}\n", state.pending.len())
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
@@ -1316,6 +1405,17 @@ mod tests {
             native_spawn_queue_reply("SEND_KEY native-2 page-down", &pending)
                 .starts_with("SEND_KEY_QUEUED")
         );
+        let manifest = serde_json::json!({
+            "layout": "rows",
+            "panes": [
+                {"title": "shell", "command": "bash", "weight": 2, "focused": false},
+                {"title": "logs", "command": "tail -f app.log", "weight": 1, "focused": true}
+            ]
+        });
+        assert!(
+            native_spawn_queue_reply(&format!("RESTORE_SESSION_JSON {manifest}"), &pending)
+                .starts_with("RESTORE_SESSION_QUEUED")
+        );
         assert!(native_spawn_queue_reply("LAYOUT diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("FOCUS_PANE", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("MOVE_PANE focused diagonal", &pending).contains("ERR"));
@@ -1325,6 +1425,7 @@ mod tests {
         assert!(native_spawn_queue_reply("SEND_LINE", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_KEY focused nope", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_KEY focused page down", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("RESTORE_SESSION_JSON {}", &pending).contains("ERR"));
         assert_eq!(
             drain_native_spawn_pending(&pending),
             vec![
@@ -1365,7 +1466,25 @@ mod tests {
                     window: "native-2".to_string(),
                     bytes: b"\x1b[6~".to_vec(),
                     label: "page-down".to_string(),
-                }
+                },
+                NativePaneCommand::RestoreSession(NativeSessionRestore {
+                    layout: Some("rows".to_string()),
+                    focus_index: Some(1),
+                    panes: vec![
+                        NativeSessionRestorePane {
+                            title: Some("shell".to_string()),
+                            command: "bash".to_string(),
+                            weight: 2,
+                            focused: false,
+                        },
+                        NativeSessionRestorePane {
+                            title: Some("logs".to_string()),
+                            command: "tail -f app.log".to_string(),
+                            weight: 1,
+                            focused: true,
+                        },
+                    ],
+                })
             ]
         );
     }
@@ -1412,6 +1531,7 @@ mod tests {
         assert!(help.contains("MOVE_PANE <window|focused>"), "{help}");
         assert!(help.contains("RESIZE_PANE <window|focused>"), "{help}");
         assert!(help.contains("BALANCE_PANES"), "{help}");
+        assert!(help.contains("RESTORE_SESSION_JSON <json>"), "{help}");
         assert!(help.contains("RENAME_PANE <window> <title>"), "{help}");
         assert!(help.contains("SEND_TEXT <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_LINE <window|focused> <text>"), "{help}");

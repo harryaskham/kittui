@@ -124,6 +124,7 @@ kittwm --attach -c 'SEND_LINE focused echo hello from controller'
 kittwm --attach -c 'SEND_KEY focused ctrl-c'
 kittwm --attach -c 'READ_TEXT focused'
 kittwm --attach -c SESSION_JSON  # persistence-oriented layout/order/focus manifest
+kittwm --attach -c 'RESTORE_SESSION_JSON {"layout":"rows","panes":[{"command":"htop","title":"htop","weight":1,"focused":true}]}'
 kittwm --attach -c PANES_JSON  # includes weight, pid/command, and title/app cell geometry
 ```
 
