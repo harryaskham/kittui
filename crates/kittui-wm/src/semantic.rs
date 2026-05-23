@@ -6,9 +6,10 @@
 
 use kittui::{CellRect, CellSize, Layer, Node, PxRect, Scene};
 use kittui_affordances::{
-    button, checkbox, progress, radio_group, select_list, split_pane, tabs, text_area, text_input,
-    ControlComponent, ControlOption, ControlState,
+    button, checkbox, menu, progress, radio_group, select_list, slider, split_pane, tabs,
+    text_area, text_input, ControlComponent, ControlOption, ControlState,
 };
+use kittwm_sdk as sdk;
 
 /// Stable semantic component identifier.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -183,10 +184,24 @@ impl SemanticSurfaceSnapshot {
     }
 }
 
+/// Render a public SDK semantic snapshot to a kittui primitive scene using
+/// shared `kittui-affordances` control builders.
+pub fn render_sdk_semantic_surface(
+    snapshot: &sdk::SemanticSurfaceSnapshot,
+    cell_size: CellSize,
+) -> Scene {
+    let controls = collect_sdk_controls(&snapshot.root);
+    render_controls_as_scene(controls, cell_size)
+}
+
 /// Render a semantic snapshot to a kittui primitive scene using shared
 /// `kittui-affordances` control builders.
 pub fn render_semantic_surface(snapshot: &SemanticSurfaceSnapshot, cell_size: CellSize) -> Scene {
     let controls = collect_controls(&snapshot.root);
+    render_controls_as_scene(controls, cell_size)
+}
+
+fn render_controls_as_scene(controls: Vec<ControlComponent>, cell_size: CellSize) -> Scene {
     let width_cells = controls
         .iter()
         .map(|control| control.width_cells)
@@ -218,6 +233,139 @@ pub fn render_semantic_surface(snapshot: &SemanticSurfaceSnapshot, cell_size: Ce
         cell_size,
         layers,
         animation: None,
+    }
+}
+
+fn collect_sdk_controls(root: &sdk::ComponentNode) -> Vec<ControlComponent> {
+    let mut out = Vec::new();
+    collect_sdk_controls_into(root, &mut out);
+    if out.is_empty() {
+        out.push(button(
+            root.id.as_str(),
+            root.label.as_deref().unwrap_or("semantic surface"),
+            24,
+        ));
+    }
+    out
+}
+
+fn collect_sdk_controls_into(node: &sdk::ComponentNode, out: &mut Vec<ControlComponent>) {
+    if let Some(control) = sdk_node_to_control(node) {
+        out.push(control);
+    }
+    for child in &node.children {
+        collect_sdk_controls_into(child, out);
+    }
+}
+
+fn sdk_node_to_control(node: &sdk::ComponentNode) -> Option<ControlComponent> {
+    let id = node.id.as_str();
+    let label = node.label.as_deref().unwrap_or(id);
+    let mut state = sdk_control_state(&node.state);
+    let width = node.layout.cols.unwrap_or(32).max(8);
+    let control = match &node.role {
+        sdk::ComponentRole::Button => button(id, label, width).state(state),
+        sdk::ComponentRole::Checkbox => {
+            state.checked = sdk_bool_value(node).unwrap_or(node.state.checked);
+            checkbox(id, label, state.checked, width).state(state)
+        }
+        sdk::ComponentRole::Radio => {
+            state.checked = node.state.checked || node.state.selected;
+            radio_group(
+                id,
+                label,
+                vec![ControlOption::new(id, label)
+                    .selected(state.checked)
+                    .disabled(state.disabled)],
+                width,
+            )
+            .state(state)
+        }
+        sdk::ComponentRole::RadioGroup => {
+            radio_group(id, label, sdk_option_children(node), width).state(state)
+        }
+        sdk::ComponentRole::TextInput => {
+            text_input(id, label, sdk_text_value(node).unwrap_or_default(), width).state(state)
+        }
+        sdk::ComponentRole::TextArea => text_area(
+            id,
+            label,
+            sdk_text_value(node).unwrap_or_default(),
+            width,
+            node.layout.rows.unwrap_or(5).max(3),
+        )
+        .state(state),
+        sdk::ComponentRole::SelectList => {
+            select_list(id, label, sdk_option_children(node), width).state(state)
+        }
+        sdk::ComponentRole::Menu => menu(id, label, sdk_option_children(node), width).state(state),
+        sdk::ComponentRole::Slider => {
+            slider(id, label, sdk_number_value(node).unwrap_or(0.0), width).state(state)
+        }
+        sdk::ComponentRole::Progress => {
+            progress(id, label, sdk_number_value(node).unwrap_or(0.0), width).state(state)
+        }
+        sdk::ComponentRole::Tabs => tabs(id, label, sdk_option_children(node), width).state(state),
+        sdk::ComponentRole::SplitPane => {
+            split_pane(id, label, width, node.layout.rows.unwrap_or(6).max(3)).state(state)
+        }
+        sdk::ComponentRole::Group
+        | sdk::ComponentRole::Label
+        | sdk::ComponentRole::Table
+        | sdk::ComponentRole::Custom(_) => return None,
+    };
+    Some(control)
+}
+
+fn sdk_control_state(state: &sdk::ComponentState) -> ControlState {
+    ControlState {
+        focused: state.focused,
+        disabled: state.disabled,
+        active: state.active,
+        selected: state.selected,
+        checked: state.checked,
+    }
+}
+
+fn sdk_option_children(node: &sdk::ComponentNode) -> Vec<ControlOption> {
+    let selected = sdk_selection_value(node);
+    node.children
+        .iter()
+        .map(|child| {
+            let id = child.id.as_str().to_string();
+            let is_selected = child.state.selected || selected.iter().any(|s| s == &id);
+            ControlOption::new(id, child.label.as_deref().unwrap_or(child.id.as_str()))
+                .selected(is_selected)
+                .disabled(child.state.disabled)
+        })
+        .collect()
+}
+
+fn sdk_bool_value(node: &sdk::ComponentNode) -> Option<bool> {
+    match node.value.as_ref()? {
+        sdk::ComponentValue::Bool(v) => Some(*v),
+        _ => None,
+    }
+}
+
+fn sdk_text_value(node: &sdk::ComponentNode) -> Option<String> {
+    match node.value.as_ref()? {
+        sdk::ComponentValue::Text(v) => Some(v.clone()),
+        _ => None,
+    }
+}
+
+fn sdk_number_value(node: &sdk::ComponentNode) -> Option<f32> {
+    match node.value.as_ref()? {
+        sdk::ComponentValue::Number(v) => Some(*v),
+        _ => None,
+    }
+}
+
+fn sdk_selection_value(node: &sdk::ComponentNode) -> Vec<String> {
+    match node.value.as_ref() {
+        Some(sdk::ComponentValue::Selection(v)) => v.clone(),
+        _ => Vec::new(),
     }
 }
 
@@ -504,6 +652,59 @@ mod tests {
                 .label
                 .as_deref()
                 .map(|label| label.contains("control_marker_selected"))
+                .unwrap_or(false)
+        }));
+    }
+
+    #[test]
+    fn sdk_semantic_snapshot_renders_through_affordance_controls() {
+        let snapshot = sdk::SemanticSurfaceSnapshot::new(
+            "native-1",
+            7,
+            sdk::ComponentNode::new("settings", sdk::ComponentRole::Group).children(vec![
+                sdk::ComponentNode::new("settings.name", sdk::ComponentRole::TextInput)
+                    .labeled("Name")
+                    .valued(sdk::ComponentValue::Text("Ada".to_string()))
+                    .state(sdk::ComponentState {
+                        focused: true,
+                        focusable: true,
+                        ..sdk::ComponentState::default()
+                    }),
+                sdk::ComponentNode::new("settings.notify", sdk::ComponentRole::Checkbox)
+                    .labeled("Notify")
+                    .valued(sdk::ComponentValue::Bool(true)),
+                sdk::ComponentNode::new("settings.theme", sdk::ComponentRole::RadioGroup)
+                    .labeled("Theme")
+                    .valued(sdk::ComponentValue::Selection(vec![
+                        "settings.theme.dark".to_string()
+                    ]))
+                    .children(vec![
+                        sdk::ComponentNode::new("settings.theme.light", sdk::ComponentRole::Radio)
+                            .labeled("Light"),
+                        sdk::ComponentNode::new("settings.theme.dark", sdk::ComponentRole::Radio)
+                            .labeled("Dark"),
+                    ]),
+                sdk::ComponentNode::new("settings.progress", sdk::ComponentRole::Progress)
+                    .labeled("Progress")
+                    .valued(sdk::ComponentValue::Number(0.5)),
+            ]),
+        )
+        .focused("settings.name");
+        let scene = render_sdk_semantic_surface(&snapshot, CellSize::new(8, 16));
+        assert!(scene.footprint.cols >= 32);
+        assert!(scene.footprint.rows > 4);
+        assert!(scene.layers.iter().any(|layer| {
+            layer
+                .label
+                .as_deref()
+                .map(|label| label.contains("control_marker_selected"))
+                .unwrap_or(false)
+        }));
+        assert!(scene.layers.iter().any(|layer| {
+            layer
+                .label
+                .as_deref()
+                .map(|label| label.contains("control_progress_fill"))
                 .unwrap_or(false)
         }));
     }
