@@ -5246,6 +5246,19 @@ mod tests {
     }
 
     #[test]
+    fn interactive_footnotes_reports_empty_documents() {
+        let doc = MarkdownDocument::default();
+        let mut out = Vec::new();
+        write_interactive_footnotes(&doc, 20, &mut out).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains("kittui-md footnotes — 0 references, 0 definitions"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("<empty>"), "{rendered}");
+    }
+
+    #[test]
     fn interactive_footer_writes_reload_status() {
         let mut out = Vec::new();
         write_interactive_footer(
