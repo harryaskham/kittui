@@ -2185,6 +2185,47 @@ impl HeadlessBrowserApp {
         )
     }
 
+    /// Route semantic focus to a DOM/ARIA component id from the latest browser
+    /// semantic snapshot.
+    pub fn semantic_focus(&mut self, component_id: &str) -> Result<()> {
+        self.semantic_action(component_id, "focus", json!({}))
+    }
+
+    /// Route a semantic action to a DOM/ARIA component through DevTools.
+    ///
+    /// Component ids are resolved by rerunning the same DOM candidate/id logic
+    /// used by [`HeadlessBrowserApp::semantic_snapshot`]. If the element is no
+    /// longer present, the page reports a stale-component error so callers can
+    /// refresh their snapshot.
+    pub fn semantic_action(
+        &mut self,
+        component_id: &str,
+        action: &str,
+        payload: serde_json::Value,
+    ) -> Result<()> {
+        let expression = browser_semantic_action_script(component_id, action, payload)?;
+        let value = self.cdp(
+            "Runtime.evaluate",
+            json!({"expression": expression, "returnByValue": true, "awaitPromise": false}),
+        )?;
+        let result = value
+            .get("result")
+            .and_then(|result| result.get("value"))
+            .cloned()
+            .unwrap_or_else(|| json!({"ok": false, "error": "missing-result"}));
+        if result.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+            Ok(())
+        } else {
+            let error = result
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("semantic action failed");
+            Err(anyhow!(
+                "browser semantic action {action} on {component_id}: {error}"
+            ))
+        }
+    }
+
     /// Dispatch a mouse click at CSS-pixel coordinates.
     pub fn click(&mut self, x: i32, y: i32) -> Result<()> {
         self.cdp(
@@ -2267,6 +2308,88 @@ fn browser_semantic_extractor_script() -> &'static str {
   });
   return { title: document.title || location.href, nodes };
 })()"#
+}
+
+fn browser_semantic_action_script(
+    component_id: &str,
+    action: &str,
+    payload: serde_json::Value,
+) -> Result<String> {
+    let action = match action {
+        "focus" | "activate" | "toggle" | "set_value" | "insert_text" | "select" | "scroll" => {
+            action
+        }
+        other => return Err(anyhow!("unsupported browser semantic action {other}")),
+    };
+    let component = serde_json::to_string(component_id)?;
+    let action_json = serde_json::to_string(action)?;
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(format!(
+        r#"(() => {{
+  const targetId = {component};
+  const action = {action_json};
+  const payload = {payload_json};
+  const roleOf = (el) => {{
+    const explicit = (el.getAttribute('role') || '').toLowerCase();
+    if (explicit) return explicit;
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    if (tag === 'button' || ['button', 'submit', 'reset'].includes(type)) return 'button';
+    if (tag === 'a' && el.hasAttribute('href')) return 'link';
+    if (tag === 'textarea') return 'textbox';
+    if (tag === 'select') return 'listbox';
+    if (tag === 'progress' || tag === 'meter') return 'progressbar';
+    if (type === 'checkbox') return 'checkbox';
+    if (type === 'radio') return 'radio';
+    if (type === 'range') return 'slider';
+    if (['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(type)) return 'textbox';
+    if (el.isContentEditable) return 'textbox';
+    if (/^h[1-6]$/.test(tag) || tag === 'label') return 'label';
+    return '';
+  }};
+  const idOf = (el, role, index) => el.id ? `dom:${{el.id}}` : `dom:${{role || el.tagName.toLowerCase()}}:${{index}}`;
+  const candidates = document.querySelectorAll('button,a[href],input,textarea,select,progress,meter,label,h1,h2,h3,h4,h5,h6,[role],[contenteditable="true"],canvas,video');
+  let el = null;
+  candidates.forEach((candidate, index) => {{
+    if (el) return;
+    const role = roleOf(candidate) || (['CANVAS', 'VIDEO'].includes(candidate.tagName) ? 'pixel_region' : '');
+    if (role && idOf(candidate, role, index) === targetId) el = candidate;
+  }});
+  if (!el) return {{ok:false, error:'stale-component'}};
+  const dispatchValue = () => {{
+    el.dispatchEvent(new Event('input', {{bubbles:true}}));
+    el.dispatchEvent(new Event('change', {{bubbles:true}}));
+  }};
+  if (action === 'focus') {{ el.focus(); return {{ok:true}}; }}
+  if (action === 'activate' || action === 'toggle') {{ el.focus(); el.click(); return {{ok:true}}; }}
+  if (action === 'set_value') {{
+    const value = payload.value ?? payload.text ?? '';
+    el.focus();
+    if ('value' in el) el.value = String(value);
+    else if (el.isContentEditable) el.textContent = String(value);
+    else return {{ok:false, error:'not-editable'}};
+    dispatchValue();
+    return {{ok:true}};
+  }}
+  if (action === 'insert_text') {{
+    const text = String(payload.text ?? payload.value ?? '');
+    el.focus();
+    if (document.execCommand && document.execCommand('insertText', false, text)) return {{ok:true}};
+    if ('value' in el) {{ el.value = (el.value || '') + text; dispatchValue(); return {{ok:true}}; }}
+    if (el.isContentEditable) {{ el.textContent = (el.textContent || '') + text; dispatchValue(); return {{ok:true}}; }}
+    return {{ok:false, error:'not-editable'}};
+  }}
+  if (action === 'select') {{
+    const value = payload.value ?? payload.id ?? payload.option;
+    el.focus();
+    if ('value' in el && value != null) {{ el.value = String(value); dispatchValue(); return {{ok:true}}; }}
+    el.click();
+    return {{ok:true}};
+  }}
+  if (action === 'scroll') {{ el.scrollIntoView({{block:'center', inline:'center'}}); return {{ok:true}}; }}
+  return {{ok:false, error:'unsupported-action'}};
+}})()"#
+    ))
 }
 
 fn browser_semantic_snapshot_from_value(
@@ -3350,6 +3473,22 @@ mod tests {
             snapshot.root.children[5].role,
             ComponentRole::Custom("browser.pixel_region".to_string())
         );
+    }
+
+    #[test]
+    fn browser_semantic_action_script_routes_focus_and_value_actions() {
+        let focus = browser_semantic_action_script("dom:name", "focus", json!({})).unwrap();
+        assert!(focus.contains("const targetId = \"dom:name\""));
+        assert!(focus.contains("const action = \"focus\""));
+        assert!(focus.contains("stale-component"));
+
+        let set_value =
+            browser_semantic_action_script("dom:name", "set_value", json!({"value":"Ada"}))
+                .unwrap();
+        assert!(set_value.contains("const action = \"set_value\""));
+        assert!(set_value.contains("\"value\":\"Ada\""));
+        assert!(set_value.contains("dispatchValue"));
+        assert!(browser_semantic_action_script("dom:name", "delete", json!({})).is_err());
     }
 
     #[test]

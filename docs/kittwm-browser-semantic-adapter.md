@@ -133,5 +133,6 @@ The semantic tree is intentionally side-band state. Opaque/canvas/video/custom
 content still relies on screenshots, and browser semantic actions through
 DevTools are tracked by `bd-15cde5`.
 - `bd-15cde5`: route `SEMANTIC_ACTION`/`SEMANTIC_FOCUS` for browser semantic nodes to DevTools/DOM operations for focus, activate, set value, insert text, and select.
+  - Landed first slice: `HeadlessBrowserApp::semantic_focus` and `semantic_action` generate/evaluate DOM action scripts for focus, activate/toggle, set value, insert text, select, and scroll, returning stale-component errors when ids no longer resolve.
 
 These should be separate implementation beads because extraction, publishing cadence, and action routing each carry different risk.
