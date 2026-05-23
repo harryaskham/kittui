@@ -29,6 +29,7 @@ export interface PxRect {
 }
 
 export type Direction = 'horizontal' | 'vertical' | 'diagonal';
+export type BlendMode = 'normal' | 'add' | 'multiply' | 'screen';
 
 export type Paint =
   | { kind: 'solid'; color: Rgba }
@@ -69,7 +70,7 @@ export type Node =
     }
   | { kind: 'scanlines'; rect: PxRect; alpha: number; period_px: number }
   | { kind: 'group'; opacity: number; children: Node[] }
-  | { kind: 'composite'; mode: 'normal' | 'add' | 'multiply' | 'screen'; children: Node[] }
+  | { kind: 'composite'; mode: BlendMode; children: Node[] }
   | { kind: 'mask'; mask: Node; child: Node }
   | { kind: 'clip'; rect: PxRect; child: Node };
 
@@ -181,6 +182,15 @@ export const scene: {
   scanlinesBox(args: { cols: number; rows: number; alpha?: number; periodPx?: number; cellSize?: CellSize; label?: string }): Scene;
   imageLayer(args: { cols: number; rows: number; src: string | ArrayLike<number>; fit?: Fit; tint?: Rgba | null; cellSize?: CellSize; label?: string }): Layer;
   imageBox(args: { cols: number; rows: number; src: string | ArrayLike<number>; fit?: Fit; tint?: Rgba | null; cellSize?: CellSize; label?: string }): Scene;
+  layer(root: Node, label?: string): Layer;
+  group(children: Node[], options?: { opacity?: number }): Node;
+  groupLayer(children: Node[], options?: { opacity?: number; label?: string }): Layer;
+  composite(children: Node[], options?: { mode?: BlendMode }): Node;
+  compositeLayer(children: Node[], options?: { mode?: BlendMode; label?: string }): Layer;
+  clip(rect: PxRect, child: Node): Node;
+  clipLayer(rect: PxRect, child: Node, options?: { label?: string }): Layer;
+  mask(mask: Node, child: Node): Node;
+  maskLayer(mask: Node, child: Node, options?: { label?: string }): Layer;
   backgroundSolid(rgba: Rgba): Layer;
   backgroundLinear(direction: Direction, startRgba: Rgba, endRgba: Rgba): Layer;
 };

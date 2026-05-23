@@ -397,3 +397,22 @@ test('scene helpers produce JSON-compatible plain objects', () => {
   assert.equal(scan.layers[0].root.kind, 'scanlines');
   assert.equal(scan.layers[0].root.period_px, 3);
 });
+
+test('scene helpers produce composition primitive nodes', () => {
+  const rect = scene.rectLayer({ cols: 2, rows: 1, rgba: [1, 2, 3, 255] }).root;
+  const glow = scene.glowLayer({ cols: 2, rows: 1, rgba: [255, 255, 255, 64] }).root;
+  const group = scene.group([rect, glow], { opacity: 0.5 });
+  assert.deepEqual(group, { kind: 'group', opacity: 0.5, children: [rect, glow] });
+  const comp = scene.composite([rect, glow], { mode: 'screen' });
+  assert.equal(comp.kind, 'composite');
+  assert.equal(comp.mode, 'screen');
+  const clip = scene.clip({ origin: [1, 2], width: 3, height: 4 }, group);
+  assert.equal(clip.kind, 'clip');
+  assert.deepEqual(clip.rect.origin, [1, 2]);
+  const masked = scene.mask(glow, rect);
+  assert.equal(masked.kind, 'mask');
+  assert.deepEqual(masked.mask, glow);
+  const layer = scene.compositeLayer([rect, glow], { mode: 'add', label: 'fx' });
+  assert.equal(layer.label, 'fx');
+  assert.equal(layer.root.mode, 'add');
+});

@@ -45,6 +45,10 @@ const imageScene = scene.imageBox({
 });
 const glowScene = scene.glowBox({ cols: 8, rows: 3, rgba: [0, 216, 255, 128], intensity: 0.5 });
 const scanlineScene = scene.scanlinesBox({ cols: 8, rows: 3, alpha: 24, periodPx: 3 });
+const clippedLayer = scene.clipLayer(
+  { origin: [0, 0], width: 64, height: 32 },
+  scene.group([scene.rectLayer({ cols: 8, rows: 3, rgba: [0, 216, 255, 255] }).root], { opacity: 0.8 }),
+);
 
 // Render-only PNG bytes for previews/artifacts.
 const png = k.render(sceneObject);

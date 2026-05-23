@@ -166,6 +166,24 @@ class KittuiBindingTests(unittest.TestCase):
         self.assertEqual(scan["layers"][0]["root"]["kind"], "scanlines")
         self.assertEqual(scan["layers"][0]["root"]["period_px"], 3)
 
+    def test_scene_helpers_build_composition_primitives(self):
+        rect = scene.rect_layer(2, 1, [1, 2, 3, 255])["root"]
+        glow = scene.glow_layer(2, 1, [255, 255, 255, 64])["root"]
+        group = scene.group([rect, glow], opacity=0.5)
+        self.assertEqual(group, {"kind": "group", "opacity": 0.5, "children": [rect, glow]})
+        comp = scene.composite([rect, glow], mode="screen")
+        self.assertEqual(comp["kind"], "composite")
+        self.assertEqual(comp["mode"], "screen")
+        clip = scene.clip({"origin": [1, 2], "width": 3, "height": 4}, group)
+        self.assertEqual(clip["kind"], "clip")
+        self.assertEqual(clip["rect"]["origin"], [1, 2])
+        masked = scene.mask(glow, rect)
+        self.assertEqual(masked["kind"], "mask")
+        self.assertEqual(masked["mask"], glow)
+        layer = scene.composite_layer([rect, glow], mode="add", label="fx")
+        self.assertEqual(layer["label"], "fx")
+        self.assertEqual(layer["root"]["mode"], "add")
+
     def test_place_variants_normalize_dicts_and_json_strings(self):
         lib = FakeLib()
         k = Kittui.from_library(lib)

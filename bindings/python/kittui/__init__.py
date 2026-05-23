@@ -221,6 +221,45 @@ class _SceneHelpers:
         )
 
     @staticmethod
+    def layer(root: dict[str, Any], label: str | None = None) -> dict[str, Any]:
+        out = {"root": root}
+        if label is not None:
+            out["label"] = label
+        return out
+
+    @staticmethod
+    def group(children: list[dict[str, Any]], *, opacity: float = 1.0) -> dict[str, Any]:
+        return {"kind": "group", "opacity": float(opacity), "children": children}
+
+    @staticmethod
+    def group_layer(children: list[dict[str, Any]], *, opacity: float = 1.0, label: str = "group") -> dict[str, Any]:
+        return _SceneHelpers.layer(_SceneHelpers.group(children, opacity=opacity), label)
+
+    @staticmethod
+    def composite(children: list[dict[str, Any]], *, mode: str = "normal") -> dict[str, Any]:
+        return {"kind": "composite", "mode": mode, "children": children}
+
+    @staticmethod
+    def composite_layer(children: list[dict[str, Any]], *, mode: str = "normal", label: str = "composite") -> dict[str, Any]:
+        return _SceneHelpers.layer(_SceneHelpers.composite(children, mode=mode), label)
+
+    @staticmethod
+    def clip(rect: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]:
+        return {"kind": "clip", "rect": rect, "child": child}
+
+    @staticmethod
+    def clip_layer(rect: dict[str, Any], child: dict[str, Any], *, label: str = "clip") -> dict[str, Any]:
+        return _SceneHelpers.layer(_SceneHelpers.clip(rect, child), label)
+
+    @staticmethod
+    def mask(mask: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]:
+        return {"kind": "mask", "mask": mask, "child": child}
+
+    @staticmethod
+    def mask_layer(mask: dict[str, Any], child: dict[str, Any], *, label: str = "mask") -> dict[str, Any]:
+        return _SceneHelpers.layer(_SceneHelpers.mask(mask, child), label)
+
+    @staticmethod
     def background_solid(rgba: list[int] | tuple[int, int, int, int]) -> dict[str, Any]:
         return _SceneHelpers.rect_layer(0, 0, rgba)
 

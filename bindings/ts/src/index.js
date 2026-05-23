@@ -565,6 +565,51 @@ export const scene = {
     });
   },
 
+  /** Wrap a node in a layer, optionally labelled. */
+  layer(root, label = undefined) {
+    return label === undefined ? { root } : { label, root };
+  },
+
+  /** Group node with subtree opacity. */
+  group(children, { opacity = 1.0 } = {}) {
+    return { kind: 'group', opacity, children };
+  },
+
+  /** Group layer with subtree opacity. */
+  groupLayer(children, { opacity = 1.0, label = 'group' } = {}) {
+    return this.layer(this.group(children, { opacity }), label);
+  },
+
+  /** Composite/blend node. */
+  composite(children, { mode = 'normal' } = {}) {
+    return { kind: 'composite', mode, children };
+  },
+
+  /** Composite/blend layer. */
+  compositeLayer(children, { mode = 'normal', label = 'composite' } = {}) {
+    return this.layer(this.composite(children, { mode }), label);
+  },
+
+  /** Clip node. */
+  clip(rect, child) {
+    return { kind: 'clip', rect, child };
+  },
+
+  /** Clip layer. */
+  clipLayer(rect, child, { label = 'clip' } = {}) {
+    return this.layer(this.clip(rect, child), label);
+  },
+
+  /** Alpha-mask node. */
+  mask(mask, child) {
+    return { kind: 'mask', mask, child };
+  },
+
+  /** Alpha-mask layer. */
+  maskLayer(mask, child, { label = 'mask' } = {}) {
+    return this.layer(this.mask(mask, child), label);
+  },
+
   /** Solid-background layer placeholder for callers that size rects themselves. */
   backgroundSolid(rgba) {
     return {
