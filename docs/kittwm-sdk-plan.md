@@ -117,7 +117,7 @@ loop {
 }
 ```
 
-Initial transport wraps the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types. Current typed helpers cover status/panes, bounded events, terminal surface spawn/replace, first-party browser surface spawn via `SurfaceSpec::browser(...)`, semantic snapshot/publish/action/focus, text snapshots, control/input helpers, and app discovery through `Kittwm::apps`, `Kittwm::app_first`, and `Kittwm::app_launch_first`.
+Initial transport wraps the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types. Current typed helpers cover status/panes, bounded events, terminal surface spawn/replace, first-party browser surface spawn via `SurfaceSpec::browser(...)`, semantic snapshot/publish/action/focus, text snapshots, control/input helpers, session save/restore through `SessionManifest`, `SessionPane`, `Kittwm::session`, and `Kittwm::restore_session`, and app discovery through `Kittwm::apps`, `Kittwm::app_first`, and `Kittwm::app_launch_first`.
 
 ## First-party apps
 
@@ -221,6 +221,7 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 - Continue expanding the existing `kittwm-sdk` crate with typed requests and handles.
 - Keep the initial transport backed by the existing native socket protocol.
+- Typed SDK session helpers now expose `SESSION_JSON` / `RESTORE_SESSION_JSON` as `SessionManifest`, `SessionPane`, `Kittwm::session`, and `Kittwm::restore_session`; session reads use the low-risk read capability, while restore is gated as a create/control mutation.
 - Typed SDK event iteration over `EVENTS [ms]` exists for current status/pane/focus/layout/semantic events.
 - Semantic surface snapshot/publish/action/focus APIs and common action helper methods now exist in the SDK.
 
