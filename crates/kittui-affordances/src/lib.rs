@@ -19,6 +19,7 @@
 #![warn(missing_docs, rust_2018_idioms)]
 
 pub mod components;
+pub mod controls;
 pub mod inline;
 pub mod markdown;
 pub mod palette;
@@ -27,6 +28,10 @@ pub mod table;
 
 pub use components::{
     banner, footer, h1, h2, h3, header, textbox, textchip, title, ComponentKind, UiComponent,
+};
+pub use controls::{
+    button, checkbox, menu, progress, radio, radio_group, select_list, slider, split_pane, tabs,
+    text_area, text_input, ControlComponent, ControlKind, ControlOption, ControlState,
 };
 pub use inline::{chip_chrome, divider_chrome, title_chrome};
 pub use markdown::{
