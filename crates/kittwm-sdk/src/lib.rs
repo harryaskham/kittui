@@ -681,8 +681,111 @@ fn parse_event_value(value: Value) -> KittwmEvent {
     }
 }
 
+/// Dirty-frame metrics reported by native panes when measurement is enabled.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DirtyFrameStatus {
+    /// Changed dirty-grid tiles.
+    pub changed_tiles: u32,
+    /// Total dirty-grid tiles.
+    pub total_tiles: u32,
+    /// Changed tile fraction in `[0, 1]`.
+    pub changed_fraction: f32,
+    /// Whether the frame upload was skipped because it was clean.
+    pub skipped_upload: bool,
+}
+
+/// Rich native pane detail returned by `PANES_JSON` / `STATUS_JSON`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NativePaneDetail {
+    /// Window id.
+    pub window: String,
+    /// Human-readable title.
+    pub title: String,
+    /// Whether this pane is focused.
+    pub focused: bool,
+    /// Layout weight.
+    pub weight: u16,
+    /// Process id, if known.
+    #[serde(default)]
+    pub pid: Option<u32>,
+    /// Spawned command, if known.
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Outer x cell.
+    #[serde(default)]
+    pub x: Option<u16>,
+    /// Outer y cell.
+    #[serde(default)]
+    pub y: Option<u16>,
+    /// Outer columns.
+    #[serde(default)]
+    pub cols: Option<u16>,
+    /// Outer rows.
+    #[serde(default)]
+    pub rows: Option<u16>,
+    /// App/content x cell.
+    #[serde(default)]
+    pub app_x: Option<u16>,
+    /// App/content y cell.
+    #[serde(default)]
+    pub app_y: Option<u16>,
+    /// App/content columns.
+    #[serde(default)]
+    pub app_cols: Option<u16>,
+    /// App/content rows.
+    #[serde(default)]
+    pub app_rows: Option<u16>,
+    /// Cursor column.
+    #[serde(default)]
+    pub cursor_col: Option<u16>,
+    /// Cursor row.
+    #[serde(default)]
+    pub cursor_row: Option<u16>,
+    /// Cursor visibility.
+    #[serde(default)]
+    pub cursor_visible: Option<bool>,
+    /// Bracketed paste mode.
+    #[serde(default)]
+    pub bracketed_paste: Option<bool>,
+    /// Application cursor keys mode.
+    #[serde(default)]
+    pub application_cursor_keys: Option<bool>,
+    /// Basic mouse reporting mode.
+    #[serde(default)]
+    pub mouse_reporting: Option<bool>,
+    /// Button-motion mouse mode.
+    #[serde(default)]
+    pub mouse_button_motion: Option<bool>,
+    /// All-motion mouse mode.
+    #[serde(default)]
+    pub mouse_all_motion: Option<bool>,
+    /// SGR mouse mode.
+    #[serde(default)]
+    pub mouse_sgr: Option<bool>,
+    /// Dirty-frame metrics, when reported.
+    #[serde(default)]
+    pub dirty_frame: Option<DirtyFrameStatus>,
+    /// Transport diagnostics/future extension fields, when reported.
+    #[serde(default)]
+    pub transport: Option<Value>,
+}
+
+/// Typed `PANES_JSON` response.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PanesStatus {
+    /// Pane count.
+    pub panes: u64,
+    /// Focused window id.
+    pub focus: String,
+    /// Layout label.
+    pub layout: String,
+    /// Detailed panes.
+    #[serde(default)]
+    pub panes_detail: Vec<NativePaneDetail>,
+}
+
 /// Minimal status response shape shared by standalone and native daemons.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Status {
     /// Pending command count when available.
     #[serde(default)]
@@ -696,6 +799,12 @@ pub struct Status {
     /// Layout label when available.
     #[serde(default)]
     pub layout: Option<String>,
+    /// Focused pane detail when available.
+    #[serde(default)]
+    pub focused_pane: Option<NativePaneDetail>,
+    /// Pane details when available.
+    #[serde(default)]
+    pub panes_detail: Vec<NativePaneDetail>,
 }
 
 /// Basic window creation/replacement request. This is currently translated to
@@ -780,6 +889,11 @@ impl Kittwm {
         Ok(serde_json::from_str(
             &self.request_protocol("STATUS_JSON")?,
         )?)
+    }
+
+    /// Fetch typed native pane details from `PANES_JSON`.
+    pub fn panes(&self) -> Result<PanesStatus> {
+        Ok(serde_json::from_str(&self.request_protocol("PANES_JSON")?)?)
     }
 
     /// Fetch a bounded batch of native JSON-lines events.
@@ -1172,6 +1286,66 @@ mod tests {
                 value: ComponentValue::Text("Ada".to_string())
             }
         );
+    }
+
+    #[test]
+    fn native_pane_detail_decodes_rich_status_shape() {
+        let panes: PanesStatus = serde_json::from_str(
+            r#"{
+              "panes": 1,
+              "focus": "native-1",
+              "layout": "columns",
+              "panes_detail": [{
+                "window": "native-1",
+                "title": "shell",
+                "focused": true,
+                "weight": 2,
+                "pid": 123,
+                "command": "/bin/sh",
+                "x": 0,
+                "y": 0,
+                "cols": 80,
+                "rows": 24,
+                "app_x": 0,
+                "app_y": 1,
+                "app_cols": 80,
+                "app_rows": 23,
+                "cursor_col": 4,
+                "cursor_row": 5,
+                "cursor_visible": true,
+                "bracketed_paste": true,
+                "application_cursor_keys": false,
+                "mouse_reporting": true,
+                "mouse_button_motion": false,
+                "mouse_all_motion": false,
+                "mouse_sgr": true,
+                "dirty_frame": {
+                  "changed_tiles": 1,
+                  "total_tiles": 4,
+                  "changed_fraction": 0.25,
+                  "skipped_upload": false
+                },
+                "transport": { "selected": "file", "compression": "auto" }
+              }]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(panes.focus, "native-1");
+        let pane = &panes.panes_detail[0];
+        assert_eq!(pane.cursor_col, Some(4));
+        assert_eq!(pane.mouse_sgr, Some(true));
+        assert_eq!(pane.dirty_frame.as_ref().unwrap().changed_fraction, 0.25);
+        assert_eq!(pane.transport.as_ref().unwrap()["selected"], "file");
+    }
+
+    #[test]
+    fn status_decodes_without_optional_pane_details() {
+        let status: Status =
+            serde_json::from_str(r#"{"pending":0,"panes":1,"focus":"native-1","layout":"rows"}"#)
+                .unwrap();
+        assert_eq!(status.focus.as_deref(), Some("native-1"));
+        assert!(status.focused_pane.is_none());
+        assert!(status.panes_detail.is_empty());
     }
 
     #[test]
