@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Result alias for kittwm SDK calls.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -584,6 +585,102 @@ pub struct WindowHandle {
     pub id: String,
 }
 
+/// Common event metadata from the native `EVENTS [ms]` stream.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct EventEnvelope {
+    /// Event schema version.
+    #[serde(default)]
+    pub schema_version: Option<u64>,
+    /// Monotonic event sequence.
+    #[serde(default)]
+    pub seq: Option<u64>,
+    /// Event timestamp in milliseconds since epoch.
+    #[serde(default)]
+    pub at_ms: Option<u128>,
+    /// Affected/focused window, if supplied.
+    #[serde(default)]
+    pub window: Option<String>,
+    /// Event-specific detail object.
+    #[serde(default)]
+    pub detail: Value,
+}
+
+/// Native socket event parsed from `EVENTS [ms]`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum KittwmEvent {
+    /// Initial status snapshot.
+    Status(EventEnvelope),
+    /// Status changed.
+    StatusChanged(EventEnvelope),
+    /// Pane opened.
+    PaneOpened(EventEnvelope),
+    /// Pane closed.
+    PaneClosed(EventEnvelope),
+    /// Pane metadata/text/status changed.
+    PaneChanged(EventEnvelope),
+    /// Focus changed.
+    FocusChanged(EventEnvelope),
+    /// Layout changed.
+    LayoutChanged(EventEnvelope),
+    /// Unknown event kind; raw JSON is preserved for forward compatibility.
+    Unknown {
+        /// Unknown kind string.
+        kind: String,
+        /// Raw event object.
+        raw: Value,
+    },
+}
+
+impl KittwmEvent {
+    /// Parse one JSON event line from the native event stream.
+    pub fn parse_line(line: &str) -> Result<Self> {
+        let value: Value = serde_json::from_str(line)?;
+        Ok(parse_event_value(value))
+    }
+
+    /// Return this event's kind label.
+    pub fn kind(&self) -> &str {
+        match self {
+            Self::Status(_) => "status",
+            Self::StatusChanged(_) => "status_changed",
+            Self::PaneOpened(_) => "pane_opened",
+            Self::PaneClosed(_) => "pane_closed",
+            Self::PaneChanged(_) => "pane_changed",
+            Self::FocusChanged(_) => "focus_changed",
+            Self::LayoutChanged(_) => "layout_changed",
+            Self::Unknown { kind, .. } => kind.as_str(),
+        }
+    }
+}
+
+fn parse_event_value(value: Value) -> KittwmEvent {
+    let kind = value
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let envelope = || EventEnvelope {
+        schema_version: value.get("schema_version").and_then(Value::as_u64),
+        seq: value.get("seq").and_then(Value::as_u64),
+        at_ms: value.get("at_ms").and_then(Value::as_u64).map(u128::from),
+        window: value
+            .get("window")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        detail: value.get("detail").cloned().unwrap_or(Value::Null),
+    };
+    match kind.as_str() {
+        "status" => KittwmEvent::Status(envelope()),
+        "status_changed" => KittwmEvent::StatusChanged(envelope()),
+        "pane_opened" => KittwmEvent::PaneOpened(envelope()),
+        "pane_closed" => KittwmEvent::PaneClosed(envelope()),
+        "pane_changed" => KittwmEvent::PaneChanged(envelope()),
+        "focus_changed" => KittwmEvent::FocusChanged(envelope()),
+        "layout_changed" => KittwmEvent::LayoutChanged(envelope()),
+        _ => KittwmEvent::Unknown { kind, raw: value },
+    }
+}
+
 /// Minimal status response shape shared by standalone and native daemons.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
@@ -683,6 +780,21 @@ impl Kittwm {
         Ok(serde_json::from_str(
             &self.request_protocol("STATUS_JSON")?,
         )?)
+    }
+
+    /// Fetch a bounded batch of native JSON-lines events.
+    pub fn events_ms(&self, ms: u64) -> Result<Vec<KittwmEvent>> {
+        self.capabilities.ensure(Capability::SubscribeEvents)?;
+        let ms = ms.clamp(1, 60_000);
+        let reply = self.request_protocol(format!("EVENTS {ms}"))?;
+        reply
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                !trimmed.is_empty() && trimmed != "END"
+            })
+            .map(KittwmEvent::parse_line)
+            .collect()
     }
 
     /// Return a typed handle to an existing surface/window id.
@@ -1060,6 +1172,71 @@ mod tests {
                 value: ComponentValue::Text("Ada".to_string())
             }
         );
+    }
+
+    #[test]
+    fn event_parser_handles_known_and_unknown_events() {
+        let status = KittwmEvent::parse_line(
+            r#"{"schema_version":1,"seq":7,"at_ms":10,"kind":"focus_changed","window":"native-2","detail":{"focus":"native-2"}}"#,
+        )
+        .unwrap();
+        assert_eq!(status.kind(), "focus_changed");
+        match status {
+            KittwmEvent::FocusChanged(envelope) => {
+                assert_eq!(envelope.seq, Some(7));
+                assert_eq!(envelope.window.as_deref(), Some("native-2"));
+                assert_eq!(envelope.detail["focus"], "native-2");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
+        let unknown =
+            KittwmEvent::parse_line(r#"{"kind":"new_future_event","detail":{"x":1}}"#).unwrap();
+        assert_eq!(unknown.kind(), "new_future_event");
+        assert!(matches!(unknown, KittwmEvent::Unknown { .. }));
+    }
+
+    #[test]
+    fn event_capability_denies_before_io() {
+        let client = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::ReadText]));
+        assert!(matches!(
+            client.events_ms(100),
+            Err(Error::CapabilityDenied(Capability::SubscribeEvents))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn events_ms_parses_json_lines_until_end() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwe-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            stream
+                .write_all(
+                    b"{\"kind\":\"status\",\"seq\":1,\"detail\":{\"panes\":1}}\n{\"kind\":\"layout_changed\",\"seq\":2,\"detail\":{\"layout\":\"rows\"}}\nEND\n",
+                )
+                .unwrap();
+            request.trim().to_string()
+        });
+        let client = Kittwm::connect_path(&path);
+        let events = client.events_ms(250).unwrap();
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen, "EVENTS 250");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind(), "status");
+        assert_eq!(events[1].kind(), "layout_changed");
     }
 
     #[test]
