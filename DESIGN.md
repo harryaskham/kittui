@@ -493,6 +493,7 @@ kittui title-bar --left COLOR --right COLOR -w W [-h H]
 kittui image     --src PATH|- -w W -h H [--fit contain|cover|stretch|none] [--tint COLOR]
 kittui compose   <scene.json>|- [--x X --y Y]                # place Scene JSON; x/y can move a batch origin
 kittui render    <scene.json>|- [--out preview.png]           # render one Scene JSON to PNG bytes, no kitty escapes
+kittui render    <scenes.json>|- --out-dir DIR                 # render a Scene array to scene-00000.png, ...
 kittui place     --id 0xID --x X --y Y --cols C --rows R       # re-place a cached id
 kittui cache     info | gc [--budget BYTES] | clear
 kittui probe     [--force]
@@ -525,14 +526,17 @@ Animation curves accept `linear`, `ease-in-out`, `pulse[:harmonics]`, and
 the runtime.
 
 `--scene-json` plus `compose -` is the terminal-placement integration story for
-shell pipelines. `render - --out file.png` is the render-only story for previews,
-artifacts, tests, and non-terminal embedding:
+shell pipelines. `render - --out file.png` is the render-only story for a single
+preview/artifact; `render - --out-dir DIR` handles Scene arrays and writes a
+deterministic `scene-00000.png`, `scene-00001.png`, ... manifest under
+`--json`/`--dry-run`:
 
 ```sh
 kittui box -w 60 -h 9 --fg '#00d8ff' --bg '#08111fcc' --scene-json > panel.json
 jq '.animation = {"frames": 16, "cycle_ms": 800, "curve": {"Pulse": {"harmonics": 0}}, "loops": 0}' panel.json \
   | kittui compose - --dry-run --json
 kittui box -w 20 -h 4 --scene-json | kittui render - --out /tmp/kittui-preview.png
+jq -s . panel.json panel.json | kittui render - --out-dir /tmp/kittui-previews --json
 ```
 
 ## FFI (`kittui-ffi`)
