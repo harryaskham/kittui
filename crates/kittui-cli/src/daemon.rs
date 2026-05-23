@@ -14,6 +14,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 const CLIENT_READ_TIMEOUT: Duration = Duration::from_secs(10);
+const CLIENT_WAIT_TEXT_MARGIN: Duration = Duration::from_secs(5);
 
 /// Default socket path for the kittwm daemon.
 ///
@@ -1308,11 +1309,24 @@ fn daemon_help_json_reply() -> String {
     format!("{}\n", serde_json::json!({ "commands": commands }))
 }
 
+fn client_read_timeout_for(cmd: &str) -> Duration {
+    let trimmed = cmd.trim_start();
+    let Some(rest) = trimmed.strip_prefix("WAIT_TEXT_MS ") else {
+        return CLIENT_READ_TIMEOUT;
+    };
+    let mut parts = rest.split_whitespace();
+    let _window = parts.next();
+    let Some(ms) = parts.next().and_then(|value| value.parse::<u64>().ok()) else {
+        return CLIENT_READ_TIMEOUT;
+    };
+    Duration::from_millis(ms).saturating_add(CLIENT_WAIT_TEXT_MARGIN)
+}
+
 /// Send a single-line request and return the reply line.
 pub fn client_request(path: &Path, cmd: &str) -> Result<String> {
     let mut stream =
         UnixStream::connect(path).map_err(|e| anyhow!("connect {}: {e}", path.display()))?;
-    stream.set_read_timeout(Some(CLIENT_READ_TIMEOUT))?;
+    stream.set_read_timeout(Some(client_read_timeout_for(cmd)))?;
     stream.write_all(cmd.as_bytes())?;
     stream.write_all(b"\n")?;
     stream.flush()?;
@@ -1343,6 +1357,23 @@ mod tests {
         assert_eq!(
             display_to_socket_path("/tmp/custom.sock"),
             PathBuf::from("/tmp/custom.sock")
+        );
+    }
+
+    #[test]
+    fn client_read_timeout_tracks_wait_text_ms() {
+        assert_eq!(client_read_timeout_for("PING"), Duration::from_secs(10));
+        assert_eq!(
+            client_read_timeout_for("WAIT_TEXT focused ready"),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            client_read_timeout_for("WAIT_TEXT_MS focused 60000 build finished"),
+            Duration::from_secs(65)
+        );
+        assert_eq!(
+            client_read_timeout_for("WAIT_TEXT_MS focused nope build finished"),
+            Duration::from_secs(10)
         );
     }
 
@@ -1850,7 +1881,7 @@ fn displays_reply() -> String {
 pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
     let mut stream =
         UnixStream::connect(path).map_err(|e| anyhow!("connect {}: {e}", path.display()))?;
-    stream.set_read_timeout(Some(CLIENT_READ_TIMEOUT))?;
+    stream.set_read_timeout(Some(client_read_timeout_for(cmd)))?;
     stream.write_all(cmd.as_bytes())?;
     stream.write_all(b"\n")?;
     stream.flush()?;
