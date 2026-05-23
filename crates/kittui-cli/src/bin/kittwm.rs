@@ -82,6 +82,8 @@ struct Cli {
     save_session: Option<String>,
     restore_session: Option<String>,
     automation_request: Option<String>,
+    socket: Option<String>,
+    display: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -125,6 +127,12 @@ fn parse_args() -> Result<Cli> {
             "apps" => out.apps = true,
             "native-terminal" => out.native_terminal = true,
             "native-browser" => out.native_browser = true,
+            "--socket" => {
+                out.socket = Some(args.next().ok_or_else(|| anyhow!("--socket PATH"))?);
+            }
+            "--display" => {
+                out.display = Some(args.next().ok_or_else(|| anyhow!("--display DISPLAY"))?);
+            }
             "--limit" => {
                 let v = args.next().ok_or_else(|| anyhow!("--limit N"))?;
                 out.apps_limit = Some(v.parse().map_err(|_| anyhow!("--limit expects integer"))?);
@@ -355,7 +363,26 @@ fn parse_args() -> Result<Cli> {
             other => return Err(anyhow!("unknown arg {other}")),
         }
     }
+    validate_socket_target_flags(&out)?;
     Ok(out)
+}
+
+fn validate_socket_target_flags(cli: &Cli) -> Result<()> {
+    if cli.socket.is_some() && cli.display.is_some() {
+        return Err(anyhow!("--socket and --display are mutually exclusive"));
+    }
+    Ok(())
+}
+
+fn apply_socket_target_flags(cli: &Cli) {
+    if let Some(socket) = &cli.socket {
+        std::env::set_var("KITTWM_SOCKET", socket);
+        std::env::set_var("KITTWM_SOCK", socket);
+    }
+    if let Some(display) = &cli.display {
+        std::env::set_var("KITTUI_WM_DISPLAY", display);
+        std::env::set_var("KITTWM_DISPLAY", display);
+    }
 }
 
 fn print_help() {
@@ -365,6 +392,8 @@ fn print_help() {
          Default: open a kittui-native PTY terminal in the current terminal.\n\
          The child receives KITTWM_SOCKET, KITTWM_DISPLAY, and KITTWM_WINDOW.\n\
          Use --backend fake|quartz|xvfb for capture-backed modes. Ctrl-] exits.\n\n\
+         --socket PATH target an explicit kittwm socket for this invocation.\n\
+         --display DISPLAY target a DISPLAY-like socket token such as :7.\n\
          --serve   run as a Unix-socket daemon at $KITTWM_SOCK\n\
                    (default /tmp/kittwm-$USER.sock). Blocks until QUIT or\n\
                    SIGINT/SIGTERM. RAII socket cleanup.\n\
@@ -501,6 +530,7 @@ fn main() -> ExitCode {
 
 fn real_main() -> Result<()> {
     let cli = parse_args()?;
+    apply_socket_target_flags(&cli);
     if let Some(fps) = cli.fps {
         std::env::set_var("KITTUI_WM_FPS", fps.to_string());
     }
@@ -2036,6 +2066,16 @@ mod tests {
     fn argv_to_shell_words_quotes_single_quotes() {
         let shell = argv_to_shell_words(&args(&["echo", "Bob's pane"]));
         assert_eq!(shell, "echo 'Bob'\\''s pane'");
+    }
+
+    #[test]
+    fn socket_target_flags_are_mutually_exclusive() {
+        let mut cli = Cli::default();
+        cli.socket = Some("/tmp/kittwm-test.sock".to_string());
+        assert!(validate_socket_target_flags(&cli).is_ok());
+        cli.display = Some(":7".to_string());
+        let err = validate_socket_target_flags(&cli).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"), "{err}");
     }
 
     #[test]
