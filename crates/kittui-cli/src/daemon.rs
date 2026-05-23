@@ -105,12 +105,14 @@ pub enum NativePaneCommand {
     SpawnPty(String),
     Focus(String),
     Close(String),
+    Layout(String),
 }
 
 #[derive(Default, Debug)]
 struct NativeSpawnQueueState {
     pending: Vec<NativePaneCommand>,
     panes: Vec<NativePaneStatus>,
+    layout: Option<String>,
 }
 
 /// In-process socket queue used by the live native PTY session.
@@ -167,6 +169,13 @@ impl NativeSpawnQueue {
     pub fn update_panes(&self, panes: Vec<NativePaneStatus>) {
         if let Ok(mut state) = self.pending.lock() {
             state.panes = panes;
+        }
+    }
+
+    /// Publish the live native pane layout axis for STATUS requests.
+    pub fn update_layout(&self, layout: impl Into<String>) {
+        if let Ok(mut state) = self.pending.lock() {
+            state.layout = Some(layout.into());
         }
     }
 }
@@ -234,11 +243,24 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
             "CLOSE_QUEUED",
         );
     }
+    if let Some(axis) = cmd.strip_prefix("LAYOUT ") {
+        let axis = axis.trim().to_ascii_lowercase();
+        if !matches!(axis.as_str(), "columns" | "rows") {
+            return "ERR LAYOUT expects columns|rows\n".to_string();
+        }
+        return queue_native_pane_command(
+            pending,
+            &axis,
+            "LAYOUT requires columns|rows",
+            NativePaneCommand::Layout,
+            "LAYOUT_QUEUED",
+        );
+    }
     match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
         "PANES" => native_spawn_panes_reply(pending),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused>\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows>\n"
             .to_string(),
     }
 }
@@ -274,10 +296,11 @@ fn native_spawn_status_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Str
                 .map(|pane| pane.window.as_str())
                 .unwrap_or("-");
             format!(
-                "OK pending={} panes={} focus={}\n",
+                "OK pending={} panes={} focus={} layout={}\n",
                 state.pending.len(),
                 state.panes.len(),
-                focused
+                focused,
+                state.layout.as_deref().unwrap_or("-")
             )
         })
         .unwrap_or_else(|_| "ERR registry poisoned\n".to_string())
@@ -571,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn native_spawn_queue_parses_focus_and_close_commands() {
+    fn native_spawn_queue_parses_focus_close_and_layout_commands() {
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
         assert!(
             native_spawn_queue_reply("FOCUS_PANE native-2", &pending).starts_with("FOCUS_QUEUED")
@@ -579,12 +602,15 @@ mod tests {
         assert!(
             native_spawn_queue_reply("CLOSE_PANE focused", &pending).starts_with("CLOSE_QUEUED")
         );
+        assert!(native_spawn_queue_reply("LAYOUT rows", &pending).starts_with("LAYOUT_QUEUED"));
+        assert!(native_spawn_queue_reply("LAYOUT diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("FOCUS_PANE", &pending).contains("ERR"));
         assert_eq!(
             drain_native_spawn_pending(&pending),
             vec![
                 NativePaneCommand::Focus("native-2".to_string()),
-                NativePaneCommand::Close("focused".to_string())
+                NativePaneCommand::Close("focused".to_string()),
+                NativePaneCommand::Layout("rows".to_string())
             ]
         );
     }
@@ -604,9 +630,10 @@ mod tests {
                 focused: true,
             },
         ];
+        pending.lock().unwrap().layout = Some("rows".to_string());
         assert_eq!(
             native_spawn_queue_reply("STATUS", &pending).trim(),
-            "OK pending=0 panes=2 focus=native-2"
+            "OK pending=0 panes=2 focus=native-2 layout=rows"
         );
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");

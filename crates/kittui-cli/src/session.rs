@@ -61,6 +61,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         native_pane_layouts(cols, rows, pane_count, layout_axis),
     )?;
     queue.update_panes(native_pane_statuses(&panes, focused));
+    queue.update_layout(layout_axis.label());
 
     let fps = std::env::var("KITTUI_WM_FPS")
         .ok()
@@ -201,9 +202,25 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         }
                     }
                 }
+                crate::daemon::NativePaneCommand::Layout(axis) => {
+                    if let Some(axis) = NativePaneLayoutAxis::parse(&axis) {
+                        layout_axis = axis;
+                        let pane_count = panes.len();
+                        resize_native_panes(
+                            &mut panes,
+                            native_pane_layouts(cols, rows, pane_count, layout_axis),
+                        )?;
+                        clear = true;
+                        dbg.log(&format!(
+                            "native terminal socket layout: {}",
+                            layout_axis.label()
+                        ));
+                    }
+                }
             }
         }
         queue.update_panes(native_pane_statuses(&panes, focused));
+        queue.update_layout(layout_axis.label());
         let (new_cols, new_rows) = native_terminal_size();
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
@@ -274,6 +291,23 @@ struct NativePane {
 enum NativePaneLayoutAxis {
     Columns,
     Rows,
+}
+
+impl NativePaneLayoutAxis {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Columns => "columns",
+            Self::Rows => "rows",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "columns" => Some(Self::Columns),
+            "rows" => Some(Self::Rows),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -475,6 +509,21 @@ fn write_native_pane_title<W: Write>(
 #[cfg(test)]
 mod native_pane_tests {
     use super::*;
+
+    #[test]
+    fn native_pane_layout_axis_labels_and_parses() {
+        assert_eq!(NativePaneLayoutAxis::Columns.label(), "columns");
+        assert_eq!(NativePaneLayoutAxis::Rows.label(), "rows");
+        assert_eq!(
+            NativePaneLayoutAxis::parse("columns"),
+            Some(NativePaneLayoutAxis::Columns)
+        );
+        assert_eq!(
+            NativePaneLayoutAxis::parse("rows"),
+            Some(NativePaneLayoutAxis::Rows)
+        );
+        assert_eq!(NativePaneLayoutAxis::parse("diagonal"), None);
+    }
 
     #[test]
     fn native_pane_layouts_split_columns_and_reserve_title_rows() {
