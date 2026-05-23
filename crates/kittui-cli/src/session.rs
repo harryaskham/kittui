@@ -77,6 +77,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut last_title_rows = Vec::<String>::new();
     let mut last_footer = String::new();
     let pure_terminal_renderer = native_should_use_pure_terminal_renderer();
+    let affordance_scene_chrome = native_should_use_affordance_scene_chrome();
     let mut dirty_frames = NativeDirtyFramePolicy::from_env();
     loop {
         let frame_start = Instant::now();
@@ -468,10 +469,15 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if last_title_rows.len() != shell_view.panes.len() {
             last_title_rows.resize(shell_view.panes.len(), String::new());
         }
+        if affordance_scene_chrome {
+            write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view)?;
+        }
         for (idx, pane) in panes.iter_mut().enumerate() {
             let layout = layouts[idx];
             let chrome = &shell_view.panes[idx];
-            if redraw_static || last_title_rows.get(idx) != Some(&chrome.cache_key) {
+            if !affordance_scene_chrome
+                && (redraw_static || last_title_rows.get(idx) != Some(&chrome.cache_key))
+            {
                 write_native_pane_chrome(&mut handle, chrome)?;
                 last_title_rows[idx] = chrome.cache_key.clone();
             }
@@ -505,7 +511,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 NativeFrame::Png { .. } => {}
             }
         }
-        if redraw_static || shell_view.footer.text != last_footer {
+        if !affordance_scene_chrome && (redraw_static || shell_view.footer.text != last_footer) {
             write!(
                 handle,
                 "\x1b[{};1H\x1b[K{}",
@@ -651,6 +657,16 @@ fn native_should_use_pure_terminal_renderer() -> bool {
         Ok(value) => matches!(value.as_str(), "terminal" | "text" | "ansi" | "dec"),
         Err(_) => std::env::var_os("TMUX").is_some(),
     }
+}
+
+fn native_should_use_affordance_scene_chrome() -> bool {
+    matches!(
+        std::env::var("KITTWM_NATIVE_CHROME_RENDERER")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "affordance-scene" | "affordance_scene" | "kittui"
+    )
 }
 
 fn native_dirty_frames_skip_unchanged() -> bool {
@@ -1477,7 +1493,6 @@ struct NativeShellChromeScene {
     scene: Scene,
 }
 
-#[allow(dead_code)]
 fn render_native_shell_view_affordance_scenes(
     view: &NativeShellView,
     cell_size: CellSize,
@@ -1485,21 +1500,21 @@ fn render_native_shell_view_affordance_scenes(
     let mut scenes = Vec::new();
     for (idx, pane) in view.panes.iter().enumerate() {
         let state = ControlState::default().focused(pane.focused);
-        let scene = button(
+        let mut control = button(
             format!("pane-{idx}"),
             pane.text.clone(),
             pane.app_cols.max(6),
         )
-        .state(state)
-        .to_scene(cell_size);
+        .state(state);
+        control.height_cells = 1;
         scenes.push(NativeShellChromeScene {
             id: format!("pane-{idx}-title"),
             x: pane.x,
             y: pane.y,
-            scene,
+            scene: control.to_scene(cell_size),
         });
     }
-    let footer = text_input(
+    let mut footer = text_input(
         "footer",
         "status",
         view.footer.text.clone(),
@@ -1508,15 +1523,35 @@ fn render_native_shell_view_affordance_scenes(
             .map(|pane| pane.app_cols)
             .sum::<u16>()
             .max(20),
-    )
-    .to_scene(cell_size);
+    );
+    footer.height_cells = 1;
     scenes.push(NativeShellChromeScene {
         id: "footer".to_string(),
         x: 0,
         y: view.footer.row,
-        scene: footer,
+        scene: footer.to_scene(cell_size),
     });
     scenes
+}
+
+fn write_native_shell_affordance_chrome<W: Write>(
+    out: &mut W,
+    runtime: &Runtime,
+    view: &NativeShellView,
+) -> Result<()> {
+    for chrome in render_native_shell_view_affordance_scenes(view, CellSize::default()) {
+        let placement = CellRect::new(
+            chrome.x,
+            chrome.y,
+            chrome.scene.footprint.cols,
+            chrome.scene.footprint.rows,
+        );
+        let p = runtime.place_at(&chrome.scene, placement)?;
+        out.write_all(p.upload.as_bytes())?;
+        out.write_all(p.placement.as_bytes())?;
+        out.write_all(p.embed.as_bytes())?;
+    }
+    Ok(())
 }
 
 fn clip_and_pad(text: &str, width: usize) -> String {
@@ -1572,6 +1607,20 @@ mod native_pane_tests {
         assert!(native_should_use_pure_terminal_renderer());
         std::env::remove_var("TMUX");
         std::env::remove_var("KITTWM_NATIVE_RENDERER");
+    }
+
+    #[test]
+    fn native_chrome_renderer_selector_is_opt_in() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
+        assert!(!native_should_use_affordance_scene_chrome());
+        std::env::set_var("KITTWM_NATIVE_CHROME_RENDERER", "affordance-scene");
+        assert!(native_should_use_affordance_scene_chrome());
+        std::env::set_var("KITTWM_NATIVE_CHROME_RENDERER", "kittui");
+        assert!(native_should_use_affordance_scene_chrome());
+        std::env::set_var("KITTWM_NATIVE_CHROME_RENDERER", "ansi");
+        assert!(!native_should_use_affordance_scene_chrome());
+        std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
     }
 
     #[test]
