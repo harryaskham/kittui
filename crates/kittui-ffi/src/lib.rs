@@ -15,12 +15,12 @@ use std::path::PathBuf;
 use std::ptr;
 use std::sync::Mutex;
 
-use kittui::{RendererKind, Runtime, Scene};
+use kittui::{CellSize, RendererKind, Runtime, Scene, TerminalInfo, Transport};
 
 /// Major version of the FFI ABI. Bumped on any breaking change.
 pub const KITTUI_ABI_MAJOR: u32 = 0;
 /// Minor version of the FFI ABI. Bumped on additive changes.
-pub const KITTUI_ABI_MINOR: u32 = 2;
+pub const KITTUI_ABI_MINOR: u32 = 3;
 
 /// Opaque pointer to a runtime instance. Owned by the caller; freed via
 /// [`kittui_runtime_free`].
@@ -65,15 +65,123 @@ pub unsafe extern "C" fn kittui_runtime_new(cache_dir: *const c_char) -> *mut Ki
             let s = CStr::from_ptr(cache_dir).to_string_lossy().into_owned();
             builder = builder.cache_dir(PathBuf::from(s));
         }
-        match builder.build() {
-            Ok(runtime) => Box::into_raw(Box::new(KittuiRuntime {
-                inner: runtime,
-                last_error: Mutex::new(None),
-            })),
-            Err(_) => ptr::null_mut(),
-        }
+        runtime_ptr_from_builder(builder)
     }));
     result.unwrap_or(ptr::null_mut())
+}
+
+/// Construct a runtime from a JSON config blob. Supported fields:
+/// `cache_dir`, `renderer`, `transport`, `columns`, `rows`, `cell_width_px`,
+/// `cell_height_px`, `supports_kitty`, and `supports_unicode_placeholders`.
+///
+/// # Safety
+///
+/// `json` must be null or point to a NUL-terminated UTF-8 string for the
+/// duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn kittui_runtime_new_config(json: *const c_char) -> *mut KittuiRuntime {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if json.is_null() {
+            return runtime_ptr_from_builder(Runtime::builder().renderer(RendererKind::Cpu));
+        }
+        let s = match CStr::from_ptr(json).to_str() {
+            Ok(s) => s,
+            Err(_) => return ptr::null_mut(),
+        };
+        let value: serde_json::Value = match serde_json::from_str(s) {
+            Ok(value) => value,
+            Err(_) => return ptr::null_mut(),
+        };
+        let renderer = match parse_renderer(
+            value
+                .get("renderer")
+                .and_then(|v| v.as_str())
+                .unwrap_or("cpu"),
+        ) {
+            Some(renderer) => renderer,
+            None => return ptr::null_mut(),
+        };
+        let mut builder = Runtime::builder().renderer(renderer);
+        if let Some(cache_dir) = value.get("cache_dir").and_then(|v| v.as_str()) {
+            builder = builder.cache_dir(PathBuf::from(cache_dir));
+        }
+        let terminal = match terminal_from_config(&value) {
+            Some(terminal) => terminal,
+            None => return ptr::null_mut(),
+        };
+        builder = builder.terminal(terminal);
+        runtime_ptr_from_builder(builder)
+    }));
+    result.unwrap_or(ptr::null_mut())
+}
+
+fn runtime_ptr_from_builder(builder: kittui::RuntimeBuilder) -> *mut KittuiRuntime {
+    match builder.build() {
+        Ok(runtime) => Box::into_raw(Box::new(KittuiRuntime {
+            inner: runtime,
+            last_error: Mutex::new(None),
+        })),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+fn parse_renderer(value: &str) -> Option<RendererKind> {
+    match value.to_ascii_lowercase().as_str() {
+        "cpu" => Some(RendererKind::Cpu),
+        "gpu" => Some(RendererKind::Gpu),
+        "auto" => Some(RendererKind::Auto),
+        _ => None,
+    }
+}
+
+fn parse_transport(value: &str) -> Option<Transport> {
+    match value.to_ascii_lowercase().replace('-', "_").as_str() {
+        "direct" => Some(Transport::Direct),
+        "tmux" | "tmux_passthrough" => Some(Transport::TmuxPassthrough),
+        "file" => Some(Transport::File),
+        "memory" | "shm" | "shared" => Some(Transport::Memory),
+        _ => None,
+    }
+}
+
+fn json_u16(value: &serde_json::Value, key: &str) -> Option<Option<u16>> {
+    match value.get(key) {
+        None | Some(serde_json::Value::Null) => Some(None),
+        Some(v) => v.as_u64().and_then(|n| u16::try_from(n).ok()).map(Some),
+    }
+}
+
+fn terminal_from_config(value: &serde_json::Value) -> Option<TerminalInfo> {
+    let detected = TerminalInfo::detect();
+    let transport = value
+        .get("transport")
+        .and_then(|v| v.as_str())
+        .and_then(parse_transport)
+        .unwrap_or(detected.transport);
+    let width = value
+        .get("cell_width_px")
+        .and_then(|v| v.as_u64())
+        .and_then(|n| u16::try_from(n).ok())
+        .unwrap_or(detected.cell_size.width_px);
+    let height = value
+        .get("cell_height_px")
+        .and_then(|v| v.as_u64())
+        .and_then(|n| u16::try_from(n).ok())
+        .unwrap_or(detected.cell_size.height_px);
+    Some(TerminalInfo::override_with(
+        json_u16(value, "columns")?,
+        json_u16(value, "rows")?,
+        CellSize::new(width, height),
+        value
+            .get("supports_kitty")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(detected.supports_kitty),
+        value
+            .get("supports_unicode_placeholders")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(detected.supports_unicode_placeholders),
+        transport,
+    ))
 }
 
 /// Free a runtime allocated by [`kittui_runtime_new`].
@@ -341,10 +449,76 @@ pub unsafe extern "C" fn kittui_render_json(
 mod tests {
     use super::*;
 
+    fn tempdir() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "kittui-ffi-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn scene_json() -> CString {
+        let scene = kittui::scene::builders::simple_solid_box(2, 1, "#00d8ff");
+        CString::new(serde_json::to_string(&scene).unwrap()).unwrap()
+    }
+
+    unsafe fn owned_string(ptr: *mut c_char) -> String {
+        assert!(!ptr.is_null());
+        let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+        kittui_string_free(ptr);
+        s
+    }
+
     #[test]
     fn abi_version_packs_major_minor() {
         let v = kittui_abi_version();
         assert_eq!(v >> 16, KITTUI_ABI_MAJOR);
         assert_eq!(v & 0xffff, KITTUI_ABI_MINOR);
+    }
+
+    #[test]
+    fn runtime_new_config_sets_transport_and_places_scene() {
+        let config = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": true, "supports_unicode_placeholders": true, "columns": 80, "rows": 24}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(config.as_ptr());
+            assert!(!runtime.is_null());
+            let probe = owned_string(kittui_probe_json(runtime));
+            assert!(probe.contains("\"transport\":\"Direct\""), "{probe}");
+            let mut out: *mut c_char = std::ptr::null_mut();
+            let status = kittui_place_json(runtime, scene_json().as_ptr(), &mut out);
+            assert_eq!(status, KittuiStatus::Ok);
+            let bytes = owned_string(out);
+            assert!(bytes.contains("\x1b_G"), "{bytes:?}");
+            kittui_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn runtime_new_config_can_disable_terminal_support() {
+        let config = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": false, "supports_unicode_placeholders": true}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(config.as_ptr());
+            assert!(!runtime.is_null());
+            let mut out: *mut c_char = std::ptr::null_mut();
+            let status = kittui_place_json(runtime, scene_json().as_ptr(), &mut out);
+            assert_eq!(status, KittuiStatus::Runtime);
+            assert!(out.is_null());
+            let err = owned_string(kittui_last_error(runtime));
+            assert!(err.contains("unsupported terminal"), "{err}");
+            kittui_runtime_free(runtime);
+        }
     }
 }

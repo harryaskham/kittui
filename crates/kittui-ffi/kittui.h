@@ -23,7 +23,7 @@ extern "C" {
 #define KITTUI_ABI_MAJOR 0
 
 /* Minor ABI version. Bumped on additive changes. */
-#define KITTUI_ABI_MINOR 2
+#define KITTUI_ABI_MINOR 3
 
 /* Return value for every fallible entry point. */
 typedef enum KittuiStatus {
@@ -42,6 +42,9 @@ uint32_t kittui_abi_version(void);
 
 /* Construct a runtime. cache_dir may be NULL to use the platform default. */
 KittuiRuntime* kittui_runtime_new(const char* cache_dir);
+
+/* Construct a runtime from JSON config; NULL uses defaults. */
+KittuiRuntime* kittui_runtime_new_config(const char* json);
 
 /* Free a runtime allocated by kittui_runtime_new. */
 void kittui_runtime_free(KittuiRuntime* runtime);

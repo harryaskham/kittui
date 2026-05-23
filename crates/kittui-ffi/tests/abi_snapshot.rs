@@ -11,14 +11,13 @@ use std::path::Path;
 
 #[test]
 fn header_lists_only_exported_symbols() {
-    let header = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("kittui.h"),
-    )
-    .unwrap();
+    let header =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("kittui.h")).unwrap();
     let expected = [
         "kittui_abi_version",
         "kittui_abi_version_check",
         "kittui_runtime_new",
+        "kittui_runtime_new_config",
         "kittui_runtime_free",
         "kittui_runtime_configure",
         "kittui_place_json",
@@ -39,14 +38,12 @@ fn header_lists_only_exported_symbols() {
 
 #[test]
 fn abi_version_constants_match_header() {
-    let header = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("kittui.h"),
-    )
-    .unwrap();
+    let header =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("kittui.h")).unwrap();
     assert!(header.contains("#define KITTUI_ABI_MAJOR 0"));
-    assert!(header.contains("#define KITTUI_ABI_MINOR 2"));
+    assert!(header.contains("#define KITTUI_ABI_MINOR 3"));
     assert_eq!(kittui_ffi::KITTUI_ABI_MAJOR, 0);
-    assert_eq!(kittui_ffi::KITTUI_ABI_MINOR, 2);
+    assert_eq!(kittui_ffi::KITTUI_ABI_MINOR, 3);
 }
 
 #[test]
