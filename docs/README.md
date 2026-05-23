@@ -87,7 +87,8 @@ Current semantic implementation status:
 - `kittwm-sdk` automation helpers now include screen text, scrollback,
   visible-text waits, screen-plus-scrollback output waits, exact byte sends,
   bracketed paste byte payloads, and typed `MouseEvent` injection through
-  `SurfaceHandle` methods.
+  `SurfaceHandle` methods; SDK introspection includes typed `HELP_JSON` catalog
+  helpers.
 - `kittwm-launch` — first-party SDK launcher with backend planning, typed app
   discovery helpers, URL/browser auto-selection through `kittwm-browser`,
   `--dry-run`, and `--status`.
