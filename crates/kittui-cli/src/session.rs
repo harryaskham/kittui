@@ -825,6 +825,7 @@ fn native_pane_statuses(
                 app_cols: layout.map(|l| l.app_cols),
                 cursor_col: Some(cursor_col),
                 cursor_row: Some(cursor_row),
+                cursor_visible: Some(pane.app.cursor_visible()),
                 bracketed_paste: Some(pane.app.bracketed_paste_enabled()),
                 text_snapshot: Some(pane.app.text_snapshot()),
                 scrollback_snapshot: Some(pane.app.scrollback_snapshot()),

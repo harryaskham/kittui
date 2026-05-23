@@ -126,6 +126,8 @@ pub struct NativePaneStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor_row: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor_visible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bracketed_paste: Option<bool>,
     #[serde(skip_serializing)]
     pub text_snapshot: Option<String>,
@@ -1006,7 +1008,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} pid={} command={:?} cursor={} bracketed_paste={} layout={} title={:?}",
+            "  window={} focused={} weight={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} layout={} title={:?}",
             pane.window,
             pane.focused,
             pane.weight,
@@ -1015,6 +1017,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
                 .unwrap_or_else(|| "-".to_string()),
             pane.command,
             native_pane_cursor_label(pane),
+            native_pane_bool_label(pane.cursor_visible),
             native_pane_bracketed_paste_label(pane),
             native_pane_layout_label(pane),
             pane.title
@@ -1032,7 +1035,11 @@ fn native_pane_cursor_label(pane: &NativePaneStatus) -> String {
 }
 
 fn native_pane_bracketed_paste_label(pane: &NativePaneStatus) -> &'static str {
-    match pane.bracketed_paste {
+    native_pane_bool_label(pane.bracketed_paste)
+}
+
+fn native_pane_bool_label(value: Option<bool>) -> &'static str {
+    match value {
         Some(true) => "on",
         Some(false) => "off",
         None => "-",
@@ -1880,6 +1887,7 @@ mod tests {
             app_cols: None,
             cursor_col: None,
             cursor_row: None,
+            cursor_visible: Some(true),
             bracketed_paste: Some(false),
             text_snapshot: Some("ready\n$ ".to_string()),
             scrollback_snapshot: Some("boot\n".to_string()),
@@ -1921,6 +1929,7 @@ mod tests {
             app_cols: None,
             cursor_col: None,
             cursor_row: None,
+            cursor_visible: Some(true),
             bracketed_paste: Some(false),
             text_snapshot: Some("waiting\n".to_string()),
             scrollback_snapshot: Some("previous\n".to_string()),
@@ -2040,6 +2049,7 @@ mod tests {
                 app_cols: Some(40),
                 cursor_col: Some(4),
                 cursor_row: Some(1),
+                cursor_visible: Some(true),
                 bracketed_paste: Some(true),
                 text_snapshot: Some("shell line\n".to_string()),
                 scrollback_snapshot: Some("shell history\n".to_string()),
@@ -2061,6 +2071,7 @@ mod tests {
                 app_cols: Some(80),
                 cursor_col: Some(12),
                 cursor_row: Some(2),
+                cursor_visible: Some(false),
                 bracketed_paste: Some(false),
                 text_snapshot: Some("htop line\nsecond\n".to_string()),
                 scrollback_snapshot: Some("htop history\n".to_string()),
@@ -2075,11 +2086,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") cursor=4,1 bracketed_paste=on layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") cursor=12,2 bracketed_paste=off layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let status_json: serde_json::Value =
@@ -2095,6 +2106,7 @@ mod tests {
         assert_eq!(status_json["focused_pane"]["app_cols"], 80);
         assert_eq!(status_json["focused_pane"]["cursor_col"], 12);
         assert_eq!(status_json["focused_pane"]["cursor_row"], 2);
+        assert_eq!(status_json["focused_pane"]["cursor_visible"], false);
         assert_eq!(status_json["focused_pane"]["bracketed_paste"], false);
         assert_eq!(status_json["panes_detail"].as_array().unwrap().len(), 2);
         let panes_json: serde_json::Value =
@@ -2107,6 +2119,7 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["app_cols"], 80);
         assert_eq!(panes_json["panes_detail"][1]["cursor_col"], 12);
         assert_eq!(panes_json["panes_detail"][1]["cursor_row"], 2);
+        assert_eq!(panes_json["panes_detail"][0]["cursor_visible"], true);
         assert_eq!(panes_json["panes_detail"][0]["bracketed_paste"], true);
         assert!(panes_json["panes_detail"][1].get("text_snapshot").is_none());
 

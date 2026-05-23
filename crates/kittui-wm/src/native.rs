@@ -170,6 +170,11 @@ impl PtyTerminalApp {
         (state.cursor_col, state.cursor_row)
     }
 
+    /// Whether the terminal cursor should be visible.
+    pub fn cursor_visible(&self) -> bool {
+        self.state.lock().cursor_visible
+    }
+
     /// Whether the terminal application has enabled bracketed paste mode.
     pub fn bracketed_paste_enabled(&self) -> bool {
         self.state.lock().bracketed_paste
@@ -248,6 +253,7 @@ struct TerminalState {
     cursor_row: u16,
     saved_cursor_col: u16,
     saved_cursor_row: u16,
+    cursor_visible: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     cells: Vec<TerminalCell>,
@@ -311,6 +317,7 @@ impl TerminalState {
             cursor_row: 0,
             saved_cursor_col: 0,
             saved_cursor_row: 0,
+            cursor_visible: true,
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
             cells: vec![
@@ -332,6 +339,7 @@ impl TerminalState {
         self.title = old.title.clone();
         self.scrollback = old.scrollback.clone();
         self.current_style = old.current_style;
+        self.cursor_visible = old.cursor_visible;
         self.bracketed_paste = old.bracketed_paste;
         self.focus_reporting = old.focus_reporting;
         self.cells = resize_cells(&old.cells, old.cols, old.rows, cols, rows);
@@ -827,6 +835,9 @@ impl Perform for TerminalState {
         let has_focus_reporting_mode = params
             .iter()
             .any(|param| param.first().copied() == Some(1004));
+        let has_cursor_visibility_mode = params
+            .iter()
+            .any(|param| param.first().copied() == Some(25));
         match action {
             '@' => self.insert_chars(first_count),
             'A' => self.cursor_row = self.cursor_row.saturating_sub(first_count),
@@ -868,6 +879,7 @@ impl Perform for TerminalState {
             'h' if is_dec_private && has_alt_screen_mode => self.enter_alternate_screen(),
             'h' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = true,
             'h' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = true,
+            'h' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = true,
             'J' => match first_raw {
                 0 => self.clear_screen_range(
                     self.cursor_row,
@@ -889,6 +901,7 @@ impl Perform for TerminalState {
             'l' if is_dec_private && has_alt_screen_mode => self.leave_alternate_screen(),
             'l' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = false,
             'l' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = false,
+            'l' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = false,
             'M' => self.delete_lines(first_count),
             'm' => self.apply_sgr(params),
             'P' => self.delete_chars(first_count),
@@ -930,7 +943,37 @@ fn render_terminal_rgba(state: &TerminalState, cell_w: u32, cell_h: u32) -> Vec<
             draw_pseudo_glyph(&mut rgba, width, col, row, cell_w, cell_h, cell.ch, fg);
         }
     }
+    if state.cursor_visible {
+        draw_terminal_cursor(&mut rgba, width, state, cell_w, cell_h);
+    }
     rgba
+}
+
+fn draw_terminal_cursor(
+    rgba: &mut [u8],
+    width: u32,
+    state: &TerminalState,
+    cell_w: u32,
+    cell_h: u32,
+) {
+    if state.cursor_col >= state.cols || state.cursor_row >= state.rows {
+        return;
+    }
+    let cell = state.get_cell_at(state.cursor_col, state.cursor_row);
+    let (fg, bg) = terminal_cell_colors(cell.style);
+    let cursor = if cell.ch == ' ' { fg } else { bg };
+    let x0 = u32::from(state.cursor_col) * cell_w;
+    let y0 = u32::from(state.cursor_row) * cell_h;
+    let start_y = cell_h.saturating_sub(3);
+    for y in start_y..cell_h {
+        for x in 0..cell_w {
+            let idx = (((y0 + y) * width + (x0 + x)) as usize) * 4;
+            rgba[idx] = cursor.0;
+            rgba[idx + 1] = cursor.1;
+            rgba[idx + 2] = cursor.2;
+            rgba[idx + 3] = 0xff;
+        }
+    }
 }
 
 fn terminal_cell_colors(style: TerminalStyle) -> (TerminalColor, TerminalColor) {
@@ -1428,6 +1471,31 @@ mod tests {
         assert!(state.focus_reporting);
         parser.advance(&mut state, b"\x1b[?1004l");
         assert!(!state.focus_reporting);
+    }
+
+    #[test]
+    fn terminal_state_tracks_cursor_visibility_mode() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        assert!(state.cursor_visible);
+        parser.advance(&mut state, b"\x1b[?25l");
+        assert!(!state.cursor_visible);
+        parser.advance(&mut state, b"\x1b[?25h");
+        assert!(state.cursor_visible);
+    }
+
+    #[test]
+    fn terminal_renderer_draws_visible_cursor() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(2, 1);
+        parser.advance(&mut state, b"A");
+        let visible = render_terminal_rgba(&state, 8, 16);
+        state.cursor_visible = false;
+        let hidden = render_terminal_rgba(&state, 8, 16);
+        assert_ne!(visible, hidden);
+        assert!(visible
+            .chunks_exact(4)
+            .any(|px| px == [0xd7, 0xf8, 0xff, 0xff]));
     }
 
     #[test]
