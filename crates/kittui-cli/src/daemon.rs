@@ -270,9 +270,87 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "PANES_JSON" => native_spawn_panes_json_reply(pending),
         "APPS" => apps_reply(50),
         "APPS_JSON" => apps_json_reply(50),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON\n"
+        "HELP" | "?" => native_spawn_help_reply(),
+        "HELP_JSON" => native_spawn_help_json_reply(),
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
+}
+
+fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)> {
+    vec![
+        ("PING", "health", "return PONG"),
+        (
+            "STATUS",
+            "inspect",
+            "text status with pending/panes/focus/layout",
+        ),
+        (
+            "STATUS_JSON",
+            "inspect",
+            "JSON status with pending/panes/focus/layout",
+        ),
+        ("PANES", "inspect", "text visible native pane listing"),
+        ("PANES_JSON", "inspect", "JSON visible native pane listing"),
+        (
+            "SPAWN_PTY <cmd>",
+            "control",
+            "spawn a visible native PTY pane",
+        ),
+        (
+            "FOCUS_PANE <window>",
+            "control",
+            "focus a native pane by window token",
+        ),
+        (
+            "CLOSE_PANE <window|focused>",
+            "control",
+            "close a native pane",
+        ),
+        (
+            "LAYOUT <columns|rows>",
+            "control",
+            "switch native pane layout axis",
+        ),
+        ("APPS", "apps", "text app discovery listing"),
+        ("APPS_JSON", "apps", "JSON app discovery listing"),
+        (
+            "APPS_FIRST <query>",
+            "apps",
+            "find the first app matching query",
+        ),
+        (
+            "APPS_LAUNCH_FIRST <query>",
+            "apps",
+            "find and launch the first app matching query",
+        ),
+        ("HELP", "help", "show this command catalog"),
+        ("HELP_JSON", "help", "show this command catalog as JSON"),
+    ]
+}
+
+fn native_spawn_help_reply() -> String {
+    use std::fmt::Write as _;
+    let mut out = String::from("kittwm native socket commands\n");
+    for (command, category, description) in native_spawn_help_entries() {
+        let _ = writeln!(out, "  {command} [{category}] — {description}");
+    }
+    out.push_str("END\n");
+    out
+}
+
+fn native_spawn_help_json_reply() -> String {
+    let commands = native_spawn_help_entries()
+        .into_iter()
+        .map(|(command, category, description)| {
+            serde_json::json!({
+                "command": command,
+                "category": category,
+                "description": description,
+            })
+        })
+        .collect::<Vec<_>>();
+    format!("{}\n", serde_json::json!({ "commands": commands }))
 }
 
 fn queue_native_pane_command(
@@ -665,6 +743,27 @@ mod tests {
                 NativePaneCommand::Layout("rows".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn native_spawn_queue_serves_help_catalogs() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let help = native_spawn_queue_reply("HELP", &pending);
+        assert!(help.contains("SPAWN_PTY <cmd>"), "{help}");
+        assert!(help.contains("STATUS_JSON"), "{help}");
+        assert!(help.contains("PANES_JSON"), "{help}");
+        assert!(help.contains("LAYOUT <columns|rows>"), "{help}");
+        assert!(help.contains("APPS_JSON"), "{help}");
+
+        let help_json: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("HELP_JSON", &pending)).unwrap();
+        assert!(help_json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["command"] == "LAYOUT <columns|rows>" && entry["category"] == "control"
+            }));
     }
 
     #[test]
