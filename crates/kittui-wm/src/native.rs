@@ -204,6 +204,34 @@ pub struct SurfaceFrame {
     pub frame: NativeFrame,
 }
 
+/// Semantic side effects emitted by a surface while parsing/applying output.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SurfaceEvent {
+    /// Surface title changed.
+    TitleChanged(String),
+    /// Terminal bell requested.
+    Bell {
+        /// Whether the shell should show a visual bell affordance.
+        visual: bool,
+        /// Whether an audible/host bell is appropriate.
+        audible: bool,
+    },
+    /// Surface requested clipboard contents to be set.
+    ClipboardSet {
+        /// Clipboard selection name, e.g. `c` for clipboard.
+        selection: String,
+        /// Base64 encoded payload from OSC 52.
+        payload_base64: String,
+    },
+    /// Surface requested a notification.
+    Notification {
+        /// Notification title.
+        title: String,
+        /// Notification body.
+        body: String,
+    },
+}
+
 /// Common capture/input/resize/title interface for kittwm-native surfaces.
 pub trait NativeSurface {
     /// Return metadata that can be consumed by SDK clients without frame bytes.
@@ -296,6 +324,11 @@ impl TerminalSurface {
     /// Drain host-terminal OSC/control sequences requested by the nested app.
     pub fn take_host_sequences(&self) -> Vec<u8> {
         self.state.lock().take_pending_host_sequences()
+    }
+
+    /// Drain semantic surface events emitted by the nested app.
+    pub fn take_surface_events(&self) -> Vec<SurfaceEvent> {
+        self.state.lock().take_pending_surface_events()
     }
 
     /// Return the current zero-based cursor `(col, row)` in the terminal grid.
@@ -435,6 +468,11 @@ impl PtyTerminalApp {
         self.surface.take_host_sequences()
     }
 
+    /// Drain semantic surface events emitted by the nested app.
+    pub fn take_surface_events(&self) -> Vec<SurfaceEvent> {
+        self.surface.take_surface_events()
+    }
+
     /// Return the current zero-based cursor `(col, row)` in the terminal grid.
     pub fn cursor_position(&self) -> (u16, u16) {
         self.surface.cursor_position()
@@ -563,6 +601,7 @@ struct TerminalState {
     scrollback: Vec<String>,
     pending_responses: Vec<u8>,
     pending_host_sequences: Vec<u8>,
+    pending_surface_events: Vec<SurfaceEvent>,
     alt_screen: Option<AlternateScreen>,
     bracketed_paste: bool,
     focus_reporting: bool,
@@ -638,6 +677,7 @@ impl TerminalState {
             scrollback: Vec::new(),
             pending_responses: Vec::new(),
             pending_host_sequences: Vec::new(),
+            pending_surface_events: Vec::new(),
             alt_screen: None,
             bracketed_paste: false,
             focus_reporting: false,
@@ -653,6 +693,7 @@ impl TerminalState {
         self.scrollback = old.scrollback.clone();
         self.pending_responses = old.pending_responses;
         self.pending_host_sequences = old.pending_host_sequences;
+        self.pending_surface_events = old.pending_surface_events;
         self.current_style = old.current_style;
         self.cursor_visible = old.cursor_visible;
         self.origin_mode = old.origin_mode;
@@ -708,6 +749,10 @@ impl TerminalState {
         std::mem::take(&mut self.pending_host_sequences)
     }
 
+    fn take_pending_surface_events(&mut self) -> Vec<SurfaceEvent> {
+        std::mem::take(&mut self.pending_surface_events)
+    }
+
     fn queue_response(&mut self, bytes: impl AsRef<[u8]>) {
         self.pending_responses.extend_from_slice(bytes.as_ref());
     }
@@ -715,6 +760,10 @@ impl TerminalState {
     fn queue_host_sequence(&mut self, bytes: impl AsRef<[u8]>) {
         self.pending_host_sequences
             .extend_from_slice(bytes.as_ref());
+    }
+
+    fn queue_surface_event(&mut self, event: SurfaceEvent) {
+        self.pending_surface_events.push(event);
     }
 
     fn line_snapshot(&self, row: u16) -> String {
@@ -859,7 +908,9 @@ impl TerminalState {
         };
         match kind {
             "0" | "1" | "2" => self.set_title_from_osc(params),
+            "9" => self.notification_from_osc9(params),
             "52" => self.forward_osc52_clipboard(params),
+            "777" => self.notification_from_osc777(params),
             _ => {}
         }
     }
@@ -873,8 +924,50 @@ impl TerminalState {
             .collect::<Vec<_>>()
             .join(";");
         if !title.is_empty() {
-            self.title = Some(title);
+            self.title = Some(title.clone());
+            self.queue_surface_event(SurfaceEvent::TitleChanged(title));
         }
+    }
+
+    fn notification_from_osc9(&mut self, params: &[&[u8]]) {
+        let body = params
+            .get(1..)
+            .unwrap_or_default()
+            .iter()
+            .flat_map(|part| std::str::from_utf8(part).ok())
+            .collect::<Vec<_>>()
+            .join(";");
+        if !body.is_empty() {
+            self.queue_surface_event(SurfaceEvent::Notification {
+                title: self.title.clone().unwrap_or_else(|| "kittwm".to_string()),
+                body,
+            });
+        }
+    }
+
+    fn notification_from_osc777(&mut self, params: &[&[u8]]) {
+        let Some(kind) = params
+            .get(1)
+            .and_then(|part| std::str::from_utf8(part).ok())
+        else {
+            return;
+        };
+        if kind != "notify" {
+            return;
+        }
+        let title = params
+            .get(2)
+            .and_then(|part| std::str::from_utf8(part).ok())
+            .unwrap_or("kittwm")
+            .to_string();
+        let body = params
+            .get(3..)
+            .unwrap_or_default()
+            .iter()
+            .flat_map(|part| std::str::from_utf8(part).ok())
+            .collect::<Vec<_>>()
+            .join(";");
+        self.queue_surface_event(SurfaceEvent::Notification { title, body });
     }
 
     fn forward_osc52_clipboard(&mut self, params: &[&[u8]]) {
@@ -908,6 +1001,10 @@ impl TerminalState {
         {
             return;
         }
+        self.queue_surface_event(SurfaceEvent::ClipboardSet {
+            selection: selector.to_string(),
+            payload_base64: payload.clone(),
+        });
         self.queue_host_sequence(format!("\x1b]52;{selector};{payload}\x07"));
     }
 
@@ -1332,6 +1429,10 @@ impl Perform for TerminalState {
             b'\n' => self.newline(),
             b'\r' => self.carriage_return(),
             b'\t' => self.tab(),
+            0x07 => self.queue_surface_event(SurfaceEvent::Bell {
+                visual: true,
+                audible: true,
+            }),
             0x08 => self.cursor_col = self.cursor_col.saturating_sub(1),
             0x84 => self.index(),
             0x85 => self.next_line(),
@@ -2698,10 +2799,44 @@ mod tests {
         let mut state = TerminalState::new(10, 2);
         state.osc_dispatch(&[b"52", b"c", b"aGVsbG8="], true);
         assert_eq!(
+            state.take_pending_surface_events(),
+            vec![SurfaceEvent::ClipboardSet {
+                selection: "c".to_string(),
+                payload_base64: "aGVsbG8=".to_string(),
+            }]
+        );
+        assert_eq!(
             state.take_pending_host_sequences(),
             b"\x1b]52;c;aGVsbG8=\x07"
         );
         assert!(state.take_pending_host_sequences().is_empty());
+    }
+
+    #[test]
+    fn terminal_state_reports_bell_title_and_notification_events() {
+        let mut state = TerminalState::new(10, 2);
+        state.execute(0x07);
+        state.osc_dispatch(&[b"2", b"editor"], true);
+        state.osc_dispatch(&[b"9", b"build finished"], true);
+        state.osc_dispatch(&[b"777", b"notify", b"cargo", b"tests passed"], true);
+        assert_eq!(
+            state.take_pending_surface_events(),
+            vec![
+                SurfaceEvent::Bell {
+                    visual: true,
+                    audible: true,
+                },
+                SurfaceEvent::TitleChanged("editor".to_string()),
+                SurfaceEvent::Notification {
+                    title: "editor".to_string(),
+                    body: "build finished".to_string(),
+                },
+                SurfaceEvent::Notification {
+                    title: "cargo".to_string(),
+                    body: "tests passed".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]
