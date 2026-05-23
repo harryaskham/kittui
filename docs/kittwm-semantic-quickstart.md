@@ -196,12 +196,12 @@ primitive-only.
   adapter-backed mutation is still adapter-specific.
 - Browser DOM/ARIA snapshot extraction and best-effort publishing exist; browser
   action routing through DevTools is follow-up work.
-- Qt/GTK/accessibility adapters are future work.
+- Qt/GTK/accessibility adapters are future work; the first platform accessibility plan lives in [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md).
 - Published semantic trees do not replace terminal input routing by default.
 
 ## Next useful work
 
 - Add a real standalone semantic surface/app lifecycle around SDK publishing.
 - Route browser semantic actions through DevTools.
-- Add Qt/GTK/accessibility-tree adapter spikes.
+- Add Qt/GTK/accessibility-tree adapter spikes from the [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md) plan.
 - Make semantic renderer output selectable in live kittwm views where useful.

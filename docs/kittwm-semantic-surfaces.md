@@ -318,7 +318,7 @@ Potential semantic adapters:
 - native kittwm SDK apps that construct component trees directly;
 - browser DOM/ARIA/DevTools adapter (planned in [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md));
 - accessibility tree adapters for macOS AX, AT-SPI, UI Automation, or platform
-  equivalents;
+  equivalents (planned in [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md));
 - toolkit plugins/backends for Qt, GTK, egui, iced, Tauri, Electron, etc.;
 - terminal apps with future semantic escape extensions, while classic TUIs remain
   terminal/cell surfaces.
@@ -358,5 +358,6 @@ Recommended follow-ups to file/implement after this plan:
 - `kittwm: plan browser DOM/ARIA semantic adapter` (`bd-2250e1`) — detailed architecture in [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md).
 - `kittwm: add browser DOM/ARIA semantic surface adapter` — map browser semantics
   when available while retaining screenshot fallback.
+- `kittwm: plan accessibility-tree semantic adapter` (`bd-4a49aa`) — detailed architecture in [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md).
 - `kittwm: add accessibility-tree semantic adapter spike` — evaluate platform
   accessibility trees for arbitrary GUI apps.
