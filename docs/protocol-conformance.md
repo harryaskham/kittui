@@ -66,6 +66,18 @@ The remaining gaps are tracked under the protocol epic `bd-3dc8c7`:
 - ratakittui complete widget coverage example + decoration matrix
   (`bd-6ccb5e`).
 
+### Raw RGB (`f=24`) priority
+
+The current hot paths use PNG (`f=100`) for compressed still/scene uploads and
+raw RGBA (`f=32`) for WM frame uploads where avoiding PNG encode cost matters.
+Raw RGB (`f=24`) would save one byte per pixel when a caller already owns a
+three-channel buffer, but kittui renderers and native WM captures currently
+produce RGBA buffers and would need a conversion pass to drop alpha. That makes
+`f=24` lower priority than terminal response reading and capability probing. A
+future helper should be small and additive: accept caller-owned RGB bytes,
+validate `width * height * 3`, reuse the existing direct/file/temp/shared-memory
+medium grammar, and leave RGBA/PNG defaults unchanged.
+
 ## How to reproduce visually
 
 ```sh
