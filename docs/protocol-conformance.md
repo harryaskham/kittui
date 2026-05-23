@@ -36,8 +36,8 @@ from that crate's public API.
 | Z-index (`z=`) | ✅ | `PlacementOptions::z_index`. |
 | Delete by image id (`a=d,d=I,i=`) | ✅ | `delete`. |
 | Delete by placement id (`a=d,d=I,i=,p=`) | ✅ | `delete_placement`. |
-| Reading responses from the terminal | ⛔ | `bd-3dc8c7` epic; implementation plan in [`kitty-response-probing.md`](kitty-response-probing.md). |
-| Querying terminal capabilities (`a=q`) | ⛔ | `bd-3dc8c7` epic; implementation plan in [`kitty-response-probing.md`](kitty-response-probing.md). |
+| Reading responses from the terminal | 🟡 | Pure parser + bounded response reader + opt-in doctor probe diagnostics are implemented; normal render loops still do not read terminal responses by default. See [`kitty-response-probing.md`](kitty-response-probing.md). |
+| Querying terminal capabilities (`a=q`) | 🟡 | `kittui-kitty::query_capabilities` and `parse_response` exist, and `kittwm doctor --probe-kitty` / `KITTUI_KITTY_PROBE=1` can run a bounded diagnostic probe. Probe results are not default transport-policy inputs yet. |
 | tmux passthrough wrapping | ✅ | `Transport::TmuxPassthrough` wraps every payload in `\ePtmux;…\e\\` with escape doubling. Auto-selected by `TerminalInfo::detect()` when `$TMUX` is set. |
 | File / temp-file/shared-memory format hints (`f=100` PNG, `f=24` raw RGB, `f=32` raw RGBA) | ✅ | PNG helpers use `f=100`; raw RGB/RGBA frame file/temp/shared-memory paths use `f=24`/`f=32` and the kitty `t=f` / `t=t` / `t=s` grammar. |
 
@@ -60,8 +60,7 @@ from that crate's public API.
 The remaining gaps are tracked under the protocol epic `bd-3dc8c7`:
 
 - broader visual proof coverage for raw RGB/RGBA file/temp/shared-memory transports across terminals.
-- terminal response reading (`OK`, `ENOENT`, capability queries); see [`kitty-response-probing.md`](kitty-response-probing.md).
-- `a=q` capability probing into `TerminalInfo::detect()` / diagnostics; see [`kitty-response-probing.md`](kitty-response-probing.md).
+- decide whether opt-in probe results should feed default `TerminalInfo` / transport selection, beyond current diagnostics-only use; see [`kitty-response-probing.md`](kitty-response-probing.md).
 - terminal response/probe diagnostics beyond opt-in doctor, if future render policy needs probe data.
 - ratakittui complete widget coverage example + decoration matrix
   (`bd-6ccb5e`).

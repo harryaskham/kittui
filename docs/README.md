@@ -18,9 +18,9 @@ plans for kittui and kittwm.
 - [`adaptive-graphics-transport.md`](adaptive-graphics-transport.md) — transport
   selection plan for direct kitty streams, zlib, file/tempfile/shared-memory,
   tmux safety, local/remote detection, and diagnostics.
-- [`kitty-response-probing.md`](kitty-response-probing.md) — plan for opt-in
-  kitty terminal response reading and `a=q` capability probing without blocking
-  render loops or consuming app input.
+- [`kitty-response-probing.md`](kitty-response-probing.md) — status and design
+  notes for opt-in kitty terminal response reading and `a=q` capability probing
+  without blocking render loops or consuming app input.
 - [`kittwm-dirty-frame-updates.md`](kittwm-dirty-frame-updates.md) — dirty-grid
   frame diff model, safe unchanged-frame skipping, and why partial/overlay kitty
   updates remain experimental.
@@ -31,7 +31,10 @@ Current implementation status:
 - direct raw RGBA uploads support zlib and threshold-based `auto` compression;
 - file/tempfile and shared-memory raw-frame grammar/path exist with safe fallback;
 - dirty-grid unchanged-frame skipping and dirty-frame status metrics exist;
-- typed kitty animation/frame control helpers exist for future experiments.
+- typed kitty animation/frame control helpers exist for future experiments;
+- pure `a=q` query encoder/parser helpers, a bounded response reader, and
+  opt-in `kittwm doctor --probe-kitty` / `KITTUI_KITTY_PROBE=1` diagnostics
+  exist, while normal rendering remains non-probing by default.
 
 ## Semantic surface docs
 

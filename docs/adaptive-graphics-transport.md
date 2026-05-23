@@ -16,7 +16,7 @@ Transport selection should be based on a small `TransportContext` derived from `
 
 | Input | Source | Why it matters |
 |---|---|---|
-| Kitty graphics support | `TerminalInfo.supports_kitty`, future opt-in probes, host overrides | Non-kitty terminals must use a pure terminal/text fallback. Response-reading / `a=q` probing is planned in [`kitty-response-probing.md`](kitty-response-probing.md). |
+| Kitty graphics support | `TerminalInfo.supports_kitty`, opt-in diagnostic probes, host overrides | Non-kitty terminals must use a pure terminal/text fallback. Response-reading / `a=q` probing exists for `kittwm doctor --probe-kitty` diagnostics and is documented in [`kitty-response-probing.md`](kitty-response-probing.md). |
 | Unicode placeholder support | `TerminalInfo.supports_unicode_placeholders` | Determines whether image placement can be represented in normal cell output. |
 | Multiplexer state | `TMUX`, `TERM_PROGRAM=tmux`, explicit host hint | tmux passthrough is correct but expensive for continuous large binary payloads. |
 | Local vs remote | `SSH_CONNECTION`, `SSH_CLIENT`, `KITTUI_REMOTE`, host hint | Shared memory/file transfer is only safe when the terminal process can read the same local resources. Remote/SSH should prefer direct streaming. |
@@ -75,6 +75,6 @@ For tmux:
 - `bd-67a477`: implements raw-frame file/shared-memory kitty grammar, a safe local tempfile transfer path for `Runtime::place_raw_frame` when `Transport::File` is selected, and a safe Linux `/dev/shm`-backed POSIX shared-memory allocation path when `Transport::Memory` is selected. Unsupported platforms or allocation failures fall back to tempfile/direct streaming.
 - `bd-e15ef8`: replace unconditional `KITTUI_KITTY_COMPRESSION=auto` zlib behavior with threshold-based compression for raw frames, plus tests for small/large payload decisions.
 - `bd-883864`: expose transport decision diagnostics in `kittwm doctor`, re-export `TransportDiagnostics` for callers, and keep the policy selector testable with caller-supplied environment data.
-- `bd-02ef7b`: plan opt-in terminal response reading and kitty `a=q` capability probing so future diagnostics can refine `TerminalInfo` without blocking render loops or stealing app input.
+- `bd-02ef7b` / `bd-f9730c` / `bd-049875` / `bd-11e67a`: opt-in terminal response reading and kitty `a=q` capability probing now exist for diagnostics (`kittwm doctor --probe-kitty` / `KITTUI_KITTY_PROBE=1`) without blocking render loops or stealing app input.
 
 These follow-ups should land as separate implementation beads because this document is the policy baseline, not the runtime selector itself.

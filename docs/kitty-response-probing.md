@@ -1,13 +1,21 @@
-# Kitty response reading and capability probing plan
+# Kitty response reading and capability probing
 
-`bd-02ef7b` tracks the planning slice for the remaining interactive kitty graphics conformance gap: reading terminal responses and using kitty `a=q` capability queries without destabilizing normal rendering or stealing input from hosted applications.
+`bd-02ef7b` planned the interactive kitty graphics conformance gap: reading terminal responses and using kitty `a=q` capability queries without destabilizing normal rendering or stealing input from hosted applications. The first stack is now landed: pure `a=q` encoder/parser helpers in `kittui-kitty`, a bounded response-reader helper in `kittui-core`, and opt-in `kittwm doctor --probe-kitty` diagnostics.
 
-Today kittui mostly relies on environment detection (`TerminalInfo::detect`) plus explicit overrides. That is intentionally safe, but it means the runtime cannot distinguish “kitty-compatible but unknown terminal” from “optimistically assumed kitty”, and it cannot surface actual `OK` / `ENOENT` / capability-query responses in diagnostics. This plan defines a conservative implementation path.
+Today normal kittui rendering still relies on environment detection (`TerminalInfo::detect`) plus explicit overrides. That is intentionally safe: probing is available for diagnostics, but render loops do not block waiting for terminal responses by default.
+
+## Current landed surface
+
+- `kittui_kitty::query_capabilities(query_id, transport)` emits kitty `a=q` grammar and supports tmux passthrough wrapping.
+- `kittui_kitty::parse_response(...)` parses collected graphics responses into `KittyResponse`, `KittyResponseStatus`, and `KittyResponseParseError` without doing any terminal I/O.
+- `kittui_core::terminal::read_kitty_response(...)` reads from an already-prepared foreground stream until a caller predicate matches, timeout/EOF occurs, or a byte limit is exceeded.
+- `kittwm doctor --probe-kitty` and `KITTUI_KITTY_PROBE=1 kittwm doctor` opt into a bounded interactive probe and report status through transport diagnostics.
+- Normal render paths remain non-probing by default and continue using static detection/overrides.
 
 ## Goals
 
-- Add an opt-in, bounded response reader for kitty graphics replies.
-- Use kitty `a=q` queries to refine `TerminalInfo::detect` and `TransportDiagnostics` when probing is safe.
+- Keep kitty graphics probing opt-in and diagnostics-first.
+- Use kitty `a=q` queries to annotate `TransportDiagnostics` when probing is safe.
 - Never consume normal application input from kittwm child panes or the operator's shell.
 - Avoid blocking render loops: all reads must be timeout-bounded and failure-tolerant.
 - Preserve the existing environment/override detection path as the default fallback.
@@ -23,11 +31,11 @@ Today kittui mostly relies on environment detection (`TerminalInfo::detect`) plu
 
 ### Non-blocking and timeout behavior
 
-The reader must be bounded by short deadlines. Suggested defaults:
+The reader is bounded by short deadlines. Current/target budgets:
 
-- probe timeout: 50-150 ms per query in interactive startup/diagnostic contexts;
-- total probe budget: <= 500 ms for `kittwm doctor` or explicit probe commands;
-- render path budget: zero by default; render code consumes cached probe results only.
+- current doctor probe budget: 500 ms for `kittwm doctor --probe-kitty` / `KITTUI_KITTY_PROBE=1`;
+- response reader default timeout: 250 ms with a bounded byte limit;
+- render path budget: zero by default; render code does not probe.
 
 Timeouts should be ordinary “unknown” results, not hard failures. Diagnostics should distinguish timeout, malformed response, negative kitty response, and probing disabled.
 
@@ -66,71 +74,60 @@ Most normal upload commands use `q=2`/`Quiet::SuppressAll` to avoid leaking repl
 
 ### 1. `kittui-kitty` query encoder
 
-Add pure encoder helpers first:
+Landed pure encoder/parser helpers:
 
-- `query_capabilities(query_id) -> String` emitting kitty `a=q` grammar;
-- optional typed request id wrapper so probes can ignore unrelated replies;
-- exact grammar tests in `crates/kittui-kitty`.
+- `query_capabilities(query_id, transport) -> String` emits kitty `a=q` grammar;
+- `parse_response(input)` parses captured graphics response escapes and preserves ids/raw body;
+- exact grammar/parser tests live in `crates/kittui-kitty`.
 
-This crate should remain I/O-free. It only builds escape sequences and parses known response fragments.
+This crate remains I/O-free. It only builds escape sequences and parses known response fragments.
 
 ### 2. `kittui-core` / terminal probe model
 
-Add small data types near `TerminalInfo`:
-
-```rust
-struct KittyProbeResult {
-    attempted: bool,
-    supported: Option<bool>,
-    response: Option<String>,
-    error: Option<KittyProbeError>,
-    elapsed_ms: u64,
-}
-```
-
-Then extend diagnostics rather than replacing detection:
+Transport diagnostics now have probe fields populated by `kittwm doctor` when probing is explicitly requested:
 
 - `TerminalInfo::detect()` remains environment-only and fast.
-- A new opt-in function such as `TerminalInfo::detect_with_probe(...)` or `KittyProbe::run(...)` can refine `supports_kitty` / placeholder support.
-- `TransportDiagnostics` includes whether probe data was used or unavailable.
+- `TransportDiagnostics` can carry probe status, optional support result, error/note, and elapsed time.
+- `kittwm doctor --probe-kitty` / `KITTUI_KITTY_PROBE=1` annotates diagnostics without changing render policy.
 
 ### 3. Foreground response reader
 
-Implement a small Unix foreground-terminal reader that can:
+The landed reader is deliberately small and testable:
 
-- temporarily put stdin in nonblocking/raw-compatible read mode only when requested;
-- write a query to stdout/stderr-selected terminal output;
-- read until a matching kitty response, timeout, or EOF;
-- restore terminal mode even on errors.
+- `read_kitty_response` reads from an already-prepared stream and never writes query bytes itself;
+- callers provide the match predicate, timeout, byte limit, and poll interval;
+- the helper returns matched/timeout/EOF/byte-limit status plus captured bytes and elapsed time;
+- `kittwm doctor --probe-kitty` owns the foreground-terminal setup and restores terminal state around the probe.
 
-Prefer a testable abstraction so parser/timeout behavior can be validated with a pseudo-terminal or in-memory stream. Avoid global background reader threads in the first implementation.
+There are still no global background reader threads and no render-loop integration.
 
 ### 4. Diagnostics integration
 
-Expose probe results first through diagnostics surfaces:
+Probe results are exposed through diagnostics surfaces:
 
-- `kittwm doctor`: include static detection, explicit overrides, tmux/remote state, whether a probe was attempted, and the result.
-- Optional CLI flag/env such as `KITTUI_KITTY_PROBE=1` or `kittwm doctor --probe-kitty`.
-- Do not auto-enable probes in normal rendering until diagnostics have proven stable across terminals.
+- `kittwm doctor` includes static detection, explicit overrides, tmux/remote state, whether a probe was attempted, and the result.
+- `kittwm doctor --probe-kitty` or `KITTUI_KITTY_PROBE=1 kittwm doctor` performs the bounded interactive probe.
+- Probes are not auto-enabled in normal rendering.
 
 ### 5. Transport policy integration
 
-After the response reader is stable, adaptive transport can consume probe results:
+Adaptive transport still treats probe results as diagnostics-only:
 
-- if probe positively says unsupported: prefer pure-terminal fallback despite optimistic env heuristics;
-- if probe positively says supported: allow `supports_kitty=true` in unknown-but-compatible terminals;
-- if probe is unknown/timeout: keep existing environment heuristics and explicit overrides.
+- if probe positively says unsupported, `doctor` reports that result but normal rendering still follows existing policy unless a future bead wires the probe into selection;
+- if probe positively says supported, `doctor` reports support for unknown-but-compatible terminals;
+- if probe is unknown/timeout, diagnostics preserve the timeout/unknown state and existing environment heuristics remain authoritative.
 
 ## `a=q` query details
 
-Implementation should start with one minimal query:
+The current diagnostic query flow:
 
-1. emit a kitty graphics capability query with a unique image/query id;
-2. request a verbose response;
-3. parse known success/error tokens into a typed result;
-4. ignore unrelated bytes until timeout.
+1. emits a kitty graphics capability query with a unique image/query id;
+2. omits `q=` so the terminal can respond;
+3. reads with a bounded foreground response reader;
+4. parses known success/error/capability tokens into a typed result;
+5. requires the matching query id before treating the response as a match.
 
-The parser should be deliberately permissive around terminal-specific fields but strict enough to avoid treating arbitrary app output as a positive probe. A matching id/token should be required.
+The parser is deliberately permissive around terminal-specific fields but strict enough to avoid treating arbitrary app output as a positive probe.
 
 ## Security and privacy
 
@@ -139,10 +136,10 @@ The parser should be deliberately permissive around terminal-specific fields but
 - Avoid probing remote/SSH sessions unless the operator explicitly asks. In remote topologies, local file/shm capability is separate from kitty support.
 - Respect explicit environment overrides. If `KITTUI_TRANSPORT` or `KITTWM_NATIVE_RENDERER` forces a path, probing should be advisory only.
 
-## Follow-up implementation beads
+## Landed implementation beads
 
-- `bd-f9730c`: add pure `a=q` query encoder/parser helpers in `kittui-kitty` with exact grammar/parser tests.
-- `bd-049875`: add a timeout-bounded foreground terminal response reader abstraction with pseudo-terminal/in-memory tests and no render-loop integration.
-- `bd-11e67a`: add opt-in `kittwm doctor --probe-kitty` / environment-gated probe diagnostics and extend `TransportDiagnostics` with probe status.
+- `bd-f9730c`: pure `a=q` query encoder/parser helpers in `kittui-kitty` with exact grammar/parser tests.
+- `bd-049875`: timeout-bounded foreground-stream response reader abstraction with tests and no render-loop integration.
+- `bd-11e67a`: opt-in `kittwm doctor --probe-kitty` / `KITTUI_KITTY_PROBE=1` diagnostics and `TransportDiagnostics` probe status.
 
-These should land separately: encoder/parser is low-risk; terminal I/O needs careful validation; diagnostics integration should remain opt-in until stable.
+Future work should decide whether proven probe results ever feed default transport selection. Until then, probing remains an explicit diagnostic path.
