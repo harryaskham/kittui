@@ -979,6 +979,25 @@ pub struct AppCandidate {
     pub name: String,
 }
 
+/// Machine-readable socket help catalog returned by `HELP_JSON`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelpCatalog {
+    /// Supported commands.
+    #[serde(default)]
+    pub commands: Vec<HelpCommand>,
+}
+
+/// One socket command entry in [`HelpCatalog`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelpCommand {
+    /// Command syntax.
+    pub command: String,
+    /// Category such as `control`, `automation`, or `semantic`.
+    pub category: String,
+    /// Human-readable description.
+    pub description: String,
+}
+
 /// Result of launching an app-discovery candidate.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppLaunch {
@@ -1093,6 +1112,17 @@ impl Kittwm {
         self.capabilities.ensure(Capability::ControlWindow)?;
         let payload = serde_json::to_string(manifest)?;
         self.request_protocol(format!("RESTORE_SESSION_JSON {payload}"))
+    }
+
+    /// Fetch the native socket command catalog from `HELP_JSON`.
+    pub fn help_catalog(&self) -> Result<HelpCatalog> {
+        self.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(&self.request_protocol("HELP_JSON")?)?)
+    }
+
+    /// Alias for [`Kittwm::help_catalog`].
+    pub fn help(&self) -> Result<HelpCatalog> {
+        self.help_catalog()
     }
 
     /// Fetch the native app discovery catalog from `APPS_JSON`.
@@ -1851,6 +1881,18 @@ mod tests {
     }
 
     #[test]
+    fn help_catalog_decodes_json_shape() {
+        let catalog: HelpCatalog = serde_json::from_str(
+            r#"{"commands":[{"command":"STATUS_JSON","category":"status","description":"typed status"},{"command":"HELP_JSON","category":"help","description":"catalog"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(catalog.commands.len(), 2);
+        assert_eq!(catalog.commands[0].command, "STATUS_JSON");
+        assert_eq!(catalog.commands[0].category, "status");
+        assert_eq!(catalog.commands[1].description, "catalog");
+    }
+
+    #[test]
     fn app_catalog_and_candidate_shapes_decode() {
         let catalog: AppsCatalog = serde_json::from_str(
             r#"{"default_command":"xterm","default_resolved":"/usr/bin/xterm","path_commands":["bash","vim"],"macos_apps":["Safari.app"]}"#,
@@ -1990,6 +2032,37 @@ mod tests {
             client.events_ms(100),
             Err(Error::CapabilityDenied(Capability::SubscribeEvents))
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn help_catalog_helper_sends_expected_socket_command() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwhc-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            stream
+                .write_all(
+                    b"{\"commands\":[{\"command\":\"PING\",\"category\":\"status\",\"description\":\"ping daemon\"}]}\n",
+                )
+                .unwrap();
+            request.trim().to_string()
+        });
+        let client = Kittwm::connect_path(&path);
+        let catalog = client.help_catalog().unwrap();
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen, "HELP_JSON");
+        assert_eq!(catalog.commands[0].command, "PING");
     }
 
     #[cfg(unix)]
@@ -2188,6 +2261,10 @@ mod tests {
     fn app_discovery_capabilities_deny_before_io() {
         let client = Kittwm::connect_path("/tmp/does-not-exist.sock")
             .with_capabilities(ClientCapabilities::only([Capability::SubscribeEvents]));
+        assert!(matches!(
+            client.help_catalog(),
+            Err(Error::CapabilityDenied(Capability::ReadText))
+        ));
         assert!(matches!(
             client.apps(),
             Err(Error::CapabilityDenied(Capability::ReadText))
