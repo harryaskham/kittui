@@ -27,6 +27,10 @@ plans for kittui and kittwm.
 
 Current implementation status:
 
+- `kittwm` now starts on a clean empty workspace with a stable `kittui-bar` top
+  bar and shortcut hint instead of auto-spawning a shell; `Ctrl-A Enter` /
+  `Ctrl-A t` launches the default terminal, `Ctrl-A ?` toggles shortcut help,
+  and `KITTWM_STARTUP_TERMINAL=1` restores the old startup-terminal behavior.
 - tmux defaults to pure terminal rendering unless explicitly overridden;
 - direct raw RGBA uploads support zlib and threshold-based `auto` compression;
 - file/tempfile and shared-memory raw-frame grammar/path exist with safe fallback;
@@ -128,6 +132,9 @@ Current semantic implementation status:
 - `kittwm-launch` — first-party SDK launcher with backend planning, typed app
   discovery helpers, URL/browser auto-selection through `kittwm-browser`,
   `--dry-run`, and `--status`.
+- `kittwm-bar` — first-party SDK top-bar helper that prints the same empty /
+  active workspace model as text, `--json`, or a one-line kittui scene artifact
+  via `--scene-json`.
 - `kittwm-sdk::SurfaceSpec::browser(...)` — browser surface requests currently
   spawn the first-party `kittwm-browser` app through the PTY transport; dedicated
   browser/X/Quartz surface protocols remain future work.
