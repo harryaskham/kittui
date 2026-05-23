@@ -76,10 +76,11 @@ Current semantic implementation status:
   `kittui-core` remains primitive-only.
 - `kittui-wm` can render both internal and public SDK semantic snapshots to
   primitive kittui scenes via shared affordance controls.
-- `NativeSurface` includes a common side-effect event drain hook:
-  PTY-backed surfaces can drain title/bell/OSC52/notification events, while
-  capture-only adapters default to no events and daemon `EVENTS` publication
-  semantics stay unchanged.
+- `NativeSurface` includes common focus-notification and side-effect event drain
+  hooks. PTY-backed surfaces use focus notifications for terminal focus-in/out
+  reporting only when requested by the nested app, and can drain
+  title/bell/OSC52/notification events; capture-only adapters default to no
+  events and daemon `EVENTS` publication semantics stay unchanged.
 - Capture-only `NativeSurface` adapters exist for kittui scenes, raw RGBA frames,
   and composed RGBA frames: `KittuiSceneSurface` produces PNG via the CPU
   renderer, while `RgbaFrameSurface` and `CompositeFrameSurface` expose raw RGBA
