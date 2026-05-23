@@ -8,6 +8,7 @@ members = [
   "crates/kittui-cache",
   "crates/kittui",
   "crates/kittui-cli",
+  "crates/kittwm-sdk",
   "crates/kittui-ffi",
   "crates/ratakittui",
   "crates/kittui-tmux",

@@ -93,6 +93,7 @@ a flag, env var, YAML, or a built-in default.
 | `kittui-cache`       | Content-addressed PNG/APNG cache                         |
 | `kittui`             | Public facade: `Runtime`, `Placement`, builders          |
 | `kittui-cli`         | `kittui`, `kittwm`, `kittwm-browser` binaries + examples  |
+| `kittwm-sdk`         | typed client handles for kittwm's socket/DISPLAY control plane |
 | `kittui-ffi`         | `libkittui_ffi` cdylib + staticlib                       |
 | `bindings/ts`        | TypeScript/JavaScript koffi binding over the C ABI        |
 | `bindings/python`    | Python stdlib ctypes binding over the C ABI               |
