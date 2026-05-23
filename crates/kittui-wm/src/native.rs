@@ -199,6 +199,46 @@ pub struct SurfaceCapabilities {
 }
 
 impl SurfaceCapabilities {
+    /// Whether this surface can produce frames.
+    pub fn can_capture(&self) -> bool {
+        self.capture
+    }
+
+    /// Whether this surface accepts text/key/mouse input.
+    pub fn can_send_text(&self) -> bool {
+        self.input
+    }
+
+    /// Whether this surface accepts exact byte input without UTF-8 conversion.
+    pub fn can_send_bytes(&self) -> bool {
+        self.exact_byte_input
+    }
+
+    /// Whether this surface can receive focus-in/focus-out notifications.
+    pub fn can_receive_focus_events(&self) -> bool {
+        self.focus_events
+    }
+
+    /// Whether this surface can emit side-effect events.
+    pub fn can_emit_surface_events(&self) -> bool {
+        self.surface_events
+    }
+
+    /// Whether this surface can be resized.
+    pub fn can_resize(&self) -> bool {
+        self.resize
+    }
+
+    /// Whether this surface exposes a human-readable title.
+    pub fn has_title(&self) -> bool {
+        self.title
+    }
+
+    /// Whether this surface can serialize restore metadata.
+    pub fn can_restore(&self) -> bool {
+        self.restore
+    }
+
     /// Standard capabilities for live terminal-like/native app surfaces.
     pub fn interactive_capture() -> Self {
         Self {
@@ -4341,6 +4381,31 @@ mod tests {
     fn capture_only_native_surfaces_default_to_no_surface_events() {
         let mut surface = RgbaFrameSurface::new("rgba:empty", "empty", 1, 1, vec![0; 4]).unwrap();
         assert!(NativeSurface::take_surface_events(&mut surface).is_empty());
+    }
+
+    #[test]
+    fn surface_capability_accessors_reflect_pty_and_capture_only_metadata() {
+        let term = PtyTerminalApp::spawn("printf caps", 20, 3).expect("spawn pty caps probe");
+        let pty = NativeSurface::metadata(&term).capabilities;
+        assert!(pty.can_capture());
+        assert!(pty.can_send_text());
+        assert!(pty.can_send_bytes());
+        assert!(pty.can_receive_focus_events());
+        assert!(pty.can_emit_surface_events());
+        assert!(pty.can_resize());
+        assert!(pty.has_title());
+        assert!(!pty.can_restore());
+
+        let surface = RgbaFrameSurface::new("rgba:caps", "caps", 1, 1, vec![0; 4]).unwrap();
+        let capture = NativeSurface::metadata(&surface).capabilities;
+        assert!(capture.can_capture());
+        assert!(!capture.can_send_text());
+        assert!(!capture.can_send_bytes());
+        assert!(!capture.can_receive_focus_events());
+        assert!(!capture.can_emit_surface_events());
+        assert!(!capture.can_resize());
+        assert!(capture.has_title());
+        assert!(!capture.can_restore());
     }
 
     #[test]
