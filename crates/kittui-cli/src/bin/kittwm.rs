@@ -249,6 +249,10 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--wait-text-ms MS WINDOW NEEDLE"))?;
                 out.automation_request = Some(wait_text_ms_request(&ms, &window, &needle)?);
             }
+            "--status-json" => out.automation_request = Some("STATUS_JSON".to_string()),
+            "--panes" => out.automation_request = Some("PANES".to_string()),
+            "--panes-json" => out.automation_request = Some("PANES_JSON".to_string()),
+            "--session-json" => out.automation_request = Some("SESSION_JSON".to_string()),
             "--launcher-overlay" => out.launcher_overlay = true,
             "--no-launcher-overlay" => out.no_launcher_overlay = true,
             "--kill" => out.mode = Mode::Kill,
@@ -316,6 +320,10 @@ fn print_help() {
          --read-text WINDOW       print a native pane text snapshot.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
          --wait-text-ms MS WINDOW TEXT  wait with explicit millisecond timeout.\n\
+         --status-json            print native socket STATUS_JSON.\n\
+         --panes                  print native socket PANES listing.\n\
+         --panes-json             print native socket PANES_JSON.\n\
+         --session-json           print native socket SESSION_JSON.\n\
          --backend fake|quartz|xvfb force a specific backend.\n\
          --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
                          one window, then run a kittwm session capturing only it.\n\
@@ -1913,6 +1921,13 @@ mod tests {
             normalize_daemon_command("apps_first Safari"),
             "APPS_FIRST Safari"
         );
+    }
+
+    #[test]
+    fn normalize_daemon_command_preserves_json_inspection_verbs() {
+        assert_eq!(normalize_daemon_command("status_json"), "STATUS_JSON");
+        assert_eq!(normalize_daemon_command("panes_json"), "PANES_JSON");
+        assert_eq!(normalize_daemon_command("session_json"), "SESSION_JSON");
     }
 
     #[test]

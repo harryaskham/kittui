@@ -127,9 +127,9 @@ kittwm --wait-text focused ready
 kittwm --wait-text-ms 15000 focused 'build finished'
 kittwm --save-session session.json
 kittwm --restore-session session.json
-kittwm --attach -c SESSION_JSON  # persistence-oriented layout/order/focus manifest
+kittwm --session-json  # persistence-oriented layout/order/focus manifest
+kittwm --panes-json    # includes weight, pid/command, and title/app cell geometry
 kittwm --attach -c 'RESTORE_SESSION_JSON {"layout":"rows","panes":[{"command":"htop","title":"htop","weight":1,"focused":true}]}'
-kittwm --attach -c PANES_JSON  # includes weight, pid/command, and title/app cell geometry
 ```
 
 ### kittui-md Markdown viewer

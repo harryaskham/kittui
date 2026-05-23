@@ -25,17 +25,17 @@ kittwm replace htop
 KITTUI_WM_DISPLAY=:7 kittwm --serve
 KITTUI_WM_DISPLAY=:7 kittwm --status
 KITTUI_WM_DISPLAY=:7 kittwm --attach -c HELP_JSON
-KITTUI_WM_DISPLAY=:7 kittwm --attach -c STATUS_JSON
-KITTUI_WM_DISPLAY=:7 kittwm --attach -c PANES_JSON
+KITTUI_WM_DISPLAY=:7 kittwm --status-json
+KITTUI_WM_DISPLAY=:7 kittwm --panes-json
 
 # While a no-arg native kittwm session is running, inspect or create panes
 # through its inherited/display-style socket.
 kittwm --attach -c HELP
 kittwm --attach -c HELP_JSON
 kittwm --attach -c STATUS
-kittwm --attach -c STATUS_JSON
-kittwm --attach -c PANES
-kittwm --attach -c PANES_JSON
+kittwm --status-json
+kittwm --panes
+kittwm --panes-json
 kittwm --attach -c APPS_JSON
 kittwm --attach -c 'APPS_FIRST htop'
 kittwm --attach -c 'SPAWN_PTY htop'
@@ -54,14 +54,14 @@ kittwm --wait-text focused ready
 kittwm --wait-text-ms 15000 focused 'build finished'
 kittwm --save-session session.json
 kittwm --restore-session session.json
-kittwm --attach -c SESSION_JSON
+kittwm --session-json
 kittwm --attach -c 'RESTORE_SESSION_JSON {"layout":"rows","panes":[{"command":"htop","title":"htop","weight":1,"focused":true}]}'
 kittwm --attach -c 'CLOSE_PANE focused'
 ```
 
 Use `Ctrl-]` to exit the current native PTY/browser viewer. Explicit capture-backed demos remain available with `--backend fake|quartz|xvfb`.
 
-Native `PANES_JSON` includes per-pane `window`, `title`, `focused`, `weight`, optional process metadata (`pid`, `command`), and, once a live session has rendered at least one frame, resolved title/app cell geometry: `x`, `y`, `cols`, `rows`, `app_x`, `app_y`, `app_cols`, and `app_rows`. Native `STATUS_JSON` mirrors the same detail in `focused_pane` and `panes_detail`. The text `PANES` reply includes process metadata plus the same geometry as `layout=x,y CxR app=x,y CxR` for simple shell inspection. Controllers can inject pane input with `SEND_TEXT <window|focused> <text>`, `SEND_LINE <window|focused> <text>`, or `SEND_KEY <window|focused> <key>` for named keys such as `ctrl-c`, `escape`, arrows, and paging keys. They can read pane screen text with `READ_TEXT <window|focused>` or `READ_TEXT_JSON <window|focused>` without scraping kitty graphics output, and block automation until output appears with `WAIT_TEXT <window|focused> <needle>` or `WAIT_TEXT_MS <window|focused> <ms> <needle>`. CLI wrappers `--send-text`, `--send-line`, `--send-key`, `--read-text`, `--wait-text`, and `--wait-text-ms` provide the same automation primitives without spelling socket protocol verbs directly. `SESSION_JSON` provides a persistence-oriented, geometry-free manifest containing layout axis, focus, pane order, titles, commands, and weights; `RESTORE_SESSION_JSON <json>` replaces the current native panes from that manifest. The CLI wrappers `--save-session PATH|-` and `--restore-session PATH|-` avoid manual shell quoting for this flow. `kittui wm-session session.json -w 120 -h 30 --scene-json` turns the same manifest into kittwm chrome preview scenes for shell/external renderer workflows. `HELP_JSON` is the machine-readable catalog for the socket command set.
+Native `PANES_JSON` includes per-pane `window`, `title`, `focused`, `weight`, optional process metadata (`pid`, `command`), and, once a live session has rendered at least one frame, resolved title/app cell geometry: `x`, `y`, `cols`, `rows`, `app_x`, `app_y`, `app_cols`, and `app_rows`. Native `STATUS_JSON` mirrors the same detail in `focused_pane` and `panes_detail`. The text `PANES` reply includes process metadata plus the same geometry as `layout=x,y CxR app=x,y CxR` for simple shell inspection. CLI wrappers `--status-json`, `--panes`, `--panes-json`, and `--session-json` expose these inspection surfaces without raw protocol strings. Controllers can inject pane input with `SEND_TEXT <window|focused> <text>`, `SEND_LINE <window|focused> <text>`, or `SEND_KEY <window|focused> <key>` for named keys such as `ctrl-c`, `escape`, arrows, and paging keys. They can read pane screen text with `READ_TEXT <window|focused>` or `READ_TEXT_JSON <window|focused>` without scraping kitty graphics output, and block automation until output appears with `WAIT_TEXT <window|focused> <needle>` or `WAIT_TEXT_MS <window|focused> <ms> <needle>`. CLI wrappers `--send-text`, `--send-line`, `--send-key`, `--read-text`, `--wait-text`, and `--wait-text-ms` provide the same automation primitives without spelling socket protocol verbs directly. `SESSION_JSON` provides a persistence-oriented, geometry-free manifest containing layout axis, focus, pane order, titles, commands, and weights; `RESTORE_SESSION_JSON <json>` replaces the current native panes from that manifest. The CLI wrappers `--save-session PATH|-` and `--restore-session PATH|-` avoid manual shell quoting for this flow. `kittui wm-session session.json -w 120 -h 30 --scene-json` turns the same manifest into kittwm chrome preview scenes for shell/external renderer workflows. `HELP_JSON` is the machine-readable catalog for the socket command set.
 
 ## Architecture
 
