@@ -170,6 +170,38 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             clear = true;
                             dbg.log("native terminal balance pane weights");
                         }
+                        b'[' | b',' => {
+                            let to = native_move_target_index(focused, panes.len(), "left");
+                            if to != focused {
+                                let pane = panes.remove(focused);
+                                panes.insert(to, pane);
+                                focused = to;
+                                resize_native_panes_for_layout(
+                                    &mut panes,
+                                    cols,
+                                    rows,
+                                    layout_axis,
+                                )?;
+                                clear = true;
+                            }
+                            dbg.log(&format!("native terminal move previous -> {focused}"));
+                        }
+                        b']' | b'.' => {
+                            let to = native_move_target_index(focused, panes.len(), "right");
+                            if to != focused {
+                                let pane = panes.remove(focused);
+                                panes.insert(to, pane);
+                                focused = to;
+                                resize_native_panes_for_layout(
+                                    &mut panes,
+                                    cols,
+                                    rows,
+                                    layout_axis,
+                                )?;
+                                clear = true;
+                            }
+                            dbg.log(&format!("native terminal move next -> {focused}"));
+                        }
                         0x01 => panes[focused].app.send_bytes(&[0x01])?,
                         other => panes[focused].app.send_bytes(&[other])?,
                     }
@@ -340,7 +372,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         write!(
             handle,
-            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a b balance — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
+            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a [] move — C-a b balance — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
             rows + 2,
             panes.len(),
             panes[focused].window,
@@ -787,6 +819,18 @@ mod native_pane_tests {
         assert_eq!(native_move_target_index(0, 3, "left"), 0);
         assert_eq!(native_move_target_index(2, 3, "right"), 2);
         assert_eq!(native_move_target_index(5, 0, "last"), 0);
+    }
+
+    #[test]
+    fn native_move_preserves_focus_on_moved_pane() {
+        let mut order = vec!["a", "b", "c"];
+        let mut focused = 1usize;
+        let to = native_move_target_index(focused, order.len(), "right");
+        let pane = order.remove(focused);
+        order.insert(to, pane);
+        focused = to;
+        assert_eq!(order, vec!["a", "c", "b"]);
+        assert_eq!(order[focused], "b");
     }
 
     #[test]
