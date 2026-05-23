@@ -98,11 +98,13 @@ Current semantic implementation status:
   visible-text waits, screen-plus-scrollback output waits, typed wait-match
   results, exact byte sends, bracketed paste byte payloads, and typed
   `MouseEvent` injection through `SurfaceHandle` methods; event helpers expose
-  common envelope/detail accessors; control helpers cover focus cycling, layout,
-  balance, and pane movement; `NativePaneDetail` has convenience accessors for
-  bounds/cursor/modes/dirty/transport status; local capability presets cover
-  none/restricted/inspection/automation scopes; SDK introspection includes typed
-  `HELP_JSON` catalog helpers.
+  bounded iterators and common envelope/detail accessors; control helpers cover
+  focus cycling, layout, balance, and pane movement; `NativePaneDetail` has
+  convenience accessors for bounds/cursor/modes/dirty/transport status; local
+  capability presets cover none/restricted/inspection/automation scopes; SDK
+  introspection includes typed `HELP_JSON` catalog helpers. Remaining SDK/runtime
+  gaps are mostly stable frame-capture/present surfaces, resize/input/frame
+  event modeling, clipboard read policy, and runtime-issued credentials.
 - `kittwm-launch` — first-party SDK launcher with backend planning, typed app
   discovery helpers, URL/browser auto-selection through `kittwm-browser`,
   `--dry-run`, and `--status`.
