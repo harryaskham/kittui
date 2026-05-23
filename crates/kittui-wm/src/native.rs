@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
+use kittui::Scene;
 use kittui_xvfb::{XCapture, XServer, XWindow, XWindowId};
 use kittwm_sdk::{
     ActionKind, ComponentAction, ComponentNode, ComponentRole, ComponentState, ComponentValue,
@@ -321,6 +322,74 @@ impl XWindowSurface {
             capabilities,
             frame_size,
         }
+    }
+}
+
+/// Capture-only adapter that exposes a kittui scene as a native surface.
+///
+/// This lets runtime/composite code treat first-party kittui render artifacts
+/// the same way it treats PTY, browser, X11, or Quartz capture surfaces. The
+/// adapter is intentionally immutable: callers that want a different logical
+/// size should rebuild the scene so layer geometry and identity stay explicit.
+pub struct KittuiSceneSurface {
+    id: SurfaceId,
+    title: String,
+    scene: Scene,
+}
+
+impl KittuiSceneSurface {
+    /// Wrap a scene with a stable surface id and human-readable title.
+    pub fn new(id: impl Into<String>, title: impl Into<String>, scene: Scene) -> Self {
+        Self {
+            id: SurfaceId::new(id),
+            title: title.into(),
+            scene,
+        }
+    }
+
+    /// Borrow the wrapped scene.
+    pub fn scene(&self) -> &Scene {
+        &self.scene
+    }
+
+    fn frame_size(&self) -> (u32, u32) {
+        (self.scene.pixel_width(), self.scene.pixel_height())
+    }
+}
+
+impl NativeSurface for KittuiSceneSurface {
+    fn metadata(&self) -> SurfaceMetadata {
+        SurfaceMetadata {
+            id: self.id.clone(),
+            kind: SurfaceKind::KittuiScene,
+            title: self.title.clone(),
+            capabilities: SurfaceCapabilities::capture_only(),
+            frame_size: Some(self.frame_size()),
+        }
+    }
+
+    fn resize_surface(&mut self, _cols: u16, _rows: u16) -> Result<()> {
+        Err(anyhow!(
+            "kittui scene surfaces are immutable; rebuild the scene to resize"
+        ))
+    }
+
+    fn send_surface_text(&mut self, _text: &str) -> Result<()> {
+        Err(anyhow!("kittui scene surfaces do not accept text input"))
+    }
+
+    fn capture_surface(&mut self) -> Result<SurfaceFrame> {
+        let rendered = kittui_render_cpu::render_still(&self.scene)
+            .map_err(|err| anyhow!("render kittui scene surface: {err:?}"))?;
+        let frame = NativeFrame::Png {
+            width: rendered.width_px,
+            height: rendered.height_px,
+            bytes: rendered.png,
+        };
+        Ok(SurfaceFrame {
+            metadata: self.metadata(),
+            frame,
+        })
     }
 }
 
@@ -3359,6 +3428,48 @@ mod tests {
         state.osc_dispatch(&[b"52", b"c", b"not base64!!!"], true);
         state.osc_dispatch(&[b"52", b"bad;selector", b"aGVsbG8="], true);
         assert!(state.take_pending_host_sequences().is_empty());
+    }
+
+    #[test]
+    fn kittui_scene_surface_adapts_scene_capture_metadata() {
+        let footprint = kittui::CellRect::new(0, 0, 4, 3);
+        let cell_size = kittui::CellSize::new(8, 10);
+        let scene = kittui::scene::scene(
+            footprint,
+            cell_size,
+            vec![kittui::scene::background_solid(
+                footprint,
+                cell_size,
+                kittui::Rgba::rgb(0x12, 0x34, 0x56),
+            )],
+        );
+        let mut surface = KittuiSceneSurface::new("scene:settings", "settings", scene);
+
+        let metadata = NativeSurface::metadata(&surface);
+        assert_eq!(metadata.id.as_str(), "scene:settings");
+        assert_eq!(metadata.kind, SurfaceKind::KittuiScene);
+        assert_eq!(metadata.title, "settings");
+        assert!(metadata.capabilities.capture);
+        assert!(!metadata.capabilities.input);
+        assert!(!metadata.capabilities.resize);
+        assert_eq!(metadata.frame_size, Some((32, 30)));
+        assert!(NativeSurface::resize_surface(&mut surface, 8, 6).is_err());
+        assert!(NativeSurface::send_surface_text(&mut surface, "ignored").is_err());
+
+        let frame = NativeSurface::capture_surface(&mut surface).unwrap();
+        assert_eq!(frame.metadata.kind, SurfaceKind::KittuiScene);
+        assert_eq!(frame.metadata.frame_size, Some((32, 30)));
+        match frame.frame {
+            NativeFrame::Png {
+                width,
+                height,
+                bytes,
+            } => {
+                assert_eq!((width, height), (32, 30));
+                assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+            }
+            other => panic!("expected PNG frame, got {other:?}"),
+        }
     }
 
     #[test]
