@@ -557,9 +557,26 @@ fn run_compose(
     args: &ComposeArgs,
     mode: EmitMode,
 ) -> Result<()> {
-    let scene = read_compose_scene(&args.path)?;
-    let footprint = compose_placement_footprint(&scene, args.x, args.y);
-    emit_scene_at_with_mode(global, runtime, &scene, footprint, None, mode)
+    match read_compose_input(&args.path)? {
+        ComposeInput::Single(scene) => {
+            let footprint = compose_placement_footprint(&scene, args.x, args.y);
+            emit_scene_at_with_mode(global, runtime, &scene, footprint, None, mode)
+        }
+        ComposeInput::Batch(scenes) => {
+            if args.x.is_some() || args.y.is_some() {
+                return Err(anyhow!(
+                    "compose --x/--y placement overrides are only supported for single Scene input"
+                ));
+            }
+            emit_scene_batch_with_mode(global, runtime, &scenes, mode)
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum ComposeInput {
+    Single(Scene),
+    Batch(Vec<Scene>),
 }
 
 fn compose_placement_footprint(scene: &Scene, x: Option<u16>, y: Option<u16>) -> CellRect {
@@ -571,7 +588,7 @@ fn compose_placement_footprint(scene: &Scene, x: Option<u16>, y: Option<u16>) ->
     )
 }
 
-fn read_compose_scene(path: &PathBuf) -> Result<Scene> {
+fn read_compose_input(path: &PathBuf) -> Result<ComposeInput> {
     let bytes = if path.as_os_str() == "-" {
         let mut bytes = Vec::new();
         std::io::stdin().read_to_end(&mut bytes)?;
@@ -579,7 +596,12 @@ fn read_compose_scene(path: &PathBuf) -> Result<Scene> {
     } else {
         std::fs::read(path)?
     };
-    Ok(serde_json::from_slice(&bytes)?)
+    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    if value.is_array() {
+        Ok(ComposeInput::Batch(serde_json::from_value(value)?))
+    } else {
+        Ok(ComposeInput::Single(serde_json::from_value(value)?))
+    }
 }
 
 fn run_image(
@@ -1130,6 +1152,91 @@ fn emit_placement_with_mode(
     Ok(())
 }
 
+fn batch_json_payload(
+    global: &GlobalConfig,
+    batch: &kittui::BatchPlacement,
+    dry_run: bool,
+    include_bytes: bool,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "count": batch.image_ids.len(),
+        "image_ids": batch.image_ids.iter().map(|id| format!("0x{id:08x}")).collect::<Vec<_>>(),
+        "footprints": batch.footprints,
+        "upload_bytes": batch.upload.len(),
+        "placement_bytes": batch.placement.len(),
+        "embed_bytes": batch.embed.len(),
+        "config_sources": { "global": global.source_json(), "command": serde_json::Value::Null },
+    });
+    if dry_run {
+        payload["dry_run"] = serde_json::json!(true);
+    }
+    if include_bytes {
+        payload["upload"] = serde_json::json!(batch.upload);
+        payload["placement"] = serde_json::json!(batch.placement);
+        payload["embed"] = serde_json::json!(batch.embed);
+    } else if !dry_run {
+        payload["embed"] = serde_json::json!(batch.embed);
+    }
+    payload
+}
+
+fn emit_batch_with_mode(
+    global: &GlobalConfig,
+    batch: &kittui::BatchPlacement,
+    mode: EmitMode,
+) -> Result<()> {
+    if mode.dry_run {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&batch_json_payload(
+                global,
+                batch,
+                true,
+                mode.json_bytes
+            ))?
+        );
+        return Ok(());
+    }
+    if global.json.value {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&batch_json_payload(
+                global,
+                batch,
+                false,
+                mode.json_bytes
+            ))?
+        );
+        return Ok(());
+    }
+    let mut handle = std::io::stdout().lock();
+    let any_filter = mode.upload_only || mode.placement_only || mode.embed_only;
+    if !any_filter || mode.upload_only {
+        handle.write_all(batch.upload.as_bytes())?;
+    }
+    if !any_filter || mode.placement_only {
+        handle.write_all(batch.placement.as_bytes())?;
+    }
+    if !any_filter || mode.embed_only {
+        handle.write_all(batch.embed.as_bytes())?;
+    }
+    Ok(())
+}
+
+fn emit_scene_batch_with_mode(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    scenes: &[Scene],
+    mode: EmitMode,
+) -> Result<()> {
+    if mode.scene_json {
+        println!("{}", serde_json::to_string_pretty(scenes)?);
+        return Ok(());
+    }
+    let batch = runtime.place_batch(scenes)?;
+    emit_batch_with_mode(global, &batch, mode)
+}
+
 fn emit_scene_at_with_mode(
     global: &GlobalConfig,
     runtime: &Runtime,
@@ -1212,6 +1319,24 @@ mod tests {
     }
 
     #[test]
+    fn batch_json_payload_reports_counts_and_channels() {
+        let batch = kittui::BatchPlacement {
+            upload: "upload".to_string(),
+            placement: "place".to_string(),
+            embed: "embed".to_string(),
+            image_ids: vec![1, 0x1234],
+            footprints: vec![CellRect::new(0, 0, 1, 1), CellRect::new(2, 3, 4, 5)],
+        };
+        let payload = batch_json_payload(&test_global(), &batch, true, true);
+        assert_eq!(payload["dry_run"], true);
+        assert_eq!(payload["count"], 2);
+        assert_eq!(payload["image_ids"][1], "0x00001234");
+        assert_eq!(payload["upload"], "upload");
+        assert_eq!(payload["placement"], "place");
+        assert_eq!(payload["embed"], "embed");
+    }
+
+    #[test]
     fn compose_scene_reader_accepts_files() {
         let path = std::env::temp_dir().join(format!(
             "kittui-compose-scene-{}-{}.json",
@@ -1220,8 +1345,11 @@ mod tests {
         ));
         let scene = tiny_scene();
         std::fs::write(&path, serialize_scene_json(&scene).unwrap()).unwrap();
-        let parsed = read_compose_scene(&path).unwrap();
-        assert_eq!(parsed.footprint, scene.footprint);
+        let parsed = read_compose_input(&path).unwrap();
+        match parsed {
+            ComposeInput::Single(parsed) => assert_eq!(parsed.footprint, scene.footprint),
+            ComposeInput::Batch(_) => panic!("expected single scene"),
+        }
         let _ = std::fs::remove_file(path);
     }
 
