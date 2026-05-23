@@ -273,6 +273,7 @@ struct TerminalState {
     saved_cursor_row: u16,
     cursor_visible: bool,
     origin_mode: bool,
+    auto_wrap: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     cells: Vec<TerminalCell>,
@@ -339,6 +340,7 @@ impl TerminalState {
             saved_cursor_row: 0,
             cursor_visible: true,
             origin_mode: false,
+            auto_wrap: true,
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
             cells: vec![
@@ -363,6 +365,7 @@ impl TerminalState {
         self.current_style = old.current_style;
         self.cursor_visible = old.cursor_visible;
         self.origin_mode = old.origin_mode;
+        self.auto_wrap = old.auto_wrap;
         self.bracketed_paste = old.bracketed_paste;
         self.focus_reporting = old.focus_reporting;
         self.mouse_modes = old.mouse_modes;
@@ -486,10 +489,16 @@ impl TerminalState {
 
     fn put_char(&mut self, ch: char) {
         if self.cursor_col >= self.cols {
-            self.newline();
+            if self.auto_wrap {
+                self.newline();
+            } else {
+                self.cursor_col = self.cols.saturating_sub(1);
+            }
         }
         self.put_at(self.cursor_col, self.cursor_row, ch);
-        self.cursor_col += 1;
+        if self.auto_wrap || self.cursor_col + 1 < self.cols {
+            self.cursor_col += 1;
+        }
     }
 
     fn set_title_from_osc(&mut self, params: &[&[u8]]) {
@@ -893,6 +902,7 @@ impl Perform for TerminalState {
             .iter()
             .any(|param| param.first().copied() == Some(25));
         let has_origin_mode = params.iter().any(|param| param.first().copied() == Some(6));
+        let has_autowrap_mode = params.iter().any(|param| param.first().copied() == Some(7));
         let mouse_modes = params
             .iter()
             .filter_map(|param| param.first().copied())
@@ -940,6 +950,7 @@ impl Perform for TerminalState {
             'h' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = true,
             'h' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = true,
             'h' if is_dec_private && has_origin_mode => self.set_origin_mode(true),
+            'h' if is_dec_private && has_autowrap_mode => self.auto_wrap = true,
             'h' if is_dec_private && !mouse_modes.is_empty() => {
                 for mode in mouse_modes {
                     self.set_mouse_mode(mode, true);
@@ -968,6 +979,7 @@ impl Perform for TerminalState {
             'l' if is_dec_private && has_focus_reporting_mode => self.focus_reporting = false,
             'l' if is_dec_private && has_cursor_visibility_mode => self.cursor_visible = false,
             'l' if is_dec_private && has_origin_mode => self.set_origin_mode(false),
+            'l' if is_dec_private && has_autowrap_mode => self.auto_wrap = false,
             'l' if is_dec_private && !mouse_modes.is_empty() => {
                 for mode in mouse_modes {
                     self.set_mouse_mode(mode, false);
@@ -1413,6 +1425,26 @@ mod tests {
             text.starts_with("x    y\n      z\nk  n\nw"),
             "snapshot was:\n{text}"
         );
+    }
+
+    #[test]
+    fn terminal_state_honors_dec_autowrap_mode() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(4, 2);
+        parser.advance(&mut state, b"abcdE");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("abcd\nE"), "snapshot was:\n{text}");
+
+        let mut state = TerminalState::new(4, 2);
+        parser.advance(&mut state, b"\x1b[?7labcdE");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("abcE\n"), "snapshot was:\n{text}");
+        assert!(!state.auto_wrap);
+
+        parser.advance(&mut state, b"\x1b[?7hFG");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("abcF\nG"), "snapshot was:\n{text}");
+        assert!(state.auto_wrap);
     }
 
     #[test]
