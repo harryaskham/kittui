@@ -42,6 +42,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let sock = crate::daemon::default_socket_path()
         .to_string_lossy()
         .to_string();
+    let queue = crate::daemon::NativeSpawnQueue::bind(crate::daemon::default_socket_path())?;
     let cmd = std::env::var("KITTWM_TERMINAL_CMD")
         .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
         .unwrap_or_else(|_| "/bin/sh -l".to_string());
@@ -129,6 +130,15 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
 
         focused = reap_exited_native_panes(&mut panes, focused, &dbg)?;
+        for spawn_cmd in queue.drain() {
+            let id = next_native_pane_id(&panes);
+            panes.push(spawn_native_pane(id, &spawn_cmd, &sock, 1, 1)?);
+            focused = panes.len() - 1;
+            let pane_count = panes.len();
+            resize_native_panes(&mut panes, native_pane_layouts(cols, rows, pane_count))?;
+            clear = true;
+            dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
+        }
         let (new_cols, new_rows) = native_terminal_size();
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
@@ -201,6 +211,15 @@ struct NativePaneLayout {
     app_y: u16,
     app_cols: u16,
     app_rows: u16,
+}
+
+fn next_native_pane_id(panes: &[NativePane]) -> u32 {
+    panes
+        .iter()
+        .filter_map(|pane| pane.window.strip_prefix("native-")?.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1)
 }
 
 fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Result<NativePane> {
@@ -357,6 +376,27 @@ mod native_pane_tests {
         assert_eq!(focus_after_remove(2, 1, 3), 1);
         assert_eq!(focus_after_remove(0, 2, 3), 0);
         assert_eq!(focus_after_remove(0, 0, 1), 0);
+    }
+
+    #[test]
+    fn next_native_pane_id_uses_max_existing_id() {
+        let panes = vec![
+            NativePane {
+                window: "native-1".to_string(),
+                image_id: 1,
+                app: dummy_native_pane_app(),
+            },
+            NativePane {
+                window: "native-7".to_string(),
+                image_id: 7,
+                app: dummy_native_pane_app(),
+            },
+        ];
+        assert_eq!(next_native_pane_id(&panes), 8);
+    }
+
+    fn dummy_native_pane_app() -> PtyTerminalApp {
+        PtyTerminalApp::spawn("true", 1, 1).unwrap()
     }
 }
 

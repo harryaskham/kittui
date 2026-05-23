@@ -103,6 +103,8 @@ Try:
 cargo run -p kittui-cli --bin kittwm
 KITTWM_TERMINAL_CMD=htop cargo run -p kittui-cli --bin kittwm
 cargo run -p kittui-cli --bin kittwm-browser -- https://example.com
+# From another shell while native kittwm is running:
+kittwm --attach -c 'SPAWN_PTY htop'
 ```
 
 ### kittui-md Markdown viewer

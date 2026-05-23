@@ -24,6 +24,10 @@ kittwm replace htop
 # Socket/display style context. :7 maps to /tmp/kittui-wm-7.sock.
 KITTUI_WM_DISPLAY=:7 kittwm --serve
 KITTUI_WM_DISPLAY=:7 kittwm --status
+
+# While a no-arg native kittwm session is running, create a visible PTY pane
+# through its inherited/display-style socket.
+kittwm --attach -c 'SPAWN_PTY htop'
 ```
 
 Use `Ctrl-]` to exit the current native PTY/browser viewer. Explicit capture-backed demos remain available with `--backend fake|quartz|xvfb`.

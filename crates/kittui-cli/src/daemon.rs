@@ -93,6 +93,119 @@ impl PaneRegistry {
 
 type SharedPanes = Arc<Mutex<PaneRegistry>>;
 
+#[derive(Default, Debug)]
+struct NativeSpawnQueueState {
+    pending: Vec<String>,
+}
+
+/// In-process socket queue used by the live native PTY session.
+pub struct NativeSpawnQueue {
+    path: PathBuf,
+    quit: Arc<AtomicBool>,
+    pending: Arc<Mutex<NativeSpawnQueueState>>,
+    accept_thread: Option<JoinHandle<()>>,
+}
+
+impl NativeSpawnQueue {
+    /// Bind a socket that accepts `SPAWN_PTY <cmd>` requests.
+    pub fn bind(path: PathBuf) -> Result<Self> {
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+        }
+        let listener = UnixListener::bind(&path)
+            .map_err(|e| anyhow!("bind native spawn queue {}: {e}", path.display()))?;
+        let quit = Arc::new(AtomicBool::new(false));
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let quit_t = quit.clone();
+        let pending_t = pending.clone();
+        let path_t = path.clone();
+        let accept_thread = std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                if quit_t.load(Ordering::SeqCst) {
+                    break;
+                }
+                let Ok(stream) = stream else { continue };
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let _ = handle_native_spawn_request(stream, &pending_t);
+            }
+            let _ = std::fs::remove_file(&path_t);
+        });
+        Ok(Self {
+            path,
+            quit,
+            pending,
+            accept_thread: Some(accept_thread),
+        })
+    }
+
+    /// Socket path bound by this queue.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Drain all queued PTY spawn commands in FIFO order.
+    pub fn drain(&self) -> Vec<String> {
+        drain_native_spawn_pending(&self.pending)
+    }
+}
+
+impl Drop for NativeSpawnQueue {
+    fn drop(&mut self) {
+        self.quit.store(true, Ordering::SeqCst);
+        let _ = UnixStream::connect(&self.path);
+        if let Some(join) = self.accept_thread.take() {
+            let _ = join.join();
+        }
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn drain_native_spawn_pending(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Vec<String> {
+    let Ok(mut state) = pending.lock() else {
+        return Vec::new();
+    };
+    std::mem::take(&mut state.pending)
+}
+
+fn handle_native_spawn_request(
+    mut stream: UnixStream,
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+) -> Result<()> {
+    let mut line = String::new();
+    {
+        let mut reader = BufReader::new(stream.try_clone()?);
+        reader.read_line(&mut line)?;
+    }
+    let reply = native_spawn_queue_reply(line.trim(), pending);
+    stream.write_all(reply.as_bytes())?;
+    stream.flush()?;
+    Ok(())
+}
+
+fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    let Some(argv) = cmd.strip_prefix("SPAWN_PTY ") else {
+        return match cmd {
+            "PING" => "PONG\n".to_string(),
+            "STATUS" => pending
+                .lock()
+                .map(|p| format!("OK pending={}\n", p.pending.len()))
+                .unwrap_or_else(|_| "ERR registry poisoned\n".to_string()),
+            _ => "ERR expected SPAWN_PTY <cmd>\n".to_string(),
+        };
+    };
+    let argv = argv.trim();
+    if argv.is_empty() {
+        return "ERR SPAWN_PTY requires argv\n".to_string();
+    }
+    match pending.lock() {
+        Ok(mut state) => {
+            state.pending.push(argv.to_string());
+            format!("QUEUED pane={} argv={}\n", state.pending.len(), argv)
+        }
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
+}
+
 /// Accept-loop daemon that answers `PING` / `STATUS` / `QUIT`.
 pub struct DaemonServer {
     path: PathBuf,
@@ -335,6 +448,22 @@ mod tests {
         assert!(panes.contains("PANES 1"), "{panes}");
         assert!(panes.contains("pane=1 window=daemon-1"), "{panes}");
         assert_eq!(server.panes().len(), 1);
+    }
+
+    #[test]
+    fn native_spawn_queue_parses_and_drains_fifo() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        assert_eq!(native_spawn_queue_reply("PING", &pending).trim(), "PONG");
+        assert!(native_spawn_queue_reply("SPAWN_PTY", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("SPAWN_PTY htop", &pending).starts_with("QUEUED"));
+        assert!(
+            native_spawn_queue_reply("SPAWN_PTY bash -lc true", &pending).starts_with("QUEUED")
+        );
+        assert_eq!(
+            drain_native_spawn_pending(&pending),
+            vec!["htop".to_string(), "bash -lc true".to_string()]
+        );
+        assert!(drain_native_spawn_pending(&pending).is_empty());
     }
 
     #[test]
