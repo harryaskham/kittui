@@ -379,4 +379,9 @@ test('scene helpers produce JSON-compatible plain objects', () => {
   assert.equal(solid.layers[0].root.rect.width, 32);
   assert.equal(solid.layers[0].root.rect.height, 32);
   assert.equal(solid.layers[0].root.corners.tl, 3);
+  const gradient = scene.gradientBox({ cols: 5, rows: 2, start: [0, 0, 0, 255], end: [255, 255, 255, 255], direction: 'vertical' });
+  assert.equal(gradient.layers[0].root.kind, 'gradient');
+  assert.equal(gradient.layers[0].root.rect.width, 40);
+  assert.equal(gradient.layers[0].root.direction, 'vertical');
+  assert.deepEqual(gradient.layers[0].root.stops[1].color, [255, 255, 255, 255]);
 });

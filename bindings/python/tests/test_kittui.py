@@ -145,6 +145,12 @@ class KittuiBindingTests(unittest.TestCase):
         self.assertEqual(root["rect"]["height"], 32)
         self.assertEqual(root["fill"]["color"], [0, 216, 255, 255])
         self.assertEqual(root["corners"]["tl"], 3)
+        gradient = scene.gradient_box(5, 2, [0, 0, 0, 255], [255, 255, 255, 255], direction="vertical")
+        groot = gradient["layers"][0]["root"]
+        self.assertEqual(groot["kind"], "gradient")
+        self.assertEqual(groot["rect"]["width"], 40)
+        self.assertEqual(groot["direction"], "vertical")
+        self.assertEqual(groot["stops"][1]["color"], [255, 255, 255, 255])
 
     def test_place_variants_normalize_dicts_and_json_strings(self):
         lib = FakeLib()

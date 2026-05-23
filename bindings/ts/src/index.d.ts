@@ -165,6 +165,8 @@ export const scene: {
   build(args: { footprintCells: [number, number]; cellSize?: CellSize; layers: Layer[]; animation?: Animation }): Scene;
   rectLayer(args: { cols: number; rows: number; rgba: Rgba; cellSize?: CellSize; label?: string; radius?: number }): Layer;
   solidBox(args: { cols: number; rows: number; rgba: Rgba; cellSize?: CellSize; label?: string; radius?: number }): Scene;
+  gradientLayer(args: { cols: number; rows: number; start: Rgba; end: Rgba; direction?: Direction; cellSize?: CellSize; label?: string }): Layer;
+  gradientBox(args: { cols: number; rows: number; start: Rgba; end: Rgba; direction?: Direction; cellSize?: CellSize; label?: string }): Scene;
   backgroundSolid(rgba: Rgba): Layer;
   backgroundLinear(direction: Direction, startRgba: Rgba, endRgba: Rgba): Layer;
 };

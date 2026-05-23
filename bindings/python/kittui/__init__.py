@@ -114,6 +114,33 @@ class _SceneHelpers:
         )
 
     @staticmethod
+    def gradient_layer(cols: int, rows: int, start: list[int] | tuple[int, int, int, int], end: list[int] | tuple[int, int, int, int], *, direction: str = "horizontal", cell_size: dict[str, int] | None = None, label: str = "background") -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        width = int(cols) * int(cell.get("width_px", 8))
+        height = int(rows) * int(cell.get("height_px", 16))
+        return {
+            "label": label,
+            "root": {
+                "kind": "gradient",
+                "rect": {"origin": [0, 0], "width": width, "height": height},
+                "stops": [
+                    {"offset": 0.0, "color": list(start)},
+                    {"offset": 1.0, "color": list(end)},
+                ],
+                "direction": direction,
+            },
+        }
+
+    @staticmethod
+    def gradient_box(cols: int, rows: int, start: list[int] | tuple[int, int, int, int], end: list[int] | tuple[int, int, int, int], *, direction: str = "horizontal", cell_size: dict[str, int] | None = None, label: str = "background") -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        return _SceneHelpers.build(
+            (cols, rows),
+            [_SceneHelpers.gradient_layer(cols, rows, start, end, direction=direction, cell_size=cell, label=label)],
+            cell,
+        )
+
+    @staticmethod
     def background_solid(rgba: list[int] | tuple[int, int, int, int]) -> dict[str, Any]:
         return _SceneHelpers.rect_layer(0, 0, rgba)
 

@@ -31,6 +31,12 @@ const sceneObject = scene.solidBox({
   rgba: [0, 216, 255, 255],
   radius: 6,
 });
+const gradientScene = scene.gradientBox({
+  cols: 60,
+  rows: 8,
+  start: [0, 0, 0, 255],
+  end: [0, 216, 255, 255],
+});
 
 // Render-only PNG bytes for previews/artifacts.
 const png = k.render(sceneObject);

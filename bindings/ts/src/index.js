@@ -467,6 +467,31 @@ export const scene = {
     });
   },
 
+  /** Two-stop gradient layer sized in cells. */
+  gradientLayer({ cols, rows, start, end, direction = 'horizontal', cellSize = { width_px: 8, height_px: 16 }, label = 'background' }) {
+    return {
+      label,
+      root: {
+        kind: 'gradient',
+        rect: { origin: [0, 0], width: cols * cellSize.width_px, height: rows * cellSize.height_px },
+        stops: [
+          { offset: 0.0, color: start },
+          { offset: 1.0, color: end },
+        ],
+        direction,
+      },
+    };
+  },
+
+  /** Complete two-stop gradient scene. */
+  gradientBox({ cols, rows, start, end, direction = 'horizontal', cellSize = { width_px: 8, height_px: 16 }, label = 'background' }) {
+    return this.build({
+      footprintCells: [cols, rows],
+      cellSize,
+      layers: [this.gradientLayer({ cols, rows, start, end, direction, cellSize, label })],
+    });
+  },
+
   /** Solid-background layer placeholder for callers that size rects themselves. */
   backgroundSolid(rgba) {
     return {
