@@ -184,6 +184,12 @@ pub struct SurfaceCapabilities {
     pub capture: bool,
     /// Surface accepts text/key/mouse input.
     pub input: bool,
+    /// Surface accepts exact byte input without UTF-8 conversion.
+    pub exact_byte_input: bool,
+    /// Surface can receive focus-in/focus-out notifications.
+    pub focus_events: bool,
+    /// Surface can emit side-effect events through `NativeSurface`.
+    pub surface_events: bool,
     /// Surface can be resized.
     pub resize: bool,
     /// Surface exposes a human-readable title.
@@ -198,6 +204,9 @@ impl SurfaceCapabilities {
         Self {
             capture: true,
             input: true,
+            exact_byte_input: false,
+            focus_events: false,
+            surface_events: false,
             resize: true,
             title: true,
             restore: false,
@@ -209,6 +218,9 @@ impl SurfaceCapabilities {
         Self {
             capture: true,
             input: false,
+            exact_byte_input: false,
+            focus_events: false,
+            surface_events: false,
             resize: false,
             title: true,
             restore: false,
@@ -1171,6 +1183,10 @@ impl NativeApp for PtyTerminalApp {
 
 impl NativeSurface for PtyTerminalApp {
     fn metadata(&self) -> SurfaceMetadata {
+        let mut capabilities = SurfaceCapabilities::interactive_capture();
+        capabilities.exact_byte_input = true;
+        capabilities.focus_events = true;
+        capabilities.surface_events = true;
         SurfaceMetadata {
             id: SurfaceId::new(format!(
                 "pty:{}",
@@ -1180,7 +1196,7 @@ impl NativeSurface for PtyTerminalApp {
             )),
             kind: SurfaceKind::Terminal,
             title: self.surface.title().unwrap_or_else(|| self.title.clone()),
-            capabilities: SurfaceCapabilities::interactive_capture(),
+            capabilities,
             frame_size: None,
         }
     }
@@ -3935,6 +3951,9 @@ mod tests {
         assert_eq!(metadata.title, "settings");
         assert!(metadata.capabilities.capture);
         assert!(!metadata.capabilities.input);
+        assert!(!metadata.capabilities.exact_byte_input);
+        assert!(!metadata.capabilities.focus_events);
+        assert!(!metadata.capabilities.surface_events);
         assert!(!metadata.capabilities.resize);
         assert_eq!(metadata.frame_size, Some((32, 30)));
         assert!(NativeSurface::resize_surface(&mut surface, 8, 6).is_err());
@@ -3972,6 +3991,9 @@ mod tests {
         assert_eq!(metadata.title, "composited frame");
         assert!(metadata.capabilities.capture);
         assert!(!metadata.capabilities.input);
+        assert!(!metadata.capabilities.exact_byte_input);
+        assert!(!metadata.capabilities.focus_events);
+        assert!(!metadata.capabilities.surface_events);
         assert!(!metadata.capabilities.resize);
         assert_eq!(metadata.frame_size, Some((2, 1)));
         assert!(NativeSurface::resize_surface(&mut surface, 4, 4).is_err());
@@ -4029,6 +4051,9 @@ mod tests {
         assert_eq!(metadata.title, "preview");
         assert!(metadata.capabilities.capture);
         assert!(!metadata.capabilities.input);
+        assert!(!metadata.capabilities.exact_byte_input);
+        assert!(!metadata.capabilities.focus_events);
+        assert!(!metadata.capabilities.surface_events);
         assert!(!metadata.capabilities.resize);
         assert_eq!(metadata.frame_size, Some((3, 2)));
         assert_eq!(surface.children().len(), 2);
@@ -4327,6 +4352,9 @@ mod tests {
         assert_eq!(metadata.kind, SurfaceKind::Terminal);
         assert!(metadata.capabilities.capture);
         assert!(metadata.capabilities.input);
+        assert!(metadata.capabilities.exact_byte_input);
+        assert!(metadata.capabilities.focus_events);
+        assert!(metadata.capabilities.surface_events);
         assert!(metadata.capabilities.resize);
         assert!(metadata.capabilities.title);
         assert_eq!(metadata.frame_size, None);
