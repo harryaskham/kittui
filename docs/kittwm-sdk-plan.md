@@ -26,19 +26,19 @@ Already present:
 - `TerminalSurface` now owns the reusable PTY terminal engine (PTY read/write, parsing, responses, snapshots, resize state, and RGBA rendering), while `PtyTerminalApp` keeps process lifecycle as a thin adapter.
 - `PtyTerminalApp` and `HeadlessBrowserApp` implement a small `NativeApp` shape: title, resize, send text/input, capture frame.
 - Xvfb/XQuartz/browser capture support exists in project crates; native terminal/browser adapters now share a first-pass `NativeSurface` metadata/capture/input/resize interface, but X/Quartz and scene/composite adapters still need to be wired into it.
-- Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, a JSON `EVENTS [ms]` status/pane/focus/layout stream, and machine-readable help.
+- Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, semantic snapshot/publish/action/focus, a JSON `EVENTS [ms]` stream with status/pane/focus/layout/semantic events, and machine-readable help.
 - `kittui wm-chrome` and `kittui wm-session` provide static chrome/session previews, but the live shell still draws chrome largely through direct ANSI and kitty image placement.
 
 Missing or immature:
 
 - A public `kittwm-sdk` crate now exists with a first typed socket client, `WindowHandle`, `SurfaceHandle`, `SurfaceSpec`, and capability scoping.
-- The native event stream exists for status/pane/focus/layout changes, but resize/input/frame/clipboard/bell/title events are not yet promoted into a complete SDK event model.
+- The native event stream now has typed SDK coverage for status/pane/focus/layout and semantic snapshot/focus/action/value events, but resize/input/frame/clipboard/bell/title events are not yet promoted into a complete SDK event model.
 - Terminal engine extraction has started with `TerminalSurface`, but it still lives inside `kittui-wm::native` rather than a standalone `kittui-term`/`kittwm-terminal` crate.
 - GUI capture backends are only partially expressed through the new native surface abstraction; X/Quartz and scene/composite metadata still need concrete adapters.
 - External apps can now dogfood the SDK with a composite example that spawns child surfaces and composes text snapshots side-by-side, but true child-surface frame capture/present is still immature.
 - Clipboard/bell/notification semantics are only partially modeled; OSC 52 set-clipboard forwarding exists, but policy and clipboard reads are not yet an SDK capability.
 - Capability/security policy has an initial client-side SDK shape, but runtime-issued credentials and per-client enforcement are still immature.
-- Semantic component surfaces are planned separately in [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md) so toolkit/browser/accessibility/native SDK adapters can expose controls and actions rather than pixels only.
+- Semantic component surfaces are documented in [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md) and [`kittwm-semantic-quickstart.md`](kittwm-semantic-quickstart.md); SDK/native/browser/accessibility proofs now exist, but durable standalone semantic surface lifecycle and platform bindings are still maturing.
 
 ## Target object model
 
@@ -125,18 +125,18 @@ Initial transport can wrap the existing socket protocol; later it can switch to 
 
 A standalone terminal app designed for kittwm:
 
-- Uses extracted terminal surface engine.
-- Owns terminal UX/config: profiles, shell, theme, scrollback limits, copy/paste policy, shortcuts, bell/notification behavior.
-- Uses SDK to create/replace a kittwm window and present terminal frames.
+- Current first-party binary: `kittwm-terminal` can spawn or replace terminal surfaces through the SDK.
+- It now also dogfoods typed SDK status/pane and bounded event APIs via `--status` and `--events-ms`.
+- Future work: own terminal UX/config directly (profiles, shell, theme, scrollback limits, copy/paste policy, shortcuts, bell/notification behavior) and move closer to the extracted terminal engine rather than only asking the shell to spawn PTYs.
 - The built-in default terminal can remain as bootstrap but should use the same engine.
 
 ### `kittwm-launch`
 
 A standalone launcher/spawner:
 
-- Detects backend or accepts explicit backend (`terminal`, `x11`, `quartz`, `browser`).
-- Launches apps through SDK surface specs.
-- Can `replace-current` or create a new window.
+- Current first-party binary: `kittwm-launch` detects/accepts backend choices and uses SDK/socket paths for terminal/app/browser-ish launching.
+- It is being matured with clearer backend selection, dry-run/status planning, URL/browser behavior, and app discovery integration.
+- Future work: make dedicated browser/X/Quartz surface spawning first-class in the SDK transport rather than relying on app-discovery or terminal fallbacks.
 - Lets specialized launchers exist without bloating the shell.
 
 ### Composite apps
@@ -221,8 +221,8 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 - Continue expanding the existing `kittwm-sdk` crate with typed requests and handles.
 - Keep the initial transport backed by the existing native socket protocol.
-- Wrap the existing JSON `EVENTS [ms]` stream in typed SDK event iteration.
-- Add semantic surface snapshot/action/focus APIs once the component protocol leaves the planning stage.
+- Typed SDK event iteration over `EVENTS [ms]` exists for current status/pane/focus/layout/semantic events.
+- Semantic surface snapshot/publish/action/focus APIs and common action helper methods now exist in the SDK.
 
 ### Stage 5: dogfood built-in shell
 
@@ -232,9 +232,10 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 ### Stage 6: first-party standalone apps
 
-- Add `kittwm-terminal` skeleton using SDK and terminal engine.
-- Add `kittwm-launch` skeleton using SDK/backend detection.
-- Add a small composite-app example that spawns two child surfaces and presents a merged view.
+- `kittwm-terminal` exists and now includes SDK status/event inspection helpers.
+- `kittwm-launch` exists and is being matured as a backend-aware SDK launcher.
+- A composite SDK example exists at `crates/kittui-cli/examples/kittwm_composite_app.rs`.
+- A synthetic semantic SDK app exists at `crates/kittui-cli/examples/kittwm_semantic_app.rs` and can print/query/publish component trees.
 
 ## Backlog mapping
 
@@ -250,8 +251,8 @@ Recommended beads:
 8. `kittwm: dogfood surface handles in built-in native session`
 9. `kittwm: extract presentation-agnostic shell view/chrome model`
 10. `kittwm: add pure terminal/DEC renderer backend for shell view model`
-11. `kittwm-terminal: add standalone first-party terminal app skeleton`
-12. `kittwm-launch: add standalone app launcher skeleton`
+11. `kittwm-terminal: add standalone first-party terminal app skeleton` — landed; follow-up maturity includes SDK status/events.
+12. `kittwm-launch: add standalone app launcher skeleton` — landed; backend/app-discovery maturity is in progress.
 13. `kittwm: model clipboard/bell/notification events and policy`
 14. `kittwm: add capability scoping for SDK clients`
 15. `examples: add composite app spawning terminal plus browser surfaces` — initial SDK example lives at `crates/kittui-cli/examples/kittwm_composite_app.rs`.
