@@ -282,16 +282,43 @@ impl Runtime {
     /// embed placeholders for a batch of scenes into a single `BatchPlacement`
     /// the host can write to its terminal stream in three contiguous writes.
     pub fn place_batch(&self, scenes: &[Scene]) -> Result<BatchPlacement, KittuiError> {
-        let mut batch = BatchPlacement::default();
+        let placements = self.place_many(scenes)?;
+        Ok(BatchPlacement::from_placements(&placements))
+    }
+
+    /// Place a batch with its minimum `x`/`y` remapped to `origin_x`/`origin_y`.
+    ///
+    /// Each scene is rendered and cached using its own scene-local footprint,
+    /// but placement escapes and placeholders are emitted at a group origin.
+    /// Relative offsets inside the batch are preserved. Empty batches succeed
+    /// and return an empty [`BatchPlacement`].
+    pub fn place_batch_at_origin(
+        &self,
+        scenes: &[Scene],
+        origin_x: u16,
+        origin_y: u16,
+    ) -> Result<BatchPlacement, KittuiError> {
+        let Some(min_x) = scenes.iter().map(|scene| scene.footprint.x).min() else {
+            return Ok(BatchPlacement::default());
+        };
+        let min_y = scenes
+            .iter()
+            .map(|scene| scene.footprint.y)
+            .min()
+            .unwrap_or(0);
+        let mut placements = Vec::with_capacity(scenes.len());
         for scene in scenes {
-            let p = self.place(scene)?;
-            batch.upload.push_str(&p.upload);
-            batch.placement.push_str(&p.placement);
-            batch.embed.push_str(&p.embed);
-            batch.image_ids.push(p.image_id);
-            batch.footprints.push(p.footprint);
+            let rel_x = scene.footprint.x.saturating_sub(min_x);
+            let rel_y = scene.footprint.y.saturating_sub(min_y);
+            let footprint = CellRect::new(
+                origin_x.saturating_add(rel_x),
+                origin_y.saturating_add(rel_y),
+                scene.footprint.cols,
+                scene.footprint.rows,
+            );
+            placements.push(self.place_at(scene, footprint)?);
         }
-        Ok(batch)
+        Ok(BatchPlacement::from_placements(&placements))
     }
 
     fn ensure_terminal_support(&self) -> Result<(), KittuiError> {
@@ -490,6 +517,20 @@ pub struct BatchPlacement {
     pub image_ids: Vec<u32>,
     /// Cell footprint for each scene, in input order.
     pub footprints: Vec<CellRect>,
+}
+
+impl BatchPlacement {
+    fn from_placements(placements: &[Placement]) -> Self {
+        let mut batch = Self::default();
+        for p in placements {
+            batch.upload.push_str(&p.upload);
+            batch.placement.push_str(&p.placement);
+            batch.embed.push_str(&p.embed);
+            batch.image_ids.push(p.image_id);
+            batch.footprints.push(p.footprint);
+        }
+        batch
+    }
 }
 
 /// Result of [`Runtime::place`].
@@ -743,6 +784,51 @@ mod tests {
         assert!(!batch.upload.is_empty());
         assert!(!batch.placement.is_empty());
         assert!(!batch.embed.is_empty());
+    }
+
+    #[test]
+    fn place_batch_at_origin_preserves_relative_offsets() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .build()
+            .unwrap();
+        let mut a = builders::simple_solid_box(2, 1, "#ff0000");
+        let mut b = builders::simple_solid_box(3, 1, "#00ff00");
+        a.footprint.x = 2;
+        a.footprint.y = 4;
+        b.footprint.x = 7;
+        b.footprint.y = 6;
+        let batch = runtime.place_batch_at_origin(&[a, b], 10, 20).unwrap();
+        assert_eq!(
+            batch.footprints,
+            vec![CellRect::new(10, 20, 2, 1), CellRect::new(15, 22, 3, 1),]
+        );
+        assert!(
+            batch.placement.contains("\x1b[21;11H"),
+            "{:?}",
+            batch.placement
+        );
+        assert!(
+            batch.placement.contains("\x1b[23;16H"),
+            "{:?}",
+            batch.placement
+        );
+    }
+
+    #[test]
+    fn place_batch_at_origin_accepts_empty_batches() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .build()
+            .unwrap();
+        let batch = runtime.place_batch_at_origin(&[], 10, 20).unwrap();
+        assert!(batch.upload.is_empty());
+        assert!(batch.placement.is_empty());
+        assert!(batch.embed.is_empty());
+        assert!(batch.image_ids.is_empty());
+        assert!(batch.footprints.is_empty());
     }
 
     #[test]

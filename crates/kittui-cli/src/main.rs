@@ -678,8 +678,7 @@ fn run_compose(
             emit_scene_at_with_mode(global, runtime, &scene, footprint, None, mode)
         }
         ComposeInput::Batch(scenes) => {
-            let scenes = compose_batch_with_origin(&scenes, args.x, args.y);
-            emit_scene_batch_with_mode(global, runtime, &scenes, mode)
+            emit_scene_batch_at_origin_with_mode(global, runtime, &scenes, args.x, args.y, mode)
         }
     }
 }
@@ -697,35 +696,6 @@ fn compose_placement_footprint(scene: &Scene, x: Option<u16>, y: Option<u16>) ->
         scene.footprint.cols,
         scene.footprint.rows,
     )
-}
-
-fn compose_batch_with_origin(scenes: &[Scene], x: Option<u16>, y: Option<u16>) -> Vec<Scene> {
-    if scenes.is_empty() || (x.is_none() && y.is_none()) {
-        return scenes.to_vec();
-    }
-    let min_x = scenes
-        .iter()
-        .map(|scene| scene.footprint.x)
-        .min()
-        .unwrap_or(0);
-    let min_y = scenes
-        .iter()
-        .map(|scene| scene.footprint.y)
-        .min()
-        .unwrap_or(0);
-    let origin_x = x.unwrap_or(min_x);
-    let origin_y = y.unwrap_or(min_y);
-    scenes
-        .iter()
-        .cloned()
-        .map(|mut scene| {
-            let rel_x = scene.footprint.x.saturating_sub(min_x);
-            let rel_y = scene.footprint.y.saturating_sub(min_y);
-            scene.footprint.x = origin_x.saturating_add(rel_x);
-            scene.footprint.y = origin_y.saturating_add(rel_y);
-            scene
-        })
-        .collect()
 }
 
 fn read_compose_input(path: &PathBuf) -> Result<ComposeInput> {
@@ -1374,6 +1344,35 @@ fn emit_scene_batch_with_mode(
         return Ok(());
     }
     let batch = runtime.place_batch(scenes)?;
+    emit_batch_with_mode(global, &batch, mode)
+}
+
+fn emit_scene_batch_at_origin_with_mode(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    scenes: &[Scene],
+    x: Option<u16>,
+    y: Option<u16>,
+    mode: EmitMode,
+) -> Result<()> {
+    if x.is_none() && y.is_none() {
+        return emit_scene_batch_with_mode(global, runtime, scenes, mode);
+    }
+    if mode.scene_json {
+        println!("{}", serde_json::to_string_pretty(scenes)?);
+        return Ok(());
+    }
+    let min_x = scenes
+        .iter()
+        .map(|scene| scene.footprint.x)
+        .min()
+        .unwrap_or(0);
+    let min_y = scenes
+        .iter()
+        .map(|scene| scene.footprint.y)
+        .min()
+        .unwrap_or(0);
+    let batch = runtime.place_batch_at_origin(scenes, x.unwrap_or(min_x), y.unwrap_or(min_y))?;
     emit_batch_with_mode(global, &batch, mode)
 }
 
