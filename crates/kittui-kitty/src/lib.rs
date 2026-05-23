@@ -104,6 +104,53 @@ impl Quiet {
     }
 }
 
+/// Parsed kitty graphics terminal response.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KittyResponse {
+    /// Action (`a=`) reported by the response header, when present.
+    pub action: Option<String>,
+    /// Image/query id (`i=`), when present.
+    pub image_id: Option<u32>,
+    /// Placement id (`p=`), when present.
+    pub placement_id: Option<u32>,
+    /// Parsed response status/body.
+    pub status: KittyResponseStatus,
+    /// Raw response body after the `;` separator.
+    pub raw_body: String,
+}
+
+/// Known kitty graphics response body classification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum KittyResponseStatus {
+    /// Successful response (`OK`).
+    Ok,
+    /// Error/status token such as `ENOENT` or `EINVAL`.
+    Error(String),
+    /// Capability-query response body for `a=q`.
+    Capability(String),
+    /// Unknown response body preserved for callers.
+    Other(String),
+}
+
+/// Parse errors for kitty graphics terminal responses.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum KittyResponseParseError {
+    /// No complete graphics response escape was found.
+    #[error("missing kitty graphics response escape")]
+    MissingEscape,
+    /// The response header is malformed.
+    #[error("malformed kitty graphics response header")]
+    MalformedHeader,
+    /// A numeric field could not be parsed.
+    #[error("invalid kitty graphics response field {field}={value}")]
+    InvalidField {
+        /// Field name.
+        field: String,
+        /// Field value.
+        value: String,
+    },
+}
+
 /// Optional pixel-space offset within the anchor cell. Spec field `X=`/`Y=`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct SubcellOffset {
@@ -768,6 +815,92 @@ pub fn delete_placement(image_id: u32, placement_id: u32, transport: Transport) 
     )
 }
 
+/// Emit a kitty graphics capability query (`a=q`) with a caller-supplied id.
+///
+/// This is a pure encoder: it does not write to or read from the terminal. The
+/// query intentionally omits `q=` so the terminal can respond.
+pub fn query_capabilities(query_id: u32, transport: Transport) -> String {
+    wrap_transport(format!("{ESC}_Ga=q,i={query_id}{ESC}\\"), transport)
+}
+
+/// Parse one kitty graphics response escape from terminal output.
+///
+/// The parser is deliberately I/O-free and can be used by future response
+/// readers after they have collected bytes from a terminal they own.
+pub fn parse_response(input: &str) -> Result<KittyResponse, KittyResponseParseError> {
+    let start = input
+        .find("\x1b_G")
+        .ok_or(KittyResponseParseError::MissingEscape)?;
+    let rest = &input[start + 3..];
+    let end = rest
+        .find("\x1b\\")
+        .ok_or(KittyResponseParseError::MissingEscape)?;
+    let packet = &rest[..end];
+    let (header, body) = packet.split_once(';').unwrap_or((packet, ""));
+    if header.trim().is_empty() {
+        return Err(KittyResponseParseError::MalformedHeader);
+    }
+
+    let mut action = None;
+    let mut image_id = None;
+    let mut placement_id = None;
+    for field in header.split(',').filter(|field| !field.is_empty()) {
+        let Some((key, value)) = field.split_once('=') else {
+            continue;
+        };
+        match key {
+            "a" => action = Some(value.to_string()),
+            "i" => image_id = Some(parse_u32_field(key, value)?),
+            "p" => placement_id = Some(parse_u32_field(key, value)?),
+            _ => {}
+        }
+    }
+
+    let body_trimmed = body.trim();
+    let status = if action.as_deref() == Some("q") && !body_trimmed.is_empty() {
+        KittyResponseStatus::Capability(body_trimmed.to_string())
+    } else if body_trimmed == "OK" {
+        KittyResponseStatus::Ok
+    } else if let Some(code) = error_code(body_trimmed) {
+        KittyResponseStatus::Error(code.to_string())
+    } else {
+        KittyResponseStatus::Other(body_trimmed.to_string())
+    };
+
+    Ok(KittyResponse {
+        action,
+        image_id,
+        placement_id,
+        status,
+        raw_body: body_trimmed.to_string(),
+    })
+}
+
+fn parse_u32_field(field: &str, value: &str) -> Result<u32, KittyResponseParseError> {
+    value
+        .parse::<u32>()
+        .map_err(|_| KittyResponseParseError::InvalidField {
+            field: field.to_string(),
+            value: value.to_string(),
+        })
+}
+
+fn error_code(body: &str) -> Option<&str> {
+    let code = body
+        .split(|ch: char| ch == ':' || ch.is_ascii_whitespace())
+        .next()
+        .unwrap_or("");
+    if code.starts_with('E')
+        && code
+            .chars()
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
+    {
+        Some(code)
+    } else {
+        None
+    }
+}
+
 /// Internal: emit one upload command (single chunked image or one animation
 /// frame), respecting the medium, quiet field, and animation verb selection.
 fn upload(
@@ -1204,6 +1337,54 @@ mod tests {
     fn delete_by_placement_emits_p_field() {
         let cmd = delete_placement(0x55, 3, Transport::Direct);
         assert_eq!(cmd, "\x1b_Ga=d,d=I,i=85,p=3,q=2\x1b\\");
+    }
+
+    #[test]
+    fn query_capabilities_emits_a_q_without_quiet_suppression() {
+        let cmd = query_capabilities(123, Transport::Direct);
+        assert_eq!(cmd, "\x1b_Ga=q,i=123\x1b\\");
+        assert!(!cmd.contains(",q="));
+    }
+
+    #[test]
+    fn query_capabilities_wraps_for_tmux_passthrough() {
+        let cmd = query_capabilities(7, Transport::TmuxPassthrough);
+        assert_eq!(cmd, "\x1bPtmux;\x1b\x1b_Ga=q,i=7\x1b\x1b\\\x1b\\");
+    }
+
+    #[test]
+    fn parse_response_decodes_ok_error_and_capability_replies() {
+        let ok = parse_response("noise\x1b_Gi=42,p=9;OK\x1b\\tail").unwrap();
+        assert_eq!(ok.image_id, Some(42));
+        assert_eq!(ok.placement_id, Some(9));
+        assert_eq!(ok.status, KittyResponseStatus::Ok);
+
+        let err = parse_response("\x1b_Gi=42;ENOENT: image not found\x1b\\").unwrap();
+        assert_eq!(err.status, KittyResponseStatus::Error("ENOENT".to_string()));
+        assert_eq!(err.raw_body, "ENOENT: image not found");
+
+        let caps = parse_response("\x1b_Ga=q,i=77;OK: f=24,f=32,t=d\x1b\\").unwrap();
+        assert_eq!(caps.action.as_deref(), Some("q"));
+        assert_eq!(caps.image_id, Some(77));
+        assert_eq!(
+            caps.status,
+            KittyResponseStatus::Capability("OK: f=24,f=32,t=d".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_response_rejects_missing_escape_and_bad_numeric_fields() {
+        assert_eq!(
+            parse_response("not a response").unwrap_err(),
+            KittyResponseParseError::MissingEscape
+        );
+        assert_eq!(
+            parse_response("\x1b_Gi=abc;OK\x1b\\").unwrap_err(),
+            KittyResponseParseError::InvalidField {
+                field: "i".to_string(),
+                value: "abc".to_string(),
+            }
+        );
     }
 
     #[test]
