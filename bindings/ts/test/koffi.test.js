@@ -86,6 +86,13 @@ function fakeLib(calls) {
           return 'deleted';
         };
       }
+      if (signature.includes('kittui_place_many_json')) {
+        return (_runtime, scenesJson, out) => {
+          calls.push(['place_many', JSON.parse(scenesJson)]);
+          out[0] = 'placed-many';
+          return 0;
+        };
+      }
       if (signature.includes('kittui_place_json_at')) {
         return (_runtime, sceneJson, x, y, out) => {
           calls.push(['place_at', JSON.parse(sceneJson), x, y]);
@@ -161,6 +168,21 @@ test('placeAt forwards explicit x/y to FFI', () => {
   assert.equal(placeAtCall[2], 7);
   assert.equal(placeAtCall[3], 9);
   assert.equal(placeAtCall[1].footprint.cols, 4);
+  k.close();
+});
+
+test('placeMany forwards one JSON scene array to FFI', () => {
+  const calls = [];
+  const k = new Kittui(fakeLib(calls), {});
+  const s = scene.build({
+    footprintCells: [4, 2],
+    layers: [scene.backgroundSolid([0, 216, 255, 255])],
+  });
+  assert.equal(k.placeMany([s, JSON.stringify(s)]), 'placed-many');
+  const call = calls.find((c) => c[0] === 'place_many');
+  assert.equal(call[1].length, 2);
+  assert.equal(call[1][0].footprint.cols, 4);
+  assert.equal(call[1][1].footprint.rows, 2);
   k.close();
 });
 

@@ -41,6 +41,9 @@ const bytes = k.place({
 
 process.stdout.write(bytes);
 
+// Place multiple scenes in one FFI round-trip.
+process.stdout.write(k.placeMany([sceneJsonOrObject, sceneJsonOrObject]));
+
 // Inspect runtime metadata and clean up uploaded images.
 console.log(k.probe());
 process.stdout.write(k.unplace('0x1234'));

@@ -158,6 +158,9 @@ export class Kittui {
     this._kittui_place_json_at = this.lib.func(
       'int kittui_place_json_at(void* runtime, const char* scene_json, uint16_t x, uint16_t y, _Out_ KittuiOwnedStr* out)',
     );
+    this._kittui_place_many_json = this.lib.func(
+      'int kittui_place_many_json(void* runtime, const char* scenes_json, _Out_ KittuiOwnedStr* out)',
+    );
     this._kittui_abi_version = this.lib.func('uint32_t kittui_abi_version()');
   }
 
@@ -247,13 +250,20 @@ export class Kittui {
 
   /**
    * Render and place multiple scenes in one round-trip across the FFI
-   * boundary. Returns an array of strings in the same order.
+   * boundary. Returns one concatenated batch byte string.
    *
-   * @param {object[]} scenes
-   * @returns {string[]}
+   * @param {(object|string)[]} scenes
+   * @returns {string}
    */
   placeMany(scenes) {
-    return scenes.map((scene) => this.place(scene));
+    if (!this.runtime) throw new Error('kittui runtime closed');
+    const normalized = scenes.map((scene) => (typeof scene === 'string' ? JSON.parse(scene) : scene));
+    const outBox = [null];
+    const status = this._kittui_place_many_json(this.runtime, JSON.stringify(normalized), outBox);
+    if (status !== KittuiStatus.Ok) {
+      throw new Error(`kittui_place_many_json failed: status=${status}`);
+    }
+    return outBox[0] || '';
   }
 
   /**

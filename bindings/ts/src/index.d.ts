@@ -117,7 +117,7 @@ export class Kittui {
   unplace(imageId: number | string): string;
   place(scene: Scene | string): string;
   placeAt(scene: Scene | string, x: number, y: number): string;
-  placeMany(scenes: (Scene | string)[]): string[];
+  placeMany(scenes: (Scene | string)[]): string;
   close(): void;
 }
 
