@@ -412,6 +412,27 @@ pub struct ScrollbackSnapshot {
     pub scrollback: String,
 }
 
+/// Kind of successful wait match returned by `WAIT_TEXT*` / `WAIT_OUTPUT*`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WaitMatchKind {
+    /// The match came from visible screen text.
+    Text,
+    /// The match came from visible screen or scrollback output.
+    Output,
+}
+
+/// Typed metadata parsed from a successful wait reply.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaitMatch {
+    /// Match source.
+    pub kind: WaitMatchKind,
+    /// Window id reported by the daemon.
+    pub window: String,
+    /// Byte count reported by the daemon.
+    pub bytes: u64,
+}
+
 /// Stable semantic component identifier.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SemanticComponentId(pub String);
@@ -1559,6 +1580,26 @@ impl SurfaceHandle {
             .request_protocol(format!("WAIT_OUTPUT {} {}", self.id, needle.as_ref()))
     }
 
+    /// Wait for visible screen text and return typed match metadata.
+    pub fn wait_text_match_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<WaitMatch> {
+        parse_wait_match(&self.wait_text_ms(ms, needle)?)
+    }
+
+    /// Wait for visible screen or scrollback output and return typed match metadata.
+    pub fn wait_output_match_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<WaitMatch> {
+        parse_wait_match(&self.wait_output_ms(ms, needle)?)
+    }
+
+    /// Wait up to the daemon's default timeout for visible text and return typed metadata.
+    pub fn wait_text_match(&self, needle: impl AsRef<str>) -> Result<WaitMatch> {
+        parse_wait_match(&self.wait_text(needle)?)
+    }
+
+    /// Wait up to the daemon's default timeout for visible or scrollback output and return typed metadata.
+    pub fn wait_output_match(&self, needle: impl AsRef<str>) -> Result<WaitMatch> {
+        parse_wait_match(&self.wait_output(needle)?)
+    }
+
     /// Read the semantic component snapshot for this surface.
     pub fn semantic_snapshot(&self) -> Result<SemanticSurfaceSnapshot> {
         self.client
@@ -1767,6 +1808,36 @@ fn parse_app_candidate_fields(fields: &str) -> Result<AppCandidate> {
 
 fn browser_surface_command(target: &str) -> String {
     format!("kittwm-browser {}", shell_quote(target))
+}
+
+fn parse_wait_match(reply: &str) -> Result<WaitMatch> {
+    let line = reply.trim();
+    let (kind, fields) = if let Some(rest) = line.strip_prefix("MATCH_TEXT ") {
+        (WaitMatchKind::Text, rest)
+    } else if let Some(rest) = line.strip_prefix("MATCH_OUTPUT ") {
+        (WaitMatchKind::Output, rest)
+    } else {
+        return Err(Error::Daemon(format!("invalid wait match reply: {line}")));
+    };
+    let mut window = None;
+    let mut bytes = None;
+    for field in fields.split_whitespace() {
+        if let Some(value) = field.strip_prefix("window=") {
+            window = Some(value.to_string());
+        } else if let Some(value) = field.strip_prefix("bytes=") {
+            bytes = Some(
+                value
+                    .parse::<u64>()
+                    .map_err(|_| Error::Daemon(format!("invalid wait match bytes: {value}")))?,
+            );
+        }
+    }
+    Ok(WaitMatch {
+        kind,
+        window: window
+            .ok_or_else(|| Error::Daemon(format!("missing wait match window: {line}")))?,
+        bytes: bytes.ok_or_else(|| Error::Daemon(format!("missing wait match bytes: {line}")))?,
+    })
 }
 
 fn shell_quote(value: &str) -> String {
@@ -2888,6 +2959,30 @@ mod tests {
     }
 
     #[test]
+    fn wait_match_parser_decodes_successful_replies() {
+        assert_eq!(
+            parse_wait_match("MATCH_TEXT window=native-1 bytes=12\n").unwrap(),
+            WaitMatch {
+                kind: WaitMatchKind::Text,
+                window: "native-1".to_string(),
+                bytes: 12,
+            }
+        );
+        assert_eq!(
+            parse_wait_match("MATCH_OUTPUT window=focused bytes=64").unwrap(),
+            WaitMatch {
+                kind: WaitMatchKind::Output,
+                window: "focused".to_string(),
+                bytes: 64,
+            }
+        );
+        assert!(matches!(
+            parse_wait_match("MATCH_TEXT window=native-1"),
+            Err(Error::Daemon(_))
+        ));
+    }
+
+    #[test]
     fn scrollback_and_wait_helpers_deny_before_io() {
         let client = Kittwm::connect_path("/tmp/does-not-exist.sock")
             .with_capabilities(ClientCapabilities::only([Capability::SubscribeEvents]));
@@ -2918,7 +3013,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..5 {
+            for _ in 0..9 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -2936,6 +3031,12 @@ mod tests {
                     }
                     "WAIT_TEXT native-1 prompt" => "MATCH_TEXT window=native-1 bytes=10",
                     "WAIT_OUTPUT native-1 done" => "MATCH_OUTPUT window=native-1 bytes=20",
+                    "WAIT_TEXT_MS native-1 100 typed" => "MATCH_TEXT window=native-1 bytes=30",
+                    "WAIT_OUTPUT_MS native-1 200 typed out" => {
+                        "MATCH_OUTPUT window=native-1 bytes=40"
+                    }
+                    "WAIT_TEXT native-1 prompt2" => "MATCH_TEXT window=native-1 bytes=50",
+                    "WAIT_OUTPUT native-1 done2" => "MATCH_OUTPUT window=native-1 bytes=60",
                     other => panic!("unexpected command {other}"),
                 };
                 stream.write_all(reply.as_bytes()).unwrap();
@@ -2965,6 +3066,24 @@ mod tests {
             surface.wait_output("done").unwrap().trim(),
             "MATCH_OUTPUT window=native-1 bytes=20"
         );
+        assert_eq!(
+            surface.wait_text_match_ms(100, "typed").unwrap(),
+            WaitMatch {
+                kind: WaitMatchKind::Text,
+                window: "native-1".to_string(),
+                bytes: 30,
+            }
+        );
+        assert_eq!(
+            surface.wait_output_match_ms(200, "typed out").unwrap(),
+            WaitMatch {
+                kind: WaitMatchKind::Output,
+                window: "native-1".to_string(),
+                bytes: 40,
+            }
+        );
+        assert_eq!(surface.wait_text_match("prompt2").unwrap().bytes, 50);
+        assert_eq!(surface.wait_output_match("done2").unwrap().bytes, 60);
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(
@@ -2974,7 +3093,11 @@ mod tests {
                 "WAIT_TEXT_MS native-1 250 ready",
                 "WAIT_OUTPUT_MS native-1 500 build finished",
                 "WAIT_TEXT native-1 prompt",
-                "WAIT_OUTPUT native-1 done"
+                "WAIT_OUTPUT native-1 done",
+                "WAIT_TEXT_MS native-1 100 typed",
+                "WAIT_OUTPUT_MS native-1 200 typed out",
+                "WAIT_TEXT native-1 prompt2",
+                "WAIT_OUTPUT native-1 done2"
             ]
         );
     }
