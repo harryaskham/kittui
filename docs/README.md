@@ -78,10 +78,12 @@ Current semantic implementation status:
   snapshots with `--semantic-snapshot` / `--print-semantic`, best-effort publish
   changed snapshots when running with `KITTWM_SOCKET`/`KITTWM_WINDOW`, and route
   supported browser semantic actions through DevTools/DOM.
-- Accessibility-tree adapters are planned; the safe adapter core now has macOS
-  AX and Linux AT-SPI-style node mapping, redaction/action descriptors,
-  permission/unavailable diagnostics, and platform-neutral action routing through
-  an `AccessibilityActionBackend` trait. Direct platform bindings remain follow-ups.
+- Accessibility-tree adapter foundations have landed: the safe adapter core has
+  macOS AX and Linux AT-SPI-style node mapping, redaction/action descriptors,
+  permission/unavailable diagnostics, platform-neutral action routing through an
+  `AccessibilityActionBackend` trait, and browser/accessibility semantic role
+  remaps use first-class SDK roles where available. Direct macOS AX / Linux
+  AT-SPI platform bindings remain follow-ups.
 
 ## Examples and artifacts
 
