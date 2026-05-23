@@ -25,7 +25,7 @@ Already present:
 - PTY output is parsed with `vte` into a custom `TerminalState` with screen cells, style, cursor, scrollback, alt screen, DEC modes, OSC title, OSC 52 forwarding, mouse/focus/bracketed-paste modes, and readback snapshots.
 - `TerminalSurface` now owns the reusable PTY terminal engine (PTY read/write, parsing, responses, snapshots, resize state, and RGBA rendering), while `PtyTerminalApp` keeps process lifecycle as a thin adapter.
 - `PtyTerminalApp` and `HeadlessBrowserApp` implement a small `NativeApp` shape: title, resize, send text/input, capture frame.
-- Xvfb/XQuartz/browser capture support exists in project crates; native terminal/browser adapters now share a first-pass `NativeSurface` metadata/capture/input/resize interface, and XQuartz/Xvfb metadata adapter proofs exist. Capture-only scene/frame adapters also exist: `KittuiSceneSurface` renders a `kittui` scene through the CPU renderer to PNG, while `RgbaFrameSurface` and `CompositeFrameSurface` expose raw RGBA `SurfaceFrame`s for runtime/composite experiments. These adapters are not yet wired into the default live kittwm session path.
+- Xvfb/XQuartz/browser capture support exists in project crates; native terminal/browser adapters now share a first-pass `NativeSurface` metadata/capture/input/resize/event-drain interface, and XQuartz/Xvfb metadata adapter proofs exist. Capture-only scene/frame adapters also exist: `KittuiSceneSurface` renders a `kittui` scene through the CPU renderer to PNG, while `RgbaFrameSurface` and `CompositeFrameSurface` expose raw RGBA `SurfaceFrame`s for runtime/composite experiments. `NativeSurface::take_surface_events` gives PTY surfaces a common path for title/bell/OSC52/notification side effects, while capture-only adapters default to no events. These adapters are not yet wired into the default live kittwm session path.
 - Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, semantic snapshot/publish/action/focus, policy-gated cached clipboard reads, a JSON `EVENTS [ms]` stream with status/pane/focus/layout/semantic plus surface side-effect events, and machine-readable help.
 - `kittui wm-chrome` and `kittui wm-session` provide static chrome/session previews. Live shell chrome can opt into kittui-affordance scene rendering, but default behavior still keeps the conservative ANSI/kitty placement path.
 
@@ -36,7 +36,7 @@ Missing or immature:
 - Terminal engine extraction has started with `TerminalSurface`, but it still lives inside `kittui-wm::native` rather than a standalone `kittui-term`/`kittwm-terminal` crate.
 - GUI/capture backends are partially expressed through the new native surface abstraction; XQuartz/Xvfb proofs and capture-only kittui scene/RGBA/composite frame surfaces exist, while default live-runtime integration remains immature.
 - External apps can now dogfood the SDK with terminal/browser launchers, semantic examples, sessions, automation, and a composite example that spawns child surfaces and composes text snapshots side-by-side. True child-surface frame capture/present is still immature.
-- Clipboard/bell/notification side effects are modeled as events and OSC 52 set-clipboard forwarding exists; `CLIPBOARD_JSON` adds a default-deny, cache-only read policy for the latest nested-app OSC52 write via `KITTWM_CLIPBOARD_READ=allow|1|true|yes`. It does not read the host OS clipboard and is not yet wrapped by the SDK.
+- Clipboard/bell/notification side effects are modeled as events and OSC 52 set-clipboard forwarding exists; PTY surfaces expose those side effects through the common `NativeSurface::take_surface_events` hook, and capture-only adapters return an empty event batch. `CLIPBOARD_JSON` adds a default-deny, cache-only read policy for the latest nested-app OSC52 write via `KITTWM_CLIPBOARD_READ=allow|1|true|yes`. It does not read the host OS clipboard and is not yet wrapped by the SDK.
 - Capability/security policy has an initial client-side SDK shape with `none`, `restricted`, `inspect_only`, and `automation` local presets, but runtime-issued credentials and per-client enforcement are still immature.
 - Semantic component surfaces are documented in [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md) and [`kittwm-semantic-quickstart.md`](kittwm-semantic-quickstart.md); SDK/native/browser/accessibility proofs now exist, but durable standalone semantic surface lifecycle and platform bindings are still maturing.
 
@@ -213,7 +213,7 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 ### Stage 3: define common surface trait/model
 
-- Extend the new `SurfaceId`, `SurfaceFrame`, `SurfaceMetadata`, `SurfaceCapabilities`, and `NativeSurface` model into the remaining native adapters.
+- Extend the new `SurfaceId`, `SurfaceFrame`, `SurfaceMetadata`, `SurfaceCapabilities`, and `NativeSurface` model into the remaining native adapters, including the common `take_surface_events` drain hook for side-effect events.
 - Keep PTY and browser surfaces adapted to the trait as the reference implementation.
 - Map Xvfb/XQuartz capture/input and kittui-scene/composite surfaces to the same trait; capture-only `KittuiSceneSurface`, `RgbaFrameSurface`, and `CompositeFrameSurface` are landed building blocks, with live session wiring still follow-up work.
 
