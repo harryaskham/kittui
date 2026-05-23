@@ -967,6 +967,70 @@ pub struct NativePaneDetail {
     pub transport: Option<Value>,
 }
 
+impl NativePaneDetail {
+    /// Outer pane bounds as `(x, y, cols, rows)` when geometry is available.
+    pub fn bounds(&self) -> Option<(u16, u16, u16, u16)> {
+        Some((self.x?, self.y?, self.cols?, self.rows?))
+    }
+
+    /// App/content bounds as `(x, y, cols, rows)` when geometry is available.
+    pub fn app_bounds(&self) -> Option<(u16, u16, u16, u16)> {
+        Some((self.app_x?, self.app_y?, self.app_cols?, self.app_rows?))
+    }
+
+    /// Cursor position as `(col, row)` when reported.
+    pub fn cursor_position(&self) -> Option<(u16, u16)> {
+        Some((self.cursor_col?, self.cursor_row?))
+    }
+
+    /// Whether the pane reports a visible cursor.
+    pub fn is_cursor_visible(&self) -> bool {
+        self.cursor_visible.unwrap_or(false)
+    }
+
+    /// Whether bracketed paste mode is enabled.
+    pub fn has_bracketed_paste(&self) -> bool {
+        self.bracketed_paste.unwrap_or(false)
+    }
+
+    /// Whether application cursor-key mode is enabled.
+    pub fn has_application_cursor_keys(&self) -> bool {
+        self.application_cursor_keys.unwrap_or(false)
+    }
+
+    /// Whether any mouse-reporting mode is enabled.
+    pub fn has_mouse_reporting(&self) -> bool {
+        self.mouse_reporting.unwrap_or(false)
+            || self.mouse_button_motion.unwrap_or(false)
+            || self.mouse_all_motion.unwrap_or(false)
+    }
+
+    /// Whether button-motion mouse reporting is enabled.
+    pub fn has_mouse_button_motion(&self) -> bool {
+        self.mouse_button_motion.unwrap_or(false)
+    }
+
+    /// Whether all-motion mouse reporting is enabled.
+    pub fn has_mouse_all_motion(&self) -> bool {
+        self.mouse_all_motion.unwrap_or(false)
+    }
+
+    /// Whether SGR mouse encoding is enabled.
+    pub fn has_mouse_sgr(&self) -> bool {
+        self.mouse_sgr.unwrap_or(false)
+    }
+
+    /// Whether dirty-frame metrics are present.
+    pub fn has_dirty_frame(&self) -> bool {
+        self.dirty_frame.is_some()
+    }
+
+    /// Whether transport diagnostics are present.
+    pub fn has_transport_diagnostics(&self) -> bool {
+        self.transport.is_some()
+    }
+}
+
 /// Typed `PANES_JSON` response.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PanesStatus {
@@ -1917,6 +1981,18 @@ mod tests {
         let pane = &panes.panes_detail[0];
         assert_eq!(pane.cursor_col, Some(4));
         assert_eq!(pane.mouse_sgr, Some(true));
+        assert_eq!(pane.bounds(), Some((0, 0, 80, 24)));
+        assert_eq!(pane.app_bounds(), Some((0, 1, 80, 23)));
+        assert_eq!(pane.cursor_position(), Some((4, 5)));
+        assert!(pane.is_cursor_visible());
+        assert!(pane.has_bracketed_paste());
+        assert!(!pane.has_application_cursor_keys());
+        assert!(pane.has_mouse_reporting());
+        assert!(!pane.has_mouse_button_motion());
+        assert!(!pane.has_mouse_all_motion());
+        assert!(pane.has_mouse_sgr());
+        assert!(pane.has_dirty_frame());
+        assert!(pane.has_transport_diagnostics());
         assert_eq!(pane.dirty_frame.as_ref().unwrap().changed_fraction, 0.25);
         assert_eq!(pane.transport.as_ref().unwrap()["selected"], "file");
     }
