@@ -255,15 +255,7 @@ impl Runtime {
         height: u32,
         footprint: CellRect,
     ) -> Placement {
-        let transport = self.terminal.transport;
-        let mut upload = String::new();
-        if self.has_image_uploaded(image_id) {
-            // Raw WM frames are re-uploaded every tick. Delete the previous
-            // image payload explicitly before replacing the same id so host
-            // terminals can reclaim graphics memory promptly.
-            upload.push_str(&kitty::delete(image_id, transport));
-        }
-        upload.push_str(&self.raw_frame_upload(image_id, rgba, width, height));
+        let upload = self.raw_frame_upload(image_id, rgba, width, height);
         self.place_uploaded_image_with_upload(image_id, footprint, upload)
     }
 
@@ -934,7 +926,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_frame_reupload_deletes_previous_image_payload() {
+    fn raw_frame_reupload_replaces_without_delete() {
         let runtime = Runtime::builder()
             .cache_dir(tempdir())
             .renderer(RendererKind::Cpu)
@@ -957,11 +949,11 @@ mod tests {
         );
         let second = runtime.place_raw_frame(7, &rgba, 2, 2, footprint);
         assert!(
-            second.upload.starts_with("\x1b_Ga=d,d=I,i=7"),
-            "second upload should delete old image first: {:?}",
+            !second.upload.contains("a=d"),
+            "same-id reupload should not delete first; deleting before upload causes visible flicker: {:?}",
             second.upload
         );
-        assert!(second.upload.contains("\x1b_Ga=t,f=32"));
+        assert!(second.upload.starts_with("\x1b_Ga=t,f=32"));
     }
 
     #[test]
