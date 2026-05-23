@@ -27,6 +27,21 @@ library path. Otherwise the binding looks in `target/debug` and
 `target/release` relative to the repository, then falls back to the platform
 library name.
 
+## Packaging / entry point
+
+The directory has a minimal `pyproject.toml`, so it can be installed in editable
+mode while developing:
+
+```sh
+python3 -m pip install -e bindings/python
+python3 -m kittui --find-library
+python3 -m kittui --abi
+python3 -m kittui --probe --config-json '{"renderer":"cpu"}'
+```
+
+`python -m kittui` defaults to printing ABI version JSON. It needs a built
+`libkittui_ffi`; `--find-library` only prints the path it would try.
+
 ## API
 
 - `Kittui.open(config=None, library_path=None)`

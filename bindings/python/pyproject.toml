@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kittui"
+version = "0.1.0"
+description = "ctypes binding for the kittui terminal renderer C ABI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "kittui contributors" }]
+keywords = ["terminal", "kitty", "renderer", "ffi", "ctypes"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Terminals",
+]
+
+[project.urls]
+Homepage = "https://github.com/earendil-works/kittui"
+
+[project.scripts]
+kittui-python = "kittui.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kittui"]

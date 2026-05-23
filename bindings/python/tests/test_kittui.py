@@ -3,6 +3,7 @@ import json
 import unittest
 
 from kittui import Kittui, KittuiError
+from kittui.__main__ import build_parser
 
 
 class FakeLib:
@@ -76,6 +77,14 @@ SCENE = {
 
 
 class KittuiBindingTests(unittest.TestCase):
+    def test_module_parser_accepts_discovery_flags(self):
+        parser = build_parser()
+        args = parser.parse_args(["--find-library"])
+        self.assertTrue(args.find_library)
+        args = parser.parse_args(["--abi", "--config-json", '{"renderer":"cpu"}'])
+        self.assertTrue(args.abi)
+        self.assertEqual(args.config_json, '{"renderer":"cpu"}')
+
     def test_config_probe_unplace_and_close(self):
         lib = FakeLib()
         k = Kittui.from_library(lib, {"cache_dir": "/tmp/kittui", "renderer": "cpu"})
