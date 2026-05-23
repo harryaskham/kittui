@@ -7,6 +7,7 @@
 //! the same binary ask a live kittwm host to create or replace panes.
 
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -14,6 +15,7 @@ use anyhow::{anyhow, Result};
 use kittui::{CellRect, TerminalInfo};
 use kittui_kitty as kitty;
 use kittui_wm::native::{HeadlessBrowserApp, NativeApp, NativeFrame};
+use kittwm_sdk::{Kittwm, SemanticSurfaceSnapshot};
 
 fn main() -> ExitCode {
     match real_main() {
@@ -35,6 +37,7 @@ fn real_main() -> Result<()> {
     let mut browser = HeadlessBrowserApp::launch(&url, u32::from(cols) * 8, u32::from(rows) * 16)?;
     let transport = TerminalInfo::detect().transport;
     let _guard = TtyGuard::enter()?;
+    let mut semantic_publisher = BrowserSemanticPublisher::from_env();
     let mut placed = false;
     let mut frame = 0u64;
     let mut stdin = std::io::stdin();
@@ -78,6 +81,7 @@ fn real_main() -> Result<()> {
         else {
             return Err(anyhow!("browser returned non-PNG frame"));
         };
+        semantic_publisher.maybe_publish(&mut browser);
         let fp = CellRect::new(0, 0, cols, rows);
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
@@ -103,6 +107,76 @@ fn real_main() -> Result<()> {
             std::thread::sleep(slack);
         }
     }
+}
+
+struct BrowserSemanticPublisher {
+    socket: Option<PathBuf>,
+    window: String,
+    interval: Duration,
+    last_attempt: Option<Instant>,
+    last_payload: Option<String>,
+}
+
+impl BrowserSemanticPublisher {
+    fn from_env() -> Self {
+        let socket = std::env::var_os("KITTWM_SOCKET")
+            .or_else(|| std::env::var_os("KITTWM_SOCK"))
+            .map(PathBuf::from);
+        let window = std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "focused".to_string());
+        Self {
+            socket,
+            window,
+            interval: Duration::from_millis(500),
+            last_attempt: None,
+            last_payload: None,
+        }
+    }
+
+    fn maybe_publish(&mut self, browser: &mut HeadlessBrowserApp) {
+        let Some(socket) = self.socket.clone() else {
+            return;
+        };
+        let now = Instant::now();
+        if !self.due(now) {
+            return;
+        }
+        self.last_attempt = Some(now);
+        let Ok(snapshot) = browser.semantic_snapshot() else {
+            return;
+        };
+        let Ok(payload) = serde_json::to_string(&snapshot) else {
+            return;
+        };
+        if !self.record_payload(&payload) {
+            return;
+        }
+        let _ = publish_semantic_snapshot(&socket, &self.window, &snapshot);
+    }
+
+    fn due(&self, now: Instant) -> bool {
+        self.last_attempt
+            .map(|last| now.saturating_duration_since(last) >= self.interval)
+            .unwrap_or(true)
+    }
+
+    fn record_payload(&mut self, payload: &str) -> bool {
+        if self.last_payload.as_deref() == Some(payload) {
+            return false;
+        }
+        self.last_payload = Some(payload.to_string());
+        true
+    }
+}
+
+fn publish_semantic_snapshot(
+    socket: &PathBuf,
+    window: &str,
+    snapshot: &SemanticSurfaceSnapshot,
+) -> Result<String> {
+    Kittwm::connect_path(socket)
+        .surface(window)
+        .semantic_publish(snapshot)
+        .map_err(|e| anyhow!(e))
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -176,5 +250,43 @@ impl Drop for TtyGuard {
         let _ = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.orig) };
         print!("\x1b[?25h\x1b[?1049l");
         std::io::stdout().flush().ok();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semantic_publisher_debounces_and_skips_unchanged_payloads() {
+        let start = Instant::now();
+        let mut publisher = BrowserSemanticPublisher {
+            socket: Some(PathBuf::from("/tmp/unused.sock")),
+            window: "native-1".to_string(),
+            interval: Duration::from_millis(500),
+            last_attempt: None,
+            last_payload: None,
+        };
+
+        assert!(publisher.due(start));
+        publisher.last_attempt = Some(start);
+        assert!(!publisher.due(start + Duration::from_millis(499)));
+        assert!(publisher.due(start + Duration::from_millis(500)));
+        assert!(publisher.record_payload("{\"revision\":1}"));
+        assert!(!publisher.record_payload("{\"revision\":1}"));
+        assert!(publisher.record_payload("{\"revision\":2}"));
+    }
+
+    #[test]
+    fn semantic_publisher_defaults_to_focused_without_socket() {
+        let publisher = BrowserSemanticPublisher {
+            socket: None,
+            window: "focused".to_string(),
+            interval: Duration::from_millis(500),
+            last_attempt: None,
+            last_payload: None,
+        };
+        assert!(publisher.socket.is_none());
+        assert_eq!(publisher.window, "focused");
     }
 }
