@@ -42,22 +42,20 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let sock = crate::daemon::default_socket_path()
         .to_string_lossy()
         .to_string();
-    let window = "native-1".to_string();
     let cmd = std::env::var("KITTWM_TERMINAL_CMD")
         .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
         .unwrap_or_else(|_| "/bin/sh -l".to_string());
-    let mut app = PtyTerminalApp::spawn_with_env(
+    let mut panes = vec![spawn_native_pane(
+        1,
         &cmd,
+        &sock,
         cols,
-        rows,
-        [
-            ("KITTWM_SOCKET", sock.as_str()),
-            ("KITTWM_SOCK", sock.as_str()),
-            ("KITTUI_WM_DISPLAY", sock.as_str()),
-            ("KITTWM_DISPLAY", sock.as_str()),
-            ("KITTWM_WINDOW", window.as_str()),
-        ],
-    )?;
+        rows.saturating_sub(1).max(1),
+    )?];
+    let mut focused = 0usize;
+    let pane_count = panes.len();
+    resize_native_panes(&mut panes, native_pane_layouts(cols, rows, pane_count))?;
+
     let fps = std::env::var("KITTUI_WM_FPS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -66,7 +64,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let frame_target = Duration::from_micros(1_000_000 / fps as u64);
     let mut stdin = io::stdin();
     let mut frame = 0u64;
-    let mut placed = false;
+    let mut prefix = false;
+    let mut clear = true;
     loop {
         let frame_start = Instant::now();
         let mut chunk = [0u8; 1024];
@@ -75,56 +74,229 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             if n == 0 {
                 break;
             }
-            if chunk[..n].contains(&0x1d) {
-                dbg.log("native terminal loop: Ctrl-] exit");
-                return Ok(());
+            for &byte in &chunk[..n] {
+                if byte == 0x1d {
+                    dbg.log("native terminal loop: Ctrl-] exit");
+                    return Ok(());
+                }
+                if prefix {
+                    prefix = false;
+                    match byte {
+                        b'%' | b'|' | b'v' | b'V' => {
+                            if panes.len() < 8 {
+                                let id = panes.len() as u32 + 1;
+                                panes.push(spawn_native_pane(id, &cmd, &sock, 1, 1)?);
+                                focused = panes.len() - 1;
+                                let pane_count = panes.len();
+                                resize_native_panes(
+                                    &mut panes,
+                                    native_pane_layouts(cols, rows, pane_count),
+                                )?;
+                                clear = true;
+                                dbg.log(&format!("native terminal split: panes={}", panes.len()));
+                            }
+                        }
+                        b'\t' | b'n' | b'N' => {
+                            focused = next_native_focus(focused, panes.len());
+                            clear = true;
+                            dbg.log(&format!("native terminal focus: {}", panes[focused].window));
+                        }
+                        0x01 => panes[focused].app.send_bytes(&[0x01])?,
+                        other => panes[focused].app.send_bytes(&[other])?,
+                    }
+                    continue;
+                }
+                if byte == 0x01 {
+                    prefix = true;
+                    continue;
+                }
+                panes[focused].app.send_bytes(&[byte])?;
             }
-            app.send_bytes(&chunk[..n])?;
         }
 
         let (new_cols, new_rows) = native_terminal_size();
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
             rows = new_rows;
-            app.resize(cols, rows)?;
-            placed = false;
-            dbg.log(&format!("native terminal resized to {cols}x{rows}"));
+            let pane_count = panes.len();
+            resize_native_panes(&mut panes, native_pane_layouts(cols, rows, pane_count))?;
+            clear = true;
+            dbg.log(&format!(
+                "native terminal resized to {cols}x{rows} panes={}",
+                panes.len()
+            ));
         }
 
-        match app.capture()? {
-            NativeFrame::Rgba {
-                width,
-                height,
-                rgba,
-            } => {
-                let footprint = CellRect::new(0, 0, cols, rows);
-                let p = runtime.place_raw_frame(1, &rgba, width, height, footprint);
-                let stdout = io::stdout();
-                let mut handle = stdout.lock();
-                handle.write_all(p.upload.as_bytes())?;
-                if !placed {
-                    write!(handle, "\x1b[1;1H")?;
+        let layouts = native_pane_layouts(cols, rows, panes.len());
+        let stdout = io::stdout();
+        let mut handle = stdout.lock();
+        if clear {
+            handle.write_all(b"\x1b[2J")?;
+            clear = false;
+        }
+        for (idx, pane) in panes.iter_mut().enumerate() {
+            let layout = layouts[idx];
+            write_native_pane_title(&mut handle, pane, layout, idx == focused)?;
+            match pane.app.capture()? {
+                NativeFrame::Rgba {
+                    width,
+                    height,
+                    rgba,
+                } => {
+                    let footprint =
+                        CellRect::new(layout.app_x, layout.app_y, layout.app_cols, layout.app_rows);
+                    let p = runtime.place_raw_frame(pane.image_id, &rgba, width, height, footprint);
+                    handle.write_all(p.upload.as_bytes())?;
                     handle.write_all(p.placement.as_bytes())?;
                     handle.write_all(p.embed.as_bytes())?;
-                    placed = true;
                 }
-                write!(
-                    handle,
-                    "\x1b[{};1H\x1b[Kkittwm native terminal — {} — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
-                    rows + 2,
-                    app.title(),
-                    sock,
-                    frame,
-                    dbg.path_display()
-                )?;
-                handle.flush()?;
+                NativeFrame::Png { .. } => {}
             }
-            NativeFrame::Png { .. } => {}
         }
+        write!(
+            handle,
+            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} — C-a % split — C-a Tab focus — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
+            rows + 2,
+            panes.len(),
+            panes[focused].window,
+            sock,
+            frame,
+            dbg.path_display()
+        )?;
+        handle.flush()?;
         frame += 1;
         if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
             std::thread::sleep(slack);
         }
+    }
+}
+
+struct NativePane {
+    window: String,
+    image_id: u32,
+    app: PtyTerminalApp,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct NativePaneLayout {
+    x: u16,
+    y: u16,
+    cols: u16,
+    app_x: u16,
+    app_y: u16,
+    app_cols: u16,
+    app_rows: u16,
+}
+
+fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Result<NativePane> {
+    let window = format!("native-{id}");
+    let envs = vec![
+        ("KITTWM_SOCKET".to_string(), sock.to_string()),
+        ("KITTWM_SOCK".to_string(), sock.to_string()),
+        ("KITTUI_WM_DISPLAY".to_string(), sock.to_string()),
+        ("KITTWM_DISPLAY".to_string(), sock.to_string()),
+        ("KITTWM_WINDOW".to_string(), window.clone()),
+    ];
+    let app = PtyTerminalApp::spawn_with_env(cmd, cols.max(1), rows.max(1), envs)?;
+    Ok(NativePane {
+        window,
+        image_id: 0x6b77_0000 | id,
+        app,
+    })
+}
+
+fn native_pane_layouts(cols: u16, rows: u16, count: usize) -> Vec<NativePaneLayout> {
+    let count = count.max(1).min(u16::MAX as usize);
+    let count_u16 = count as u16;
+    let title_rows = 1;
+    let pane_rows = rows.max(title_rows + 1);
+    let base_cols = (cols / count_u16).max(1);
+    let mut x = 0u16;
+    let mut layouts = Vec::with_capacity(count);
+    for idx in 0..count {
+        let remaining = cols.saturating_sub(x).max(1);
+        let pane_cols = if idx + 1 == count {
+            remaining
+        } else {
+            base_cols.min(remaining)
+        }
+        .max(1);
+        layouts.push(NativePaneLayout {
+            x,
+            y: 0,
+            cols: pane_cols,
+            app_x: x,
+            app_y: title_rows,
+            app_cols: pane_cols,
+            app_rows: pane_rows.saturating_sub(title_rows).max(1),
+        });
+        x = x.saturating_add(pane_cols);
+    }
+    layouts
+}
+
+fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>) -> Result<()> {
+    for (pane, layout) in panes.iter_mut().zip(layouts) {
+        pane.app.resize(layout.app_cols, layout.app_rows)?;
+    }
+    Ok(())
+}
+
+fn next_native_focus(current: usize, count: usize) -> usize {
+    if count == 0 {
+        0
+    } else {
+        (current + 1) % count
+    }
+}
+
+fn write_native_pane_title<W: Write>(
+    out: &mut W,
+    pane: &NativePane,
+    layout: NativePaneLayout,
+    focused: bool,
+) -> Result<()> {
+    let marker = if focused { "*" } else { " " };
+    let title = format!("{marker} {} {}", pane.window, pane.app.title());
+    let mut clipped = title.chars().take(layout.cols as usize).collect::<String>();
+    while clipped.chars().count() < layout.cols as usize {
+        clipped.push(' ');
+    }
+    let style = if focused { "\x1b[7m" } else { "\x1b[2m" };
+    write!(
+        out,
+        "\x1b[{};{}H{}{}\x1b[0m",
+        layout.y + 1,
+        layout.x + 1,
+        style,
+        clipped
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod native_pane_tests {
+    use super::*;
+
+    #[test]
+    fn native_pane_layouts_split_columns_and_reserve_title_rows() {
+        let layouts = native_pane_layouts(81, 24, 2);
+        assert_eq!(layouts.len(), 2);
+        assert_eq!(layouts[0].x, 0);
+        assert_eq!(layouts[0].cols, 40);
+        assert_eq!(layouts[0].app_y, 1);
+        assert_eq!(layouts[0].app_rows, 23);
+        assert_eq!(layouts[1].x, 40);
+        assert_eq!(layouts[1].cols, 41);
+        assert_eq!(layouts[1].app_cols, 41);
+    }
+
+    #[test]
+    fn native_focus_cycles_through_available_panes() {
+        assert_eq!(next_native_focus(0, 1), 0);
+        assert_eq!(next_native_focus(0, 3), 1);
+        assert_eq!(next_native_focus(2, 3), 0);
+        assert_eq!(next_native_focus(0, 0), 0);
     }
 }
 
@@ -280,8 +452,14 @@ pub fn run_loop_with<S: XServer>(
                         continue;
                     }
                     OverlayEvent::Launch => {
-                        last_keymap_action = Some(format!("picker.select {}", picker_overlay.selection_label()));
-                        dbg.log(&format!("picker selected {}", picker_overlay.selection_label()));
+                        last_keymap_action = Some(format!(
+                            "picker.select {}",
+                            picker_overlay.selection_label()
+                        ));
+                        dbg.log(&format!(
+                            "picker selected {}",
+                            picker_overlay.selection_label()
+                        ));
                         picker_overlay.active = false;
                         continue;
                     }
@@ -1010,8 +1188,12 @@ impl PickerOverlay {
         ];
         #[cfg(all(target_os = "macos", feature = "quartz"))]
         {
-            for w in kittui_quartz::QuartzServer::list_app_windows().into_iter().take(8) {
-                self.entries.push(format!("mac: {} — {}", w.owner_name, w.title));
+            for w in kittui_quartz::QuartzServer::list_app_windows()
+                .into_iter()
+                .take(8)
+            {
+                self.entries
+                    .push(format!("mac: {} — {}", w.owner_name, w.title));
             }
         }
     }
@@ -1027,8 +1209,12 @@ impl PickerOverlay {
                 self.selected = (self.selected + 1).min(max);
                 OverlayEvent::Consumed
             }
-            InputEvent::Key { key: Key::Enter, .. } => OverlayEvent::Launch,
-            InputEvent::Key { key: Key::Escape, .. } => OverlayEvent::Close,
+            InputEvent::Key {
+                key: Key::Enter, ..
+            } => OverlayEvent::Launch,
+            InputEvent::Key {
+                key: Key::Escape, ..
+            } => OverlayEvent::Close,
             _ => OverlayEvent::NotHandled,
         }
     }
@@ -1043,7 +1229,12 @@ impl PickerOverlay {
     fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
         let width = 64usize;
         write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
-        write!(handle, "\x1b[3;2H│{:^width$}│", "kittwm picker", width = width)?;
+        write!(
+            handle,
+            "\x1b[3;2H│{:^width$}│",
+            "kittwm picker",
+            width = width
+        )?;
         write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
         for row in 0..8usize {
             let line = if let Some(entry) = self.entries.get(row) {
@@ -1052,10 +1243,21 @@ impl PickerOverlay {
             } else {
                 String::new()
             };
-            write!(handle, "\x1b[{};2H│{:<width$}│", 5 + row as u16, truncate_cells(&line, width), width = width)?;
+            write!(
+                handle,
+                "\x1b[{};2H│{:<width$}│",
+                5 + row as u16,
+                truncate_cells(&line, width),
+                width = width
+            )?;
         }
         write!(handle, "\x1b[13;2H├{}┤", "─".repeat(width))?;
-        write!(handle, "\x1b[14;2H│ {:<w$}│", "Enter select · Esc close · ↑/↓/Tab navigate", w = width - 1)?;
+        write!(
+            handle,
+            "\x1b[14;2H│ {:<w$}│",
+            "Enter select · Esc close · ↑/↓/Tab navigate",
+            w = width - 1
+        )?;
         write!(handle, "\x1b[15;2H└{}┘", "─".repeat(width))?;
         Ok(())
     }
