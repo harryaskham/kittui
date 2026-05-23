@@ -228,12 +228,33 @@ fn run(args: LaunchArgs) -> Result<String, String> {
             }
         }
         Backend::App | Backend::Auto => {
-            let reply = wm
-                .request(&plan.command)
-                .map_err(|err| format!("launch app via discovery: {err}"))?;
+            let reply = if args.status {
+                let candidate = wm
+                    .app_first(&args.query)
+                    .map_err(|err| format!("find app via discovery: {err}"))?;
+                let launch = wm
+                    .app_launch_first(&args.query)
+                    .map_err(|err| format!("launch app via discovery: {err}"))?;
+                format!(
+                    "APPS_LAUNCH_FIRST pid={} kind={} name={}\nAPPS_FIRST kind={} name={}\n",
+                    launch.pid,
+                    launch.candidate.kind,
+                    launch.candidate.name,
+                    candidate.kind,
+                    candidate.name
+                )
+            } else {
+                let launch = wm
+                    .app_launch_first(&args.query)
+                    .map_err(|err| format!("launch app via discovery: {err}"))?;
+                format!(
+                    "APPS_LAUNCH_FIRST pid={} kind={} name={}\n",
+                    launch.pid, launch.candidate.kind, launch.candidate.name
+                )
+            };
             if args.replace {
                 if let Some(current) = wm.current_window_from_env() {
-                    let _ = wm.request(format!("CLOSE_PANE {}", current.id));
+                    let _ = wm.surface(current.id).close();
                 }
             }
             reply
