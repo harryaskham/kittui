@@ -77,6 +77,9 @@ function fakeLib(calls, options = {}) {
       if (signature.includes('kittui_string_free')) {
         return () => undefined;
       }
+      if (signature.includes('kittui_bytes_free')) {
+        return (_ptr, len) => calls.push(['free_bytes', len]);
+      }
       if (signature.includes('kittui_probe_json')) {
         return () => '{"abi_major":0,"abi_minor":4,"transport":"Direct"}';
       }
@@ -88,6 +91,15 @@ function fakeLib(calls, options = {}) {
       }
       if (signature.includes('kittui_last_error')) {
         return () => 'fake ffi detail';
+      }
+      if (signature.includes('kittui_render_json')) {
+        return (_runtime, sceneJson, ptrOut, lenOut) => {
+          calls.push(['render', JSON.parse(sceneJson)]);
+          if (options.fail === 'render') return 3;
+          ptrOut[0] = [0x89, 0x50, 0x4e, 0x47];
+          lenOut[0] = 4;
+          return 0;
+        };
       }
       if (signature.includes('kittui_place_many_json_channels')) {
         return (_runtime, scenesJson, x, y, out) => {
@@ -188,6 +200,19 @@ test('probe parses runtime metadata and unplace forwards image ids', () => {
   k.close();
 });
 
+test('render returns PNG bytes and frees byte buffer', () => {
+  const calls = [];
+  const k = new Kittui(fakeLib(calls), {});
+  const s = scene.build({
+    footprintCells: [4, 2],
+    layers: [scene.backgroundSolid([0, 216, 255, 255])],
+  });
+  assert.deepEqual(Array.from(k.render(s)), [0x89, 0x50, 0x4e, 0x47]);
+  assert.equal(calls.find((call) => call[0] === 'render')[1].footprint.cols, 4);
+  assert.deepEqual(calls.find((call) => call[0] === 'free_bytes'), ['free_bytes', 4]);
+  k.close();
+});
+
 test('placeAt forwards explicit x/y to FFI', () => {
   const calls = [];
   const k = new Kittui(fakeLib(calls), {});
@@ -264,6 +289,7 @@ test('placement failures include FFI last_error detail', () => {
     layers: [scene.backgroundSolid([0, 216, 255, 255])],
   });
   for (const [fail, call] of [
+    ['render', (k) => k.render(s)],
     ['place', (k) => k.place(s)],
     ['place_at', (k) => k.placeAt(s, 1, 2)],
     ['place_many', (k) => k.placeMany([s])],

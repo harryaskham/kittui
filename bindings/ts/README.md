@@ -22,7 +22,7 @@ const k = await Kittui.open({
   supportsUnicodePlaceholders: true,
 });
 
-const bytes = k.place({
+const sceneObject = {
   footprint: { x: 0, y: 0, cols: 60, rows: 8 },
   cell_size: { width_px: 8, height_px: 16 },
   layers: [
@@ -37,7 +37,12 @@ const bytes = k.place({
       },
     },
   ],
-});
+};
+
+// Render-only PNG bytes for previews/artifacts.
+const png = k.render(sceneObject);
+
+const bytes = k.place(sceneObject);
 
 process.stdout.write(bytes);
 

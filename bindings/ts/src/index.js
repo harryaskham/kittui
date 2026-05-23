@@ -148,11 +148,15 @@ export class Kittui {
     this._kittui_runtime_new_config = this.lib.func('void* kittui_runtime_new_config(const char* json)');
     this._kittui_runtime_free = this.lib.func('void kittui_runtime_free(void* runtime)');
     this._kittui_string_free = this.lib.func('void kittui_string_free(void* ptr)');
+    this._kittui_bytes_free = this.lib.func('void kittui_bytes_free(void* ptr, size_t len)');
     this._kittui_probe_json = this.lib.func('KittuiOwnedStr kittui_probe_json(void* runtime)');
     this._kittui_unplace = this.lib.func('KittuiOwnedStr kittui_unplace(void* runtime, uint32_t image_id)');
     this._kittui_last_error = this.lib.func('KittuiOwnedStr kittui_last_error(void* runtime)');
     // `KittuiOwnedStr` ties the auto-decoded `char**` to kittui_string_free
     // so ownership of the C buffer transfers cleanly into JS.
+    this._kittui_render_json = this.lib.func(
+      'int kittui_render_json(void* runtime, const char* scene_json, _Out_ void** out_ptr, _Out_ size_t* out_len)',
+    );
     this._kittui_place_json = this.lib.func(
       'int kittui_place_json(void* runtime, const char* scene_json, _Out_ KittuiOwnedStr* out)',
     );
@@ -224,6 +228,33 @@ export class Kittui {
     const bytes = this._kittui_unplace(this.runtime, this._parseImageId(imageId));
     if (bytes === null || bytes === undefined) throw new Error('kittui_unplace returned null');
     return bytes || '';
+  }
+
+  /**
+   * Render a scene to PNG bytes without terminal placement.
+   *
+   * @param {object|string} scene A kittui Scene as a plain JS object or JSON string.
+   * @returns {Uint8Array}
+   */
+  render(scene) {
+    if (!this.runtime) throw new Error('kittui runtime closed');
+    const json = typeof scene === 'string' ? scene : JSON.stringify(scene);
+    const ptrBox = [null];
+    const lenBox = [0];
+    const status = this._kittui_render_json(this.runtime, json, ptrBox, lenBox);
+    if (status !== KittuiStatus.Ok) {
+      throw this._ffiError('kittui_render_json', status);
+    }
+    const ptr = ptrBox[0];
+    const len = Number(lenBox[0] || 0);
+    try {
+      if (Array.isArray(ptr) || ArrayBuffer.isView(ptr)) {
+        return Uint8Array.from(ptr).slice(0, len);
+      }
+      return Uint8Array.from(koffi.decode(ptr, 'uint8_t', len));
+    } finally {
+      if (ptr) this._kittui_bytes_free(ptr, len);
+    }
   }
 
   /**
