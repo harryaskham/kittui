@@ -202,6 +202,53 @@ pub struct SurfaceHandle {
     pub id: String,
 }
 
+/// Native kittwm session manifest returned by `SESSION_JSON` and accepted by
+/// `RESTORE_SESSION_JSON`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionManifest {
+    /// Manifest schema version when emitted by the daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_version: Option<u32>,
+    /// Manifest kind marker, currently `kittwm-native-session`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Layout label such as `columns` or `rows`.
+    #[serde(default)]
+    pub layout: String,
+    /// Focused window id, or `-` when none is known.
+    #[serde(default)]
+    pub focus: String,
+    /// Panes to restore.
+    #[serde(default)]
+    pub panes: Vec<SessionPane>,
+}
+
+/// One pane entry inside a [`SessionManifest`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionPane {
+    /// Stable order index when emitted by `SESSION_JSON`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
+    /// Window id when emitted by `SESSION_JSON`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<String>,
+    /// Optional pane title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Command used to spawn the pane.
+    pub command: String,
+    /// Relative layout weight.
+    #[serde(default = "default_session_pane_weight")]
+    pub weight: u16,
+    /// Whether this pane should be focused after restore.
+    #[serde(default)]
+    pub focused: bool,
+}
+
+fn default_session_pane_weight() -> u16 {
+    1
+}
+
 /// Text snapshot returned by `READ_TEXT_JSON`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextSnapshot {
@@ -960,6 +1007,24 @@ impl Kittwm {
         Ok(serde_json::from_str(&self.request_protocol("PANES_JSON")?)?)
     }
 
+    /// Fetch the current native session manifest via `SESSION_JSON`.
+    pub fn session(&self) -> Result<SessionManifest> {
+        self.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(
+            &self.request_protocol("SESSION_JSON")?,
+        )?)
+    }
+
+    /// Restore native panes from a typed session manifest via
+    /// `RESTORE_SESSION_JSON`. This is a window mutation and therefore requires
+    /// both create and control capabilities.
+    pub fn restore_session(&self, manifest: &SessionManifest) -> Result<String> {
+        self.capabilities.ensure(Capability::CreateWindow)?;
+        self.capabilities.ensure(Capability::ControlWindow)?;
+        let payload = serde_json::to_string(manifest)?;
+        self.request_protocol(format!("RESTORE_SESSION_JSON {payload}"))
+    }
+
     /// Fetch the native app discovery catalog from `APPS_JSON`.
     pub fn apps(&self) -> Result<AppsCatalog> {
         self.capabilities.ensure(Capability::ReadText)?;
@@ -1597,6 +1662,39 @@ mod tests {
     }
 
     #[test]
+    fn session_manifest_decodes_current_json_shape() {
+        let session: SessionManifest = serde_json::from_str(
+            r#"{
+              "schema_version": 1,
+              "kind": "kittwm-native-session",
+              "layout": "columns",
+              "focus": "native-2",
+              "panes": [
+                {"index":0,"window":"native-1","title":"shell","command":"bash","weight":1,"focused":false},
+                {"index":1,"window":"native-2","title":null,"command":"htop","weight":2,"focused":true}
+              ]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(session.schema_version, Some(1));
+        assert_eq!(session.kind.as_deref(), Some("kittwm-native-session"));
+        assert_eq!(session.layout, "columns");
+        assert_eq!(session.focus, "native-2");
+        assert_eq!(session.panes.len(), 2);
+        assert_eq!(session.panes[0].title.as_deref(), Some("shell"));
+        assert_eq!(session.panes[1].weight, 2);
+        assert!(session.panes[1].focused);
+    }
+
+    #[test]
+    fn session_pane_restore_defaults_weight_and_focus() {
+        let pane: SessionPane = serde_json::from_str(r#"{"command":"bash"}"#).unwrap();
+        assert_eq!(pane.weight, 1);
+        assert!(!pane.focused);
+        assert!(pane.title.is_none());
+    }
+
+    #[test]
     fn app_catalog_and_candidate_shapes_decode() {
         let catalog: AppsCatalog = serde_json::from_str(
             r#"{"default_command":"xterm","default_resolved":"/usr/bin/xterm","path_commands":["bash","vim"],"macos_apps":["Safari.app"]}"#,
@@ -1786,6 +1884,96 @@ mod tests {
                 "SPAWN_PTY kittwm-browser 'https://example.com/a%20b'"
             ]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn session_helpers_send_expected_socket_commands() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwsession-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                let command = request.trim().to_string();
+                seen.push(command.clone());
+                let reply = match command.as_str() {
+                    "SESSION_JSON" => {
+                        r#"{"schema_version":1,"kind":"kittwm-native-session","layout":"rows","focus":"native-1","panes":[{"index":0,"window":"native-1","title":"shell","command":"bash","weight":1,"focused":true}]}"#
+                    }
+                    other if other.starts_with("RESTORE_SESSION_JSON ") => {
+                        "RESTORE_SESSION_QUEUED command=1"
+                    }
+                    other => panic!("unexpected command {other}"),
+                };
+                stream.write_all(reply.as_bytes()).unwrap();
+                stream.write_all(b"\n").unwrap();
+            }
+            seen
+        });
+        let client = Kittwm::connect_path(&path);
+        let session = client.session().unwrap();
+        assert_eq!(session.layout, "rows");
+        assert_eq!(session.panes[0].command, "bash");
+        assert_eq!(
+            client.restore_session(&session).unwrap().trim(),
+            "RESTORE_SESSION_QUEUED command=1"
+        );
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen[0], "SESSION_JSON");
+        assert!(seen[1].starts_with("RESTORE_SESSION_JSON {"), "{}", seen[1]);
+        assert!(
+            seen[1].contains(r#""kind":"kittwm-native-session""#),
+            "{}",
+            seen[1]
+        );
+        assert!(seen[1].contains(r#""command":"bash""#), "{}", seen[1]);
+    }
+
+    #[test]
+    fn session_capabilities_deny_before_io() {
+        let read_only = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::ReadText]));
+        let manifest = SessionManifest {
+            schema_version: Some(1),
+            kind: Some("kittwm-native-session".to_string()),
+            layout: "columns".to_string(),
+            focus: "-".to_string(),
+            panes: vec![SessionPane {
+                index: None,
+                window: None,
+                title: None,
+                command: "bash".to_string(),
+                weight: 1,
+                focused: true,
+            }],
+        };
+        assert!(matches!(
+            read_only.restore_session(&manifest),
+            Err(Error::CapabilityDenied(Capability::CreateWindow))
+        ));
+        let create_only = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::CreateWindow]));
+        assert!(matches!(
+            create_only.restore_session(&manifest),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        let no_read = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::CreateWindow]));
+        assert!(matches!(
+            no_read.session(),
+            Err(Error::CapabilityDenied(Capability::ReadText))
+        ));
     }
 
     #[test]
