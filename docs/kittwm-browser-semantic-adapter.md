@@ -121,13 +121,30 @@ semantic snapshots side-by-side with screenshot rendering:
 4. unchanged snapshot payloads are skipped to avoid spamming the daemon;
 5. failures are non-fatal and screenshot rendering continues.
 
-Inspect the latest browser semantic tree from another pane or script:
+Inspect the latest browser semantic tree from another pane or script after it
+has been published to the WM:
 
 ```sh
 kittwm --semantic-snapshot focused
 # or, for a known browser window:
 kittwm --semantic-snapshot native-2
 ```
+
+For extractor debugging without a running WM socket, `kittwm-browser` also has a
+one-shot semantic inspection mode. It loads the URL, prints the DOM/ARIA semantic
+snapshot JSON, and exits instead of entering the default screenshot renderer:
+
+```sh
+kittwm-browser --semantic-snapshot https://example.com/form
+kittwm-browser --print-semantic --pretty https://example.com/form
+kittwm-browser --semantic-snapshot --compact https://example.com/form
+```
+
+`--semantic-snapshot` and `--print-semantic` are aliases. Compact JSON is the
+default; `--pretty` / `--pretty-json` produces human-readable output. This mode
+is only an inspection/debug path: the normal browser surface still renders via
+screenshots and best-effort publishes semantics when `KITTWM_SOCKET` and
+`KITTWM_WINDOW` are present.
 
 The semantic tree is intentionally side-band state. Opaque/canvas/video/custom
 content still relies on screenshots.
@@ -176,3 +193,5 @@ and future semantic renderers.
 - `bd-22195b`: DevTools DOM/ARIA snapshot extraction for common controls.
 - `bd-fea819`: best-effort browser snapshot publishing from `kittwm-browser`.
 - `bd-15cde5`: DevTools-backed focus/action routing with stale-component errors.
+- `bd-061c60`: one-shot `kittwm-browser --semantic-snapshot` / `--print-semantic`
+  CLI inspection with compact/pretty JSON output.

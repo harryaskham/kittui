@@ -65,7 +65,8 @@ Current semantic implementation status:
   `kittui-core` remains primitive-only.
 - `kittui-wm` can render both internal and public SDK semantic snapshots to
   primitive kittui scenes via shared affordance controls.
-- `kittwm-browser` can extract DOM/ARIA semantic snapshots, best-effort publish
+- `kittwm-browser` can extract DOM/ARIA semantic snapshots, print one-shot
+  snapshots with `--semantic-snapshot` / `--print-semantic`, best-effort publish
   changed snapshots when running with `KITTWM_SOCKET`/`KITTWM_WINDOW`, and route
   supported browser semantic actions through DevTools/DOM.
 - Accessibility-tree adapters are planned; the safe adapter core now has macOS
