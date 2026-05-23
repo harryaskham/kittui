@@ -59,7 +59,8 @@ Current semantic implementation status:
   snapshot exists.
 - Published semantic snapshots support in-memory focus, toggle, set/insert text,
   set number/bool, and select actions.
-- Semantic publish/focus/action/value changes appear in the native bounded
+- Semantic publish/focus/action/value changes and native surface side effects
+  (title, bell, OSC52 clipboard set, notification) appear in the native bounded
   `EVENTS [ms]` stream and parse as typed SDK events.
 - `kittui-affordances` owns the high-level form/control builders and gallery;
   `kittui-core` remains primitive-only.

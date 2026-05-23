@@ -26,17 +26,17 @@ Already present:
 - `TerminalSurface` now owns the reusable PTY terminal engine (PTY read/write, parsing, responses, snapshots, resize state, and RGBA rendering), while `PtyTerminalApp` keeps process lifecycle as a thin adapter.
 - `PtyTerminalApp` and `HeadlessBrowserApp` implement a small `NativeApp` shape: title, resize, send text/input, capture frame.
 - Xvfb/XQuartz/browser capture support exists in project crates; native terminal/browser adapters now share a first-pass `NativeSurface` metadata/capture/input/resize interface, but X/Quartz and scene/composite adapters still need to be wired into it.
-- Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, semantic snapshot/publish/action/focus, a JSON `EVENTS [ms]` stream with status/pane/focus/layout/semantic events, and machine-readable help.
+- Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, semantic snapshot/publish/action/focus, a JSON `EVENTS [ms]` stream with status/pane/focus/layout/semantic plus surface side-effect events, and machine-readable help.
 - `kittui wm-chrome` and `kittui wm-session` provide static chrome/session previews, but the live shell still draws chrome largely through direct ANSI and kitty image placement.
 
 Missing or immature:
 
 - A public `kittwm-sdk` crate now exists with a typed socket client, `WindowHandle`, `SurfaceHandle`, `SurfaceSpec`, typed status/events/semantic helpers, typed app-discovery helpers, and local capability scoping.
-- The native event stream now has typed SDK coverage for status/pane/focus/layout and semantic snapshot/focus/action/value events, but resize/input/frame/clipboard/bell/title events are not yet promoted into a complete SDK event model.
+- The native event stream now has typed SDK coverage for status/pane/focus/layout, semantic snapshot/focus/action/value, and title/bell/OSC52 clipboard-set/notification side-effect events, but resize/input/frame events and clipboard read policy are not yet promoted into a complete SDK event model.
 - Terminal engine extraction has started with `TerminalSurface`, but it still lives inside `kittui-wm::native` rather than a standalone `kittui-term`/`kittwm-terminal` crate.
 - GUI capture backends are only partially expressed through the new native surface abstraction; X/Quartz and scene/composite metadata still need concrete adapters.
 - External apps can now dogfood the SDK with a composite example that spawns child surfaces and composes text snapshots side-by-side, but true child-surface frame capture/present is still immature.
-- Clipboard/bell/notification semantics are only partially modeled; OSC 52 set-clipboard forwarding exists, but policy and clipboard reads are not yet an SDK capability.
+- Clipboard/bell/notification side effects are modeled as events and OSC 52 set-clipboard forwarding exists; clipboard read policy is not yet an SDK capability.
 - Capability/security policy has an initial client-side SDK shape, but runtime-issued credentials and per-client enforcement are still immature.
 - Semantic component surfaces are documented in [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md) and [`kittwm-semantic-quickstart.md`](kittwm-semantic-quickstart.md); SDK/native/browser/accessibility proofs now exist, but durable standalone semantic surface lifecycle and platform bindings are still maturing.
 
@@ -201,9 +201,9 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 ### Stage 1: stabilize current primitives
 
-- Finish host side-effect mediation such as OSC 52 set-clipboard.
+- Keep host side-effect mediation such as OSC 52 set-clipboard covered by both host forwarding and event reporting.
 - Keep native socket help/status comprehensive.
-- Keep the native `EVENTS [ms]` stream covered while broadening it beyond status/pane/focus/layout events so clients do not poll status/readback.
+- Keep the native `EVENTS [ms]` stream covered while broadening it beyond current status/pane/focus/layout/semantic/side-effect events so clients do not poll status/readback.
 
 ### Stage 2: extract terminal surface engine
 
@@ -222,7 +222,7 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 - Continue expanding the existing `kittwm-sdk` crate with typed requests and handles.
 - Keep the initial transport backed by the existing native socket protocol.
 - Typed SDK session helpers now expose `SESSION_JSON` / `RESTORE_SESSION_JSON` as `SessionManifest`, `SessionPane`, `Kittwm::session`, and `Kittwm::restore_session`; session reads use the low-risk read capability, while restore is gated as a create/control mutation.
-- Typed SDK event iteration over `EVENTS [ms]` exists for current status/pane/focus/layout/semantic events.
+- Typed SDK event iteration over `EVENTS [ms]` exists for current status/pane/focus/layout/semantic and surface side-effect events.
 - Semantic surface snapshot/publish/action/focus APIs and common action helper methods now exist in the SDK.
 
 ### Stage 5: dogfood built-in shell
