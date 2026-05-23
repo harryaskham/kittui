@@ -74,6 +74,6 @@ For tmux:
 
 - `bd-67a477`: implement local shared-memory/file-backed transfer for `upload_still_rgba` and `Runtime::place_raw_frame`, including cleanup and fallback to direct streaming.
 - `bd-e15ef8`: replace unconditional `KITTUI_KITTY_COMPRESSION=auto` zlib behavior with threshold-based compression for raw frames, plus tests for small/large payload decisions.
-- `bd-883864`: expose transport decision diagnostics in `kittwm --features`, `Runtime::transport()`, and any future `TransportPolicy::select()` test surface.
+- `bd-883864`: expose transport decision diagnostics in `kittwm doctor`, re-export `TransportDiagnostics` for callers, and keep the policy selector testable with caller-supplied environment data.
 
 These follow-ups should land as separate implementation beads because this document is the policy baseline, not the runtime selector itself.

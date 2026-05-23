@@ -20,7 +20,7 @@ pub mod scene;
 
 pub use composition::{Composer, Composition, CompositionEntry, DiffResult};
 
-pub use kittui_core::terminal::Transport;
+pub use kittui_core::terminal::{GraphicsCompressionMode, Transport, TransportDiagnostics};
 pub use kittui_core::{
     Animation, BlendMode, CellRect, CellSize, Corners, Direction, Fit, ImageRef, Layer, Node,
     Paint, PhaseCurve, Px, PxRect, Rgba, Scene, SceneId, Stop, Stroke, TerminalInfo,

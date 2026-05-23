@@ -30,7 +30,7 @@ use std::process::ExitCode;
 use anyhow::{anyhow, Result};
 use base64::Engine;
 
-use kittui::{CellSize, Runtime, TerminalInfo};
+use kittui::{CellSize, Runtime, TerminalInfo, TransportDiagnostics};
 use kittui_core::geom::PxRect;
 use kittui_wm::compositor::{Compositor, Layout, WindowMode};
 #[cfg(all(target_os = "macos", feature = "quartz"))]
@@ -986,11 +986,9 @@ fn doctor_cmd(json: bool) -> Result<()> {
     let displays: Vec<()> = Vec::new();
     let display_count = displays.len();
 
-    // Kitty graphics: presence of TERM=xterm-kitty or KITTY_WINDOW_ID env.
-    let kitty_graphics = term.contains("kitty")
-        || std::env::var("KITTY_WINDOW_ID").is_ok()
-        || term_program.to_ascii_lowercase().contains("ghostty")
-        || term_program.to_ascii_lowercase().contains("wezterm");
+    let terminal_info = TerminalInfo::detect();
+    let transport_diagnostics = TransportDiagnostics::detect(&terminal_info);
+    let kitty_graphics = transport_diagnostics.supports_kitty;
 
     if json {
         let mut buf = String::new();
@@ -1010,6 +1008,10 @@ fn doctor_cmd(json: bool) -> Result<()> {
             kitty_graphics
         ));
         buf.push_str(&format!("  \"display_count\": {},\n", display_count));
+        buf.push_str(&format!(
+            "  \"transport_diagnostics\": {},\n",
+            serde_json::to_string(&transport_diagnostics)?
+        ));
         buf.push_str(&format!("  \"log_path\": {:?},\n", log_path));
         buf.push_str(&format!("  \"log_present\": {},\n", log_present));
         buf.push_str(&format!("  \"log_size_bytes\": {}\n", log_size));
@@ -1035,6 +1037,19 @@ fn doctor_cmd(json: bool) -> Result<()> {
                 "unknown"
             }
         );
+        println!(
+            "  transport      : {:?} (compression={:?}, tmux={}, remote={})",
+            transport_diagnostics.selected_transport,
+            transport_diagnostics.compression_mode,
+            transport_diagnostics.tmux,
+            transport_diagnostics.remote
+        );
+        if let Some(source) = &transport_diagnostics.override_source {
+            println!("  transport set  : {source}");
+        }
+        if let Some(reason) = &transport_diagnostics.fallback_reason {
+            println!("  transport note : {reason}");
+        }
         println!("  displays       : {display_count}");
         println!(
             "  log            : {} ({}{})",
