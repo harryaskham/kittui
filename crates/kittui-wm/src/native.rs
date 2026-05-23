@@ -94,6 +94,114 @@ impl NativeFrame {
     }
 }
 
+/// Stable identifier for a native surface inside a kittwm session.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SurfaceId(String);
+
+impl SurfaceId {
+    /// Create a surface id from a caller-provided stable token.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// Borrow the raw id string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Coarse native surface kind for SDK metadata and capability routing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfaceKind {
+    /// PTY-backed terminal surface.
+    Terminal,
+    /// Headless browser / DevTools-backed surface.
+    Browser,
+    /// X11/Xvfb captured window surface.
+    X11,
+    /// macOS Quartz/SCK captured window surface.
+    Quartz,
+    /// Kittui scene surface.
+    KittuiScene,
+    /// Composite surface made from child surfaces.
+    Composite,
+}
+
+/// Capability flags advertised by a native surface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SurfaceCapabilities {
+    /// Surface can produce frames.
+    pub capture: bool,
+    /// Surface accepts text/key/mouse input.
+    pub input: bool,
+    /// Surface can be resized.
+    pub resize: bool,
+    /// Surface exposes a human-readable title.
+    pub title: bool,
+    /// Surface can serialize restore metadata.
+    pub restore: bool,
+}
+
+impl SurfaceCapabilities {
+    /// Standard capabilities for live terminal-like/native app surfaces.
+    pub fn interactive_capture() -> Self {
+        Self {
+            capture: true,
+            input: true,
+            resize: true,
+            title: true,
+            restore: false,
+        }
+    }
+
+    /// Standard capabilities for captured read-only scene-like surfaces.
+    pub fn capture_only() -> Self {
+        Self {
+            capture: true,
+            input: false,
+            resize: false,
+            title: true,
+            restore: false,
+        }
+    }
+}
+
+/// Metadata describing one native surface without including frame bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SurfaceMetadata {
+    /// Stable surface id.
+    pub id: SurfaceId,
+    /// Coarse surface kind.
+    pub kind: SurfaceKind,
+    /// Human-readable title.
+    pub title: String,
+    /// Advertised capabilities.
+    pub capabilities: SurfaceCapabilities,
+    /// Last known frame size in pixels, if available.
+    pub frame_size: Option<(u32, u32)>,
+}
+
+/// Captured surface frame plus metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SurfaceFrame {
+    /// Metadata captured with the frame.
+    pub metadata: SurfaceMetadata,
+    /// Native frame payload.
+    pub frame: NativeFrame,
+}
+
+/// Common capture/input/resize/title interface for kittwm-native surfaces.
+pub trait NativeSurface {
+    /// Return metadata that can be consumed by SDK clients without frame bytes.
+    fn metadata(&self) -> SurfaceMetadata;
+    /// Resize the logical surface.
+    fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()>;
+    /// Send text bytes to the surface.
+    fn send_surface_text(&mut self, text: &str) -> Result<()>;
+    /// Capture a frame and pair it with current metadata.
+    fn capture_surface(&mut self) -> Result<SurfaceFrame>;
+}
+
 /// Reusable terminal surface engine for a PTY-backed kittwm-native app.
 ///
 /// `TerminalSurface` owns terminal parsing, PTY read/write, host responses,
@@ -380,6 +488,43 @@ impl NativeApp for PtyTerminalApp {
 
     fn capture(&mut self) -> Result<NativeFrame> {
         self.surface.capture()
+    }
+}
+
+impl NativeSurface for PtyTerminalApp {
+    fn metadata(&self) -> SurfaceMetadata {
+        SurfaceMetadata {
+            id: SurfaceId::new(format!(
+                "pty:{}",
+                self.process_id()
+                    .map(|pid| pid.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            )),
+            kind: SurfaceKind::Terminal,
+            title: self.title(),
+            capabilities: SurfaceCapabilities::interactive_capture(),
+            frame_size: None,
+        }
+    }
+
+    fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()> {
+        self.resize(cols, rows)
+    }
+
+    fn send_surface_text(&mut self, text: &str) -> Result<()> {
+        self.send_text(text)
+    }
+
+    fn capture_surface(&mut self) -> Result<SurfaceFrame> {
+        let frame = self.capture()?;
+        let frame_size = match &frame {
+            NativeFrame::Rgba { width, height, .. } | NativeFrame::Png { width, height, .. } => {
+                Some((*width, *height))
+            }
+        };
+        let mut metadata = self.metadata();
+        metadata.frame_size = frame_size;
+        Ok(SurfaceFrame { metadata, frame })
     }
 }
 
@@ -1789,6 +1934,38 @@ impl HeadlessBrowserApp {
     }
 }
 
+impl NativeSurface for HeadlessBrowserApp {
+    fn metadata(&self) -> SurfaceMetadata {
+        SurfaceMetadata {
+            id: SurfaceId::new(format!("browser:{}", self.child.id())),
+            kind: SurfaceKind::Browser,
+            title: self.title(),
+            capabilities: SurfaceCapabilities::interactive_capture(),
+            frame_size: Some((self.width, self.height)),
+        }
+    }
+
+    fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()> {
+        self.resize(cols, rows)
+    }
+
+    fn send_surface_text(&mut self, text: &str) -> Result<()> {
+        self.send_text(text)
+    }
+
+    fn capture_surface(&mut self) -> Result<SurfaceFrame> {
+        let frame = self.capture()?;
+        let frame_size = match &frame {
+            NativeFrame::Rgba { width, height, .. } | NativeFrame::Png { width, height, .. } => {
+                Some((*width, *height))
+            }
+        };
+        let mut metadata = self.metadata();
+        metadata.frame_size = frame_size;
+        Ok(SurfaceFrame { metadata, frame })
+    }
+}
+
 impl Drop for HeadlessBrowserApp {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -2510,6 +2687,25 @@ mod tests {
         state.osc_dispatch(&[b"52", b"c", b"not base64!!!"], true);
         state.osc_dispatch(&[b"52", b"bad;selector", b"aGVsbG8="], true);
         assert!(state.take_pending_host_sequences().is_empty());
+    }
+
+    #[test]
+    fn pty_terminal_advertises_native_surface_metadata() {
+        let mut term =
+            PtyTerminalApp::spawn("printf surface-ready", 40, 6).expect("spawn pty surface probe");
+        let metadata = NativeSurface::metadata(&term);
+        assert!(metadata.id.as_str().starts_with("pty:"));
+        assert_eq!(metadata.kind, SurfaceKind::Terminal);
+        assert!(metadata.capabilities.capture);
+        assert!(metadata.capabilities.input);
+        assert!(metadata.capabilities.resize);
+        assert!(metadata.capabilities.title);
+        assert_eq!(metadata.frame_size, None);
+
+        let frame = NativeSurface::capture_surface(&mut term).unwrap();
+        assert_eq!(frame.metadata.kind, SurfaceKind::Terminal);
+        assert_eq!(frame.metadata.frame_size, Some((320, 96)));
+        assert!(matches!(frame.frame, NativeFrame::Rgba { .. }));
     }
 
     #[test]

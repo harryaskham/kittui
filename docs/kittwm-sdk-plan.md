@@ -25,7 +25,7 @@ Already present:
 - PTY output is parsed with `vte` into a custom `TerminalState` with screen cells, style, cursor, scrollback, alt screen, DEC modes, OSC title, OSC 52 forwarding, mouse/focus/bracketed-paste modes, and readback snapshots.
 - `TerminalSurface` now owns the reusable PTY terminal engine (PTY read/write, parsing, responses, snapshots, resize state, and RGBA rendering), while `PtyTerminalApp` keeps process lifecycle as a thin adapter.
 - `PtyTerminalApp` and `HeadlessBrowserApp` implement a small `NativeApp` shape: title, resize, send text/input, capture frame.
-- Xvfb/XQuartz/browser capture support exists in project crates, but is not yet unified as one public surface model.
+- Xvfb/XQuartz/browser capture support exists in project crates; native terminal/browser adapters now share a first-pass `NativeSurface` metadata/capture/input/resize interface, but X/Quartz and scene/composite adapters still need to be wired into it.
 - Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, a JSON `EVENTS [ms]` status/pane/focus/layout stream, and machine-readable help.
 - `kittui wm-chrome` and `kittui wm-session` provide static chrome/session previews, but the live shell still draws chrome largely through direct ANSI and kitty image placement.
 
@@ -35,7 +35,7 @@ Missing or immature:
 - No first-class `SurfaceHandle` object model.
 - The native event stream exists for status/pane/focus/layout changes, but resize/input/frame/clipboard/bell/title events are not yet promoted into a complete SDK event model.
 - Terminal engine extraction has started with `TerminalSurface`, but it still lives inside `kittui-wm::native` rather than a standalone `kittui-term`/`kittwm-terminal` crate.
-- GUI capture backends are not expressed as the same capture/input/resize surface abstraction.
+- GUI capture backends are only partially expressed through the new native surface abstraction; X/Quartz and scene/composite metadata still need concrete adapters.
 - External apps cannot yet create child surfaces, composite them, and present a merged window.
 - Clipboard/bell/notification semantics are only partially modeled; OSC 52 set-clipboard forwarding exists, but policy and clipboard reads are not yet an SDK capability.
 - Capability/security policy for external clients is not defined.
@@ -213,9 +213,9 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 ### Stage 3: define common surface trait/model
 
-- Introduce `SurfaceId`, `SurfaceFrame`, `SurfaceMetadata`, and capability flags.
-- Adapt PTY and browser surfaces to the trait.
-- Map Xvfb/XQuartz capture/input to the same trait.
+- Extend the new `SurfaceId`, `SurfaceFrame`, `SurfaceMetadata`, `SurfaceCapabilities`, and `NativeSurface` model into the remaining native adapters.
+- Keep PTY and browser surfaces adapted to the trait as the reference implementation.
+- Map Xvfb/XQuartz capture/input and kittui-scene/composite surfaces to the same trait.
 
 ### Stage 4: SDK transport and handles
 
@@ -241,7 +241,7 @@ Recommended beads:
 
 1. `kittwm-sdk: wrap native socket event stream in typed event iterator`
 2. `kittwm: extract TerminalSurface engine from PtyTerminalApp`
-3. `kittwm: define common native Surface trait and frame metadata`
+3. `kittwm: adapt X/Quartz and scene/composite backends to NativeSurface metadata`
 4. `kittwm: adapt browser backend to common Surface trait`
 5. `kittwm: adapt Xvfb/XQuartz capture backends to common Surface trait`
 6. `kittwm-sdk: add connect/window handle skeleton over native socket`
