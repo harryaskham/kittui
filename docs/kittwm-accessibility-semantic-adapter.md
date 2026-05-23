@@ -144,6 +144,7 @@ Automation and renderers must tolerate partial semantics. They should not assume
 ## Minimal implementation follow-ups
 
 - `bd-a17062`: macOS AX proof that associates a captured app/window with an AX window, extracts a bounded snapshot, maps common controls, and reports permission diagnostics.
+  - Landed first slice: `kittui_wm::accessibility` provides the safe adapter core: platform/window association metadata, AX-style node input, bounded semantic snapshot mapping, sensitive value redaction, action descriptors, and macOS permission diagnostics. Direct AX FFI remains a follow-up once a safe platform binding is introduced.
 - `bd-dcb522`: Linux AT-SPI proof that finds an app/window tree, extracts roles/names/states/actions, and degrades cleanly when AT-SPI is unavailable.
 - `bd-eabe22`: route focus/activate/set value/insert text/select through resolved AX/AT-SPI objects with stale-component and permission errors.
 

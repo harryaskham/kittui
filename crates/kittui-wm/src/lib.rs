@@ -13,6 +13,8 @@
 
 use kittui::CellRect;
 
+/// Platform accessibility-tree semantic adapter proof.
+pub mod accessibility;
 /// Dirty-grid helpers for future frame transport policy.
 pub mod dirty;
 /// Backend-independent native app surfaces (PTY terminal, headless browser).
