@@ -16,6 +16,8 @@ struct LaunchArgs {
     replace: bool,
     backend: Backend,
     title: Option<String>,
+    dry_run: bool,
+    status: bool,
     query: String,
 }
 
@@ -28,6 +30,8 @@ impl LaunchArgs {
         let mut replace = false;
         let mut backend = Backend::Auto;
         let mut title = None;
+        let mut dry_run = false;
+        let mut status = false;
         let mut query = None;
         let mut iter = args.into_iter().map(Into::into).peekable();
         while let Some(arg) = iter.next() {
@@ -35,6 +39,8 @@ impl LaunchArgs {
                 "--help" | "-h" => return Err(help_text()),
                 "--replace" => replace = true,
                 "--new-window" => replace = false,
+                "--dry-run" => dry_run = true,
+                "--status" => status = true,
                 "--terminal" => backend = Backend::Terminal,
                 "--app" => backend = Backend::App,
                 "--browser" => backend = Backend::Browser,
@@ -73,12 +79,15 @@ impl LaunchArgs {
             replace,
             backend,
             title,
+            dry_run,
+            status,
             query,
         })
     }
 
     fn effective_backend(&self) -> Backend {
         match self.backend {
+            Backend::Auto if looks_like_browser_target(&self.query) => Backend::Browser,
             Backend::Auto if looks_like_shell_command(&self.query) => Backend::Terminal,
             Backend::Auto => Backend::App,
             other => other,
@@ -106,6 +115,14 @@ fn looks_like_shell_command(query: &str) -> bool {
         || query.starts_with('$')
 }
 
+fn looks_like_browser_target(query: &str) -> bool {
+    let q = query.to_ascii_lowercase();
+    q.starts_with("http://")
+        || q.starts_with("https://")
+        || q.starts_with("data:")
+        || q.starts_with("about:")
+}
+
 fn shell_words(args: &[String]) -> String {
     args.iter()
         .map(|arg| {
@@ -124,47 +141,108 @@ fn shell_words(args: &[String]) -> String {
 
 fn help_text() -> String {
     "kittwm-launch — SDK app/surface launcher for kittwm\n\n\
-Usage:\n  kittwm-launch [--replace|--new-window] [--backend auto|terminal|app|browser] [--title TITLE] QUERY\n  kittwm-launch --terminal [--title TITLE] -- PROGRAM [ARGS...]\n\n\
-Backends:\n  auto      choose terminal for shell-like commands, app discovery otherwise\n  terminal  spawn a PTY terminal surface through kittwm-sdk\n  app      ask kittwm app discovery to launch the first matching app\n  browser  currently uses app discovery; dedicated browser surfaces are planned\n"
+Usage:\n  kittwm-launch [--replace|--new-window] [--dry-run|--status] [--backend auto|terminal|app|browser] [--title TITLE] QUERY\n  kittwm-launch --terminal [--title TITLE] -- PROGRAM [ARGS...]\n\n\
+Backends:\n  auto      choose browser for URLs, terminal for shell-like commands, app discovery otherwise\n  terminal  spawn a PTY terminal surface through kittwm-sdk\n  app      ask kittwm app discovery to launch the first matching app\n  browser  launch the first-party kittwm-browser app in a PTY surface\n"
         .to_string()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LaunchPlan {
+    backend: Backend,
+    command: String,
+    status: String,
+}
+
+impl Backend {
+    fn label(self) -> &'static str {
+        match self {
+            Backend::Auto => "auto",
+            Backend::Terminal => "terminal",
+            Backend::App => "app",
+            Backend::Browser => "browser",
+        }
+    }
+}
+
+fn browser_command(query: &str) -> String {
+    format!("kittwm-browser {query}")
+}
+
+fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
+    let backend = args.effective_backend();
+    let mode = if args.replace {
+        "replace"
+    } else {
+        "new-window"
+    };
+    let command = match backend {
+        Backend::Terminal => format!("SPAWN_PTY {}", args.query),
+        Backend::Browser => format!("SPAWN_PTY {}", browser_command(&args.query)),
+        Backend::App | Backend::Auto => format!("APPS_LAUNCH_FIRST {}", args.query),
+    };
+    let status = format!(
+        "kittwm-launch: backend={} mode={} title={} query={}",
+        backend.label(),
+        mode,
+        args.title.as_deref().unwrap_or("-"),
+        args.query
+    );
+    LaunchPlan {
+        backend,
+        command,
+        status,
+    }
+}
+
 fn run(args: LaunchArgs) -> Result<String, String> {
-    let wm = Kittwm::connect_from_env().map_err(|err| format!("connect to kittwm: {err}"))?;
-    match args.effective_backend() {
-        Backend::Terminal => {
+    let plan = build_launch_plan(&args);
+    if args.dry_run {
+        return Ok(format!("{}\n{}\n", plan.status, plan.command));
+    }
+    let wm = Kittwm::connect_from_env().map_err(|err| {
+        format!(
+            "connect to kittwm: {err}. Set KITTWM_SOCKET/KITTWM_SOCK or run inside a kittwm pane"
+        )
+    })?;
+    let reply = match plan.backend {
+        Backend::Terminal | Backend::Browser => {
+            let command = if plan.backend == Backend::Browser {
+                browser_command(&args.query)
+            } else {
+                args.query.clone()
+            };
             if args.replace {
                 wm.replace_current(&WindowSpec {
-                    title: args.title,
-                    command: args.query,
+                    title: args.title.clone(),
+                    command,
                 })
-                .map_err(|err| format!("replace terminal surface: {err}"))
+                .map_err(|err| format!("replace {} surface: {err}", plan.backend.label()))?
             } else {
-                let mut spec = SurfaceSpec::terminal(args.query);
-                if let Some(title) = args.title {
+                let mut spec = SurfaceSpec::terminal(command);
+                if let Some(title) = args.title.clone() {
                     spec = spec.titled(title);
                 }
                 wm.spawn_surface(&spec)
                     .map(|spawn| spawn.reply)
-                    .map_err(|err| format!("spawn terminal surface: {err}"))
+                    .map_err(|err| format!("spawn {} surface: {err}", plan.backend.label()))?
             }
         }
-        Backend::App | Backend::Browser | Backend::Auto => {
-            let verb = if args.effective_backend() == Backend::Browser {
-                "APPS_LAUNCH_FIRST browser"
-            } else {
-                "APPS_LAUNCH_FIRST"
-            };
+        Backend::App | Backend::Auto => {
             let reply = wm
-                .request(format!("{verb} {}", args.query))
-                .map_err(|err| format!("launch app: {err}"))?;
+                .request(&plan.command)
+                .map_err(|err| format!("launch app via discovery: {err}"))?;
             if args.replace {
                 if let Some(current) = wm.current_window_from_env() {
                     let _ = wm.request(format!("CLOSE_PANE {}", current.id));
                 }
             }
-            Ok(reply)
+            reply
         }
+    };
+    if args.status {
+        Ok(format!("{}\n{}", plan.status, reply))
+    } else {
+        Ok(reply)
     }
 }
 
@@ -220,11 +298,44 @@ mod tests {
     }
 
     #[test]
-    fn auto_detects_shell_like_commands() {
+    fn auto_detects_shell_like_commands_and_browser_urls() {
         let args = LaunchArgs::parse_from(["echo hello"]).unwrap();
         assert_eq!(args.effective_backend(), Backend::Terminal);
+        let args = LaunchArgs::parse_from(["https://example.com"]).unwrap();
+        assert_eq!(args.effective_backend(), Backend::Browser);
         let args = LaunchArgs::parse_from(["firefox"]).unwrap();
         assert_eq!(args.effective_backend(), Backend::App);
+    }
+
+    #[test]
+    fn builds_launch_plans_for_terminal_browser_and_app() {
+        let terminal = LaunchArgs::parse_from(["--terminal", "--", "echo", "hi there"]).unwrap();
+        let plan = build_launch_plan(&terminal);
+        assert_eq!(plan.backend, Backend::Terminal);
+        assert_eq!(plan.command, "SPAWN_PTY echo 'hi there'");
+        assert!(plan.status.contains("backend=terminal"));
+
+        let browser = LaunchArgs::parse_from(["--browser", "https://example.com/a%20b"]).unwrap();
+        let plan = build_launch_plan(&browser);
+        assert_eq!(plan.backend, Backend::Browser);
+        assert_eq!(
+            plan.command,
+            "SPAWN_PTY kittwm-browser 'https://example.com/a%20b'"
+        );
+
+        let app = LaunchArgs::parse_from(["firefox"]).unwrap();
+        let plan = build_launch_plan(&app);
+        assert_eq!(plan.backend, Backend::App);
+        assert_eq!(plan.command, "APPS_LAUNCH_FIRST firefox");
+    }
+
+    #[test]
+    fn dry_run_returns_status_and_command_without_socket() {
+        let args =
+            LaunchArgs::parse_from(["--dry-run", "--browser", "https://example.com"]).unwrap();
+        let out = run(args).unwrap();
+        assert!(out.contains("backend=browser"));
+        assert!(out.contains("SPAWN_PTY kittwm-browser https://example.com"));
     }
 
     #[test]
