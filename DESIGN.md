@@ -270,12 +270,19 @@ placement origin and the terminal anchors the corresponding image cell-by-cell.
   build supports this on Linux/macOS via `memfd_create` / `shm_open`;
   Windows falls back to `File`.
 
-### Transport probing
+### Transport probing and adaptive policy
 
 `TerminalInfo::detect()` inspects `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`,
 `KITTY_PUBLIC_KEY`, `TMUX`, and `WT_SESSION` to pick a transport. Hosts
 that already know (Pi, ratakittui adapters) can construct `TerminalInfo`
 directly and skip probing entirely.
+
+The high-rate kittwm path needs more than environment probing. See
+[`docs/adaptive-graphics-transport.md`](docs/adaptive-graphics-transport.md)
+for the planned policy that combines terminal capabilities, local-vs-SSH
+topology, tmux safety, payload size, frame cadence, file/shared-memory
+availability, and zlib thresholds before selecting `Direct`,
+`TmuxPassthrough`, `File`, `Memory`, or a pure-terminal fallback.
 
 ## Renderer architecture
 
