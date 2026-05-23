@@ -237,6 +237,18 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--wait-text WINDOW NEEDLE"))?;
                 out.automation_request = Some(automation_request("WAIT_TEXT", &window, &needle)?);
             }
+            "--wait-text-ms" => {
+                let ms = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text-ms MS WINDOW NEEDLE"))?;
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text-ms MS WINDOW NEEDLE"))?;
+                let needle = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text-ms MS WINDOW NEEDLE"))?;
+                out.automation_request = Some(wait_text_ms_request(&ms, &window, &needle)?);
+            }
             "--launcher-overlay" => out.launcher_overlay = true,
             "--no-launcher-overlay" => out.no_launcher_overlay = true,
             "--kill" => out.mode = Mode::Kill,
@@ -303,6 +315,7 @@ fn print_help() {
          --send-key WINDOW KEY    send a named key (ctrl-c, escape, arrows, ...).\n\
          --read-text WINDOW       print a native pane text snapshot.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
+         --wait-text-ms MS WINDOW TEXT  wait with explicit millisecond timeout.\n\
          --backend fake|quartz|xvfb force a specific backend.\n\
          --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
                          one window, then run a kittwm session capturing only it.\n\
@@ -1086,6 +1099,17 @@ fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String>
     } else {
         Ok(format!("{verb} {window} {payload}"))
     }
+}
+
+fn wait_text_ms_request(ms: &str, window: &str, needle: &str) -> Result<String> {
+    let parsed = ms
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| anyhow!("--wait-text-ms expects integer milliseconds"))?;
+    if parsed == 0 || parsed > 60_000 {
+        return Err(anyhow!("--wait-text-ms must be in 1..=60000"));
+    }
+    automation_request("WAIT_TEXT_MS", window, &format!("{parsed} {needle}"))
 }
 
 fn automation_cmd(request: &str) -> Result<()> {
@@ -1901,6 +1925,11 @@ mod tests {
             automation_request("read_text", "native-2", "").unwrap(),
             "READ_TEXT native-2"
         );
+        assert_eq!(
+            wait_text_ms_request("2500", "focused", "Ready Now").unwrap(),
+            "WAIT_TEXT_MS focused 2500 Ready Now"
+        );
+        assert!(wait_text_ms_request("0", "focused", "ready").is_err());
         assert!(automation_request("SEND_KEY", "bad window", "ctrl-c").is_err());
     }
 

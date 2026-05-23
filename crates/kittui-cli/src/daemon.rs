@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+const CLIENT_READ_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Default socket path for the kittwm daemon.
 ///
 /// Honors, in order:
@@ -441,6 +443,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("SEND_KEY ") {
         return queue_native_send_key(pending, rest);
     }
+    if let Some(rest) = cmd.strip_prefix("WAIT_TEXT_MS ") {
+        return native_spawn_wait_text_ms_reply(pending, rest);
+    }
     if let Some(rest) = cmd.strip_prefix("WAIT_TEXT ") {
         return native_spawn_wait_text_reply(pending, rest, Duration::from_secs(5));
     }
@@ -461,7 +466,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -562,6 +567,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "WAIT_TEXT <window|focused> <needle>",
             "automation",
             "wait until a native pane text snapshot contains text",
+        ),
+        (
+            "WAIT_TEXT_MS <window|focused> <ms> <needle>",
+            "automation",
+            "wait until pane text contains text with explicit timeout",
         ),
         ("APPS", "apps", "text app discovery listing"),
         ("APPS_JSON", "apps", "JSON app discovery listing"),
@@ -912,6 +922,29 @@ fn native_pane_layout_label(pane: &NativePaneStatus) -> String {
         }
         _ => "-".to_string(),
     }
+}
+
+fn native_spawn_wait_text_ms_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+) -> String {
+    let Some((target, rest)) = rest.trim_start().split_once(' ') else {
+        return "ERR WAIT_TEXT_MS requires window, milliseconds, and needle\n".to_string();
+    };
+    let Some((ms, needle)) = rest.trim_start().split_once(' ') else {
+        return "ERR WAIT_TEXT_MS requires window, milliseconds, and needle\n".to_string();
+    };
+    let Ok(ms) = ms.trim().parse::<u64>() else {
+        return "ERR WAIT_TEXT_MS milliseconds must be an integer\n".to_string();
+    };
+    if ms == 0 || ms > 60_000 {
+        return "ERR WAIT_TEXT_MS milliseconds must be in 1..=60000\n".to_string();
+    }
+    native_spawn_wait_text_reply(
+        pending,
+        &format!("{} {}", target.trim(), needle.trim()),
+        Duration::from_millis(ms),
+    )
 }
 
 fn native_spawn_wait_text_reply(
@@ -1279,7 +1312,7 @@ fn daemon_help_json_reply() -> String {
 pub fn client_request(path: &Path, cmd: &str) -> Result<String> {
     let mut stream =
         UnixStream::connect(path).map_err(|e| anyhow!("connect {}: {e}", path.display()))?;
-    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    stream.set_read_timeout(Some(CLIENT_READ_TIMEOUT))?;
     stream.write_all(cmd.as_bytes())?;
     stream.write_all(b"\n")?;
     stream.flush()?;
@@ -1590,6 +1623,10 @@ mod tests {
             help.contains("WAIT_TEXT <window|focused> <needle>"),
             "{help}"
         );
+        assert!(
+            help.contains("WAIT_TEXT_MS <window|focused> <ms> <needle>"),
+            "{help}"
+        );
         assert!(help.contains("APPS_JSON"), "{help}");
 
         let help_json: serde_json::Value =
@@ -1728,6 +1765,14 @@ mod tests {
                 .trim(),
             "MATCH_TEXT window=native-2 bytes=17"
         );
+        assert_eq!(
+            native_spawn_wait_text_ms_reply(&pending, "focused 10 second").trim(),
+            "MATCH_TEXT window=native-2 bytes=17"
+        );
+        assert!(
+            native_spawn_wait_text_ms_reply(&pending, "focused nope second")
+                .contains("ERR WAIT_TEXT_MS milliseconds")
+        );
         assert!(
             native_spawn_wait_text_reply(&pending, "missing nope", Duration::from_millis(1))
                 .contains("ERR WAIT_TEXT no pane")
@@ -1805,7 +1850,7 @@ fn displays_reply() -> String {
 pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
     let mut stream =
         UnixStream::connect(path).map_err(|e| anyhow!("connect {}: {e}", path.display()))?;
-    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    stream.set_read_timeout(Some(CLIENT_READ_TIMEOUT))?;
     stream.write_all(cmd.as_bytes())?;
     stream.write_all(b"\n")?;
     stream.flush()?;
