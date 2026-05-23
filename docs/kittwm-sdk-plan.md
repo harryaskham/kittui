@@ -31,14 +31,14 @@ Already present:
 
 Missing or immature:
 
-- No public `kittwm-sdk` crate/API.
-- No first-class `SurfaceHandle` object model.
+- A public `kittwm-sdk` crate now exists with a first typed socket client, `WindowHandle`, `SurfaceHandle`, `SurfaceSpec`, and capability scoping.
 - The native event stream exists for status/pane/focus/layout changes, but resize/input/frame/clipboard/bell/title events are not yet promoted into a complete SDK event model.
 - Terminal engine extraction has started with `TerminalSurface`, but it still lives inside `kittui-wm::native` rather than a standalone `kittui-term`/`kittwm-terminal` crate.
 - GUI capture backends are only partially expressed through the new native surface abstraction; X/Quartz and scene/composite metadata still need concrete adapters.
 - External apps cannot yet create child surfaces, composite them, and present a merged window.
 - Clipboard/bell/notification semantics are only partially modeled; OSC 52 set-clipboard forwarding exists, but policy and clipboard reads are not yet an SDK capability.
-- Capability/security policy for external clients is not defined.
+- Capability/security policy has an initial client-side SDK shape, but runtime-issued credentials and per-client enforcement are still immature.
+- Semantic component surfaces are planned separately in [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md) so toolkit/browser/accessibility/native SDK adapters can expose controls and actions rather than pixels only.
 
 ## Target object model
 
@@ -219,9 +219,10 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 
 ### Stage 4: SDK transport and handles
 
-- Add `kittwm-sdk` crate with `connect_from_env`, `WindowHandle`, `SurfaceHandle`, and typed requests.
-- Initially back it with the existing native socket protocol.
+- Continue expanding the existing `kittwm-sdk` crate with typed requests and handles.
+- Keep the initial transport backed by the existing native socket protocol.
 - Wrap the existing JSON `EVENTS [ms]` stream in typed SDK event iteration.
+- Add semantic surface snapshot/action/focus APIs once the component protocol leaves the planning stage.
 
 ### Stage 5: dogfood built-in shell
 
@@ -254,6 +255,9 @@ Recommended beads:
 13. `kittwm: model clipboard/bell/notification events and policy`
 14. `kittwm: add capability scoping for SDK clients`
 15. `examples: add composite app spawning terminal plus browser surfaces`
+16. `kittwm: plan semantic component surface protocol` — see [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md).
+17. `kittui-affordances: add first-party form and control components`
+18. `kittwm: render semantic component surfaces via kittui affordances`
 
 ## Non-goals for the near term
 
