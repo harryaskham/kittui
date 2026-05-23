@@ -926,6 +926,8 @@ pub enum KittwmEvent {
     PaneResized(EventEnvelope),
     /// Socket-injected input was sent to a pane.
     PaneInputSent(EventEnvelope),
+    /// A pane frame was presented/rendered without carrying pixel payloads.
+    PaneFramePresented(EventEnvelope),
     /// Focus changed.
     FocusChanged(EventEnvelope),
     /// Layout changed.
@@ -972,6 +974,7 @@ impl KittwmEvent {
             | Self::PaneChanged(envelope)
             | Self::PaneResized(envelope)
             | Self::PaneInputSent(envelope)
+            | Self::PaneFramePresented(envelope)
             | Self::FocusChanged(envelope)
             | Self::LayoutChanged(envelope)
             | Self::SemanticSnapshotReady(envelope)
@@ -1004,6 +1007,7 @@ impl KittwmEvent {
             Self::PaneChanged(_) => "pane_changed",
             Self::PaneResized(_) => "pane_resized",
             Self::PaneInputSent(_) => "pane_input_sent",
+            Self::PaneFramePresented(_) => "pane_frame_presented",
             Self::FocusChanged(_) => "focus_changed",
             Self::LayoutChanged(_) => "layout_changed",
             Self::SemanticSnapshotReady(_) => "semantic_snapshot_ready",
@@ -1043,6 +1047,7 @@ fn parse_event_value(value: Value) -> KittwmEvent {
         "pane_changed" => KittwmEvent::PaneChanged(envelope()),
         "pane_resized" => KittwmEvent::PaneResized(envelope()),
         "pane_input_sent" => KittwmEvent::PaneInputSent(envelope()),
+        "pane_frame_presented" => KittwmEvent::PaneFramePresented(envelope()),
         "focus_changed" => KittwmEvent::FocusChanged(envelope()),
         "layout_changed" => KittwmEvent::LayoutChanged(envelope()),
         "semantic_snapshot_ready" => KittwmEvent::SemanticSnapshotReady(envelope()),
@@ -2514,8 +2519,25 @@ mod tests {
             other => panic!("unexpected event: {other:?}"),
         }
 
+        let frame = KittwmEvent::parse_line(
+            r#"{"schema_version":1,"seq":10,"kind":"pane_frame_presented","window":"native-1","detail":{"image_id":7,"frame":42,"width":640,"height":384,"transport":"file","skipped_upload":false}}"#,
+        )
+        .unwrap();
+        assert_eq!(frame.kind(), "pane_frame_presented");
+        match frame {
+            KittwmEvent::PaneFramePresented(envelope) => {
+                assert_eq!(envelope.seq, Some(10));
+                assert_eq!(envelope.window.as_deref(), Some("native-1"));
+                assert_eq!(envelope.detail["image_id"], 7);
+                assert_eq!(envelope.detail["frame"], 42);
+                assert_eq!(envelope.detail["transport"], "file");
+                assert_eq!(envelope.detail["skipped_upload"], false);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
         let semantic = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":10,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
+            r#"{"schema_version":1,"seq":11,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
         )
         .unwrap();
         assert_eq!(semantic.kind(), "semantic_value_changed");
