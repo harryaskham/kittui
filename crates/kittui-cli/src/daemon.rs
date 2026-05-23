@@ -434,11 +434,12 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "STATUS_JSON" => native_spawn_status_json_reply(pending),
         "PANES" => native_spawn_panes_reply(pending),
         "PANES_JSON" => native_spawn_panes_json_reply(pending),
+        "SESSION_JSON" => native_spawn_session_json_reply(pending),
         "APPS" => apps_reply(50),
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -458,6 +459,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
         ),
         ("PANES", "inspect", "text visible native pane listing"),
         ("PANES_JSON", "inspect", "JSON visible native pane listing"),
+        (
+            "SESSION_JSON",
+            "inspect",
+            "JSON persistence-oriented native session manifest",
+        ),
         (
             "SPAWN_PTY <cmd>",
             "control",
@@ -865,6 +871,43 @@ fn native_find_pane_target<'a>(
     } else {
         panes.iter().find(|pane| pane.window == target)
     }
+}
+
+fn native_spawn_session_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    let Ok(state) = pending.lock() else {
+        return "{\"error\":\"registry poisoned\"}\n".to_string();
+    };
+    let focused = state
+        .panes
+        .iter()
+        .find(|pane| pane.focused)
+        .map(|pane| pane.window.as_str())
+        .unwrap_or("-");
+    let panes = state
+        .panes
+        .iter()
+        .enumerate()
+        .map(|(index, pane)| {
+            serde_json::json!({
+                "index": index,
+                "window": pane.window,
+                "title": pane.title,
+                "command": pane.command,
+                "weight": pane.weight,
+                "focused": pane.focused,
+            })
+        })
+        .collect::<Vec<_>>();
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "schema_version": 1,
+            "kind": "kittwm-native-session",
+            "layout": state.layout.as_deref().unwrap_or("-"),
+            "focus": focused,
+            "panes": panes,
+        })
+    )
 }
 
 fn native_spawn_panes_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
@@ -1362,6 +1405,7 @@ mod tests {
         assert!(help.contains("SPAWN_PTY <cmd>"), "{help}");
         assert!(help.contains("STATUS_JSON"), "{help}");
         assert!(help.contains("PANES_JSON"), "{help}");
+        assert!(help.contains("SESSION_JSON"), "{help}");
         assert!(help.contains("FOCUS_NEXT"), "{help}");
         assert!(help.contains("FOCUS_PREV"), "{help}");
         assert!(help.contains("LAYOUT <columns|rows>"), "{help}");
@@ -1482,6 +1526,20 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["x"], 40);
         assert_eq!(panes_json["panes_detail"][1]["app_cols"], 80);
         assert!(panes_json["panes_detail"][1].get("text_snapshot").is_none());
+
+        let session_json: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("SESSION_JSON", &pending)).unwrap();
+        assert_eq!(session_json["schema_version"], 1);
+        assert_eq!(session_json["kind"], "kittwm-native-session");
+        assert_eq!(session_json["layout"], "rows");
+        assert_eq!(session_json["focus"], "native-2");
+        assert_eq!(session_json["panes"].as_array().unwrap().len(), 2);
+        assert_eq!(session_json["panes"][0]["index"], 0);
+        assert_eq!(session_json["panes"][0]["command"], "/bin/sh");
+        assert_eq!(session_json["panes"][1]["weight"], 3);
+        assert!(session_json["panes"][1].get("pid").is_none());
+        assert!(session_json["panes"][1].get("x").is_none());
+        assert!(session_json["panes"][1].get("text_snapshot").is_none());
 
         let text = native_spawn_queue_reply("READ_TEXT focused", &pending);
         assert!(text.starts_with("TEXT window=native-2 bytes="), "{text}");
