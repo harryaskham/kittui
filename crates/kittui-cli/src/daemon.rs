@@ -3196,9 +3196,25 @@ mod tests {
         queue.update_layout("columns");
         queue.update_panes(vec![native_status("native-1", true, 1)]);
 
+        let stream_registered_seq = queue
+            .pending
+            .lock()
+            .unwrap()
+            .next_event_seq
+            .saturating_add(1);
         let path = queue.path().to_path_buf();
         let reader = std::thread::spawn(move || client_request_multi(&path, "EVENTS 300").unwrap());
-        std::thread::sleep(Duration::from_millis(50));
+        let deadline = Instant::now() + Duration::from_millis(200);
+        while Instant::now() < deadline {
+            if queue.pending.lock().unwrap().next_event_seq >= stream_registered_seq {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            queue.pending.lock().unwrap().next_event_seq >= stream_registered_seq,
+            "EVENTS reader did not register before test updates"
+        );
         queue.update_panes(vec![
             native_status("native-1", false, 1),
             native_status("native-2", true, 3),

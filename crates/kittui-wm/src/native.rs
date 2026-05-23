@@ -979,6 +979,59 @@ impl PtyTerminalApp {
         Self::spawn_with_env(command, cols, rows, std::iter::empty::<(&str, &str)>())
     }
 
+    /// Spawn a program directly in a real PTY without invoking a shell.
+    pub fn spawn_program(program: &str, args: &[&str], cols: u16, rows: u16) -> Result<Self> {
+        Self::spawn_program_with_env(
+            program,
+            args,
+            cols,
+            rows,
+            std::iter::empty::<(&str, &str)>(),
+        )
+    }
+
+    /// Spawn a program directly in a real PTY with extra environment variables.
+    pub fn spawn_program_with_env<'a, I, K, V>(
+        program: &str,
+        args: &[&str],
+        cols: u16,
+        rows: u16,
+        envs: I,
+    ) -> Result<Self>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<std::ffi::OsStr> + 'a,
+        V: AsRef<std::ffi::OsStr> + 'a,
+    {
+        let pty_system = NativePtySystem::default();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: cols.saturating_mul(8),
+                pixel_height: rows.saturating_mul(16),
+            })
+            .context("open PTY")?;
+        let mut builder = CommandBuilder::new(program);
+        for arg in args {
+            builder.arg(arg);
+        }
+        for (key, value) in envs {
+            builder.env(key, value);
+        }
+        let child = pair
+            .slave
+            .spawn_command(builder)
+            .with_context(|| format!("spawn PTY child program {program}"))?;
+        drop(pair.slave);
+        let surface = TerminalSurface::from_master(pair.master, cols, rows, 8, 16)?;
+        Ok(Self {
+            title: program.to_string(),
+            child,
+            surface,
+        })
+    }
+
     /// Spawn a shell command in a real PTY with extra environment variables.
     pub fn spawn_with_env<'a, I, K, V>(command: &str, cols: u16, rows: u16, envs: I) -> Result<Self>
     where

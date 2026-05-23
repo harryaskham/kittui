@@ -2223,7 +2223,7 @@ mod native_pane_tests {
     }
 
     fn dummy_native_pane_app() -> PtyTerminalApp {
-        PtyTerminalApp::spawn("true", 1, 1).unwrap()
+        PtyTerminalApp::spawn_program("true", &[], 1, 1).unwrap()
     }
 }
 
