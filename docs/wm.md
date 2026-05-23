@@ -52,7 +52,7 @@ kittwm --attach -c 'CLOSE_PANE focused'
 
 Use `Ctrl-]` to exit the current native PTY/browser viewer. Explicit capture-backed demos remain available with `--backend fake|quartz|xvfb`.
 
-Native `PANES_JSON` includes per-pane `window`, `title`, `focused`, `weight`, and, once a live session has rendered at least one frame, resolved title/app cell geometry: `x`, `y`, `cols`, `rows`, `app_x`, `app_y`, `app_cols`, and `app_rows`. The text `PANES` reply includes the same geometry as `layout=x,y CxR app=x,y CxR` for simple shell inspection. `HELP_JSON` is the machine-readable catalog for the socket command set.
+Native `PANES_JSON` includes per-pane `window`, `title`, `focused`, `weight`, optional process metadata (`pid`, `command`), and, once a live session has rendered at least one frame, resolved title/app cell geometry: `x`, `y`, `cols`, `rows`, `app_x`, `app_y`, `app_cols`, and `app_rows`. Native `STATUS_JSON` mirrors the same detail in `focused_pane` and `panes_detail`. The text `PANES` reply includes process metadata plus the same geometry as `layout=x,y CxR app=x,y CxR` for simple shell inspection. `HELP_JSON` is the machine-readable catalog for the socket command set.
 
 ## Architecture
 

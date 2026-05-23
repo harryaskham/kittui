@@ -120,7 +120,7 @@ kittwm --attach -c 'SPAWN_PTY htop'
 kittwm --attach -c 'RESIZE_PANE focused +2'
 kittwm --attach -c 'MOVE_PANE focused last'
 kittwm --attach -c BALANCE_PANES
-kittwm --attach -c PANES_JSON  # includes weight plus title/app cell geometry
+kittwm --attach -c PANES_JSON  # includes weight, pid/command, and title/app cell geometry
 ```
 
 ### kittui-md Markdown viewer
