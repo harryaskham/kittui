@@ -300,6 +300,10 @@ pub trait NativeSurface {
         })?;
         self.send_surface_text(text)
     }
+    /// Notify the surface that it gained or lost focus.
+    fn send_surface_focus(&mut self, _focused: bool) -> Result<()> {
+        Ok(())
+    }
     /// Capture a frame and pair it with current metadata.
     fn capture_surface(&mut self) -> Result<SurfaceFrame>;
     /// Drain side-effect events emitted by the surface since the previous drain.
@@ -962,6 +966,14 @@ impl TerminalSurface {
         Ok(())
     }
 
+    /// Send terminal focus-in/focus-out bytes when focus reporting is enabled.
+    pub fn send_focus(&mut self, focused: bool) -> Result<()> {
+        if !self.focus_reporting_enabled() {
+            return Ok(());
+        }
+        self.send_bytes(if focused { b"\x1b[I" } else { b"\x1b[O" })
+    }
+
     /// Render the current terminal state as an RGBA frame.
     pub fn capture(&mut self) -> Result<NativeFrame> {
         let state = self.state.lock().clone();
@@ -1183,6 +1195,10 @@ impl NativeSurface for PtyTerminalApp {
 
     fn send_surface_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         self.surface.send_bytes(bytes)
+    }
+
+    fn send_surface_focus(&mut self, focused: bool) -> Result<()> {
+        self.surface.send_focus(focused)
     }
 
     fn capture_surface(&mut self) -> Result<SurfaceFrame> {
@@ -4198,6 +4214,41 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn native_surface_focus_hook_sends_pty_focus_reports_when_enabled() {
+        let mut term = PtyTerminalApp::spawn("printf '\\033[?1004h'; cat -v", 40, 6)
+            .expect("spawn pty focus probe");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !term.focus_reporting_enabled() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(term.focus_reporting_enabled());
+        NativeSurface::send_surface_focus(&mut term, true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !term.text_snapshot().contains("^[[I") {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let text = term.text_snapshot();
+        assert!(text.contains("^[[I"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn native_surface_focus_hook_ignores_pty_focus_reports_when_disabled() {
+        let mut term = PtyTerminalApp::spawn("cat -v", 40, 6).expect("spawn pty focus probe");
+        assert!(!term.focus_reporting_enabled());
+        NativeSurface::send_surface_focus(&mut term, true).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let text = term.text_snapshot();
+        assert!(!text.contains("^[[I"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn capture_only_surface_focus_hook_defaults_to_noop() {
+        let mut surface = RgbaFrameSurface::new("rgba:empty", "empty", 1, 1, vec![0; 4]).unwrap();
+        NativeSurface::send_surface_focus(&mut surface, true).unwrap();
+        assert!(NativeSurface::take_surface_events(&mut surface).is_empty());
     }
 
     #[test]
