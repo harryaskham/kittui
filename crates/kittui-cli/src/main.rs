@@ -29,7 +29,7 @@ use kittui_affordances::{
 };
 use kittui_core::node::{Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
-use kittui_core::{PxRect, Stroke};
+use kittui_core::Stroke;
 
 #[derive(Parser)]
 #[command(name = "kittui", version, about = "kitty graphics for TUIs")]
@@ -102,6 +102,8 @@ enum Cmd {
     Divider(DividerArgs),
     /// Render the reusable kittwm window chrome scene.
     WmChrome(WmChromeArgs),
+    /// Render a kittwm SESSION_JSON manifest as window chrome scenes.
+    WmSession(WmSessionArgs),
     /// Render a title-bar chrome scene.
     TitleBar(TitleBarArgs),
     /// Compose a scene from a JSON file.
@@ -315,6 +317,19 @@ struct DividerArgs {
 
 #[derive(clap::Args)]
 #[command(disable_help_flag = true)]
+struct WmSessionArgs {
+    /// Path to a kittwm SESSION_JSON manifest; use `-` for stdin.
+    path: PathBuf,
+    /// Preview width in cells.
+    #[arg(short = 'w', long)]
+    width: String,
+    /// Preview height in cells.
+    #[arg(short = 'h', long)]
+    height: String,
+}
+
+#[derive(clap::Args)]
+#[command(disable_help_flag = true)]
 struct WmChromeArgs {
     /// Width in cells or as a percentage (`100%`).
     #[arg(short = 'w', long)]
@@ -513,6 +528,7 @@ fn main() -> Result<()> {
         Cmd::Chip(args) => run_chip(&global, &runtime, args, emit_mode),
         Cmd::Divider(args) => run_divider(&global, &runtime, args, emit_mode),
         Cmd::WmChrome(args) => run_wm_chrome(&global, &runtime, args, emit_mode),
+        Cmd::WmSession(args) => run_wm_session(&global, &runtime, args, emit_mode),
         Cmd::TitleBar(args) => run_title_bar(&global, &runtime, args, emit_mode),
         Cmd::Compose(args) => run_compose(&global, &runtime, args, emit_mode),
         Cmd::Render(args) => run_render(&global, &runtime, args, emit_mode),
@@ -700,15 +716,35 @@ fn run_wm_chrome(
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 
+fn run_wm_session(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &WmSessionArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let cols = resolve_size(&args.width, global.terminal_cols.value)?;
+    let rows = resolve_size(&args.height, global.terminal_rows.value)?;
+    let manifest = read_wm_session_manifest(&args.path)?;
+    let scenes = wm_session_scenes(&manifest, cols, rows)?;
+    emit_scene_batch_with_mode(global, runtime, &scenes, mode)
+}
+
 fn wm_chrome_scene(cols: u16, rows: u16, focused: bool, tiled: bool, title: &str) -> Scene {
+    wm_chrome_scene_at(0, 0, cols, rows, focused, tiled, title)
+}
+
+fn wm_chrome_scene_at(
+    x: u16,
+    y: u16,
+    cols: u16,
+    rows: u16,
+    focused: bool,
+    tiled: bool,
+    title: &str,
+) -> Scene {
     let cell = CellSize::default();
-    let footprint = CellRect::new(0, 0, cols, rows);
-    let rect = PxRect::new(
-        0.0,
-        0.0,
-        f32::from(cols) * f32::from(cell.width_px),
-        f32::from(rows) * f32::from(cell.height_px),
-    );
+    let footprint = CellRect::new(x, y, cols, rows);
+    let rect = footprint.to_pixels(cell);
     let layers = kittui_wm::chrome::WindowChromeTheme::default().layers(
         rect,
         &kittui_wm::chrome::WindowChromeState::new(focused, tiled, title),
@@ -719,6 +755,117 @@ fn wm_chrome_scene(cols: u16, rows: u16, focused: bool, tiled: bool, title: &str
         layers,
         animation: None,
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct WmSessionManifest {
+    #[serde(default)]
+    layout: Option<String>,
+    #[serde(default)]
+    panes: Vec<WmSessionPane>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct WmSessionPane {
+    #[serde(default)]
+    window: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default = "default_wm_session_weight")]
+    weight: u16,
+    #[serde(default)]
+    focused: bool,
+}
+
+fn default_wm_session_weight() -> u16 {
+    1
+}
+
+fn read_wm_session_manifest(path: &PathBuf) -> Result<WmSessionManifest> {
+    let mut input = String::new();
+    if path.as_os_str() == "-" {
+        std::io::stdin().read_to_string(&mut input)?;
+    } else {
+        input = std::fs::read_to_string(path)?;
+    }
+    Ok(serde_json::from_str(&input)?)
+}
+
+fn wm_session_scenes(manifest: &WmSessionManifest, cols: u16, rows: u16) -> Result<Vec<Scene>> {
+    if manifest.panes.is_empty() {
+        return Err(anyhow!("wm-session manifest contains no panes"));
+    }
+    let layout = manifest
+        .layout
+        .as_deref()
+        .unwrap_or("columns")
+        .to_ascii_lowercase();
+    if !matches!(layout.as_str(), "columns" | "rows" | "-") {
+        return Err(anyhow!("wm-session layout must be columns or rows"));
+    }
+    let weights = manifest
+        .panes
+        .iter()
+        .map(|pane| pane.weight.max(1))
+        .collect::<Vec<_>>();
+    let segments = if layout == "rows" {
+        weighted_segments(rows, &weights)
+    } else {
+        weighted_segments(cols, &weights)
+    };
+    Ok(manifest
+        .panes
+        .iter()
+        .enumerate()
+        .map(|(idx, pane)| {
+            let (offset, span) = segments[idx];
+            let title = pane
+                .title
+                .as_deref()
+                .or(pane.window.as_deref())
+                .or(pane.command.as_deref())
+                .unwrap_or("pane");
+            if layout == "rows" {
+                wm_chrome_scene_at(0, offset, cols, span, pane.focused, true, title)
+            } else {
+                wm_chrome_scene_at(offset, 0, span, rows, pane.focused, true, title)
+            }
+        })
+        .collect())
+}
+
+fn weighted_segments(total: u16, weights: &[u16]) -> Vec<(u16, u16)> {
+    if weights.is_empty() {
+        return Vec::new();
+    }
+    let total_u32 = u32::from(total.max(1));
+    let sum = weights
+        .iter()
+        .map(|w| u32::from((*w).max(1)))
+        .sum::<u32>()
+        .max(1);
+    let mut used = 0u16;
+    weights
+        .iter()
+        .enumerate()
+        .map(|(idx, weight)| {
+            let remaining = total.saturating_sub(used);
+            let span = if idx + 1 == weights.len() {
+                remaining.max(1)
+            } else {
+                ((total_u32 * u32::from((*weight).max(1))) / sum)
+                    .max(1)
+                    .min(u32::from(
+                        remaining.saturating_sub((weights.len() - idx - 1) as u16),
+                    )) as u16
+            };
+            let segment = (used, span);
+            used = used.saturating_add(span);
+            segment
+        })
+        .collect()
 }
 
 fn run_title_bar(
@@ -1713,6 +1860,47 @@ mod tests {
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("background")));
+    }
+
+    #[test]
+    fn wm_session_scenes_follow_manifest_layout_weights_and_focus() {
+        let manifest: WmSessionManifest = serde_json::from_value(serde_json::json!({
+            "layout": "columns",
+            "panes": [
+                {"window": "native-1", "title": "shell", "command": "bash", "weight": 1, "focused": false},
+                {"window": "native-2", "title": "logs", "command": "tail -f app.log", "weight": 3, "focused": true}
+            ]
+        }))
+        .unwrap();
+        let scenes = wm_session_scenes(&manifest, 80, 24).unwrap();
+        assert_eq!(scenes.len(), 2);
+        assert_eq!(scenes[0].footprint, CellRect::new(0, 0, 20, 24));
+        assert_eq!(scenes[1].footprint, CellRect::new(20, 0, 60, 24));
+        let labels = scenes[1]
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(labels.contains(&"wm-chrome:tiled:logs"), "{labels:?}");
+        assert!(scenes[1].layers.iter().any(|layer| matches!(
+            &layer.root,
+            Node::Rect { stroke: Some(stroke), .. } if stroke.width_px == 2.0
+        )));
+    }
+
+    #[test]
+    fn wm_session_scenes_support_rows() {
+        let manifest: WmSessionManifest = serde_json::from_value(serde_json::json!({
+            "layout": "rows",
+            "panes": [
+                {"title": "top", "command": "top", "weight": 1},
+                {"title": "bottom", "command": "bottom", "weight": 1}
+            ]
+        }))
+        .unwrap();
+        let scenes = wm_session_scenes(&manifest, 80, 24).unwrap();
+        assert_eq!(scenes[0].footprint, CellRect::new(0, 0, 80, 12));
+        assert_eq!(scenes[1].footprint, CellRect::new(0, 12, 80, 12));
     }
 
     #[test]
