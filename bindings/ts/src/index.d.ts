@@ -118,6 +118,7 @@ export class Kittui {
   place(scene: Scene | string): string;
   placeAt(scene: Scene | string, x: number, y: number): string;
   placeMany(scenes: (Scene | string)[]): string;
+  placeManyAt(scenes: (Scene | string)[], x: number, y: number): string;
   close(): void;
 }
 

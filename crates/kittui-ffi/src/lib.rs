@@ -20,7 +20,7 @@ use kittui::{CellSize, RendererKind, Runtime, Scene, TerminalInfo, Transport};
 /// Major version of the FFI ABI. Bumped on any breaking change.
 pub const KITTUI_ABI_MAJOR: u32 = 0;
 /// Minor version of the FFI ABI. Bumped on additive changes.
-pub const KITTUI_ABI_MINOR: u32 = 5;
+pub const KITTUI_ABI_MINOR: u32 = 6;
 
 /// Opaque pointer to a runtime instance. Owned by the caller; freed via
 /// [`kittui_runtime_free`].
@@ -250,6 +250,36 @@ pub unsafe extern "C" fn kittui_place_many_json(
     scenes_json: *const c_char,
     out: *mut *mut c_char,
 ) -> KittuiStatus {
+    place_many_json_impl(runtime, scenes_json, None, None, out)
+}
+
+/// Render/place a JSON array of scenes in one FFI round-trip with a runtime
+/// group origin. The batch's minimum x/y is remapped to `x`/`y` while
+/// preserving relative offsets.
+///
+/// # Safety
+///
+/// `runtime` must be valid. `scenes_json` must be a NUL-terminated UTF-8
+/// string containing a JSON array of scenes. `out` must point to writable
+/// storage.
+#[no_mangle]
+pub unsafe extern "C" fn kittui_place_many_json_at(
+    runtime: *mut KittuiRuntime,
+    scenes_json: *const c_char,
+    x: u16,
+    y: u16,
+    out: *mut *mut c_char,
+) -> KittuiStatus {
+    place_many_json_impl(runtime, scenes_json, Some(x), Some(y), out)
+}
+
+unsafe fn place_many_json_impl(
+    runtime: *mut KittuiRuntime,
+    scenes_json: *const c_char,
+    x: Option<u16>,
+    y: Option<u16>,
+    out: *mut *mut c_char,
+) -> KittuiStatus {
     if runtime.is_null() || scenes_json.is_null() || out.is_null() {
         return KittuiStatus::NullPointer;
     }
@@ -266,7 +296,11 @@ pub unsafe extern "C" fn kittui_place_many_json(
                 return KittuiStatus::BadScene;
             }
         };
-        match rt.inner.place_batch(&scenes) {
+        let batch = match (x, y) {
+            (Some(x), Some(y)) => rt.inner.place_batch_at_origin(&scenes, x, y),
+            _ => rt.inner.place_batch(&scenes),
+        };
+        match batch {
             Ok(batch) => {
                 let mut bytes = String::new();
                 bytes.push_str(&batch.upload);
@@ -612,6 +646,36 @@ mod tests {
             let bytes = owned_string(out);
             assert!(bytes.contains("\x1b_G"), "{bytes:?}");
             assert!(bytes.len() > 32, "{bytes:?}");
+            kittui_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn place_many_json_at_places_batch_at_origin() {
+        let config = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": true, "supports_unicode_placeholders": true}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(config.as_ptr());
+            assert!(!runtime.is_null());
+            let mut scene_a: kittui::Scene =
+                serde_json::from_str(scene_json().to_str().unwrap()).unwrap();
+            let mut scene_b: kittui::Scene =
+                serde_json::from_str(scene_json().to_str().unwrap()).unwrap();
+            scene_a.footprint.x = 2;
+            scene_a.footprint.y = 4;
+            scene_b.footprint.x = 7;
+            scene_b.footprint.y = 6;
+            let scenes =
+                CString::new(serde_json::to_string(&vec![scene_a, scene_b]).unwrap()).unwrap();
+            let mut out: *mut c_char = std::ptr::null_mut();
+            let status = kittui_place_many_json_at(runtime, scenes.as_ptr(), 10, 20, &mut out);
+            assert_eq!(status, KittuiStatus::Ok);
+            let bytes = owned_string(out);
+            assert!(bytes.contains("\x1b[21;11H"), "{bytes:?}");
+            assert!(bytes.contains("\x1b[23;16H"), "{bytes:?}");
             kittui_runtime_free(runtime);
         }
     }
