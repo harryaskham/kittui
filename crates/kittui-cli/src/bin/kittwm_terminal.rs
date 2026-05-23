@@ -8,6 +8,8 @@ struct TerminalArgs {
     replace: bool,
     title: Option<String>,
     command: String,
+    status: bool,
+    events_ms: Option<u64>,
 }
 
 impl TerminalArgs {
@@ -19,12 +21,25 @@ impl TerminalArgs {
         let mut replace = false;
         let mut title = None;
         let mut command = None;
+        let mut status = false;
+        let mut events_ms = None;
         let mut iter = args.into_iter().map(Into::into).peekable();
         while let Some(arg) = iter.next() {
             match arg.as_str() {
                 "--help" | "-h" => return Err(help_text()),
                 "--replace" => replace = true,
                 "--new-window" => replace = false,
+                "--status" => status = true,
+                "--events-ms" => {
+                    let value = iter
+                        .next()
+                        .ok_or_else(|| "--events-ms requires milliseconds".to_string())?;
+                    events_ms = Some(
+                        value
+                            .parse()
+                            .map_err(|_| "--events-ms expects an integer".to_string())?,
+                    );
+                }
                 "--title" => {
                     let value = iter
                         .next()
@@ -59,6 +74,8 @@ impl TerminalArgs {
             replace,
             title,
             command: command.unwrap_or_else(default_terminal_command),
+            status,
+            events_ms,
         })
     }
 }
@@ -87,14 +104,38 @@ fn shell_words(args: &[String]) -> String {
 
 fn help_text() -> String {
     "kittwm-terminal — first-party terminal client for kittwm\n\n\
-Usage:\n  kittwm-terminal [--replace|--new-window] [--title TITLE] [--command CMD]\n  kittwm-terminal [--replace|--new-window] [--title TITLE] -- PROGRAM [ARGS...]\n\n\
-The v0 skeleton connects through KITTWM_SOCKET/KITTWM_DISPLAY using kittwm-sdk\n\
-and asks the running kittwm instance to spawn a native terminal surface.\n"
+Usage:\n  kittwm-terminal [--replace|--new-window] [--title TITLE] [--command CMD]\n  kittwm-terminal [--replace|--new-window] [--title TITLE] -- PROGRAM [ARGS...]\n  kittwm-terminal --status\n  kittwm-terminal --events-ms MS\n\n\
+Connects through KITTWM_SOCKET/KITTWM_DISPLAY using kittwm-sdk and asks the\n\
+running kittwm instance to spawn or replace a native terminal surface.\n\
+--status prints typed SDK status/pane detail; --events-ms prints a bounded\n\
+event batch for lifecycle/debugging.\n"
         .to_string()
 }
 
 fn run(args: TerminalArgs) -> Result<String, String> {
     let wm = Kittwm::connect_from_env().map_err(|err| format!("connect to kittwm: {err}"))?;
+    if args.status {
+        let status = wm.status().map_err(|err| format!("read status: {err}"))?;
+        let panes = wm.panes().map_err(|err| format!("read panes: {err}"))?;
+        return Ok(format!(
+            "status panes={} focus={} layout={} details={}\n",
+            status.panes.unwrap_or(panes.panes),
+            status.focus.unwrap_or(panes.focus),
+            status.layout.unwrap_or(panes.layout),
+            panes.panes_detail.len()
+        ));
+    }
+    if let Some(ms) = args.events_ms {
+        let events = wm
+            .events_ms(ms)
+            .map_err(|err| format!("read events: {err}"))?;
+        let mut out = format!("events count={} ms={}\n", events.len(), ms.clamp(1, 60_000));
+        for event in events {
+            out.push_str(event.kind());
+            out.push('\n');
+        }
+        return Ok(out);
+    }
     if args.replace {
         wm.replace_current(&WindowSpec {
             title: args.title,
@@ -151,6 +192,8 @@ mod tests {
                 replace: true,
                 title: Some("dev shell".to_string()),
                 command: "zsh -l".to_string(),
+                status: false,
+                events_ms: None,
             }
         );
     }
@@ -159,6 +202,16 @@ mod tests {
     fn parses_program_after_separator() {
         let args = TerminalArgs::parse_from(["--", "echo", "hello world"]).unwrap();
         assert_eq!(args.command, "echo 'hello world'");
+    }
+
+    #[test]
+    fn parses_status_and_events_modes() {
+        let status = TerminalArgs::parse_from(["--status"]).unwrap();
+        assert!(status.status);
+        assert_eq!(status.events_ms, None);
+        let events = TerminalArgs::parse_from(["--events-ms", "250"]).unwrap();
+        assert!(!events.status);
+        assert_eq!(events.events_ms, Some(250));
     }
 
     #[test]
