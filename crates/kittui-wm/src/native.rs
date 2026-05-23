@@ -295,6 +295,10 @@ pub trait NativeSurface {
     fn send_surface_text(&mut self, text: &str) -> Result<()>;
     /// Capture a frame and pair it with current metadata.
     fn capture_surface(&mut self) -> Result<SurfaceFrame>;
+    /// Drain side-effect events emitted by the surface since the previous drain.
+    fn take_surface_events(&mut self) -> Vec<SurfaceEvent> {
+        Vec::new()
+    }
 }
 
 /// Adapter that exposes an X11/Xvfb/XQuartz window as a common native surface.
@@ -1127,6 +1131,10 @@ impl NativeSurface for PtyTerminalApp {
         let mut metadata = self.metadata();
         metadata.frame_size = frame_size;
         Ok(SurfaceFrame { metadata, frame })
+    }
+
+    fn take_surface_events(&mut self) -> Vec<SurfaceEvent> {
+        self.surface.take_surface_events()
     }
 }
 
@@ -4126,6 +4134,30 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn native_surface_trait_drains_pty_surface_events() {
+        let mut term = PtyTerminalApp::spawn("printf '\\033]2;trait title\\007'", 40, 4)
+            .expect("spawn pty surface event probe");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && term.title() != "trait title" {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let events = NativeSurface::take_surface_events(&mut term);
+        assert!(
+            events
+                .iter()
+                .any(|event| event == &SurfaceEvent::TitleChanged("trait title".to_string())),
+            "events were {events:?}"
+        );
+        assert!(NativeSurface::take_surface_events(&mut term).is_empty());
+    }
+
+    #[test]
+    fn capture_only_native_surfaces_default_to_no_surface_events() {
+        let mut surface = RgbaFrameSurface::new("rgba:empty", "empty", 1, 1, vec![0; 4]).unwrap();
+        assert!(NativeSurface::take_surface_events(&mut surface).is_empty());
     }
 
     #[test]
