@@ -286,6 +286,38 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--read-scrollback WINDOW"))?;
                 out.automation_request = Some(automation_request("READ_SCROLLBACK", &window, "")?);
             }
+            "--semantic-snapshot" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--semantic-snapshot WINDOW|focused"))?;
+                out.automation_request = Some(semantic_snapshot_request(&window)?);
+            }
+            "--semantic-action" => {
+                let window = args.next().ok_or_else(|| {
+                    anyhow!("--semantic-action WINDOW|focused COMPONENT ACTION JSON")
+                })?;
+                let component = args.next().ok_or_else(|| {
+                    anyhow!("--semantic-action WINDOW|focused COMPONENT ACTION JSON")
+                })?;
+                let action = args.next().ok_or_else(|| {
+                    anyhow!("--semantic-action WINDOW|focused COMPONENT ACTION JSON")
+                })?;
+                let payload = args.next().ok_or_else(|| {
+                    anyhow!("--semantic-action WINDOW|focused COMPONENT ACTION JSON")
+                })?;
+                out.automation_request = Some(semantic_action_request(
+                    &window, &component, &action, &payload,
+                )?);
+            }
+            "--semantic-focus" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--semantic-focus WINDOW|focused COMPONENT"))?;
+                let component = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--semantic-focus WINDOW|focused COMPONENT"))?;
+                out.automation_request = Some(semantic_focus_request(&window, &component)?);
+            }
             "--wait-text" => {
                 let window = args
                     .next()
@@ -492,6 +524,9 @@ fn print_help() {
          --paste-file WINDOW PATH|- paste bytes, respecting bracketed-paste mode.\n\
          --read-text WINDOW       print a native pane text snapshot.\n\
          --read-scrollback WINDOW print native pane scrollback lines.\n\
+         --semantic-snapshot WINDOW print semantic component snapshot JSON.\n\
+         --semantic-action WINDOW COMPONENT ACTION JSON invoke semantic action.\n\
+         --semantic-focus WINDOW COMPONENT request semantic component focus.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
          --wait-text-ms MS WINDOW TEXT  wait with explicit millisecond timeout.\n\
          --wait-output WINDOW TEXT  wait until pane text or scrollback contains TEXT.\n\
@@ -1332,6 +1367,35 @@ fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String>
     } else {
         Ok(format!("{verb} {window} {payload}"))
     }
+}
+
+fn semantic_snapshot_request(window: &str) -> Result<String> {
+    automation_request("SEMANTIC_SNAPSHOT", window, "")
+}
+
+fn semantic_focus_request(window: &str, component: &str) -> Result<String> {
+    automation_request(
+        "SEMANTIC_FOCUS",
+        window,
+        &protocol_token(component, "semantic component")?,
+    )
+}
+
+fn semantic_action_request(
+    window: &str,
+    component: &str,
+    action: &str,
+    payload: &str,
+) -> Result<String> {
+    let component = protocol_token(component, "semantic component")?;
+    let action = protocol_token(action, "semantic action")?;
+    serde_json::from_str::<serde_json::Value>(payload)
+        .map_err(|_| anyhow!("--semantic-action JSON payload must be valid JSON"))?;
+    automation_request(
+        "SEMANTIC_ACTION",
+        window,
+        &format!("{component} {action} {payload}"),
+    )
 }
 
 fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result<String> {
@@ -2353,6 +2417,26 @@ mod tests {
             wait_ms_request("WAIT_OUTPUT_MS", "2500", "focused", "Ready Now").unwrap(),
             "WAIT_OUTPUT_MS focused 2500 Ready Now"
         );
+        assert_eq!(
+            semantic_snapshot_request("focused").unwrap(),
+            "SEMANTIC_SNAPSHOT focused"
+        );
+        assert_eq!(
+            semantic_focus_request("focused", "native-1.screen").unwrap(),
+            "SEMANTIC_FOCUS focused native-1.screen"
+        );
+        assert_eq!(
+            semantic_action_request(
+                "focused",
+                "native-1.screen",
+                "insert_text",
+                r#"{"text":"hi"}"#
+            )
+            .unwrap(),
+            r#"SEMANTIC_ACTION focused native-1.screen insert_text {"text":"hi"}"#
+        );
+        assert!(semantic_action_request("focused", "bad component", "set", "{}").is_err());
+        assert!(semantic_action_request("focused", "field", "set", "not-json").is_err());
         assert_eq!(events_request("2500").unwrap(), "EVENTS 2500");
         assert!(events_request("0").is_err());
         assert!(events_request("60001").is_err());
