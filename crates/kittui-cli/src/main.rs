@@ -1,7 +1,7 @@
 //! `kittui` CLI.
 //!
-//! Affordance subcommands (box, gradient, panel, image, compose, place,
-//! cache, probe) are intentionally thin wrappers that build a `Scene` from
+//! Affordance subcommands (box, gradient, panel, chip, divider, title-bar,
+//! image, compose, place, cache, probe) are intentionally thin wrappers that build a `Scene` from
 //! flags and forward to the `kittui::Runtime`. Library users wanting to
 //! script kittui from a shell should reach for this binary; library users
 //! wanting fine-grained control should use the Rust crate directly.
@@ -23,7 +23,9 @@ use kittui::{
     Animation, CellRect, CellSize, Direction, Layer, PhaseCurve, Rgba, Runtime, Scene,
     TerminalInfo,
 };
-use kittui_affordances::{panel_chrome, PanelOptions, Tone};
+use kittui_affordances::{
+    chip_chrome, divider_chrome, panel_chrome, title_chrome, PanelOptions, Tone,
+};
 use kittui_core::node::{Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
 use kittui_core::Stroke;
@@ -93,6 +95,12 @@ enum Cmd {
     Glow(GlowArgs),
     /// Render a tonal panel chrome scene.
     Panel(PanelArgs),
+    /// Render a pill-shaped chip chrome scene.
+    Chip(ChipArgs),
+    /// Render a single-row divider chrome scene.
+    Divider(DividerArgs),
+    /// Render a title-bar chrome scene.
+    TitleBar(TitleBarArgs),
     /// Compose a scene from a JSON file.
     Compose(ComposeArgs),
     /// Render an image from a path/bytes through Node::Image.
@@ -269,6 +277,54 @@ struct PanelArgs {
     animate: bool,
 }
 
+#[derive(clap::Args)]
+#[command(disable_help_flag = true)]
+struct ChipArgs {
+    /// Width in cells or as a percentage (`100%`).
+    #[arg(short = 'w', long)]
+    width: String,
+    /// Height in cells.
+    #[arg(short = 'h', long, default_value = "1")]
+    height: String,
+    /// Background color.
+    #[arg(long)]
+    bg: String,
+    /// Border color.
+    #[arg(long)]
+    border: String,
+}
+
+#[derive(clap::Args)]
+#[command(disable_help_flag = true)]
+struct DividerArgs {
+    /// Width in cells or as a percentage (`100%`).
+    #[arg(short = 'w', long)]
+    width: String,
+    /// Left gradient color.
+    #[arg(long)]
+    left: String,
+    /// Right gradient color.
+    #[arg(long)]
+    right: String,
+}
+
+#[derive(clap::Args)]
+#[command(disable_help_flag = true)]
+struct TitleBarArgs {
+    /// Width in cells or as a percentage (`100%`).
+    #[arg(short = 'w', long)]
+    width: String,
+    /// Height in cells.
+    #[arg(short = 'h', long, default_value = "1")]
+    height: String,
+    /// Left gradient color.
+    #[arg(long)]
+    left: String,
+    /// Right gradient color.
+    #[arg(long)]
+    right: String,
+}
+
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum ToneArg {
     Assistant,
@@ -417,6 +473,9 @@ fn main() -> Result<()> {
             run_glow(&global, &runtime, &config, emit_mode)
         }
         Cmd::Panel(args) => run_panel(&global, &runtime, args, emit_mode),
+        Cmd::Chip(args) => run_chip(&global, &runtime, args, emit_mode),
+        Cmd::Divider(args) => run_divider(&global, &runtime, args, emit_mode),
+        Cmd::TitleBar(args) => run_title_bar(&global, &runtime, args, emit_mode),
         Cmd::Compose(args) => run_compose(&global, &runtime, args, emit_mode),
         Cmd::Image(args) => run_image(&global, &runtime, args, emit_mode),
         Cmd::Place(args) => run_place(&global, &runtime, args, emit_mode),
@@ -548,6 +607,62 @@ fn run_panel(
     let scene = chrome
         .to_scene(area)
         .ok_or_else(|| anyhow!("panel chrome produced no scene for {cols}x{rows}"))?;
+    emit_with_mode(global, runtime, &scene, None, mode)
+}
+
+fn chrome_to_scene(chrome: ratakittui::Chrome, cols: u16, rows: u16, label: &str) -> Result<Scene> {
+    chrome
+        .to_scene(ratatui::layout::Rect::new(0, 0, cols, rows))
+        .ok_or_else(|| anyhow!("{label} chrome produced no scene for {cols}x{rows}"))
+}
+
+fn run_chip(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &ChipArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let cols = resolve_size(&args.width, global.terminal_cols.value)?;
+    let rows = resolve_size(&args.height, global.terminal_rows.value)?;
+    let scene = chrome_to_scene(
+        chip_chrome(Rgba::parse(&args.bg)?, Rgba::parse(&args.border)?),
+        cols,
+        rows,
+        "chip",
+    )?;
+    emit_with_mode(global, runtime, &scene, None, mode)
+}
+
+fn run_divider(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &DividerArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let cols = resolve_size(&args.width, global.terminal_cols.value)?;
+    let scene = chrome_to_scene(
+        divider_chrome(Rgba::parse(&args.left)?, Rgba::parse(&args.right)?),
+        cols,
+        1,
+        "divider",
+    )?;
+    emit_with_mode(global, runtime, &scene, None, mode)
+}
+
+fn run_title_bar(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &TitleBarArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let cols = resolve_size(&args.width, global.terminal_cols.value)?;
+    let rows = resolve_size(&args.height, global.terminal_rows.value)?;
+    let scene = chrome_to_scene(
+        title_chrome(Rgba::parse(&args.left)?, Rgba::parse(&args.right)?),
+        cols,
+        rows,
+        "title-bar",
+    )?;
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 
@@ -1365,6 +1480,40 @@ mod tests {
             terminal_rows: Some(43),
             json: true,
         })
+    }
+
+    #[test]
+    fn inline_affordance_chrome_builds_scenes() {
+        let chip = chrome_to_scene(
+            chip_chrome(
+                Rgba::parse("#001122").unwrap(),
+                Rgba::parse("#00d8ff").unwrap(),
+            ),
+            8,
+            1,
+            "chip",
+        )
+        .unwrap();
+        assert_eq!(chip.footprint.cols, 8);
+        assert!(chip
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("border")));
+        let divider = chrome_to_scene(
+            divider_chrome(
+                Rgba::parse("#001122").unwrap(),
+                Rgba::parse("#00d8ff").unwrap(),
+            ),
+            12,
+            1,
+            "divider",
+        )
+        .unwrap();
+        assert_eq!(divider.footprint.rows, 1);
+        assert!(divider
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("background")));
     }
 
     #[test]
