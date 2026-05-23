@@ -106,6 +106,7 @@ pub enum NativePaneCommand {
     Focus(String),
     Close(String),
     Layout(String),
+    Rename { window: String, title: String },
 }
 
 #[derive(Default, Debug)]
@@ -262,6 +263,29 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
             "LAYOUT_QUEUED",
         );
     }
+    if let Some(rest) = cmd.strip_prefix("RENAME_PANE ") {
+        let Some((window, title)) = rest.trim().split_once(' ') else {
+            return "ERR RENAME_PANE requires window and title\n".to_string();
+        };
+        let window = window.trim();
+        let title = title.trim();
+        if window.is_empty() || title.is_empty() {
+            return "ERR RENAME_PANE requires window and title\n".to_string();
+        }
+        return queue_native_pane_command(
+            pending,
+            &format!("{window}\t{title}"),
+            "RENAME_PANE requires window and title",
+            |arg| {
+                let (window, title) = arg.split_once('\t').unwrap_or((&arg, ""));
+                NativePaneCommand::Rename {
+                    window: window.to_string(),
+                    title: title.to_string(),
+                }
+            },
+            "RENAME_QUEUED",
+        );
+    }
     match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
@@ -272,7 +296,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -311,6 +335,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "LAYOUT <columns|rows>",
             "control",
             "switch native pane layout axis",
+        ),
+        (
+            "RENAME_PANE <window> <title>",
+            "control",
+            "set display title for a native pane",
         ),
         ("APPS", "apps", "text app discovery listing"),
         ("APPS_JSON", "apps", "JSON app discovery listing"),
@@ -724,7 +753,7 @@ mod tests {
     }
 
     #[test]
-    fn native_spawn_queue_parses_focus_close_and_layout_commands() {
+    fn native_spawn_queue_parses_focus_close_layout_and_rename_commands() {
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
         assert!(
             native_spawn_queue_reply("FOCUS_PANE native-2", &pending).starts_with("FOCUS_QUEUED")
@@ -733,14 +762,23 @@ mod tests {
             native_spawn_queue_reply("CLOSE_PANE focused", &pending).starts_with("CLOSE_QUEUED")
         );
         assert!(native_spawn_queue_reply("LAYOUT rows", &pending).starts_with("LAYOUT_QUEUED"));
+        assert!(
+            native_spawn_queue_reply("RENAME_PANE native-2 editor pane", &pending)
+                .starts_with("RENAME_QUEUED")
+        );
         assert!(native_spawn_queue_reply("LAYOUT diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("FOCUS_PANE", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("RENAME_PANE native-2", &pending).contains("ERR"));
         assert_eq!(
             drain_native_spawn_pending(&pending),
             vec![
                 NativePaneCommand::Focus("native-2".to_string()),
                 NativePaneCommand::Close("focused".to_string()),
-                NativePaneCommand::Layout("rows".to_string())
+                NativePaneCommand::Layout("rows".to_string()),
+                NativePaneCommand::Rename {
+                    window: "native-2".to_string(),
+                    title: "editor pane".to_string(),
+                }
             ]
         );
     }
@@ -753,6 +791,7 @@ mod tests {
         assert!(help.contains("STATUS_JSON"), "{help}");
         assert!(help.contains("PANES_JSON"), "{help}");
         assert!(help.contains("LAYOUT <columns|rows>"), "{help}");
+        assert!(help.contains("RENAME_PANE <window> <title>"), "{help}");
         assert!(help.contains("APPS_JSON"), "{help}");
 
         let help_json: serde_json::Value =

@@ -217,6 +217,15 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         ));
                     }
                 }
+                crate::daemon::NativePaneCommand::Rename { window, title } => {
+                    if let Some(idx) = native_pane_index(&panes, &window) {
+                        panes[idx].display_title = Some(title.clone());
+                        clear = true;
+                        dbg.log(&format!(
+                            "native terminal socket rename: {window} -> {title}"
+                        ));
+                    }
+                }
             }
         }
         queue.update_panes(native_pane_statuses(&panes, focused));
@@ -284,6 +293,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
 struct NativePane {
     window: String,
     image_id: u32,
+    display_title: Option<String>,
     app: PtyTerminalApp,
 }
 
@@ -347,6 +357,7 @@ fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Re
     Ok(NativePane {
         window,
         image_id: 0x6b77_0000 | id,
+        display_title: None,
         app,
     })
 }
@@ -422,6 +433,12 @@ fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>)
     Ok(())
 }
 
+fn native_pane_display_title(pane: &NativePane) -> String {
+    pane.display_title
+        .clone()
+        .unwrap_or_else(|| pane.app.title())
+}
+
 fn native_pane_statuses(
     panes: &[NativePane],
     focused: usize,
@@ -431,7 +448,7 @@ fn native_pane_statuses(
         .enumerate()
         .map(|(idx, pane)| crate::daemon::NativePaneStatus {
             window: pane.window.clone(),
-            title: pane.app.title(),
+            title: native_pane_display_title(pane),
             focused: idx == focused,
         })
         .collect()
@@ -489,7 +506,11 @@ fn write_native_pane_title<W: Write>(
     focused: bool,
 ) -> Result<()> {
     let marker = if focused { "*" } else { " " };
-    let title = format!("{marker} {} {}", pane.window, pane.app.title());
+    let title = format!(
+        "{marker} {} {}",
+        pane.window,
+        native_pane_display_title(pane)
+    );
     let mut clipped = title.chars().take(layout.cols as usize).collect::<String>();
     while clipped.chars().count() < layout.cols as usize {
         clipped.push(' ');
@@ -574,11 +595,13 @@ mod native_pane_tests {
             NativePane {
                 window: "native-1".to_string(),
                 image_id: 1,
+                display_title: None,
                 app: dummy_native_pane_app(),
             },
             NativePane {
                 window: "native-2".to_string(),
                 image_id: 2,
+                display_title: None,
                 app: dummy_native_pane_app(),
             },
         ];
@@ -592,11 +615,13 @@ mod native_pane_tests {
             NativePane {
                 window: "native-1".to_string(),
                 image_id: 1,
+                display_title: None,
                 app: dummy_native_pane_app(),
             },
             NativePane {
                 window: "native-7".to_string(),
                 image_id: 7,
+                display_title: None,
                 app: dummy_native_pane_app(),
             },
         ];
@@ -609,11 +634,13 @@ mod native_pane_tests {
             NativePane {
                 window: "native-1".to_string(),
                 image_id: 1,
+                display_title: None,
                 app: dummy_native_pane_app(),
             },
             NativePane {
                 window: "native-2".to_string(),
                 image_id: 2,
+                display_title: Some("editor".to_string()),
                 app: dummy_native_pane_app(),
             },
         ];
@@ -622,6 +649,7 @@ mod native_pane_tests {
         assert!(!statuses[0].focused);
         assert!(statuses[1].focused);
         assert_eq!(statuses[1].window, "native-2");
+        assert_eq!(statuses[1].title, "editor");
     }
 
     fn dummy_native_pane_app() -> PtyTerminalApp {
