@@ -458,6 +458,14 @@ pub enum ComponentRole {
     Group,
     /// Static label.
     Label,
+    /// Heading/title text.
+    Heading,
+    /// Paragraph text.
+    Paragraph,
+    /// Code/preformatted text.
+    Code,
+    /// Link/navigation target.
+    Link,
     /// Action button.
     Button,
     /// Checkbox.
@@ -484,6 +492,26 @@ pub enum ComponentRole {
     SplitPane,
     /// Table.
     Table,
+    /// Table/list row.
+    Row,
+    /// Table/grid cell.
+    Cell,
+    /// List container.
+    List,
+    /// List item.
+    ListItem,
+    /// Tree container.
+    Tree,
+    /// Tree item.
+    TreeItem,
+    /// Image/media.
+    Image,
+    /// Canvas/pixel region.
+    Canvas,
+    /// Terminal text/grid region.
+    Terminal,
+    /// Browser document/root.
+    BrowserDocument,
     /// Unknown/custom role with namespaced type.
     Custom(String),
 }
@@ -2103,6 +2131,32 @@ mod tests {
         assert!(ClientCapabilities::all().allows(Capability::SubscribeEvents));
         assert!(ClientCapabilities::all().allows(Capability::ReadSemanticTree));
         assert!(ClientCapabilities::all().allows(Capability::InvokeSemanticAction));
+    }
+
+    #[test]
+    fn semantic_role_variants_serialize_to_documented_snake_case() {
+        let roles = vec![
+            (ComponentRole::Link, "link"),
+            (ComponentRole::Heading, "heading"),
+            (ComponentRole::Paragraph, "paragraph"),
+            (ComponentRole::Code, "code"),
+            (ComponentRole::Image, "image"),
+            (ComponentRole::Canvas, "canvas"),
+            (ComponentRole::Terminal, "terminal"),
+            (ComponentRole::BrowserDocument, "browser_document"),
+            (ComponentRole::List, "list"),
+            (ComponentRole::ListItem, "list_item"),
+            (ComponentRole::Tree, "tree"),
+            (ComponentRole::TreeItem, "tree_item"),
+            (ComponentRole::Row, "row"),
+            (ComponentRole::Cell, "cell"),
+        ];
+        for (role, expected) in roles {
+            let value = serde_json::to_value(&role).unwrap();
+            assert_eq!(value, expected);
+            let decoded: ComponentRole = serde_json::from_value(value).unwrap();
+            assert_eq!(decoded, role);
+        }
     }
 
     #[test]
