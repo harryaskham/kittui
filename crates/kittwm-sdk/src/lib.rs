@@ -11,6 +11,7 @@ use std::env;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::vec::IntoIter;
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
@@ -852,6 +853,34 @@ impl EventEnvelope {
     }
 }
 
+/// Owning iterator over a bounded `EVENTS [ms]` batch.
+#[derive(Clone, Debug)]
+pub struct KittwmEventIter {
+    inner: IntoIter<KittwmEvent>,
+}
+
+impl Iterator for KittwmEventIter {
+    type Item = KittwmEvent;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl ExactSizeIterator for KittwmEventIter {}
+
+impl From<Vec<KittwmEvent>> for KittwmEventIter {
+    fn from(events: Vec<KittwmEvent>) -> Self {
+        Self {
+            inner: events.into_iter(),
+        }
+    }
+}
+
 /// Native socket event parsed from `EVENTS [ms]`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum KittwmEvent {
@@ -1408,6 +1437,16 @@ impl Kittwm {
             })
             .map(KittwmEvent::parse_line)
             .collect()
+    }
+
+    /// Fetch a bounded event batch and return it as an owning iterator.
+    pub fn events_iter_ms(&self, ms: u64) -> Result<KittwmEventIter> {
+        self.events_ms(ms).map(KittwmEventIter::from)
+    }
+
+    /// Alias for [`Kittwm::events_iter_ms`].
+    pub fn event_iter_ms(&self, ms: u64) -> Result<KittwmEventIter> {
+        self.events_iter_ms(ms)
     }
 
     /// Return a typed handle to an existing surface/window id.
@@ -2396,6 +2435,26 @@ mod tests {
             client.events_ms(100),
             Err(Error::CapabilityDenied(Capability::SubscribeEvents))
         ));
+        assert!(matches!(
+            client.events_iter_ms(100),
+            Err(Error::CapabilityDenied(Capability::SubscribeEvents))
+        ));
+    }
+
+    #[test]
+    fn event_iter_wraps_bounded_event_batches() {
+        let events = vec![
+            KittwmEvent::Status(EventEnvelope::default()),
+            KittwmEvent::LayoutChanged(EventEnvelope {
+                window: Some("native-1".to_string()),
+                ..EventEnvelope::default()
+            }),
+        ];
+        let mut iter = KittwmEventIter::from(events);
+        assert_eq!(iter.len(), 2);
+        assert_eq!(iter.next().unwrap().kind(), "status");
+        assert_eq!(iter.next().unwrap().kind(), "layout_changed");
+        assert_eq!(iter.next(), None);
     }
 
     #[cfg(unix)]
@@ -2674,6 +2733,45 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].kind(), "status");
         assert_eq!(events[1].kind(), "layout_changed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn events_iter_ms_iterates_bounded_socket_batch() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwei-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            stream
+                .write_all(
+                    b"{\"kind\":\"status\",\"seq\":1,\"detail\":{}}\n{\"kind\":\"focus_changed\",\"seq\":2,\"window\":\"native-2\",\"detail\":{}}\nEND\n",
+                )
+                .unwrap();
+            request.trim().to_string()
+        });
+        let client = Kittwm::connect_path(&path);
+        let mut iter = client.events_iter_ms(750).unwrap();
+        assert_eq!(iter.len(), 2);
+        assert_eq!(iter.next().unwrap().kind(), "status");
+        let focus = iter.next().unwrap();
+        assert_eq!(focus.kind(), "focus_changed");
+        assert_eq!(
+            focus.envelope().unwrap().window.as_deref(),
+            Some("native-2")
+        );
+        assert_eq!(iter.next(), None);
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen, "EVENTS 750");
     }
 
     #[cfg(unix)]
