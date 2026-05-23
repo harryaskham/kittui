@@ -29,7 +29,7 @@ use kittui_affordances::{
 };
 use kittui_core::node::{Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
-use kittui_core::Stroke;
+use kittui_core::{PxRect, Stroke};
 
 #[derive(Parser)]
 #[command(name = "kittui", version, about = "kitty graphics for TUIs")]
@@ -100,6 +100,8 @@ enum Cmd {
     Chip(ChipArgs),
     /// Render a single-row divider chrome scene.
     Divider(DividerArgs),
+    /// Render the reusable kittwm window chrome scene.
+    WmChrome(WmChromeArgs),
     /// Render a title-bar chrome scene.
     TitleBar(TitleBarArgs),
     /// Compose a scene from a JSON file.
@@ -313,6 +315,26 @@ struct DividerArgs {
 
 #[derive(clap::Args)]
 #[command(disable_help_flag = true)]
+struct WmChromeArgs {
+    /// Width in cells or as a percentage (`100%`).
+    #[arg(short = 'w', long)]
+    width: String,
+    /// Height in cells or as a percentage (`100%`).
+    #[arg(short = 'h', long)]
+    height: String,
+    /// Window title used in layer labels.
+    #[arg(long, default_value = "window")]
+    title: String,
+    /// Render focused chrome styling.
+    #[arg(long)]
+    focused: bool,
+    /// Render floating chrome mode. Default is tiled.
+    #[arg(long)]
+    floating: bool,
+}
+
+#[derive(clap::Args)]
+#[command(disable_help_flag = true)]
 struct TitleBarArgs {
     /// Width in cells or as a percentage (`100%`).
     #[arg(short = 'w', long)]
@@ -490,6 +512,7 @@ fn main() -> Result<()> {
         Cmd::Panel(args) => run_panel(&global, &runtime, args, emit_mode),
         Cmd::Chip(args) => run_chip(&global, &runtime, args, emit_mode),
         Cmd::Divider(args) => run_divider(&global, &runtime, args, emit_mode),
+        Cmd::WmChrome(args) => run_wm_chrome(&global, &runtime, args, emit_mode),
         Cmd::TitleBar(args) => run_title_bar(&global, &runtime, args, emit_mode),
         Cmd::Compose(args) => run_compose(&global, &runtime, args, emit_mode),
         Cmd::Render(args) => run_render(&global, &runtime, args, emit_mode),
@@ -663,6 +686,39 @@ fn run_divider(
         "divider",
     )?;
     emit_with_mode(global, runtime, &scene, None, mode)
+}
+
+fn run_wm_chrome(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &WmChromeArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let cols = resolve_size(&args.width, global.terminal_cols.value)?;
+    let rows = resolve_size(&args.height, global.terminal_rows.value)?;
+    let scene = wm_chrome_scene(cols, rows, args.focused, !args.floating, &args.title);
+    emit_with_mode(global, runtime, &scene, None, mode)
+}
+
+fn wm_chrome_scene(cols: u16, rows: u16, focused: bool, tiled: bool, title: &str) -> Scene {
+    let cell = CellSize::default();
+    let footprint = CellRect::new(0, 0, cols, rows);
+    let rect = PxRect::new(
+        0.0,
+        0.0,
+        f32::from(cols) * f32::from(cell.width_px),
+        f32::from(rows) * f32::from(cell.height_px),
+    );
+    let layers = kittui_wm::chrome::WindowChromeTheme::default().layers(
+        rect,
+        &kittui_wm::chrome::WindowChromeState::new(focused, tiled, title),
+    );
+    Scene {
+        footprint,
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn run_title_bar(
@@ -1657,6 +1713,23 @@ mod tests {
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("background")));
+    }
+
+    #[test]
+    fn wm_chrome_scene_uses_kittwm_theme_labels() {
+        let scene = wm_chrome_scene(20, 3, true, false, "logs");
+        assert_eq!(scene.footprint.cols, 20);
+        assert_eq!(scene.footprint.rows, 3);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(labels.contains(&"wm-chrome:floating:logs"), "{labels:?}");
+        assert!(scene.layers.iter().any(|layer| matches!(
+            &layer.root,
+            Node::Rect { stroke: Some(stroke), .. } if stroke.width_px == 2.0
+        )));
     }
 
     #[test]

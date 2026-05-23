@@ -12,7 +12,7 @@ protocol. It ships as:
   channelized `upload` / `placement` / `embed` output.
 - a CLI (`kittui`) — `kittui box`, `kittui gradient`, `kittui glow`,
   `kittui panel --tone assistant`, `kittui chip`, `kittui divider`,
-  `kittui title-bar`, `kittui image --src -`, `kittui place --id 0x...`,
+  `kittui title-bar`, `kittui wm-chrome`, `kittui image --src -`, `kittui place --id 0x...`,
   `kittui delete --id 0x...`, `kittui compose scene.json`, `kittui render
   scene.json --out preview.png`, `kittui render scenes.json --out-dir previews/`,
   and shell pipelines such as `kittui box --scene-json | kittui compose -`.
