@@ -116,10 +116,10 @@ cargo run -p kittui-cli --bin kittwm
 KITTWM_TERMINAL_CMD=htop cargo run -p kittui-cli --bin kittwm
 cargo run -p kittui-cli --bin kittwm-browser -- https://example.com
 # From another shell while native kittwm is running:
-kittwm --attach -c 'SPAWN_PTY htop'
-kittwm --attach -c 'RESIZE_PANE focused +2'
-kittwm --attach -c 'MOVE_PANE focused last'
-kittwm --attach -c BALANCE_PANES
+kittwm --spawn-pty htop
+kittwm --resize-pane focused +2
+kittwm --move-pane focused last
+kittwm --balance-panes
 kittwm --send-line focused 'echo hello from controller'
 kittwm --send-key focused ctrl-c
 kittwm --read-text focused

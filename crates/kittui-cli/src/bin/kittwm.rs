@@ -253,6 +253,56 @@ fn parse_args() -> Result<Cli> {
             "--panes" => out.automation_request = Some("PANES".to_string()),
             "--panes-json" => out.automation_request = Some("PANES_JSON".to_string()),
             "--session-json" => out.automation_request = Some("SESSION_JSON".to_string()),
+            "--spawn-pty" => {
+                let cmd = args.next().ok_or_else(|| anyhow!("--spawn-pty CMD"))?;
+                out.automation_request = Some(protocol_payload_request("SPAWN_PTY", &cmd)?);
+            }
+            "--focus-pane" => {
+                let window = args.next().ok_or_else(|| anyhow!("--focus-pane WINDOW"))?;
+                out.automation_request = Some(protocol_token_request("FOCUS_PANE", &window)?);
+            }
+            "--focus-next" => out.automation_request = Some("FOCUS_NEXT".to_string()),
+            "--focus-prev" => out.automation_request = Some("FOCUS_PREV".to_string()),
+            "--close-pane" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--close-pane WINDOW|focused"))?;
+                out.automation_request = Some(protocol_token_request("CLOSE_PANE", &window)?);
+            }
+            "--layout" => {
+                let axis = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--layout columns|rows"))?;
+                out.automation_request = Some(layout_request(&axis)?);
+            }
+            "--move-pane" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--move-pane WINDOW|focused DIR"))?;
+                let direction = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--move-pane WINDOW|focused DIR"))?;
+                out.automation_request = Some(move_pane_request(&window, &direction)?);
+            }
+            "--resize-pane" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--resize-pane WINDOW|focused AMOUNT"))?;
+                let amount = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--resize-pane WINDOW|focused AMOUNT"))?;
+                out.automation_request = Some(resize_pane_request(&window, &amount)?);
+            }
+            "--balance-panes" => out.automation_request = Some("BALANCE_PANES".to_string()),
+            "--rename-pane" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--rename-pane WINDOW TITLE"))?;
+                let title = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--rename-pane WINDOW TITLE"))?;
+                out.automation_request = Some(rename_pane_request(&window, &title)?);
+            }
             "--launcher-overlay" => out.launcher_overlay = true,
             "--no-launcher-overlay" => out.no_launcher_overlay = true,
             "--kill" => out.mode = Mode::Kill,
@@ -324,6 +374,15 @@ fn print_help() {
          --panes                  print native socket PANES listing.\n\
          --panes-json             print native socket PANES_JSON.\n\
          --session-json           print native socket SESSION_JSON.\n\
+         --spawn-pty CMD          spawn a native PTY pane.\n\
+         --focus-pane WINDOW      focus a pane by token.\n\
+         --focus-next / --focus-prev cycle native pane focus.\n\
+         --close-pane WINDOW      close a pane (or focused).\n\
+         --layout columns|rows    switch native pane layout axis.\n\
+         --move-pane WINDOW DIR   move pane left/right/up/down/first/last.\n\
+         --resize-pane WINDOW N   resize pane weight (grow/shrink/+N/-N).\n\
+         --balance-panes          equalize native pane weights.\n\
+         --rename-pane WINDOW TITLE set native pane display title.\n\
          --backend fake|quartz|xvfb force a specific backend.\n\
          --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
                          one window, then run a kittwm session capturing only it.\n\
@@ -1096,17 +1155,71 @@ fn normalize_daemon_command(cmd: &str) -> String {
     format!("{} {}", verb.to_ascii_uppercase(), rest.trim_start())
 }
 
-fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String> {
-    let window = window.trim();
-    if window.is_empty() || window.contains(char::is_whitespace) {
-        return Err(anyhow!("automation window must be a single nonempty token"));
+fn protocol_token(token: &str, label: &str) -> Result<String> {
+    let token = token.trim();
+    if token.is_empty() || token.contains(char::is_whitespace) {
+        return Err(anyhow!("{label} must be a single nonempty token"));
     }
+    Ok(token.to_string())
+}
+
+fn protocol_payload_request(verb: &str, payload: &str) -> Result<String> {
+    let payload = payload.trim();
+    if payload.is_empty() {
+        return Err(anyhow!("{verb} requires a nonempty payload"));
+    }
+    Ok(format!("{} {payload}", verb.trim().to_ascii_uppercase()))
+}
+
+fn protocol_token_request(verb: &str, token: &str) -> Result<String> {
+    Ok(format!(
+        "{} {}",
+        verb.trim().to_ascii_uppercase(),
+        protocol_token(token, "argument")?
+    ))
+}
+
+fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String> {
+    let window = protocol_token(window, "automation window")?;
     let verb = verb.trim().to_ascii_uppercase();
     if payload.is_empty() {
         Ok(format!("{verb} {window}"))
     } else {
         Ok(format!("{verb} {window} {payload}"))
     }
+}
+
+fn layout_request(axis: &str) -> Result<String> {
+    let axis = axis.trim().to_ascii_lowercase();
+    if !matches!(axis.as_str(), "columns" | "rows") {
+        return Err(anyhow!("--layout expects columns or rows"));
+    }
+    Ok(format!("LAYOUT {axis}"))
+}
+
+fn move_pane_request(window: &str, direction: &str) -> Result<String> {
+    let window = protocol_token(window, "window")?;
+    let direction = direction.trim().to_ascii_lowercase();
+    if !matches!(
+        direction.as_str(),
+        "left" | "right" | "up" | "down" | "first" | "last"
+    ) {
+        return Err(anyhow!(
+            "--move-pane direction expects left|right|up|down|first|last"
+        ));
+    }
+    Ok(format!("MOVE_PANE {window} {direction}"))
+}
+
+fn resize_pane_request(window: &str, amount: &str) -> Result<String> {
+    let window = protocol_token(window, "window")?;
+    let amount = protocol_token(amount, "resize amount")?;
+    Ok(format!("RESIZE_PANE {window} {amount}"))
+}
+
+fn rename_pane_request(window: &str, title: &str) -> Result<String> {
+    let window = protocol_token(window, "window")?;
+    protocol_payload_request("RENAME_PANE", &format!("{window} {title}"))
 }
 
 fn wait_text_ms_request(ms: &str, window: &str, needle: &str) -> Result<String> {
@@ -1921,6 +2034,33 @@ mod tests {
             normalize_daemon_command("apps_first Safari"),
             "APPS_FIRST Safari"
         );
+    }
+
+    #[test]
+    fn pane_control_requests_validate_and_preserve_payloads() {
+        assert_eq!(
+            protocol_payload_request("spawn_pty", "htop").unwrap(),
+            "SPAWN_PTY htop"
+        );
+        assert_eq!(
+            protocol_token_request("focus_pane", "native-2").unwrap(),
+            "FOCUS_PANE native-2"
+        );
+        assert_eq!(layout_request("ROWS").unwrap(), "LAYOUT rows");
+        assert_eq!(
+            move_pane_request("focused", "LAST").unwrap(),
+            "MOVE_PANE focused last"
+        );
+        assert_eq!(
+            resize_pane_request("focused", "+2").unwrap(),
+            "RESIZE_PANE focused +2"
+        );
+        assert_eq!(
+            rename_pane_request("native-2", "Editor Pane").unwrap(),
+            "RENAME_PANE native-2 Editor Pane"
+        );
+        assert!(layout_request("diagonal").is_err());
+        assert!(move_pane_request("bad window", "last").is_err());
     }
 
     #[test]
