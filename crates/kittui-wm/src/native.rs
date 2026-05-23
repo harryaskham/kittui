@@ -295,6 +295,7 @@ struct TerminalState {
     auto_wrap: bool,
     application_cursor_keys: bool,
     insert_mode: bool,
+    dec_special_graphics: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     cells: Vec<TerminalCell>,
@@ -365,6 +366,7 @@ impl TerminalState {
             auto_wrap: true,
             application_cursor_keys: false,
             insert_mode: false,
+            dec_special_graphics: false,
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
             cells: vec![
@@ -394,6 +396,7 @@ impl TerminalState {
         self.auto_wrap = old.auto_wrap;
         self.application_cursor_keys = old.application_cursor_keys;
         self.insert_mode = old.insert_mode;
+        self.dec_special_graphics = old.dec_special_graphics;
         self.bracketed_paste = old.bracketed_paste;
         self.focus_reporting = old.focus_reporting;
         self.mouse_modes = old.mouse_modes;
@@ -554,6 +557,11 @@ impl TerminalState {
     }
 
     fn put_char(&mut self, ch: char) {
+        let ch = if self.dec_special_graphics {
+            dec_special_graphics_char(ch)
+        } else {
+            ch
+        };
         if self.cursor_col >= self.cols {
             if self.auto_wrap {
                 self.newline();
@@ -801,6 +809,7 @@ impl TerminalState {
         self.auto_wrap = true;
         self.application_cursor_keys = false;
         self.insert_mode = false;
+        self.dec_special_graphics = false;
         self.current_style = TerminalStyle::default();
         self.bracketed_paste = false;
         self.focus_reporting = false;
@@ -943,6 +952,40 @@ fn ansi_color(code: u8, bright: bool) -> Option<TerminalColor> {
         ]
     };
     palette.get(usize::from(code.saturating_sub(30))).copied()
+}
+
+fn dec_special_graphics_char(ch: char) -> char {
+    match ch {
+        '_' => ' ',
+        '`' => '◆',
+        'a' => '▒',
+        'f' => '°',
+        'g' => '±',
+        'h' => '␤',
+        'i' => '␋',
+        'j' => '┘',
+        'k' => '┐',
+        'l' => '┌',
+        'm' => '└',
+        'n' => '┼',
+        'o' => '⎺',
+        'p' => '⎻',
+        'q' => '─',
+        'r' => '⎼',
+        's' => '⎽',
+        't' => '├',
+        'u' => '┤',
+        'v' => '┴',
+        'w' => '┬',
+        'x' => '│',
+        'y' => '≤',
+        'z' => '≥',
+        '{' => 'π',
+        '|' => '≠',
+        '}' => '£',
+        '~' => '·',
+        _ => ch,
+    }
 }
 
 fn resize_cells(
@@ -1120,7 +1163,15 @@ impl Perform for TerminalState {
         }
     }
 
-    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, byte: u8) {
+    fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {
+        if intermediates == [b'('] {
+            match byte {
+                b'0' => self.dec_special_graphics = true,
+                b'B' => self.dec_special_graphics = false,
+                _ => {}
+            }
+            return;
+        }
         match byte {
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
@@ -1601,6 +1652,16 @@ mod tests {
         assert!(text.starts_with("X\n\nY"), "snapshot was:\n{text}");
         assert_eq!(state.scroll_top, 0);
         assert_eq!(state.scroll_bottom, 3);
+    }
+
+    #[test]
+    fn terminal_state_honors_dec_special_graphics() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 3);
+        parser.advance(&mut state, b"\x1b(0lqqk\nxx\n\x1b(Bxq");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("┌──┐\n││\nxq"), "snapshot was:\n{text}");
+        assert!(!state.dec_special_graphics);
     }
 
     #[test]
