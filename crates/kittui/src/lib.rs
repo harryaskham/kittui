@@ -53,6 +53,9 @@ pub enum KittuiError {
     /// Invalid placement override.
     #[error("invalid placement: {0}")]
     InvalidPlacement(String),
+    /// Terminal capabilities do not support high-level kittui placement.
+    #[error("unsupported terminal: {0}")]
+    UnsupportedTerminal(String),
 }
 
 /// Renderer selection.
@@ -107,6 +110,7 @@ impl Runtime {
         scene: &Scene,
         placement_footprint: CellRect,
     ) -> Result<Placement, KittuiError> {
+        self.ensure_terminal_support()?;
         if scene.footprint.cols != placement_footprint.cols
             || scene.footprint.rows != placement_footprint.rows
         {
@@ -288,6 +292,20 @@ impl Runtime {
             batch.footprints.push(p.footprint);
         }
         Ok(batch)
+    }
+
+    fn ensure_terminal_support(&self) -> Result<(), KittuiError> {
+        if !self.terminal.supports_kitty {
+            return Err(KittuiError::UnsupportedTerminal(
+                "kitty graphics protocol is not supported".to_string(),
+            ));
+        }
+        if !self.terminal.supports_unicode_placeholders {
+            return Err(KittuiError::UnsupportedTerminal(
+                "kitty unicode placeholders are not supported".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     fn record_gpu_probe(&self, status: &str, adapter: Option<String>) {
@@ -590,6 +608,15 @@ mod tests {
         });
     }
 
+    fn runtime_with_terminal(terminal: TerminalInfo) -> Runtime {
+        Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .terminal(terminal)
+            .build()
+            .unwrap()
+    }
+
     #[test]
     fn place_caches_then_skips_reupload() {
         let runtime = Runtime::builder()
@@ -603,6 +630,58 @@ mod tests {
         let second = runtime.place(&scene).unwrap();
         // Same footprint + same image id ⇒ no re-upload.
         assert!(second.upload.is_empty());
+    }
+
+    #[test]
+    fn unsupported_terminal_without_kitty_rejects_high_level_place() {
+        let runtime = runtime_with_terminal(TerminalInfo::override_with(
+            None,
+            None,
+            CellSize::default(),
+            false,
+            true,
+            Transport::Direct,
+        ));
+        let scene = builders::simple_solid_box(4, 2, "#00d8ff");
+        let err = match runtime.place(&scene) {
+            Ok(_) => panic!("unsupported terminal unexpectedly placed scene"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, KittuiError::UnsupportedTerminal(_)));
+    }
+
+    #[test]
+    fn unsupported_terminal_without_placeholders_rejects_high_level_place() {
+        let runtime = runtime_with_terminal(TerminalInfo::override_with(
+            None,
+            None,
+            CellSize::default(),
+            true,
+            false,
+            Transport::Direct,
+        ));
+        let scene = builders::simple_solid_box(4, 2, "#00d8ff");
+        let err = match runtime.place(&scene) {
+            Ok(_) => panic!("unsupported placeholder terminal unexpectedly placed scene"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, KittuiError::UnsupportedTerminal(_)));
+    }
+
+    #[test]
+    fn supported_terminal_override_places_scene() {
+        let runtime = runtime_with_terminal(TerminalInfo::override_with(
+            None,
+            None,
+            CellSize::default(),
+            true,
+            true,
+            Transport::Direct,
+        ));
+        let scene = builders::simple_solid_box(4, 2, "#00d8ff");
+        let placement = runtime.place(&scene).unwrap();
+        assert_eq!(placement.footprint, scene.footprint);
+        assert!(!placement.placement.is_empty());
     }
 
     #[test]
