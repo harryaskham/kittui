@@ -67,18 +67,22 @@ Use the platform role as the first signal, then state/interfaces to refine.
 | Platform role/interface | kittwm role | Values/state | Actions |
 |---|---|---|---|
 | window/dialog/panel/group | `Group` | title/description | `Focus` when focusable |
-| static text/heading/label | `Label` | `Text` from accessible name/value | none |
+| static text/label | `Label` | `Text` from accessible name/value | none |
+| heading | `Heading` | `Text` from accessible name/value | none |
 | push button/menu button | `Button` | `disabled`, `focused` | `Activate`, `Focus`, maybe `OpenMenu` |
 | check box/toggle button | `Checkbox` | `checked`, `disabled` | `Toggle`, `Focus` |
 | radio button/radio group | `Radio` / `RadioGroup` | `selected`/`checked` | `Select`, `Focus` |
 | text field/search field/password field | `TextInput` | `Text` unless sensitive; `sensitive=true` for passwords | `Focus`, `SetValue`, `InsertText` |
 | multiline text/editable text | `TextArea` | `Text` unless sensitive | `Focus`, `SetValue`, `InsertText`, `Scroll` |
-| combo box/list/select | `SelectList` | `Selection([...])` where ids known | `OpenMenu`, `Select`, `Focus` |
+| combo box/select | `SelectList` | `Selection([...])` where ids known | `OpenMenu`, `Select`, `Focus` |
+| list/list item | `List` / `ListItem` | `Selection([...])` where ids known | `Select`, `Focus`, `Scroll` |
 | slider/spin button/value control | `Slider` | `Number` normalized or raw value | `SetValue`, platform increment/decrement custom actions |
 | progress indicator | `Progress` | `Number` when exposed | none |
 | menu/menu item/menu bar | `Menu` / `Custom("ax.menu_item")` or `Custom("atspi.menu_item")` | selected/expanded | `Activate`, `OpenMenu`, `Close`, `Focus` |
-| table/grid/tree | `Table` or `Custom("accessibility.tree")` | selected rows/cells | `Select`, `Expand`, `Collapse`, `Scroll`, `Focus` |
-| image/canvas/custom view | `Custom("accessibility.pixel_region")` | label/description if exposed | `Focus`/`Activate` only when the platform exposes it |
+| table/grid/row/cell | `Table` / `Row` / `Cell` | selected rows/cells | `Select`, `Scroll`, `Focus` |
+| tree/tree item | `Tree` / `TreeItem` | selected/expanded nodes | `Select`, `Expand`, `Collapse`, `Scroll`, `Focus` |
+| link | `Link` | `Text` from accessible name/value | `Activate`, `Focus` |
+| image/canvas/custom view | `Image` / `Canvas` for obvious roles, otherwise `Custom("accessibility.*")` | label/description if exposed | `Focus`/`Activate` only when the platform exposes it |
 
 IDs should be stable but not leak private paths unnecessarily. Suggested id source order:
 

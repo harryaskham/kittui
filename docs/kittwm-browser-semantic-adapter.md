@@ -31,9 +31,10 @@ Use ARIA role first, then native element semantics, then a conservative custom r
 | DOM/ARIA source | `ComponentRole` | Value/state | Actions |
 |---|---|---|---|
 | `form`, `fieldset`, landmark sections, generic containers with useful children | `Group` | label/description from accessible name | none unless focusable |
-| `label`, headings, static text | `Label` | `ComponentValue::Text` for visible text | none |
+| `label`, static text | `Label` | `ComponentValue::Text` for visible text | none |
+| headings | `Heading` where adapter detail is available, otherwise `Label` | `ComponentValue::Text` for visible text | none |
 | `button`, `role=button`, submit/reset inputs | `Button` | `active`, `disabled` | `Activate`, `Focus` when focusable |
-| `a[href]`, `role=link` | `Custom("browser.link")` until a first-class Link role exists | href in description or custom metadata later | `Activate`, `Focus` |
+| `a[href]`, `role=link` | `Link` | href in description or custom metadata later | `Activate`, `Focus` |
 | `input type=text/search/email/url/tel`, contenteditable single line | `TextInput` | `ComponentValue::Text`, `sensitive=false` | `Focus`, `SetValue`, `InsertText` |
 | `textarea`, multiline contenteditable | `TextArea` | `ComponentValue::Text` | `Focus`, `SetValue`, `InsertText` |
 | `input type=password` | `TextInput` | omit/redact value, `sensitive=true` | `Focus`, `SetValue`, `InsertText` |
@@ -44,7 +45,7 @@ Use ARIA role first, then native element semantics, then a conservative custom r
 | `progress`, `meter` | `Progress` | numeric value if parseable | none |
 | `table`, `grid`, `treegrid` | `Table` or `Custom("browser.grid")` | children for rows/cells when bounded | `Focus`, `Scroll` where useful |
 | `nav/menu/menubar/menuitem` | `Menu` / `Custom("browser.menu_item")` | selected/expanded | `Activate`, `OpenMenu`, `Close`, `Focus` |
-| `canvas`, `video`, WebGL, opaque widgets | `Custom("browser.pixel_region")` or omitted | description from ARIA/name if any | usually `Focus`/`Activate` only |
+| `canvas`, `video`, WebGL, opaque widgets | `Canvas` for current pixel-region extraction, or omitted if no useful semantics exist | description from ARIA/name if any | usually `Focus`/`Activate` only |
 
 Stable ids should be generated from, in priority order:
 

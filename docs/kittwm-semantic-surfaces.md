@@ -124,8 +124,10 @@ roles used by the first semantic adapters: `Link`, `Heading`, `Paragraph`,
 `Canvas`, `Terminal`, and `BrowserDocument` in addition to the existing control
 roles. `Custom` remains available for vendor-specific roles and must include a
 namespaced type string and fallback role so renderers can still choose a generic
-representation. Some adapters may still emit older `Custom("browser.*")` or
-`Custom("accessibility.*")` roles until follow-up remapping lands.
+representation. Browser and accessibility adapters now remap obvious link,
+canvas/media, heading, list/tree, row/cell, and image roles to these first-class
+variants; `Custom("browser.*")` or `Custom("accessibility.*")` remains reserved
+for vendor-specific or still-unsupported roles.
 
 ### Values and state
 
