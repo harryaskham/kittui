@@ -72,7 +72,7 @@ For tmux:
 
 ## Follow-up implementation map
 
-- `bd-67a477`: implements raw-frame file/shared-memory kitty grammar and a safe local tempfile transfer path for `Runtime::place_raw_frame` when `Transport::File` is selected. `Transport::Memory` currently falls back to the same tempfile transfer until a safe POSIX shared-memory allocator lands in an unsafe-code-free crate.
+- `bd-67a477`: implements raw-frame file/shared-memory kitty grammar, a safe local tempfile transfer path for `Runtime::place_raw_frame` when `Transport::File` is selected, and a safe Linux `/dev/shm`-backed POSIX shared-memory allocation path when `Transport::Memory` is selected. Unsupported platforms or allocation failures fall back to tempfile/direct streaming.
 - `bd-e15ef8`: replace unconditional `KITTUI_KITTY_COMPRESSION=auto` zlib behavior with threshold-based compression for raw frames, plus tests for small/large payload decisions.
 - `bd-883864`: expose transport decision diagnostics in `kittwm doctor`, re-export `TransportDiagnostics` for callers, and keep the policy selector testable with caller-supplied environment data.
 

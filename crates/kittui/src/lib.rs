@@ -85,6 +85,17 @@ pub struct Runtime {
     // Currently placed image ids → footprint, so re-place calls don't emit
     // redundant escapes. Wrapped for cheap interior mutability.
     placed: Mutex<std::collections::HashMap<u32, CellRect>>,
+    // Raw-frame shared-memory backing files kept alive until the next upload
+    // for the same image id, explicit unplace, or runtime drop.
+    raw_shm: Mutex<std::collections::HashMap<u32, PathBuf>>,
+}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        for (_, path) in self.raw_shm.get_mut().drain() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 impl Runtime {
@@ -224,6 +235,7 @@ impl Runtime {
     /// Delete an image from the terminal and forget it locally.
     pub fn unplace(&self, image_id: u32) -> String {
         self.placed.lock().remove(&image_id);
+        self.remove_raw_shm(image_id);
         kitty::delete(image_id, self.terminal.transport)
     }
 
@@ -280,13 +292,20 @@ impl Runtime {
                 .unwrap_or_else(|| {
                     kitty::upload_still_rgba(image_id, rgba, width, height, Transport::Direct)
                 }),
-            Transport::Memory => {
-                // Shared-memory allocation is platform-specific and lands behind
-                // the same grammar exposed by kittui-kitty. Until a safe allocator
-                // is available in this `unsafe_code`-forbidden crate, prefer the
-                // local tempfile transfer when possible and otherwise direct stream.
-                self.write_raw_frame_tempfile(image_id, rgba)
-                    .map(|path| {
+            Transport::Memory => self
+                .write_raw_frame_shm(image_id, rgba)
+                .map(|name| {
+                    kitty::upload_still_rgba_medium(
+                        image_id,
+                        kitty::UploadMedium::SharedMemory { name: &name },
+                        width,
+                        height,
+                        kitty::Quiet::SuppressAll,
+                        Transport::Memory,
+                    )
+                })
+                .or_else(|| {
+                    self.write_raw_frame_tempfile(image_id, rgba).map(|path| {
                         kitty::upload_still_rgba_medium(
                             image_id,
                             kitty::UploadMedium::TempFile { path: &path },
@@ -296,27 +315,38 @@ impl Runtime {
                             Transport::File,
                         )
                     })
-                    .unwrap_or_else(|| {
-                        kitty::upload_still_rgba(image_id, rgba, width, height, Transport::Direct)
-                    })
-            }
+                })
+                .unwrap_or_else(|| {
+                    kitty::upload_still_rgba(image_id, rgba, width, height, Transport::Direct)
+                }),
             transport => kitty::upload_still_rgba(image_id, rgba, width, height, transport),
         }
     }
 
     fn write_raw_frame_tempfile(&self, image_id: u32, rgba: &[u8]) -> Option<PathBuf> {
         let mut path = std::env::temp_dir();
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .map(|d| d.as_nanos())
-            .unwrap_or_default();
+        let now = raw_frame_unique_suffix();
         path.push(format!(
             "kittui-raw-{pid}-{image_id}-{now}.rgba",
             pid = std::process::id(),
         ));
         std::fs::write(&path, rgba).ok()?;
         Some(path)
+    }
+
+    fn write_raw_frame_shm(&self, image_id: u32, rgba: &[u8]) -> Option<String> {
+        let (name, path) = raw_frame_shm_name_path(image_id, raw_frame_unique_suffix())?;
+        std::fs::write(&path, rgba).ok()?;
+        if let Some(old) = self.raw_shm.lock().insert(image_id, path) {
+            let _ = std::fs::remove_file(old);
+        }
+        Some(name)
+    }
+
+    fn remove_raw_shm(&self, image_id: u32) {
+        if let Some(path) = self.raw_shm.lock().remove(&image_id) {
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     fn place_uploaded_image_with_upload(
@@ -516,6 +546,26 @@ impl Runtime {
     }
 }
 
+fn raw_frame_unique_suffix() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_nanos())
+        .unwrap_or_default()
+}
+
+fn raw_frame_shm_name_path(image_id: u32, suffix: u128) -> Option<(String, PathBuf)> {
+    let dir = PathBuf::from("/dev/shm");
+    if !dir.is_dir() {
+        return None;
+    }
+    let file_name = format!(
+        "kittui-raw-shm-{pid}-{image_id}-{suffix}.rgba",
+        pid = std::process::id(),
+    );
+    Some((format!("/{file_name}"), dir.join(file_name)))
+}
+
 fn now_rfc3339() -> String {
     // Avoid pulling chrono just for one timestamp; format seconds-since-epoch
     // as a stable, sortable ISO-ish string. Good enough for probe.json freshness.
@@ -581,6 +631,7 @@ impl RuntimeBuilder {
             renderer: self.renderer,
             backend: Mutex::new(initial_backend),
             placed: Mutex::new(Default::default()),
+            raw_shm: Mutex::new(Default::default()),
         })
     }
 }
@@ -944,6 +995,59 @@ mod tests {
                     let _ = std::fs::remove_file(entry.path());
                 }
             }
+        }
+    }
+
+    #[test]
+    fn raw_frame_memory_transport_uses_shm_when_available_or_safe_fallback() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .terminal(TerminalInfo::override_with(
+                Some(80),
+                Some(24),
+                CellSize::new(8, 16),
+                true,
+                true,
+                Transport::Memory,
+            ))
+            .build()
+            .unwrap();
+        let rgba = vec![0x44; 2 * 2 * 4];
+        let placement = runtime.place_raw_frame(18, &rgba, 2, 2, CellRect::new(0, 0, 1, 1));
+        if PathBuf::from("/dev/shm").is_dir() {
+            assert!(
+                placement
+                    .upload
+                    .starts_with("\x1b_Ga=t,f=32,s=2,v=2,t=s,i=18,q=2;"),
+                "memory transport should use shared-memory medium when /dev/shm exists: {:?}",
+                placement.upload
+            );
+            assert!(runtime.raw_shm.lock().contains_key(&18));
+            let path = runtime.raw_shm.lock().get(&18).cloned().unwrap();
+            assert!(path.exists());
+            runtime.unplace(18);
+            assert!(
+                !path.exists(),
+                "unplace should remove raw-frame shm backing file"
+            );
+        } else {
+            assert!(
+                placement.upload.contains("t=t") || placement.upload.contains("f=32"),
+                "memory transport should fall back safely: {:?}",
+                placement.upload
+            );
+        }
+    }
+
+    #[test]
+    fn raw_frame_shm_name_path_uses_posix_name_and_dev_shm_path() {
+        if let Some((name, path)) = raw_frame_shm_name_path(19, 123) {
+            assert!(name.starts_with('/'));
+            assert!(name.contains("kittui-raw-shm-"));
+            assert!(name.ends_with("-19-123.rgba"));
+            assert_eq!(path.file_name().unwrap().to_string_lossy(), &name[1..]);
+            assert_eq!(path.parent().unwrap(), PathBuf::from("/dev/shm"));
         }
     }
 
