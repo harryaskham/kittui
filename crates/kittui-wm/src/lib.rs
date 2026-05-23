@@ -866,6 +866,16 @@ pub mod compositor {
             self.tiled.insert(id, rect);
         }
 
+        /// Remove all tiled slots.
+        pub fn clear(&mut self) {
+            self.tiled.clear();
+        }
+
+        /// Return all tiled slots in arbitrary order.
+        pub fn tiled_slots(&self) -> &HashMap<XWindowId, PxRect> {
+            &self.tiled
+        }
+
         /// Look up the tiled slot for a window, if any.
         pub fn tiled_rect(&self, id: XWindowId) -> Option<PxRect> {
             self.tiled.get(&id).copied()

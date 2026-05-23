@@ -765,6 +765,7 @@ pub fn run_loop_with<S: XServer>(
     layout: &Layout,
     opts: RunOptions,
 ) -> Result<()> {
+    let mut layout = layout.clone();
     let dbg = Debugger::open();
     dbg.log(&format!(
         "run_loop: enter fps={} launch_on_f12={} launcher_overlay={}",
@@ -1046,6 +1047,14 @@ pub fn run_loop_with<S: XServer>(
                                 }
                                 Action::ToggleSplit | Action::BalanceWindows => {
                                     let msg = layout_state.apply(&action);
+                                    let msg = match rebuild_tiled_layout(
+                                        compositor,
+                                        &mut layout,
+                                        &layout_state,
+                                    ) {
+                                        Ok(count) => format!("{msg} windows={count}"),
+                                        Err(e) => format!("{msg} error={e}"),
+                                    };
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("layout action: {msg}"));
                                 }
@@ -1162,7 +1171,7 @@ pub fn run_loop_with<S: XServer>(
         // out of the per-frame cost. Errors are surfaced inside the chrome
         // footer instead of bailing, so a TCC failure or backend death
         // never leaks the terminal.
-        match compositor.raw_frames(layout) {
+        match compositor.raw_frames(&layout) {
             Ok(frames) => {
                 let last_window_count = frames.len();
                 if frame % 30 == 0 {
@@ -2525,6 +2534,10 @@ impl Default for LayoutState {
 }
 
 impl LayoutState {
+    fn is_vertical(&self) -> bool {
+        self.split_axis == "vertical"
+    }
+
     fn apply(&mut self, action: &Action) -> String {
         match action {
             Action::ToggleSplit => {
@@ -2548,6 +2561,69 @@ impl LayoutState {
     }
 }
 
+fn rebuild_tiled_layout<S: XServer>(
+    compositor: &Compositor<S>,
+    layout: &mut Layout,
+    state: &LayoutState,
+) -> std::result::Result<usize, kittui_xvfb::XError> {
+    let windows = compositor.server().windows()?;
+    if windows.is_empty() {
+        layout.clear();
+        return Ok(0);
+    }
+    let bounds = layout.bounds().unwrap_or_else(|| {
+        windows
+            .iter()
+            .map(|w| w.rect)
+            .reduce(px_rect_union)
+            .unwrap()
+    });
+    layout.clear();
+    let count = windows.len();
+    for (idx, w) in windows.iter().enumerate() {
+        layout.tile(w.id, split_slot(bounds, idx, count, state.is_vertical()));
+        compositor.set_mode(w.id, kittui_wm::compositor::WindowMode::Tiled);
+    }
+    Ok(count)
+}
+
+fn split_slot(
+    bounds: kittui_core::geom::PxRect,
+    idx: usize,
+    count: usize,
+    vertical: bool,
+) -> kittui_core::geom::PxRect {
+    let count = count.max(1) as f32;
+    if vertical {
+        let slot = bounds.width / count;
+        kittui_core::geom::PxRect::new(
+            bounds.origin.0 + slot * idx as f32,
+            bounds.origin.1,
+            slot,
+            bounds.height,
+        )
+    } else {
+        let slot = bounds.height / count;
+        kittui_core::geom::PxRect::new(
+            bounds.origin.0,
+            bounds.origin.1 + slot * idx as f32,
+            bounds.width,
+            slot,
+        )
+    }
+}
+
+fn px_rect_union(
+    a: kittui_core::geom::PxRect,
+    b: kittui_core::geom::PxRect,
+) -> kittui_core::geom::PxRect {
+    let min_x = a.origin.0.min(b.origin.0);
+    let min_y = a.origin.1.min(b.origin.1);
+    let max_x = (a.origin.0 + a.width).max(b.origin.0 + b.width);
+    let max_y = (a.origin.1 + a.height).max(b.origin.1 + b.height);
+    kittui_core::geom::PxRect::new(min_x, min_y, max_x - min_x, max_y - min_y)
+}
+
 #[cfg(test)]
 mod layout_state_tests {
     use super::*;
@@ -2567,6 +2643,77 @@ mod layout_state_tests {
         assert_eq!(
             s.apply(&Action::BalanceWindows),
             "balance.windows -> axis=vertical balanced#1"
+        );
+    }
+
+    #[test]
+    fn split_slot_divides_bounds_by_axis() {
+        let bounds = kittui_core::geom::PxRect::new(0.0, 0.0, 90.0, 30.0);
+        let a = split_slot(bounds, 1, 3, true);
+        assert_eq!(a.origin.0, 30.0);
+        assert_eq!(a.width, 30.0);
+        assert_eq!(a.height, 30.0);
+        let b = split_slot(bounds, 1, 3, false);
+        assert_eq!(b.origin.1, 10.0);
+        assert_eq!(b.width, 90.0);
+        assert_eq!(b.height, 10.0);
+    }
+
+    #[test]
+    fn rebuild_tiled_layout_assigns_current_windows() {
+        let server = kittui_xvfb::FakeServer::with_windows(vec![
+            (
+                kittui_xvfb::XWindowId(1),
+                kittui_core::geom::PxRect::new(0.0, 0.0, 90.0, 30.0),
+                "a",
+                [0xff, 0x00, 0x00, 0xff],
+            ),
+            (
+                kittui_xvfb::XWindowId(2),
+                kittui_core::geom::PxRect::new(0.0, 0.0, 90.0, 30.0),
+                "b",
+                [0x00, 0xff, 0x00, 0xff],
+            ),
+        ]);
+        let compositor = Compositor::new(server, kittui::CellSize::new(10, 10));
+        let mut layout = Layout::all_floating();
+        layout.tile(
+            kittui_xvfb::XWindowId(1),
+            kittui_core::geom::PxRect::new(0.0, 0.0, 90.0, 30.0),
+        );
+        let mut state = LayoutState::default();
+        assert_eq!(
+            rebuild_tiled_layout(&compositor, &mut layout, &state).unwrap(),
+            2
+        );
+        assert_eq!(
+            layout.tiled_rect(kittui_xvfb::XWindowId(1)).unwrap().width,
+            45.0
+        );
+        assert_eq!(
+            layout
+                .tiled_rect(kittui_xvfb::XWindowId(2))
+                .unwrap()
+                .origin
+                .0,
+            45.0
+        );
+        state.apply(&Action::ToggleSplit);
+        assert_eq!(
+            rebuild_tiled_layout(&compositor, &mut layout, &state).unwrap(),
+            2
+        );
+        assert_eq!(
+            layout.tiled_rect(kittui_xvfb::XWindowId(1)).unwrap().height,
+            15.0
+        );
+        assert_eq!(
+            layout
+                .tiled_rect(kittui_xvfb::XWindowId(2))
+                .unwrap()
+                .origin
+                .1,
+            15.0
         );
     }
 }
