@@ -45,6 +45,16 @@ impl AccessibilityDiagnostics {
             ),
         }
     }
+
+    /// Conservative Linux AT-SPI diagnostic without binding to the desktop bus.
+    /// A live adapter can replace this once an AT-SPI client crate is wired.
+    pub fn linux_atspi_unavailable(reason: impl Into<String>) -> Self {
+        Self {
+            platform: AccessibilityPlatform::LinuxAtSpi,
+            available: false,
+            reason: Some(reason.into()),
+        }
+    }
 }
 
 /// App/window association metadata for a captured accessibility tree.
@@ -244,7 +254,11 @@ fn accessibility_component_role(role: &str) -> ComponentRole {
         ComponentRole::Table
     } else if role_l.contains("static") || role_l.contains("label") || role_l.contains("heading") {
         ComponentRole::Label
-    } else if role_l.contains("window") || role_l.contains("group") || role_l.contains("panel") {
+    } else if role_l.contains("window")
+        || role_l.contains("frame")
+        || role_l.contains("group")
+        || role_l.contains("panel")
+    {
         ComponentRole::Group
     } else {
         ComponentRole::Custom(format!("accessibility.{role}"))
@@ -357,6 +371,67 @@ mod tests {
             snapshot.root.children[3].value,
             Some(ComponentValue::Number(0.75))
         );
+    }
+
+    #[test]
+    fn maps_linux_atspi_nodes_to_semantic_snapshot_and_degrades_cleanly() {
+        let assoc = AccessibilityWindowAssociation {
+            platform: AccessibilityPlatform::LinuxAtSpi,
+            surface: "native-2".to_string(),
+            pid: Some(99),
+            platform_window_id: Some(0x1200007),
+            title: "Settings".to_string(),
+        };
+        let root = AccessibilityNode::new("atspi:window", "frame")
+            .named("Settings")
+            .children(vec![
+                AccessibilityNode::new("atspi:apply", "push button")
+                    .named("Apply")
+                    .focusable()
+                    .actions(["click"]),
+                AccessibilityNode::new("atspi:username", "text")
+                    .named("Username")
+                    .valued("ada")
+                    .focusable()
+                    .actions(["focus"]),
+                AccessibilityNode::new("atspi:choice", "combo box")
+                    .named("Profile")
+                    .valued("Developer")
+                    .children(vec![
+                        AccessibilityNode::new("atspi:choice.dev", "list item")
+                            .named("Developer")
+                            .focusable(),
+                        AccessibilityNode::new("atspi:choice.ops", "list item")
+                            .named("Operator")
+                            .focusable(),
+                    ]),
+                AccessibilityNode::new("atspi:progress", "progress bar").valued("0.5"),
+            ]);
+        let snapshot = accessibility_snapshot_from_tree(&assoc, &root);
+        assert_eq!(snapshot.surface, "native-2");
+        assert_eq!(snapshot.root.role, ComponentRole::Group);
+        assert_eq!(snapshot.root.children[0].role, ComponentRole::Button);
+        assert!(snapshot.root.children[0]
+            .actions
+            .iter()
+            .any(|action| action.id == "activate"));
+        assert_eq!(snapshot.root.children[1].role, ComponentRole::TextInput);
+        assert_eq!(
+            snapshot.root.children[1].value,
+            Some(ComponentValue::Text("ada".to_string()))
+        );
+        assert_eq!(snapshot.root.children[2].role, ComponentRole::SelectList);
+        assert_eq!(snapshot.root.children[2].children.len(), 2);
+        assert_eq!(snapshot.root.children[3].role, ComponentRole::Progress);
+        assert_eq!(
+            snapshot.root.children[3].value,
+            Some(ComponentValue::Number(0.5))
+        );
+
+        let diag = AccessibilityDiagnostics::linux_atspi_unavailable("AT-SPI bus unavailable");
+        assert_eq!(diag.platform, AccessibilityPlatform::LinuxAtSpi);
+        assert!(!diag.available);
+        assert!(diag.reason.unwrap().contains("AT-SPI"));
     }
 
     #[test]
