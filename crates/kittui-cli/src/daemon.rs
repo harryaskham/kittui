@@ -111,6 +111,7 @@ pub enum NativePaneCommand {
     Layout(String),
     Move { window: String, direction: String },
     Resize { window: String, delta: i16 },
+    Balance,
     Rename { window: String, title: String },
 }
 
@@ -345,6 +346,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
             "RESIZE_QUEUED",
         );
     }
+    if cmd == "BALANCE_PANES" {
+        return queue_native_pane_action(pending, NativePaneCommand::Balance, "BALANCE_QUEUED");
+    }
     if let Some(rest) = cmd.strip_prefix("RENAME_PANE ") {
         let Some((window, title)) = rest.trim().split_once(' ') else {
             return "ERR RENAME_PANE requires window and title\n".to_string();
@@ -378,7 +382,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RENAME_PANE <window> <title> | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -429,6 +433,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "RESIZE_PANE <window|focused> <grow|shrink|+N|-N>",
             "control",
             "adjust a native pane layout weight",
+        ),
+        (
+            "BALANCE_PANES",
+            "control",
+            "reset native pane weights to equal values",
         ),
         (
             "RENAME_PANE <window> <title>",
@@ -963,6 +972,7 @@ mod tests {
         );
         assert!(native_spawn_queue_reply("RESIZE_PANE focused +2", &pending)
             .starts_with("RESIZE_QUEUED"));
+        assert!(native_spawn_queue_reply("BALANCE_PANES", &pending).starts_with("BALANCE_QUEUED"));
         assert!(
             native_spawn_queue_reply("RENAME_PANE native-2 editor pane", &pending)
                 .starts_with("RENAME_QUEUED")
@@ -988,6 +998,7 @@ mod tests {
                     window: "focused".to_string(),
                     delta: 2,
                 },
+                NativePaneCommand::Balance,
                 NativePaneCommand::Rename {
                     window: "native-2".to_string(),
                     title: "editor pane".to_string(),
@@ -1008,6 +1019,7 @@ mod tests {
         assert!(help.contains("LAYOUT <columns|rows>"), "{help}");
         assert!(help.contains("MOVE_PANE <window|focused>"), "{help}");
         assert!(help.contains("RESIZE_PANE <window|focused>"), "{help}");
+        assert!(help.contains("BALANCE_PANES"), "{help}");
         assert!(help.contains("RENAME_PANE <window> <title>"), "{help}");
         assert!(help.contains("APPS_JSON"), "{help}");
 

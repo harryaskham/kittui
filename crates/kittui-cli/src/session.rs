@@ -163,6 +163,12 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 panes[focused].window, panes[focused].weight
                             ));
                         }
+                        b'b' | b'B' => {
+                            balance_native_pane_weights(&mut panes);
+                            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                            clear = true;
+                            dbg.log("native terminal balance pane weights");
+                        }
                         0x01 => panes[focused].app.send_bytes(&[0x01])?,
                         other => panes[focused].app.send_bytes(&[other])?,
                     }
@@ -274,6 +280,12 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         ));
                     }
                 }
+                crate::daemon::NativePaneCommand::Balance => {
+                    balance_native_pane_weights(&mut panes);
+                    resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                    clear = true;
+                    dbg.log("native terminal socket balance pane weights");
+                }
                 crate::daemon::NativePaneCommand::Rename { window, title } => {
                     if let Some(idx) = native_pane_index(&panes, &window) {
                         panes[idx].display_title = Some(title.clone());
@@ -327,7 +339,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         write!(
             handle,
-            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
+            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a b balance — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
             rows + 2,
             panes.len(),
             panes[focused].window,
@@ -539,6 +551,12 @@ fn native_adjust_weight(weight: u16, delta: i16) -> u16 {
     }
 }
 
+fn balance_native_pane_weights(panes: &mut [NativePane]) {
+    for pane in panes {
+        pane.weight = 1;
+    }
+}
+
 fn native_move_target_index(from: usize, len: usize, direction: &str) -> usize {
     if len == 0 {
         return 0;
@@ -718,6 +736,31 @@ mod native_pane_tests {
         assert_eq!(native_adjust_weight(1, -1), 1);
         assert_eq!(native_adjust_weight(2, -1), 1);
         assert_eq!(native_adjust_weight(2, 3), 5);
+    }
+
+    #[test]
+    fn balance_native_pane_weights_resets_all_weights() {
+        let mut panes = vec![
+            NativePane {
+                window: "native-1".to_string(),
+                image_id: 1,
+                display_title: None,
+                weight: 4,
+                app: dummy_native_pane_app(),
+            },
+            NativePane {
+                window: "native-2".to_string(),
+                image_id: 2,
+                display_title: None,
+                weight: 2,
+                app: dummy_native_pane_app(),
+            },
+        ];
+        balance_native_pane_weights(&mut panes);
+        assert_eq!(
+            panes.iter().map(|pane| pane.weight).collect::<Vec<_>>(),
+            vec![1, 1]
+        );
     }
 
     #[test]
