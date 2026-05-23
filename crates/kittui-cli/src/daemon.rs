@@ -967,6 +967,21 @@ fn publish_native_pane_events(state: &mut NativeSpawnQueueState, panes: Vec<Nati
     }
 }
 
+fn push_native_input_event(
+    state: &mut NativeSpawnQueueState,
+    window: &str,
+    input_kind: &'static str,
+    extra: serde_json::Value,
+) {
+    let mut detail = serde_json::json!({ "input": input_kind });
+    if let (Some(target), Some(extra_obj)) = (detail.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra_obj {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    push_native_event(state, "pane_input_sent", Some(window.to_string()), detail);
+}
+
 fn push_native_pending_status_event(state: &mut NativeSpawnQueueState, old_pending: usize) {
     let pending = state.pending.len();
     if pending != old_pending {
@@ -1213,6 +1228,12 @@ fn queue_native_send_text(
                 newline,
             });
             push_native_pending_status_event(&mut state, old_pending);
+            push_native_input_event(
+                &mut state,
+                window,
+                if newline { "line" } else { "text" },
+                serde_json::json!({ "bytes": text.len() + usize::from(newline) }),
+            );
             let prefix = if newline {
                 "SEND_LINE_QUEUED"
             } else {
@@ -1243,6 +1264,12 @@ fn queue_native_send_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest
                 label: "base64".to_string(),
             });
             push_native_pending_status_event(&mut state, old_pending);
+            push_native_input_event(
+                &mut state,
+                &window,
+                "bytes",
+                serde_json::json!({ "bytes": bytes.len() }),
+            );
             format!(
                 "SEND_BYTES_B64_QUEUED command={} window={} bytes={}\n",
                 state.pending.len(),
@@ -1267,6 +1294,12 @@ fn queue_native_paste_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, res
                 bytes: bytes.clone(),
             });
             push_native_pending_status_event(&mut state, old_pending);
+            push_native_input_event(
+                &mut state,
+                &window,
+                "paste",
+                serde_json::json!({ "bytes": bytes.len() }),
+            );
             format!(
                 "PASTE_BYTES_B64_QUEUED command={} window={} bytes={}\n",
                 state.pending.len(),
@@ -1325,6 +1358,12 @@ fn queue_native_send_mouse(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &s
                 row,
             });
             push_native_pending_status_event(&mut state, old_pending);
+            push_native_input_event(
+                &mut state,
+                window,
+                "mouse",
+                serde_json::json!({ "event": event, "col": col, "row": row }),
+            );
             format!(
                 "SEND_MOUSE_QUEUED command={} window={} event={} col={} row={}\n",
                 state.pending.len(),
@@ -1375,6 +1414,12 @@ fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str
                 label: key.to_string(),
             });
             push_native_pending_status_event(&mut state, old_pending);
+            push_native_input_event(
+                &mut state,
+                window,
+                "key",
+                serde_json::json!({ "key": key, "bytes": bytes.len() }),
+            );
             format!(
                 "SEND_KEY_QUEUED command={} window={} key={} bytes={}\n",
                 state.pending.len(),
@@ -2848,6 +2893,40 @@ mod tests {
         assert_eq!(events[2]["detail"]["payload_base64"], "aGVsbG8=");
         assert_eq!(events[3]["kind"], "surface_notification");
         assert_eq!(events[3]["detail"]["body"], "done");
+    }
+
+    #[test]
+    fn native_input_events_omit_sensitive_payloads() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let text = native_spawn_queue_reply("SEND_TEXT focused super-secret", &pending);
+        assert!(text.starts_with("SEND_TEXT_QUEUED"), "{text}");
+        let key = native_spawn_queue_reply("SEND_KEY focused enter", &pending);
+        assert!(key.starts_with("SEND_KEY_QUEUED"), "{key}");
+        let paste = native_spawn_queue_reply("PASTE_BYTES_B64 focused c2VjcmV0LXBhc3Rl", &pending);
+        assert!(paste.starts_with("PASTE_BYTES_B64_QUEUED"), "{paste}");
+        let mouse = native_spawn_queue_reply("SEND_MOUSE focused press-left 3 4", &pending);
+        assert!(mouse.starts_with("SEND_MOUSE_QUEUED"), "{mouse}");
+
+        let state = pending.lock().unwrap();
+        let input_events = state
+            .events
+            .iter()
+            .filter(|event| event["kind"] == "pane_input_sent")
+            .collect::<Vec<_>>();
+        assert_eq!(input_events.len(), 4);
+        assert_eq!(input_events[0]["window"], "focused");
+        assert_eq!(input_events[0]["detail"]["input"], "text");
+        assert_eq!(input_events[0]["detail"]["bytes"], 12);
+        assert!(!input_events[0].to_string().contains("super-secret"));
+        assert_eq!(input_events[1]["detail"]["input"], "key");
+        assert_eq!(input_events[1]["detail"]["key"], "enter");
+        assert_eq!(input_events[2]["detail"]["input"], "paste");
+        assert_eq!(input_events[2]["detail"]["bytes"], 12);
+        assert!(!input_events[2].to_string().contains("secret-paste"));
+        assert_eq!(input_events[3]["detail"]["input"], "mouse");
+        assert_eq!(input_events[3]["detail"]["event"], "press-left");
+        assert_eq!(input_events[3]["detail"]["col"], 3);
+        assert_eq!(input_events[3]["detail"]["row"], 4);
     }
 
     #[test]
