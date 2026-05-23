@@ -11,6 +11,7 @@ kittui = { workspace = true }
 kittui-core = { workspace = true }
 kittui-kitty = { workspace = true }
 kittui-render-cpu = { workspace = true }
+kittui-affordances = { path = "../kittui-affordances", version = "0.1.0" }
 kittui-input = { path = "../kittui-input", version = "0.1.0" }
 kittui-xvfb = { path = "../kittui-xvfb", version = "0.1.0" }
 ratakittui = { path = "../ratakittui", version = "0.1.0" }

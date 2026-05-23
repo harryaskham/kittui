@@ -1386,6 +1386,7 @@ dependencies = [
  "anyhow",
  "base64",
  "kittui",
+ "kittui-affordances",
  "kittui-core",
  "kittui-input",
  "kittui-kitty",
