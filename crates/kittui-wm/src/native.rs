@@ -25,6 +25,8 @@ use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{connect, Message, WebSocket};
 use vte::{Params, Parser, Perform};
 
+const SCROLLBACK_MAX_LINES: usize = 10_000;
+
 /// Backend-independent input and capture surface for a kittwm-native app.
 pub trait NativeApp {
     /// Human-readable app title.
@@ -157,6 +159,11 @@ impl PtyTerminalApp {
         self.state.lock().text_snapshot()
     }
 
+    /// Return lines that have scrolled off the terminal grid as plain text.
+    pub fn scrollback_snapshot(&self) -> String {
+        self.state.lock().scrollback_snapshot()
+    }
+
     /// Return the current zero-based cursor `(col, row)` in the terminal grid.
     pub fn cursor_position(&self) -> (u16, u16) {
         let state = self.state.lock();
@@ -230,6 +237,7 @@ struct TerminalState {
     cursor_col: u16,
     cursor_row: u16,
     cells: Vec<char>,
+    scrollback: Vec<String>,
     alt_screen: Option<AlternateScreen>,
     title: Option<String>,
 }
@@ -249,6 +257,7 @@ impl TerminalState {
             cursor_col: 0,
             cursor_row: 0,
             cells: vec![' '; usize::from(cols) * usize::from(rows)],
+            scrollback: Vec::new(),
             alt_screen: None,
             title: None,
         }
@@ -258,6 +267,7 @@ impl TerminalState {
         let old = self.clone();
         *self = Self::new(cols, rows);
         self.title = old.title.clone();
+        self.scrollback = old.scrollback.clone();
         self.cells = resize_cells(&old.cells, old.cols, old.rows, cols, rows);
         self.alt_screen = old.alt_screen.map(|alt| AlternateScreen {
             normal_cells: resize_cells(&alt.normal_cells, old.cols, old.rows, cols, rows),
@@ -271,17 +281,37 @@ impl TerminalState {
     fn text_snapshot(&self) -> String {
         let mut out = String::new();
         for row in 0..self.rows {
-            let start = usize::from(row) * usize::from(self.cols);
-            let end = start + usize::from(self.cols);
-            let line: String = self.cells[start..end]
-                .iter()
-                .collect::<String>()
-                .trim_end()
-                .into();
-            out.push_str(&line);
+            out.push_str(&self.line_snapshot(row));
             out.push('\n');
         }
         out
+    }
+
+    fn scrollback_snapshot(&self) -> String {
+        if self.scrollback.is_empty() {
+            return String::new();
+        }
+        let mut out = self.scrollback.join("\n");
+        out.push('\n');
+        out
+    }
+
+    fn line_snapshot(&self, row: u16) -> String {
+        let start = usize::from(row) * usize::from(self.cols);
+        let end = start + usize::from(self.cols);
+        self.cells[start..end]
+            .iter()
+            .collect::<String>()
+            .trim_end()
+            .into()
+    }
+
+    fn push_scrollback_line(&mut self, line: String) {
+        self.scrollback.push(line);
+        if self.scrollback.len() > SCROLLBACK_MAX_LINES {
+            let overflow = self.scrollback.len() - SCROLLBACK_MAX_LINES;
+            self.scrollback.drain(0..overflow);
+        }
     }
 
     fn put_at(&mut self, col: u16, row: u16, ch: char) {
@@ -302,6 +332,9 @@ impl TerminalState {
     fn newline(&mut self) {
         self.cursor_col = 0;
         if self.cursor_row + 1 >= self.rows {
+            if self.alt_screen.is_none() {
+                self.push_scrollback_line(self.line_snapshot(0));
+            }
             let cols = usize::from(self.cols);
             self.cells.copy_within(cols.., 0);
             let start = self.cells.len().saturating_sub(cols);
@@ -929,6 +962,26 @@ mod tests {
             text.starts_with("x    y\n      z\nk  n\nw"),
             "snapshot was:\n{text}"
         );
+    }
+
+    #[test]
+    fn terminal_state_captures_scrollback_on_scroll() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        parser.advance(&mut state, b"one\ntwo\nthree");
+        assert_eq!(state.scrollback_snapshot(), "one\n");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("two\nthree"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn terminal_state_does_not_capture_alt_screen_scrollback() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        parser.advance(&mut state, b"normal\x1b[?1049hone\ntwo\nthree");
+        assert_eq!(state.scrollback_snapshot(), "");
+        parser.advance(&mut state, b"\x1b[?1049l");
+        assert_eq!(state.scrollback_snapshot(), "");
     }
 
     #[test]

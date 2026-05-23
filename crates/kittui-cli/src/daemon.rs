@@ -127,6 +127,8 @@ pub struct NativePaneStatus {
     pub cursor_row: Option<u16>,
     #[serde(skip_serializing)]
     pub text_snapshot: Option<String>,
+    #[serde(skip_serializing)]
+    pub scrollback_snapshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_rows: Option<u16>,
 }
@@ -461,6 +463,12 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("WAIT_TEXT ") {
         return native_spawn_wait_text_reply(pending, rest, Duration::from_secs(5));
     }
+    if let Some(target) = cmd.strip_prefix("READ_SCROLLBACK_JSON ") {
+        return native_spawn_read_scrollback_json_reply(pending, target);
+    }
+    if let Some(target) = cmd.strip_prefix("READ_SCROLLBACK ") {
+        return native_spawn_read_scrollback_reply(pending, target);
+    }
     if let Some(target) = cmd.strip_prefix("READ_TEXT_JSON ") {
         return native_spawn_read_text_json_reply(pending, target);
     }
@@ -478,7 +486,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -579,6 +587,16 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "READ_TEXT_JSON <window|focused>",
             "inspect",
             "read a native pane text snapshot as JSON",
+        ),
+        (
+            "READ_SCROLLBACK <window|focused>",
+            "inspect",
+            "read native pane scrollback lines",
+        ),
+        (
+            "READ_SCROLLBACK_JSON <window|focused>",
+            "inspect",
+            "read native pane scrollback lines as JSON",
         ),
         (
             "WAIT_TEXT <window|focused> <needle>",
@@ -1083,6 +1101,47 @@ fn native_spawn_read_text_json_reply(
             "text": pane.text_snapshot.as_deref().unwrap_or(""),
             "cursor_col": pane.cursor_col,
             "cursor_row": pane.cursor_row,
+        })
+    )
+}
+
+fn native_spawn_read_scrollback_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    target: &str,
+) -> String {
+    let Ok(state) = pending.lock() else {
+        return "ERR registry poisoned\n".to_string();
+    };
+    let Some(pane) = native_find_pane_target(&state.panes, target) else {
+        return format!("ERR READ_SCROLLBACK no pane matching {}\n", target.trim());
+    };
+    let text = pane.scrollback_snapshot.as_deref().unwrap_or("");
+    format!(
+        "SCROLLBACK window={} bytes={}\n{}END\n",
+        pane.window,
+        text.len(),
+        text
+    )
+}
+
+fn native_spawn_read_scrollback_json_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    target: &str,
+) -> String {
+    let Ok(state) = pending.lock() else {
+        return "{\"error\":\"registry poisoned\"}\n".to_string();
+    };
+    let Some(pane) = native_find_pane_target(&state.panes, target) else {
+        return format!(
+            "{}\n",
+            serde_json::json!({ "error": "no pane matching target", "target": target.trim() })
+        );
+    };
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "window": pane.window,
+            "scrollback": pane.scrollback_snapshot.as_deref().unwrap_or(""),
         })
     )
 }
@@ -1692,11 +1751,19 @@ mod tests {
             cursor_col: None,
             cursor_row: None,
             text_snapshot: Some("ready\n$ ".to_string()),
+            scrollback_snapshot: Some("boot\n".to_string()),
             app_rows: None,
         }]);
         let reply = client_request_multi(queue.path(), "READ_TEXT focused").unwrap();
         assert!(reply.starts_with("TEXT window=native-1"), "{reply}");
         assert!(reply.contains("ready\n$ "), "{reply}");
+
+        let scrollback = client_request_multi(queue.path(), "READ_SCROLLBACK focused").unwrap();
+        assert!(
+            scrollback.starts_with("SCROLLBACK window=native-1 bytes=5"),
+            "{scrollback}"
+        );
+        assert!(scrollback.contains("boot\n"), "{scrollback}");
     }
 
     #[test]
@@ -1724,6 +1791,7 @@ mod tests {
             cursor_col: None,
             cursor_row: None,
             text_snapshot: Some("waiting\n".to_string()),
+            scrollback_snapshot: Some("previous\n".to_string()),
             app_rows: None,
         }]);
         let path = queue.path().to_path_buf();
@@ -1762,6 +1830,11 @@ mod tests {
         );
         assert!(help.contains("READ_TEXT <window|focused>"), "{help}");
         assert!(help.contains("READ_TEXT_JSON <window|focused>"), "{help}");
+        assert!(help.contains("READ_SCROLLBACK <window|focused>"), "{help}");
+        assert!(
+            help.contains("READ_SCROLLBACK_JSON <window|focused>"),
+            "{help}"
+        );
         assert!(
             help.contains("WAIT_TEXT <window|focused> <needle>"),
             "{help}"
@@ -1824,6 +1897,7 @@ mod tests {
                 cursor_col: Some(4),
                 cursor_row: Some(1),
                 text_snapshot: Some("shell line\n".to_string()),
+                scrollback_snapshot: Some("shell history\n".to_string()),
                 app_rows: Some(23),
             },
             NativePaneStatus {
@@ -1843,6 +1917,7 @@ mod tests {
                 cursor_col: Some(12),
                 cursor_row: Some(2),
                 text_snapshot: Some("htop line\nsecond\n".to_string()),
+                scrollback_snapshot: Some("htop history\n".to_string()),
                 app_rows: Some(23),
             },
         ];
@@ -1916,6 +1991,19 @@ mod tests {
         assert_eq!(text_json["text"], "shell line\n");
         assert_eq!(text_json["cursor_col"], 4);
         assert_eq!(text_json["cursor_row"], 1);
+        let scrollback = native_spawn_queue_reply("READ_SCROLLBACK focused", &pending);
+        assert!(
+            scrollback.starts_with("SCROLLBACK window=native-2 bytes=13"),
+            "{scrollback}"
+        );
+        assert!(scrollback.contains("htop history\nEND\n"), "{scrollback}");
+        let scrollback_json: serde_json::Value = serde_json::from_str(&native_spawn_queue_reply(
+            "READ_SCROLLBACK_JSON native-1",
+            &pending,
+        ))
+        .unwrap();
+        assert_eq!(scrollback_json["window"], "native-1");
+        assert_eq!(scrollback_json["scrollback"], "shell history\n");
         assert_eq!(
             native_spawn_wait_text_reply(&pending, "focused second", Duration::from_millis(1))
                 .trim(),
@@ -2030,6 +2118,7 @@ pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
             && !first.starts_with("APPS ")
             && !first.starts_with("PANES ")
             && !first.starts_with("TEXT ")
+            && !first.starts_with("SCROLLBACK ")
         {
             break;
         }

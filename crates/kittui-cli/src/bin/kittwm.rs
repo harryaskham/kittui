@@ -256,6 +256,12 @@ fn parse_args() -> Result<Cli> {
                 let window = args.next().ok_or_else(|| anyhow!("--read-text WINDOW"))?;
                 out.automation_request = Some(automation_request("READ_TEXT", &window, "")?);
             }
+            "--read-scrollback" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--read-scrollback WINDOW"))?;
+                out.automation_request = Some(automation_request("READ_SCROLLBACK", &window, "")?);
+            }
             "--wait-text" => {
                 let window = args
                     .next()
@@ -431,6 +437,7 @@ fn print_help() {
          --send-bytes-b64 WINDOW BASE64 send arbitrary base64-decoded bytes.\n\
          --send-file WINDOW PATH|- read bytes from file/stdin and send them.\n\
          --read-text WINDOW       print a native pane text snapshot.\n\
+         --read-scrollback WINDOW print native pane scrollback lines.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
          --wait-text-ms MS WINDOW TEXT  wait with explicit millisecond timeout.\n\
          --status-json            print native socket STATUS_JSON.\n\

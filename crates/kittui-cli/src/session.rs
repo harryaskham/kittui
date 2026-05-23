@@ -747,6 +747,7 @@ fn native_pane_statuses(
                 cursor_col: Some(cursor_col),
                 cursor_row: Some(cursor_row),
                 text_snapshot: Some(pane.app.text_snapshot()),
+                scrollback_snapshot: Some(pane.app.scrollback_snapshot()),
                 app_rows: layout.map(|l| l.app_rows),
             }
         })
