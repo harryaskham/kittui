@@ -925,7 +925,7 @@ fn queue_native_send_mouse(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &s
         || col == 0
         || row == 0
     {
-        return "ERR SEND_MOUSE expects <window|focused> <press-left|press-middle|press-right|release|move|scroll-up|scroll-down> <col> <row>\n".to_string();
+        return "ERR SEND_MOUSE expects <window|focused> <press-left|press-middle|press-right|release|move|move-left|move-middle|move-right|scroll-up|scroll-down> <col> <row>\n".to_string();
     }
     match pending.lock() {
         Ok(mut state) => {
@@ -956,6 +956,9 @@ fn native_mouse_event_known(event: &str) -> bool {
             | "press-right"
             | "release"
             | "move"
+            | "move-left"
+            | "move-middle"
+            | "move-right"
             | "scroll-up"
             | "scroll-down"
     )
@@ -1867,6 +1870,10 @@ mod tests {
                 .starts_with("SEND_MOUSE_QUEUED")
         );
         assert!(
+            native_spawn_queue_reply("SEND_MOUSE focused move-left 7 9", &pending)
+                .starts_with("SEND_MOUSE_QUEUED")
+        );
+        assert!(
             native_spawn_queue_reply("SEND_BYTES_B64 focused aGkKAA==", &pending)
                 .starts_with("SEND_BYTES_B64_QUEUED")
         );
@@ -1942,6 +1949,12 @@ mod tests {
                 NativePaneCommand::SendMouse {
                     window: "focused".to_string(),
                     event: "press-left".to_string(),
+                    col: 7,
+                    row: 9,
+                },
+                NativePaneCommand::SendMouse {
+                    window: "focused".to_string(),
+                    event: "move-left".to_string(),
                     col: 7,
                     row: 9,
                 },

@@ -1323,10 +1323,13 @@ fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result
             | "press-right"
             | "release"
             | "move"
+            | "move-left"
+            | "move-middle"
+            | "move-right"
             | "scroll-up"
             | "scroll-down"
     ) {
-        return Err(anyhow!("--send-mouse event must be press-left|press-middle|press-right|release|move|scroll-up|scroll-down"));
+        return Err(anyhow!("--send-mouse event must be press-left|press-middle|press-right|release|move|move-left|move-middle|move-right|scroll-up|scroll-down"));
     }
     let col = col
         .trim()
@@ -2303,6 +2306,10 @@ mod tests {
         assert_eq!(
             send_mouse_request("focused", "press-left", "7", "9").unwrap(),
             "SEND_MOUSE focused press-left 7 9"
+        );
+        assert_eq!(
+            send_mouse_request("focused", "move-left", "7", "9").unwrap(),
+            "SEND_MOUSE focused move-left 7 9"
         );
         assert_eq!(
             send_bytes_request("focused", b"hi\n\0").unwrap(),
