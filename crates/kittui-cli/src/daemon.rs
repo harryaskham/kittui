@@ -441,6 +441,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("SEND_KEY ") {
         return queue_native_send_key(pending, rest);
     }
+    if let Some(rest) = cmd.strip_prefix("WAIT_TEXT ") {
+        return native_spawn_wait_text_reply(pending, rest, Duration::from_secs(5));
+    }
     if let Some(target) = cmd.strip_prefix("READ_TEXT_JSON ") {
         return native_spawn_read_text_json_reply(pending, target);
     }
@@ -458,7 +461,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -554,6 +557,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "READ_TEXT_JSON <window|focused>",
             "inspect",
             "read a native pane text snapshot as JSON",
+        ),
+        (
+            "WAIT_TEXT <window|focused> <needle>",
+            "automation",
+            "wait until a native pane text snapshot contains text",
         ),
         ("APPS", "apps", "text app discovery listing"),
         ("APPS_JSON", "apps", "JSON app discovery listing"),
@@ -903,6 +911,46 @@ fn native_pane_layout_label(pane: &NativePaneStatus) -> String {
             format!("{x},{y} {cols}x{rows} app={app_x},{app_y} {app_cols}x{app_rows}")
         }
         _ => "-".to_string(),
+    }
+}
+
+fn native_spawn_wait_text_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+    timeout: Duration,
+) -> String {
+    let Some((target, needle)) = rest.trim_start().split_once(' ') else {
+        return "ERR WAIT_TEXT requires window and needle\n".to_string();
+    };
+    let target = target.trim();
+    let needle = needle.trim();
+    if target.is_empty() || needle.is_empty() {
+        return "ERR WAIT_TEXT requires window and needle\n".to_string();
+    }
+    let deadline = Instant::now() + timeout;
+    loop {
+        let snapshot = match pending.lock() {
+            Ok(state) => native_find_pane_target(&state.panes, target).map(|pane| {
+                (
+                    pane.window.clone(),
+                    pane.text_snapshot.clone().unwrap_or_default(),
+                )
+            }),
+            Err(_) => return "ERR registry poisoned\n".to_string(),
+        };
+        let Some((window, text)) = snapshot else {
+            return format!("ERR WAIT_TEXT no pane matching {target}\n");
+        };
+        if text.contains(needle) {
+            return format!("MATCH_TEXT window={window} bytes={}\n", text.len());
+        }
+        if Instant::now() >= deadline {
+            return format!(
+                "ERR WAIT_TEXT timeout window={window} needle_bytes={}\n",
+                needle.len()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(25));
     }
 }
 
@@ -1538,6 +1586,10 @@ mod tests {
         assert!(help.contains("SEND_KEY <window|focused> <key>"), "{help}");
         assert!(help.contains("READ_TEXT <window|focused>"), "{help}");
         assert!(help.contains("READ_TEXT_JSON <window|focused>"), "{help}");
+        assert!(
+            help.contains("WAIT_TEXT <window|focused> <needle>"),
+            "{help}"
+        );
         assert!(help.contains("APPS_JSON"), "{help}");
 
         let help_json: serde_json::Value =
@@ -1671,6 +1723,19 @@ mod tests {
         .unwrap();
         assert_eq!(text_json["window"], "native-1");
         assert_eq!(text_json["text"], "shell line\n");
+        assert_eq!(
+            native_spawn_wait_text_reply(&pending, "focused second", Duration::from_millis(1))
+                .trim(),
+            "MATCH_TEXT window=native-2 bytes=17"
+        );
+        assert!(
+            native_spawn_wait_text_reply(&pending, "missing nope", Duration::from_millis(1))
+                .contains("ERR WAIT_TEXT no pane")
+        );
+        assert!(
+            native_spawn_wait_text_reply(&pending, "focused absent", Duration::from_millis(1))
+                .contains("ERR WAIT_TEXT timeout")
+        );
         assert!(native_spawn_queue_reply("READ_TEXT missing", &pending).contains("ERR"));
     }
 
