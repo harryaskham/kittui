@@ -1,0 +1,262 @@
+# kittwm SDK and surface architecture plan
+
+## Why this exists
+
+`kittwm` is growing from a native terminal-window experiment into a terminal-hosted window manager/compositor. The default shell already owns pane layout, focus, socket commands, native PTY lifecycle, browser capture demos, session manifests, and automation. As this grows, the core risk is coupling every feature directly to the built-in session loop.
+
+The target architecture is a small `kittwm` runtime with first-class surface/window primitives, plus first-party apps and shells built on the same SDK that external apps can use.
+
+## Core principle
+
+Separate these responsibilities:
+
+1. **kittwm core/runtime** owns windows, focus, placement, session state, permissions, app lifecycle, frame scheduling, and the DISPLAY/socket-like control plane.
+2. **Surface engines** own I/O and renderable state for one captured thing: PTY terminal, X11/Xvfb app, Quartz app, browser/DevTools app, kittui scene, RGBA stream, etc.
+3. **kittwm shell** owns the default tiling/floating UX, keybindings, launcher/picker overlays, chrome policy, and restore policy.
+4. **Standalone apps** such as `kittwm-terminal`, `kittwm-launch`, or custom composite apps connect through the SDK rather than being baked into the shell.
+
+The built-in shell should dogfood the same primitives wherever practical.
+
+## Current state
+
+Already present:
+
+- Native `kittwm` starts real PTY panes using `portable-pty`.
+- PTY output is parsed with `vte` into a custom `TerminalState` with screen cells, style, cursor, scrollback, alt screen, DEC modes, OSC title, OSC 52 forwarding, mouse/focus/bracketed-paste modes, and readback snapshots.
+- `PtyTerminalApp` and `HeadlessBrowserApp` implement a small `NativeApp` shape: title, resize, send text/input, capture frame.
+- Xvfb/XQuartz/browser capture support exists in project crates, but is not yet unified as one public surface model.
+- Native socket commands expose panes, control, app discovery, save/restore, automation input, text/scrollback reads, waits, and machine-readable help.
+- `kittui wm-chrome` and `kittui wm-session` provide static chrome/session previews, but the live shell still draws chrome largely through direct ANSI and kitty image placement.
+
+Missing or immature:
+
+- No public `kittwm-sdk` crate/API.
+- No first-class `SurfaceHandle` object model.
+- No event stream for resize/focus/input/frame/clipboard/bell/title changes.
+- Terminal engine is still embedded in `PtyTerminalApp`/native session rather than extracted as reusable `kittui-term`/`kittwm-terminal` infrastructure.
+- GUI capture backends are not expressed as the same capture/input/resize surface abstraction.
+- External apps cannot yet create child surfaces, composite them, and present a merged window.
+- Clipboard/bell/notification semantics are only partially modeled; OSC 52 set-clipboard forwarding exists, but policy and clipboard reads are not yet an SDK capability.
+- Capability/security policy for external clients is not defined.
+
+## Target object model
+
+### Runtime objects
+
+```rust
+struct WindowId(String);
+struct SurfaceId(String);
+
+struct WindowSpec {
+    title: String,
+    app_id: String,
+    mode: WindowMode,
+    preferred_size: Option<CellSize>,
+}
+
+struct SurfaceSpec {
+    kind: SurfaceKind,
+    title: Option<String>,
+    env: Vec<(String, String)>,
+}
+
+enum SurfaceKind {
+    Terminal { command: String, cwd: Option<PathBuf>, profile: Option<String> },
+    X11 { command: String, display_policy: DisplayPolicy },
+    Quartz { command: String, app_bundle: Option<String> },
+    Browser { target: BrowserTarget },
+    KittuiScene,
+    RgbaStream,
+    Composite,
+}
+```
+
+### Surface capabilities
+
+Surfaces should advertise capabilities instead of every surface pretending to support everything:
+
+- `CaptureSurface`: emits frames/cells/scenes.
+- `InputSurface`: accepts key/mouse/text/paste/focus input.
+- `ResizableSurface`: accepts cell/pixel resize.
+- `ClipboardSurface`: emits set/read clipboard events.
+- `NotificationSurface`: emits bell/notification/title events.
+- `RestorableSurface`: can serialize/restore stable manifest state.
+
+### Frame types
+
+A surface may present one or more frame forms:
+
+- RGBA frame.
+- PNG frame.
+- terminal cell grid with styles.
+- kittui primitive scene.
+- host-terminal escape stream for pure terminal fallback.
+
+The renderer chooses the best output path for the current host and policy.
+
+## SDK shape
+
+A Rust SDK should begin with a narrow synchronous API, then grow an async/event API.
+
+```rust
+let wm = kittwm_sdk::connect_from_env()?;
+let window = wm.replace_current(WindowSpec { ... })?;
+let term = wm.spawn_surface(SurfaceSpec::terminal("$SHELL -l"))?;
+
+loop {
+    for event in wm.poll_events()? {
+        match event {
+            Event::WindowInput { window, input } => term.send_input(input)?,
+            Event::WindowResize { size, .. } => term.resize(size)?,
+            Event::SurfaceFrameReady { surface } => window.present(term.capture()?)?,
+            Event::SurfaceClipboardSet { selection, bytes } => wm.set_clipboard(selection, bytes)?,
+            _ => {}
+        }
+    }
+}
+```
+
+Initial transport can wrap the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types.
+
+## First-party apps
+
+### `kittwm-terminal` / `kittui-term`
+
+A standalone terminal app designed for kittwm:
+
+- Uses extracted terminal surface engine.
+- Owns terminal UX/config: profiles, shell, theme, scrollback limits, copy/paste policy, shortcuts, bell/notification behavior.
+- Uses SDK to create/replace a kittwm window and present terminal frames.
+- The built-in default terminal can remain as bootstrap but should use the same engine.
+
+### `kittwm-launch`
+
+A standalone launcher/spawner:
+
+- Detects backend or accepts explicit backend (`terminal`, `x11`, `quartz`, `browser`).
+- Launches apps through SDK surface specs.
+- Can `replace-current` or create a new window.
+- Lets specialized launchers exist without bloating the shell.
+
+### Composite apps
+
+Custom apps should be able to spawn child surfaces and compose them. Example:
+
+- `kittwm-vim-firefox` spawns a terminal/vim surface and a browser/GUI surface.
+- It captures both, blits them side-by-side, presents a single window, and routes input by coordinate/focus.
+- This validates that kittwm primitives are reusable rather than shell-private.
+
+## Renderer split
+
+The shell should eventually render a presentation-agnostic view model:
+
+```text
+SessionModel + WindowTree + SurfaceFrames + ChromeModel
+  -> KittyGraphicsRenderer
+  -> PureTerminalRenderer
+  -> KittuiSceneRenderer
+  -> Headless/PNG renderer
+```
+
+Today the live shell directly places kitty images and writes ANSI chrome. The next step is to extract a `NativeWmView`/`ChromeModel` and renderer trait while preserving current behavior.
+
+## Clipboard, bell, and notifications
+
+Terminal/app side effects should become semantic events:
+
+```rust
+enum SurfaceEvent {
+    TitleChanged(String),
+    Bell { visual: bool, audible: bool },
+    ClipboardSet { selection: Selection, bytes: Vec<u8> },
+    ClipboardRead { selection: Selection, request_id: RequestId },
+    Notification { title: String, body: String },
+}
+```
+
+Policy belongs to kittwm/runtime:
+
+- forward OSC 52 set-clipboard to host terminal or OS clipboard;
+- deny clipboard reads by default or require capability;
+- display visual bell in chrome;
+- route notifications to host/OS/user-configured UI.
+
+## Capability model
+
+External apps must not implicitly get all WM powers. Capabilities should include:
+
+- create/replace windows;
+- spawn surfaces;
+- capture child surfaces;
+- send input to child surfaces;
+- read/write clipboard;
+- subscribe to global events;
+- request focus/raise/close;
+- persist/restore session data.
+
+Built-in shell and first-party apps can receive broader capabilities; arbitrary clients should be scoped.
+
+## Implementation stages
+
+### Stage 1: stabilize current primitives
+
+- Finish host side-effect mediation such as OSC 52 set-clipboard.
+- Keep native socket help/status comprehensive.
+- Add event/watch stream so clients do not poll status/readback.
+
+### Stage 2: extract terminal surface engine
+
+- Move `TerminalState`, PTY read/write, terminal responses, host sequences, snapshots, and RGBA rendering behind a reusable `TerminalSurface` type.
+- Keep `PtyTerminalApp` as an adapter to avoid behavior churn.
+- Add tests at the surface boundary.
+
+### Stage 3: define common surface trait/model
+
+- Introduce `SurfaceId`, `SurfaceFrame`, `SurfaceMetadata`, and capability flags.
+- Adapt PTY and browser surfaces to the trait.
+- Map Xvfb/XQuartz capture/input to the same trait.
+
+### Stage 4: SDK transport and handles
+
+- Add `kittwm-sdk` crate with `connect_from_env`, `WindowHandle`, `SurfaceHandle`, and typed requests.
+- Initially back it with the existing native socket protocol.
+- Add JSON event stream/watch command.
+
+### Stage 5: dogfood built-in shell
+
+- Replace direct shell-private app manipulation with surface handles where possible.
+- Extract chrome/view model from direct ANSI drawing.
+- Render live chrome through kittui-compatible model or renderer trait.
+
+### Stage 6: first-party standalone apps
+
+- Add `kittwm-terminal` skeleton using SDK and terminal engine.
+- Add `kittwm-launch` skeleton using SDK/backend detection.
+- Add a small composite-app example that spawns two child surfaces and presents a merged view.
+
+## Backlog mapping
+
+Recommended beads:
+
+1. `kittwm: add native socket event stream for pane/window changes`
+2. `kittwm: extract TerminalSurface engine from PtyTerminalApp`
+3. `kittwm: define common native Surface trait and frame metadata`
+4. `kittwm: adapt browser backend to common Surface trait`
+5. `kittwm: adapt Xvfb/XQuartz capture backends to common Surface trait`
+6. `kittwm-sdk: add connect/window handle skeleton over native socket`
+7. `kittwm-sdk: add typed surface spawn/capture/input APIs`
+8. `kittwm: dogfood surface handles in built-in native session`
+9. `kittwm: extract presentation-agnostic shell view/chrome model`
+10. `kittwm: add pure terminal/DEC renderer backend for shell view model`
+11. `kittwm-terminal: add standalone first-party terminal app skeleton`
+12. `kittwm-launch: add standalone app launcher skeleton`
+13. `kittwm: model clipboard/bell/notification events and policy`
+14. `kittwm: add capability scoping for SDK clients`
+15. `examples: add composite app spawning terminal plus browser surfaces`
+
+## Non-goals for the near term
+
+- Perfect xterm conformance in the custom terminal emulator.
+- Replacing all socket commands at once.
+- Removing the built-in default terminal before standalone `kittwm-terminal` is proven.
+- Making arbitrary external clients fully trusted by default.
