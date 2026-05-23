@@ -31,7 +31,7 @@ Already present:
 
 Missing or immature:
 
-- A public `kittwm-sdk` crate now exists with a first typed socket client, `WindowHandle`, `SurfaceHandle`, `SurfaceSpec`, and capability scoping.
+- A public `kittwm-sdk` crate now exists with a typed socket client, `WindowHandle`, `SurfaceHandle`, `SurfaceSpec`, typed status/events/semantic helpers, typed app-discovery helpers, and local capability scoping.
 - The native event stream now has typed SDK coverage for status/pane/focus/layout and semantic snapshot/focus/action/value events, but resize/input/frame/clipboard/bell/title events are not yet promoted into a complete SDK event model.
 - Terminal engine extraction has started with `TerminalSurface`, but it still lives inside `kittui-wm::native` rather than a standalone `kittui-term`/`kittwm-terminal` crate.
 - GUI capture backends are only partially expressed through the new native surface abstraction; X/Quartz and scene/composite metadata still need concrete adapters.
@@ -117,7 +117,7 @@ loop {
 }
 ```
 
-Initial transport can wrap the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types.
+Initial transport wraps the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types. Current typed helpers cover status/panes, bounded events, terminal surface spawn/replace, semantic snapshot/publish/action/focus, text snapshots, control/input helpers, and app discovery through `Kittwm::apps`, `Kittwm::app_first`, and `Kittwm::app_launch_first`.
 
 ## First-party apps
 
@@ -134,8 +134,8 @@ A standalone terminal app designed for kittwm:
 
 A standalone launcher/spawner:
 
-- Current first-party binary: `kittwm-launch` detects/accepts backend choices and uses SDK/socket paths for terminal/app/browser-ish launching.
-- It is being matured with clearer backend selection, dry-run/status planning, URL/browser behavior, and app discovery integration.
+- Current first-party binary: `kittwm-launch` detects/accepts backend choices and uses SDK paths for terminal/app/browser-ish launching.
+- It now has clearer backend selection, dry-run/status planning, URL/browser behavior, and dogfoods the typed SDK app-discovery helpers for app backend discovery/launch.
 - Future work: make dedicated browser/X/Quartz surface spawning first-class in the SDK transport rather than relying on app-discovery or terminal fallbacks.
 - Lets specialized launchers exist without bloating the shell.
 
