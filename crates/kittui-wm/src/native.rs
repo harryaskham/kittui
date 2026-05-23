@@ -157,6 +157,11 @@ impl PtyTerminalApp {
         self.state.lock().text_snapshot()
     }
 
+    /// Return the PTY child process id when the backend exposes one.
+    pub fn process_id(&self) -> Option<u32> {
+        self.child.process_id()
+    }
+
     /// Whether the PTY child has exited.
     pub fn exited(&mut self) -> Result<Option<u32>> {
         Ok(self.child.try_wait()?.map(|status| status.exit_code()))

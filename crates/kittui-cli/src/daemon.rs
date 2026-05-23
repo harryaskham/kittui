@@ -100,6 +100,10 @@ pub struct NativePaneStatus {
     pub focused: bool,
     pub weight: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub x: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub y: Option<u16>,
@@ -596,10 +600,14 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} layout={} title={:?}",
+            "  window={} focused={} weight={} pid={} command={:?} layout={} title={:?}",
             pane.window,
             pane.focused,
             pane.weight,
+            pane.pid
+                .map(|pid| pid.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            pane.command,
             native_pane_layout_label(pane),
             pane.title
         );
@@ -1113,6 +1121,8 @@ mod tests {
                 title: "shell".to_string(),
                 focused: false,
                 weight: 1,
+                pid: Some(101),
+                command: Some("/bin/sh".to_string()),
                 x: Some(0),
                 y: Some(0),
                 cols: Some(40),
@@ -1127,6 +1137,8 @@ mod tests {
                 title: "htop".to_string(),
                 focused: true,
                 weight: 3,
+                pid: Some(202),
+                command: Some("htop".to_string()),
                 x: Some(40),
                 y: Some(0),
                 cols: Some(80),
@@ -1145,11 +1157,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let status_json: serde_json::Value =
@@ -1160,6 +1172,8 @@ mod tests {
         assert_eq!(status_json["layout"], "rows");
         assert_eq!(status_json["focused_pane"]["window"], "native-2");
         assert_eq!(status_json["focused_pane"]["weight"], 3);
+        assert_eq!(status_json["focused_pane"]["pid"], 202);
+        assert_eq!(status_json["focused_pane"]["command"], "htop");
         assert_eq!(status_json["focused_pane"]["app_cols"], 80);
         assert_eq!(status_json["panes_detail"].as_array().unwrap().len(), 2);
         let panes_json: serde_json::Value =

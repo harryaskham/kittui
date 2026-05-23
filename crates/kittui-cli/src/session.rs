@@ -392,6 +392,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
 struct NativePane {
     window: String,
     image_id: u32,
+    command: String,
+    pid: Option<u32>,
     display_title: Option<String>,
     weight: u16,
     app: PtyTerminalApp,
@@ -454,9 +456,12 @@ fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Re
         ("KITTWM_WINDOW".to_string(), window.clone()),
     ];
     let app = PtyTerminalApp::spawn_with_env(cmd, cols.max(1), rows.max(1), envs)?;
+    let pid = app.process_id();
     Ok(NativePane {
         window,
         image_id: 0x6b77_0000 | id,
+        command: cmd.to_string(),
+        pid,
         display_title: None,
         weight: 1,
         app,
@@ -624,6 +629,8 @@ fn native_pane_statuses(
                 title: native_pane_display_title(pane),
                 focused: idx == focused,
                 weight: pane.weight,
+                pid: pane.pid,
+                command: Some(pane.command.clone()),
                 x: layout.map(|l| l.x),
                 y: layout.map(|l| l.y),
                 cols: layout.map(|l| l.cols),
@@ -789,6 +796,8 @@ mod native_pane_tests {
             NativePane {
                 window: "native-1".to_string(),
                 image_id: 1,
+                command: "cmd1".to_string(),
+                pid: Some(101),
                 display_title: None,
                 weight: 4,
                 app: dummy_native_pane_app(),
@@ -796,6 +805,8 @@ mod native_pane_tests {
             NativePane {
                 window: "native-2".to_string(),
                 image_id: 2,
+                command: "cmd2".to_string(),
+                pid: Some(102),
                 display_title: None,
                 weight: 2,
                 app: dummy_native_pane_app(),
@@ -859,6 +870,8 @@ mod native_pane_tests {
             NativePane {
                 window: "native-1".to_string(),
                 image_id: 1,
+                command: "cmd1".to_string(),
+                pid: Some(101),
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
@@ -866,6 +879,8 @@ mod native_pane_tests {
             NativePane {
                 window: "native-2".to_string(),
                 image_id: 2,
+                command: "cmd2".to_string(),
+                pid: Some(102),
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
@@ -881,6 +896,8 @@ mod native_pane_tests {
             NativePane {
                 window: "native-1".to_string(),
                 image_id: 1,
+                command: "cmd1".to_string(),
+                pid: Some(101),
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
@@ -888,6 +905,8 @@ mod native_pane_tests {
             NativePane {
                 window: "native-7".to_string(),
                 image_id: 7,
+                command: "cmd7".to_string(),
+                pid: Some(107),
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
@@ -902,6 +921,8 @@ mod native_pane_tests {
             NativePane {
                 window: "native-1".to_string(),
                 image_id: 1,
+                command: "cmd1".to_string(),
+                pid: Some(101),
                 display_title: None,
                 weight: 1,
                 app: dummy_native_pane_app(),
@@ -909,6 +930,8 @@ mod native_pane_tests {
             NativePane {
                 window: "native-2".to_string(),
                 image_id: 2,
+                command: "editor-cmd".to_string(),
+                pid: Some(202),
                 display_title: Some("editor".to_string()),
                 weight: 3,
                 app: dummy_native_pane_app(),
@@ -922,6 +945,8 @@ mod native_pane_tests {
         assert_eq!(statuses[1].window, "native-2");
         assert_eq!(statuses[1].title, "editor");
         assert_eq!(statuses[1].weight, 3);
+        assert_eq!(statuses[1].pid, Some(202));
+        assert_eq!(statuses[1].command.as_deref(), Some("editor-cmd"));
         assert_eq!(statuses[1].x, Some(20));
         assert_eq!(statuses[1].cols, Some(60));
         assert_eq!(statuses[1].app_y, Some(1));
