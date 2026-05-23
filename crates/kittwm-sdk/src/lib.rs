@@ -689,6 +689,14 @@ pub enum KittwmEvent {
     SemanticFocusChanged(EventEnvelope),
     /// Semantic action was invoked.
     SemanticActionInvoked(EventEnvelope),
+    /// Surface/window title changed.
+    SurfaceTitleChanged(EventEnvelope),
+    /// Surface emitted a bell.
+    SurfaceBell(EventEnvelope),
+    /// Surface requested clipboard contents to be set.
+    SurfaceClipboardSet(EventEnvelope),
+    /// Surface requested a notification.
+    SurfaceNotification(EventEnvelope),
     /// Semantic component value changed.
     SemanticValueChanged(EventEnvelope),
     /// Unknown event kind; raw JSON is preserved for forward compatibility.
@@ -720,6 +728,10 @@ impl KittwmEvent {
             Self::SemanticSnapshotReady(_) => "semantic_snapshot_ready",
             Self::SemanticFocusChanged(_) => "semantic_focus_changed",
             Self::SemanticActionInvoked(_) => "semantic_action_invoked",
+            Self::SurfaceTitleChanged(_) => "surface_title_changed",
+            Self::SurfaceBell(_) => "surface_bell",
+            Self::SurfaceClipboardSet(_) => "surface_clipboard_set",
+            Self::SurfaceNotification(_) => "surface_notification",
             Self::SemanticValueChanged(_) => "semantic_value_changed",
             Self::Unknown { kind, .. } => kind.as_str(),
         }
@@ -753,6 +765,10 @@ fn parse_event_value(value: Value) -> KittwmEvent {
         "semantic_snapshot_ready" => KittwmEvent::SemanticSnapshotReady(envelope()),
         "semantic_focus_changed" => KittwmEvent::SemanticFocusChanged(envelope()),
         "semantic_action_invoked" => KittwmEvent::SemanticActionInvoked(envelope()),
+        "surface_title_changed" => KittwmEvent::SurfaceTitleChanged(envelope()),
+        "surface_bell" => KittwmEvent::SurfaceBell(envelope()),
+        "surface_clipboard_set" => KittwmEvent::SurfaceClipboardSet(envelope()),
+        "surface_notification" => KittwmEvent::SurfaceNotification(envelope()),
         "semantic_value_changed" => KittwmEvent::SemanticValueChanged(envelope()),
         _ => KittwmEvent::Unknown { kind, raw: value },
     }
@@ -1760,12 +1776,64 @@ mod tests {
             ("semantic_snapshot_ready", "semantic_snapshot_ready"),
             ("semantic_focus_changed", "semantic_focus_changed"),
             ("semantic_action_invoked", "semantic_action_invoked"),
+            ("surface_title_changed", "surface_title_changed"),
+            ("surface_bell", "surface_bell"),
+            ("surface_clipboard_set", "surface_clipboard_set"),
+            ("surface_notification", "surface_notification"),
         ] {
             let event = KittwmEvent::parse_line(&format!(
                 r#"{{"kind":"{kind}","window":"native-1","detail":{{}}}}"#
             ))
             .unwrap();
             assert_eq!(event.kind(), expected);
+        }
+
+        let title = KittwmEvent::parse_line(
+            r#"{"kind":"surface_title_changed","window":"native-1","detail":{"title":"editor"}}"#,
+        )
+        .unwrap();
+        match title {
+            KittwmEvent::SurfaceTitleChanged(envelope) => {
+                assert_eq!(envelope.window.as_deref(), Some("native-1"));
+                assert_eq!(envelope.detail["title"], "editor");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
+        let bell = KittwmEvent::parse_line(
+            r#"{"kind":"surface_bell","window":"native-1","detail":{"visual":true,"audible":false}}"#,
+        )
+        .unwrap();
+        match bell {
+            KittwmEvent::SurfaceBell(envelope) => {
+                assert_eq!(envelope.detail["visual"], true);
+                assert_eq!(envelope.detail["audible"], false);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
+        let clipboard = KittwmEvent::parse_line(
+            r#"{"kind":"surface_clipboard_set","window":"native-1","detail":{"selection":"c","payload_base64":"aGVsbG8="}}"#,
+        )
+        .unwrap();
+        match clipboard {
+            KittwmEvent::SurfaceClipboardSet(envelope) => {
+                assert_eq!(envelope.detail["selection"], "c");
+                assert_eq!(envelope.detail["payload_base64"], "aGVsbG8=");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
+        let notification = KittwmEvent::parse_line(
+            r#"{"kind":"surface_notification","window":"native-1","detail":{"title":"build","body":"done"}}"#,
+        )
+        .unwrap();
+        match notification {
+            KittwmEvent::SurfaceNotification(envelope) => {
+                assert_eq!(envelope.detail["title"], "build");
+                assert_eq!(envelope.detail["body"], "done");
+            }
+            other => panic!("unexpected event: {other:?}"),
         }
 
         let unknown =
