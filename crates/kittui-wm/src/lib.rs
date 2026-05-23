@@ -414,6 +414,7 @@ pub mod compositor {
         /// populated by every `compose_with_layout` call. Pointer routing
         /// reads this to map terminal cells back into source pixels.
         placements: Mutex<HashMap<XWindowId, WindowPlacement>>,
+        placement_order: Mutex<Vec<XWindowId>>,
     }
 
     /// Per-window mapping between the captured source surface and the
@@ -468,6 +469,7 @@ pub mod compositor {
                 modes: Mutex::new(HashMap::new()),
                 fullscreen: Mutex::new(HashMap::new()),
                 placements: Mutex::new(HashMap::new()),
+                placement_order: Mutex::new(Vec::new()),
             }
         }
 
@@ -586,6 +588,7 @@ pub mod compositor {
             let focused_window = self.focused_or_first_window()?;
             let layout_bounds = layout.bounds();
             let mut placements_snapshot = HashMap::new();
+            let mut placement_order = Vec::with_capacity(windows.len());
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
                 let mode = modes.get(&w.id).copied().unwrap_or(WindowMode::Floating);
@@ -610,6 +613,7 @@ pub mod compositor {
                         footprint,
                     },
                 );
+                placement_order.push(w.id);
                 out.push(RawFrame {
                     window_id: w.id,
                     image_id: kitty_image_id_for(w.id),
@@ -624,6 +628,7 @@ pub mod compositor {
                 });
             }
             *self.placements.lock() = placements_snapshot;
+            *self.placement_order.lock() = placement_order;
             Ok(out)
         }
 
@@ -640,6 +645,7 @@ pub mod compositor {
             let focused_window = self.focused_or_first_window()?;
             let layout_bounds = layout.bounds();
             let mut placements_snapshot = HashMap::new();
+            let mut placement_order = Vec::with_capacity(windows.len());
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
                 let mode = modes.get(&w.id).copied().unwrap_or(WindowMode::Floating);
@@ -668,6 +674,7 @@ pub mod compositor {
                         footprint,
                     },
                 );
+                placement_order.push(w.id);
                 let rect = PxRect::new(0.0, 0.0, target_rect.width, target_rect.height);
                 let png = encode_rgba(&cap.rgba, cap.width, cap.height);
                 let mut layers = vec![Layer::anon(Node::Image {
@@ -690,6 +697,7 @@ pub mod compositor {
                 });
             }
             *self.placements.lock() = placements_snapshot;
+            *self.placement_order.lock() = placement_order;
             Ok(out)
         }
 
@@ -700,8 +708,12 @@ pub mod compositor {
         /// right window regardless of how the source pixels were scaled.
         pub fn hit_test(&self, col: u16, row: u16) -> Option<XWindowId> {
             let placements = self.placements.lock();
-            // Iterate windows in z-order (compose insertion order).
-            for (id, p) in placements.iter() {
+            let order = self.placement_order.lock();
+            // Later rendered windows are topmost for overlapping terminal cells.
+            for id in order.iter().rev() {
+                let Some(p) = placements.get(id) else {
+                    continue;
+                };
                 if footprint_contains(&p.footprint, col, row) {
                     return Some(*id);
                 }
@@ -1005,6 +1017,61 @@ pub mod compositor {
                 mods: Default::default(),
             });
             assert_eq!(f7, Some((0xffbd + 7, true)));
+        }
+
+        #[test]
+        fn hit_test_uses_last_rendered_window_as_topmost() {
+            let server = FakeServer::with_windows(vec![
+                (
+                    XWindowId(1),
+                    PxRect::new(0.0, 0.0, 64.0, 32.0),
+                    "bottom",
+                    [0xff, 0x00, 0x00, 0xff],
+                ),
+                (
+                    XWindowId(2),
+                    PxRect::new(0.0, 0.0, 64.0, 32.0),
+                    "top",
+                    [0x00, 0xff, 0x00, 0xff],
+                ),
+            ]);
+            let comp = Compositor::new(server, CellSize::new(8, 16));
+            let _ = comp.compose_with_layout(&Layout::all_floating()).unwrap();
+            assert_eq!(comp.hit_test(1, 1), Some(XWindowId(2)));
+            let routed = comp.route_pointer(&InputEvent::MousePress {
+                button: MouseButton::Left,
+                col: 1,
+                row: 1,
+                mods: Default::default(),
+            });
+            assert!(matches!(
+                routed.first(),
+                Some(XPointerEvent::Move {
+                    window: XWindowId(2),
+                    ..
+                })
+            ));
+        }
+
+        #[test]
+        fn raw_frames_update_hit_test_order() {
+            let server = FakeServer::with_windows(vec![
+                (
+                    XWindowId(1),
+                    PxRect::new(0.0, 0.0, 64.0, 32.0),
+                    "bottom",
+                    [0xff, 0x00, 0x00, 0xff],
+                ),
+                (
+                    XWindowId(2),
+                    PxRect::new(0.0, 0.0, 64.0, 32.0),
+                    "top",
+                    [0x00, 0xff, 0x00, 0xff],
+                ),
+            ]);
+            let comp = Compositor::new(server, CellSize::new(8, 16));
+            let _ = comp.raw_frames(&Layout::all_floating()).unwrap();
+            assert_eq!(comp.hit_test(1, 1), Some(XWindowId(2)));
         }
 
         #[test]
