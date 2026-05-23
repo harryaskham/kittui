@@ -448,7 +448,7 @@ impl RuntimeBuilder {
             }
         };
         Ok(Runtime {
-            terminal: self.terminal.unwrap_or_default(),
+            terminal: self.terminal.unwrap_or_else(TerminalInfo::detect),
             cache,
             renderer: self.renderer,
             backend: Mutex::new(initial_backend),
@@ -521,6 +521,73 @@ mod tests {
         let path = std::env::temp_dir().join(format!("kittui-runtime-{pid}-{nanos}-{seq}"));
         std::fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    fn with_env<F: FnOnce()>(pairs: &[(&str, Option<&str>)], f: F) {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let saved = pairs
+            .iter()
+            .map(|(key, _)| (key.to_string(), std::env::var(key).ok()))
+            .collect::<Vec<_>>();
+        for (key, value) in pairs {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        for (key, value) in saved {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[test]
+    fn runtime_builder_detects_terminal_by_default() {
+        with_env(
+            &[
+                ("TMUX", Some("/tmp/tmux,123,0")),
+                ("WT_SESSION", None),
+                ("TERM_PROGRAM", None),
+                ("KITTY_WINDOW_ID", None),
+                ("KITTY_PUBLIC_KEY", None),
+                ("TERM", Some("xterm-256color")),
+            ],
+            || {
+                let runtime = Runtime::builder()
+                    .cache_dir(tempdir())
+                    .renderer(RendererKind::Cpu)
+                    .build()
+                    .unwrap();
+                assert_eq!(runtime.transport(), Transport::TmuxPassthrough);
+            },
+        );
+    }
+
+    #[test]
+    fn runtime_builder_terminal_override_wins_over_detection() {
+        with_env(&[("TMUX", Some("/tmp/tmux,123,0"))], || {
+            let runtime = Runtime::builder()
+                .cache_dir(tempdir())
+                .renderer(RendererKind::Cpu)
+                .terminal(TerminalInfo::override_with(
+                    None,
+                    None,
+                    CellSize::default(),
+                    true,
+                    true,
+                    Transport::Direct,
+                ))
+                .build()
+                .unwrap();
+            assert_eq!(runtime.transport(), Transport::Direct);
+        });
     }
 
     #[test]
