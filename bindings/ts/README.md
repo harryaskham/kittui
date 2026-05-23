@@ -37,6 +37,12 @@ const gradientScene = scene.gradientBox({
   start: [0, 0, 0, 255],
   end: [0, 216, 255, 255],
 });
+const imageScene = scene.imageBox({
+  cols: 16,
+  rows: 8,
+  src: '/tmp/preview.png',
+  fit: 'contain',
+});
 
 // Render-only PNG bytes for previews/artifacts.
 const png = k.render(sceneObject);

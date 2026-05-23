@@ -384,4 +384,10 @@ test('scene helpers produce JSON-compatible plain objects', () => {
   assert.equal(gradient.layers[0].root.rect.width, 40);
   assert.equal(gradient.layers[0].root.direction, 'vertical');
   assert.deepEqual(gradient.layers[0].root.stops[1].color, [255, 255, 255, 255]);
+  const image = scene.imageBox({ cols: 6, rows: 3, src: Uint8Array.from([80, 78, 71]), fit: 'cover', tint: [255, 0, 0, 128] });
+  assert.equal(image.layers[0].root.kind, 'image');
+  assert.deepEqual(image.layers[0].root.src, { kind: 'bytes', bytes: [80, 78, 71] });
+  assert.equal(image.layers[0].root.fit, 'cover');
+  assert.deepEqual(image.layers[0].root.tint, [255, 0, 0, 128]);
+  assert.deepEqual(scene.imageLayer({ cols: 1, rows: 1, src: '/tmp/a.png' }).root.src, { kind: 'path', path: '/tmp/a.png' });
 });

@@ -141,6 +141,35 @@ class _SceneHelpers:
         )
 
     @staticmethod
+    def image_layer(cols: int, rows: int, src: str | bytes | bytearray | list[int], *, fit: str = "contain", tint: list[int] | tuple[int, int, int, int] | None = None, cell_size: dict[str, int] | None = None, label: str = "image") -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        width = int(cols) * int(cell.get("width_px", 8))
+        height = int(rows) * int(cell.get("height_px", 16))
+        if isinstance(src, str):
+            image_src: dict[str, Any] = {"kind": "path", "path": src}
+        else:
+            image_src = {"kind": "bytes", "bytes": list(src)}
+        return {
+            "label": label,
+            "root": {
+                "kind": "image",
+                "rect": {"origin": [0, 0], "width": width, "height": height},
+                "src": image_src,
+                "fit": fit,
+                "tint": list(tint) if tint is not None else None,
+            },
+        }
+
+    @staticmethod
+    def image_box(cols: int, rows: int, src: str | bytes | bytearray | list[int], *, fit: str = "contain", tint: list[int] | tuple[int, int, int, int] | None = None, cell_size: dict[str, int] | None = None, label: str = "image") -> dict[str, Any]:
+        cell = cell_size or {"width_px": 8, "height_px": 16}
+        return _SceneHelpers.build(
+            (cols, rows),
+            [_SceneHelpers.image_layer(cols, rows, src, fit=fit, tint=tint, cell_size=cell, label=label)],
+            cell,
+        )
+
+    @staticmethod
     def background_solid(rgba: list[int] | tuple[int, int, int, int]) -> dict[str, Any]:
         return _SceneHelpers.rect_layer(0, 0, rgba)
 

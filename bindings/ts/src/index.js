@@ -492,6 +492,32 @@ export const scene = {
     });
   },
 
+  /** Image layer sized in cells. `src` may be a path string or byte array. */
+  imageLayer({ cols, rows, src, fit = 'contain', tint = null, cellSize = { width_px: 8, height_px: 16 }, label = 'image' }) {
+    const imageSrc = typeof src === 'string'
+      ? { kind: 'path', path: src }
+      : { kind: 'bytes', bytes: Array.from(src) };
+    return {
+      label,
+      root: {
+        kind: 'image',
+        rect: { origin: [0, 0], width: cols * cellSize.width_px, height: rows * cellSize.height_px },
+        src: imageSrc,
+        fit,
+        tint,
+      },
+    };
+  },
+
+  /** Complete image scene. */
+  imageBox({ cols, rows, src, fit = 'contain', tint = null, cellSize = { width_px: 8, height_px: 16 }, label = 'image' }) {
+    return this.build({
+      footprintCells: [cols, rows],
+      cellSize,
+      layers: [this.imageLayer({ cols, rows, src, fit, tint, cellSize, label })],
+    });
+  },
+
   /** Solid-background layer placeholder for callers that size rects themselves. */
   backgroundSolid(rgba) {
     return {

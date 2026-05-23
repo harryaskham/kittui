@@ -151,6 +151,14 @@ class KittuiBindingTests(unittest.TestCase):
         self.assertEqual(groot["rect"]["width"], 40)
         self.assertEqual(groot["direction"], "vertical")
         self.assertEqual(groot["stops"][1]["color"], [255, 255, 255, 255])
+        image = scene.image_box(6, 3, b"PNG", fit="cover", tint=[255, 0, 0, 128])
+        iroot = image["layers"][0]["root"]
+        self.assertEqual(iroot["kind"], "image")
+        self.assertEqual(iroot["src"], {"kind": "bytes", "bytes": [80, 78, 71]})
+        self.assertEqual(iroot["fit"], "cover")
+        self.assertEqual(iroot["tint"], [255, 0, 0, 128])
+        path_image = scene.image_layer(2, 1, "/tmp/a.png")
+        self.assertEqual(path_image["root"]["src"], {"kind": "path", "path": "/tmp/a.png"})
 
     def test_place_variants_normalize_dicts_and_json_strings(self):
         lib = FakeLib()

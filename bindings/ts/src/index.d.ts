@@ -47,9 +47,17 @@ export interface Corners {
   br: number;
 }
 
+export type ImageSource =
+  | { kind: 'path'; path: string }
+  | { kind: 'bytes'; bytes: number[] }
+  | { kind: 'cached'; hash: string };
+
+export type Fit = 'contain' | 'cover' | 'stretch' | 'none';
+
 export type Node =
   | { kind: 'rect'; rect: PxRect; fill: Paint; stroke: Stroke | null; corners: Corners }
   | { kind: 'gradient'; rect: PxRect; stops: Stop[]; direction: Direction }
+  | { kind: 'image'; rect: PxRect; src: ImageSource; fit: Fit; tint?: Rgba | null }
   | {
       kind: 'glow';
       rect: PxRect;
@@ -167,6 +175,8 @@ export const scene: {
   solidBox(args: { cols: number; rows: number; rgba: Rgba; cellSize?: CellSize; label?: string; radius?: number }): Scene;
   gradientLayer(args: { cols: number; rows: number; start: Rgba; end: Rgba; direction?: Direction; cellSize?: CellSize; label?: string }): Layer;
   gradientBox(args: { cols: number; rows: number; start: Rgba; end: Rgba; direction?: Direction; cellSize?: CellSize; label?: string }): Scene;
+  imageLayer(args: { cols: number; rows: number; src: string | ArrayLike<number>; fit?: Fit; tint?: Rgba | null; cellSize?: CellSize; label?: string }): Layer;
+  imageBox(args: { cols: number; rows: number; src: string | ArrayLike<number>; fit?: Fit; tint?: Rgba | null; cellSize?: CellSize; label?: string }): Scene;
   backgroundSolid(rgba: Rgba): Layer;
   backgroundLinear(direction: Direction, startRgba: Rgba, endRgba: Rgba): Layer;
 };

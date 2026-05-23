@@ -9,6 +9,7 @@ from kittui import Kittui, scene
 
 scene_obj = scene.solid_box(8, 3, [0, 216, 255, 255], radius=6)
 gradient_obj = scene.gradient_box(8, 3, [0, 0, 0, 255], [0, 216, 255, 255])
+image_obj = scene.image_box(16, 8, "/tmp/preview.png", fit="contain")
 
 with Kittui.open({"renderer": "cpu", "transport": "direct"}) as k:
     k.configure({"renderer": "cpu", "transport": "tmux"})
@@ -59,7 +60,7 @@ python3 -m kittui --probe --config-json '{"renderer":"cpu"}'
 - `place_many(scenes)`
 - `place_many_at(scenes, x, y)`
 - `place_many_channels(scenes, x=0, y=0)`
-- `scene.build(...)`, `scene.rect_layer(...)`, `scene.solid_box(...)`, `scene.gradient_layer(...)`, `scene.gradient_box(...)`
+- `scene.build(...)`, `scene.rect_layer(...)`, `scene.solid_box(...)`, `scene.gradient_layer(...)`, `scene.gradient_box(...)`, `scene.image_layer(...)`, `scene.image_box(...)`
 
 Scenes can be Python dictionaries or JSON strings. Batch methods accept a mix of
 both. The `scene` helper builds primitive-only JSON-compatible Scene objects for
