@@ -20,7 +20,7 @@ from that crate's public API.
 
 | Spec section | Status | Notes |
 |---|---|---|
-| Transferring pixel data via the escape (`a=t,f=24/32/100`) | ✅ | PNG (`f=100`) uploads are covered by still/animation helpers; raw RGBA (`f=32`) is covered by the raw-frame path and exact grammar tests. Raw RGB (`f=24`) remains a possible future helper, but current renderer uploads use PNG or RGBA. |
+| Transferring pixel data via the escape (`a=t,f=24/32/100`) | ✅ | PNG (`f=100`) uploads are covered by still/animation helpers; raw RGBA (`f=32`) is covered by the raw-frame path and exact grammar tests; raw RGB (`f=24`) direct uploads are covered by `upload_still_rgb(_ex/_compressed)`. Current renderer defaults still use PNG or RGBA. |
 | Local transmission (`t=d` direct base64) | ✅ | Default `UploadMedium::Direct`. Single chunked path covered by tests. |
 | Local transmission (`t=f` regular file) | ✅ | `UploadMedium::File { path }`; encoded path goes into the `t=f` field. |
 | Local transmission (`t=t` temp file) | ✅ | `UploadMedium::TempFile { path }`. |
@@ -59,7 +59,7 @@ from that crate's public API.
 
 The remaining gaps are tracked under the protocol epic `bd-3dc8c7`:
 
-- raw RGB (`f=24`) helper coverage if callers need it beyond current PNG/RGBA paths.
+- raw RGB (`f=24`) file/temp/shared-memory medium helpers only if callers need them beyond the landed direct RGB helper.
 - terminal response reading (`OK`, `ENOENT`, capability queries); see [`kitty-response-probing.md`](kitty-response-probing.md).
 - `a=q` capability probing into `TerminalInfo::detect()` / diagnostics; see [`kitty-response-probing.md`](kitty-response-probing.md).
 - broader visual proof coverage for file/temp/shared-memory raw-frame transports across terminals.
@@ -70,13 +70,13 @@ The remaining gaps are tracked under the protocol epic `bd-3dc8c7`:
 
 The current hot paths use PNG (`f=100`) for compressed still/scene uploads and
 raw RGBA (`f=32`) for WM frame uploads where avoiding PNG encode cost matters.
-Raw RGB (`f=24`) would save one byte per pixel when a caller already owns a
-three-channel buffer, but kittui renderers and native WM captures currently
-produce RGBA buffers and would need a conversion pass to drop alpha. That makes
-`f=24` lower priority than terminal response reading and capability probing. A
-future helper should be small and additive: accept caller-owned RGB bytes,
-validate `width * height * 3`, reuse the existing direct/file/temp/shared-memory
-medium grammar, and leave RGBA/PNG defaults unchanged.
+Raw RGB (`f=24`) direct helpers now exist for callers that already own a
+three-channel buffer (`upload_still_rgb`, `upload_still_rgb_ex`, and
+`upload_still_rgb_compressed`). kittui renderers and native WM captures still
+produce RGBA buffers and should not add a conversion pass just to drop alpha.
+File/temp/shared-memory RGB medium helpers can be added later if a concrete
+caller needs them; response reading and capability probing remain the higher
+priority protocol gaps.
 
 ## How to reproduce visually
 
