@@ -32,12 +32,95 @@ pub enum Error {
     /// The daemon returned an error line.
     #[error("kittwm daemon error: {0}")]
     Daemon(String),
+    /// The SDK client's local capability scope does not allow this action.
+    #[error("capability denied: {0:?}")]
+    CapabilityDenied(Capability),
+}
+
+/// SDK operation capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Capability {
+    /// Send raw protocol commands.
+    RawRequest,
+    /// Create/spawn new windows or surfaces.
+    CreateWindow,
+    /// Replace the current window.
+    ReplaceWindow,
+    /// Focus, resize, rename, or close windows.
+    ControlWindow,
+    /// Send keyboard/text input.
+    SendInput,
+    /// Read surface text/snapshots.
+    ReadText,
+    /// Read/write clipboard through the SDK.
+    Clipboard,
+    /// Subscribe to global or surface event streams.
+    SubscribeEvents,
+}
+
+/// Local SDK capability scope for a client.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientCapabilities {
+    allowed: Vec<Capability>,
+}
+
+impl ClientCapabilities {
+    /// Allow all currently-known SDK capabilities.
+    pub fn all() -> Self {
+        Self {
+            allowed: vec![
+                Capability::RawRequest,
+                Capability::CreateWindow,
+                Capability::ReplaceWindow,
+                Capability::ControlWindow,
+                Capability::SendInput,
+                Capability::ReadText,
+                Capability::Clipboard,
+                Capability::SubscribeEvents,
+            ],
+        }
+    }
+
+    /// Allow only low-risk status/inspection helpers. Raw requests are denied.
+    pub fn restricted() -> Self {
+        Self {
+            allowed: vec![Capability::ReadText],
+        }
+    }
+
+    /// Build an explicit capability scope.
+    pub fn only(allowed: impl IntoIterator<Item = Capability>) -> Self {
+        Self {
+            allowed: allowed.into_iter().collect(),
+        }
+    }
+
+    /// Whether a capability is allowed.
+    pub fn allows(&self, capability: Capability) -> bool {
+        self.allowed.contains(&capability)
+    }
+
+    fn ensure(&self, capability: Capability) -> Result<()> {
+        if self.allows(capability) {
+            Ok(())
+        } else {
+            Err(Error::CapabilityDenied(capability))
+        }
+    }
+}
+
+impl Default for ClientCapabilities {
+    fn default() -> Self {
+        Self::all()
+    }
 }
 
 /// A connected kittwm client.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Kittwm {
     socket: PathBuf,
+    capabilities: ClientCapabilities,
 }
 
 /// Coarse surface kind accepted by the v0 SDK.
@@ -151,14 +234,29 @@ impl Kittwm {
     /// Connect using `KITTWM_SOCKET` / `KITTWM_SOCK` / DISPLAY-like env vars.
     pub fn connect_from_env() -> Result<Self> {
         let socket = socket_path_from_env().ok_or(Error::MissingEnvironment)?;
-        Ok(Self { socket })
+        Ok(Self {
+            socket,
+            capabilities: ClientCapabilities::default(),
+        })
     }
 
     /// Connect to an explicit kittwm socket path.
     pub fn connect_path(path: impl Into<PathBuf>) -> Self {
         Self {
             socket: path.into(),
+            capabilities: ClientCapabilities::default(),
         }
+    }
+
+    /// Restrict this client to a local SDK capability scope.
+    pub fn with_capabilities(mut self, capabilities: ClientCapabilities) -> Self {
+        self.capabilities = capabilities;
+        self
+    }
+
+    /// Return the client's local SDK capability scope.
+    pub fn capabilities(&self) -> &ClientCapabilities {
+        &self.capabilities
     }
 
     /// Return the socket path used by this client.
@@ -177,6 +275,11 @@ impl Kittwm {
 
     /// Send a raw protocol command and return the text reply.
     pub fn request(&self, command: impl AsRef<str>) -> Result<String> {
+        self.capabilities.ensure(Capability::RawRequest)?;
+        self.request_protocol(command)
+    }
+
+    fn request_protocol(&self, command: impl AsRef<str>) -> Result<String> {
         let reply = request_socket(&self.socket, command.as_ref())?;
         if let Some(err) = reply.strip_prefix("ERR ") {
             return Err(Error::Daemon(err.trim().to_string()));
@@ -186,7 +289,7 @@ impl Kittwm {
 
     /// Ping the daemon/control plane.
     pub fn ping(&self) -> Result<()> {
-        let reply = self.request("PING")?;
+        let reply = self.request_protocol("PING")?;
         if reply.trim() == "PONG" {
             Ok(())
         } else {
@@ -196,7 +299,9 @@ impl Kittwm {
 
     /// Fetch typed status JSON.
     pub fn status(&self) -> Result<Status> {
-        Ok(serde_json::from_str(&self.request("STATUS_JSON")?)?)
+        Ok(serde_json::from_str(
+            &self.request_protocol("STATUS_JSON")?,
+        )?)
     }
 
     /// Return a typed handle to an existing surface/window id.
@@ -216,8 +321,11 @@ impl Kittwm {
     /// surfaces via `SPAWN_PTY`; richer surface kinds are reserved for later
     /// native protocol work.
     pub fn spawn_surface(&self, spec: &SurfaceSpec) -> Result<SurfaceSpawn> {
+        self.capabilities.ensure(Capability::CreateWindow)?;
         let reply = match &spec.kind {
-            SurfaceKind::Terminal => self.request(format!("SPAWN_PTY {}", spec.command))?,
+            SurfaceKind::Terminal => {
+                self.request_protocol(format!("SPAWN_PTY {}", spec.command))?
+            }
             SurfaceKind::Browser => {
                 return Err(Error::Daemon(
                     "browser surface spawning is not yet exposed by the SDK transport".to_string(),
@@ -250,9 +358,10 @@ impl Kittwm {
     /// replace request exists in the SDK transport, this queues a new PTY and
     /// closes the current one when `KITTWM_WINDOW` is available.
     pub fn replace_current(&self, spec: &WindowSpec) -> Result<String> {
+        self.capabilities.ensure(Capability::ReplaceWindow)?;
         let reply = self.create_window(spec)?;
         if let Some(handle) = self.current_window_from_env() {
-            let _ = self.request(format!("CLOSE_PANE {}", handle.id));
+            let _ = self.request_protocol(format!("CLOSE_PANE {}", handle.id));
         }
         Ok(reply)
     }
@@ -261,54 +370,64 @@ impl Kittwm {
 impl SurfaceHandle {
     /// Focus this surface/window.
     pub fn focus(&self) -> Result<String> {
-        self.client.request(format!("FOCUS_PANE {}", self.id))
+        self.client.capabilities.ensure(Capability::ControlWindow)?;
+        self.client
+            .request_protocol(format!("FOCUS_PANE {}", self.id))
     }
 
     /// Close this surface/window.
     pub fn close(&self) -> Result<String> {
-        self.client.request(format!("CLOSE_PANE {}", self.id))
+        self.client.capabilities.ensure(Capability::ControlWindow)?;
+        self.client
+            .request_protocol(format!("CLOSE_PANE {}", self.id))
     }
 
     /// Rename this surface/window.
     pub fn rename(&self, title: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::ControlWindow)?;
         self.client
-            .request(format!("RENAME_PANE {} {}", self.id, title.as_ref()))
+            .request_protocol(format!("RENAME_PANE {} {}", self.id, title.as_ref()))
     }
 
     /// Resize this surface/window by a relative pane-weight delta.
     pub fn resize_weight(&self, delta: i16) -> Result<String> {
+        self.client.capabilities.ensure(Capability::ControlWindow)?;
         let label = if delta >= 0 {
             format!("+{delta}")
         } else {
             delta.to_string()
         };
         self.client
-            .request(format!("RESIZE_PANE {} {label}", self.id))
+            .request_protocol(format!("RESIZE_PANE {} {label}", self.id))
     }
 
     /// Send raw UTF-8 text.
     pub fn send_text(&self, text: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::SendInput)?;
         self.client
-            .request(format!("SEND_TEXT {} {}", self.id, text.as_ref()))
+            .request_protocol(format!("SEND_TEXT {} {}", self.id, text.as_ref()))
     }
 
     /// Send one line, appending a newline in the daemon.
     pub fn send_line(&self, text: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::SendInput)?;
         self.client
-            .request(format!("SEND_LINE {} {}", self.id, text.as_ref()))
+            .request_protocol(format!("SEND_LINE {} {}", self.id, text.as_ref()))
     }
 
     /// Send a named key such as `ctrl-c`, `escape`, or `up`.
     pub fn send_key(&self, key: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::SendInput)?;
         self.client
-            .request(format!("SEND_KEY {} {}", self.id, key.as_ref()))
+            .request_protocol(format!("SEND_KEY {} {}", self.id, key.as_ref()))
     }
 
     /// Read the current screen text snapshot.
     pub fn read_text(&self) -> Result<TextSnapshot> {
-        Ok(serde_json::from_str(
-            &self.client.request(format!("READ_TEXT_JSON {}", self.id))?,
-        )?)
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(&self.client.request_protocol(
+            format!("READ_TEXT_JSON {}", self.id),
+        )?)?)
     }
 }
 
@@ -432,6 +551,32 @@ mod tests {
             focused.client.socket_path(),
             Path::new("/tmp/kittwm-sdk.sock")
         );
+    }
+
+    #[test]
+    fn capability_scopes_deny_disallowed_operations_before_io() {
+        let client = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::ReadText]));
+        assert!(matches!(
+            client.request("PING"),
+            Err(Error::CapabilityDenied(Capability::RawRequest))
+        ));
+        assert!(matches!(
+            client.spawn_surface(&SurfaceSpec::terminal("true")),
+            Err(Error::CapabilityDenied(Capability::CreateWindow))
+        ));
+        assert!(matches!(
+            client.focused_surface().send_key("enter"),
+            Err(Error::CapabilityDenied(Capability::SendInput))
+        ));
+    }
+
+    #[test]
+    fn capability_helpers_report_allowed_values() {
+        let caps = ClientCapabilities::restricted();
+        assert!(caps.allows(Capability::ReadText));
+        assert!(!caps.allows(Capability::CreateWindow));
+        assert!(ClientCapabilities::all().allows(Capability::SubscribeEvents));
     }
 
     #[test]
