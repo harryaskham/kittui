@@ -118,8 +118,14 @@ Initial roles should cover common controls without overfitting one toolkit:
   `Progress`, `Spinner`;
 - media/custom: `Image`, `Canvas`, `Terminal`, `BrowserDocument`, `Custom`.
 
-`Custom` must include a namespaced type string and fallback role so renderers can
-still choose a generic representation.
+`kittwm-sdk::ComponentRole` now includes first-class variants for the common
+roles used by the first semantic adapters: `Link`, `Heading`, `Paragraph`,
+`Code`, `Row`, `Cell`, `List`, `ListItem`, `Tree`, `TreeItem`, `Image`,
+`Canvas`, `Terminal`, and `BrowserDocument` in addition to the existing control
+roles. `Custom` remains available for vendor-specific roles and must include a
+namespaced type string and fallback role so renderers can still choose a generic
+representation. Some adapters may still emit older `Custom("browser.*")` or
+`Custom("accessibility.*")` roles until follow-up remapping lands.
 
 ### Values and state
 

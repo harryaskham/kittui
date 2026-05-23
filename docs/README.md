@@ -51,7 +51,8 @@ Read in this order:
 
 Current semantic implementation status:
 
-- `kittwm-sdk` owns public semantic protocol types, snapshot/action/focus/publish
+- `kittwm-sdk` owns public semantic protocol types, first-class roles for common
+  document/browser/accessibility structures, snapshot/action/focus/publish
   wrappers, typed semantic events, and convenience action helpers.
 - Native kittwm socket exposes `SEMANTIC_SNAPSHOT`, `SEMANTIC_PUBLISH`,
   `SEMANTIC_ACTION`, and `SEMANTIC_FOCUS`.
@@ -61,7 +62,8 @@ Current semantic implementation status:
   set number/bool, and select actions.
 - Semantic publish/focus/action/value changes and native surface side effects
   (title, bell, OSC52 clipboard set, notification) appear in the native bounded
-  `EVENTS [ms]` stream and parse as typed SDK events.
+  `EVENTS [ms]` stream and parse as typed SDK events; SDK callers can collect
+  events as a batch or iterate the bounded batch with `KittwmEventIter`.
 - `kittui-affordances` owns the high-level form/control builders and gallery;
   `kittui-core` remains primitive-only.
 - `kittui-wm` can render both internal and public SDK semantic snapshots to
