@@ -113,6 +113,14 @@ v0.3: kittwm now includes backend-independent native app foundations:
 Try:
 
 ```sh
+# Nix flakes expose kittui plus explicit kittwm/kittwm-browser app targets.
+# The kittui package builds kittwm with platform-native backend features by
+# default: SCK/Quartz on macOS, Xvfb on Linux.
+nix run .#kittui -- --help
+nix run .#kittwm
+KITTWM_TERMINAL_CMD=htop nix run .#kittwm
+nix run .#kittwm-browser -- https://example.com
+
 cargo run -p kittui-cli --bin kittwm
 KITTWM_TERMINAL_CMD=htop cargo run -p kittui-cli --bin kittwm
 cargo run -p kittui-cli --bin kittwm-browser -- https://example.com

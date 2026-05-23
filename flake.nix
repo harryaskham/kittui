@@ -33,26 +33,50 @@
         # ships a working backend for kittwm (sck/quartz on macOS, xvfb on
         # Linux) without requiring rebuild flags. (bd-1bbee6)
         kittuiCliFeatures =
-          if pkgs.stdenv.isDarwin then [ "sck" ]
-          else if pkgs.stdenv.isLinux then [ "xvfb" ]
-          else [ ];
+          if pkgs.stdenv.isDarwin then
+            [ "sck" ]
+          else if pkgs.stdenv.isLinux then
+            [ "xvfb" ]
+          else
+            [ ];
         cargoFeatureFlags =
-          if kittuiCliFeatures == [ ]
-          then [ ]
-          else [ "--features" (lib.concatStringsSep "," kittuiCliFeatures) ];
+          if kittuiCliFeatures == [ ] then
+            [ ]
+          else
+            [
+              "--features"
+              (lib.concatStringsSep "," kittuiCliFeatures)
+            ];
+
+        checkEnv = {
+          preCheck = ''
+            export KITTUI_CACHE_DIR="$TMPDIR/kittui-cache"
+            export XDG_CACHE_HOME="$TMPDIR/xdg-cache"
+            mkdir -p "$KITTUI_CACHE_DIR" "$XDG_CACHE_HOME"
+          ''
+          + lib.optionalString pkgs.stdenv.isDarwin ''
+            export KITTWM_PTY_SHELL=${pkgs.bash}/bin/bash
+          '';
+        }
+        // lib.optionalAttrs pkgs.stdenv.isDarwin {
+          KITTWM_PTY_SHELL = "${pkgs.bash}/bin/bash";
+        };
 
         kittui = pkgs.rustPlatform.buildRustPackage (
           commonArgs
+          // checkEnv
           // {
             pname = "kittui";
             cargoBuildFlags = [
               "-p"
               "kittui-cli"
-            ] ++ cargoFeatureFlags;
+            ]
+            ++ cargoFeatureFlags;
             cargoTestFlags = [
               "-p"
               "kittui-cli"
-            ] ++ cargoFeatureFlags;
+            ]
+            ++ cargoFeatureFlags;
             meta = {
               description = "CLI for rendering kitty graphics from kittui scenes";
               homepage = "https://github.com/harryaskham/kittui";
@@ -100,6 +124,7 @@
 
         workspace-check = pkgs.rustPlatform.buildRustPackage (
           commonArgs
+          // checkEnv
           // {
             pname = "kittui-workspace-check";
             cargoBuildFlags = [
@@ -114,6 +139,7 @@
       {
         packages = {
           default = kittui;
+          kittwm = kittui;
           inherit kittui kittui-ffi;
         };
 
@@ -123,6 +149,16 @@
             type = "app";
             program = "${kittui}/bin/kittui";
             meta.description = "Run the kittui CLI";
+          };
+          kittwm = {
+            type = "app";
+            program = "${kittui}/bin/kittwm";
+            meta.description = "Run the kittwm terminal-native window manager";
+          };
+          kittwm-browser = {
+            type = "app";
+            program = "${kittui}/bin/kittwm-browser";
+            meta.description = "Run the kittwm browser surface helper";
           };
         };
 

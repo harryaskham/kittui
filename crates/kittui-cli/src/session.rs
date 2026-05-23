@@ -1390,6 +1390,10 @@ mod native_pane_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "Nix Darwin sandbox lacks a stable PTY shell for dummy panes"
+    )]
     fn balance_native_pane_weights_resets_all_weights() {
         let mut panes = vec![
             NativePane {
@@ -1472,6 +1476,10 @@ mod native_pane_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "Nix Darwin sandbox lacks a stable PTY shell for dummy panes"
+    )]
     fn native_pane_index_finds_window_tokens() {
         let panes = vec![
             NativePane {
@@ -1498,6 +1506,10 @@ mod native_pane_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "Nix Darwin sandbox lacks a stable PTY shell for dummy panes"
+    )]
     fn next_native_pane_id_uses_max_existing_id() {
         let panes = vec![
             NativePane {
@@ -1523,6 +1535,10 @@ mod native_pane_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "Nix Darwin sandbox lacks a stable PTY shell for dummy panes"
+    )]
     fn native_pane_statuses_mark_focused_window() {
         let panes = vec![
             NativePane {

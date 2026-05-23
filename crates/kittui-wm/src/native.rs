@@ -128,7 +128,16 @@ impl PtyTerminalApp {
                 pixel_height: rows.saturating_mul(16),
             })
             .context("open PTY")?;
-        let mut builder = CommandBuilder::new("/bin/sh");
+        let shell = std::env::var("KITTWM_PTY_SHELL").unwrap_or_else(|_| {
+            std::env::var("SHELL").unwrap_or_else(|_| {
+                if std::path::Path::new("/bin/sh").exists() {
+                    "/bin/sh".to_string()
+                } else {
+                    "sh".to_string()
+                }
+            })
+        });
+        let mut builder = CommandBuilder::new(shell);
         builder.arg("-lc");
         builder.arg(command);
         for (key, value) in envs {
