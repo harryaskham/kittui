@@ -9,5 +9,6 @@ description = "kitty graphics protocol encoder and placeholder builder for kittu
 [dependencies]
 kittui-core = { workspace = true }
 base64 = { workspace = true }
+flate2 = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

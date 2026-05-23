@@ -244,22 +244,15 @@ impl Runtime {
     ) -> Placement {
         let transport = self.terminal.transport;
         let mut upload = String::new();
-        if !self.has_already_placed(image_id, footprint) {
-            upload.push_str(&kitty::upload_still_rgba(
-                image_id, rgba, width, height, transport,
-            ));
+        if self.has_image_uploaded(image_id) {
+            // Raw WM frames are re-uploaded every tick. Delete the previous
+            // image payload explicitly before replacing the same id so host
+            // terminals can reclaim graphics memory promptly.
+            upload.push_str(&kitty::delete(image_id, transport));
         }
-        // Always re-upload pixels for raw frames — the WM compositor
-        // changes pixels every tick. The placement + embed strings stay
-        // cached behind has_already_placed for the no-resize case.
-        if !upload.is_empty() {
-            // For raw frames we want to overwrite the previous image: a
-            // fresh upload on the same id triggers kitty to replace.
-        } else {
-            upload.push_str(&kitty::upload_still_rgba(
-                image_id, rgba, width, height, transport,
-            ));
-        }
+        upload.push_str(&kitty::upload_still_rgba(
+            image_id, rgba, width, height, transport,
+        ));
         let placement = {
             let mv = kitty::cursor_move(footprint.x, footprint.y, transport);
             let p = kitty::placement_command(image_id, footprint, transport);
@@ -439,10 +432,6 @@ impl Runtime {
             }
         }
         Ok(cpu::render_animation(scene)?)
-    }
-
-    fn has_already_placed(&self, image_id: u32, footprint: CellRect) -> bool {
-        matches!(self.placed.lock().get(&image_id), Some(prev) if *prev == footprint)
     }
 
     fn has_image_uploaded(&self, image_id: u32) -> bool {
@@ -818,6 +807,37 @@ mod tests {
             "{:?}",
             moved.placement
         );
+    }
+
+    #[test]
+    fn raw_frame_reupload_deletes_previous_image_payload() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .terminal(TerminalInfo::override_with(
+                Some(80),
+                Some(24),
+                CellSize::new(8, 16),
+                true,
+                true,
+                Transport::Direct,
+            ))
+            .build()
+            .unwrap();
+        let rgba = vec![0xff; 2 * 2 * 4];
+        let footprint = CellRect::new(0, 0, 1, 1);
+        let first = runtime.place_raw_frame(7, &rgba, 2, 2, footprint);
+        assert!(
+            !first.upload.contains("a=d"),
+            "first upload should not delete"
+        );
+        let second = runtime.place_raw_frame(7, &rgba, 2, 2, footprint);
+        assert!(
+            second.upload.starts_with("\x1b_Ga=d,d=I,i=7"),
+            "second upload should delete old image first: {:?}",
+            second.upload
+        );
+        assert!(second.upload.contains("\x1b_Ga=t,f=32"));
     }
 
     #[test]

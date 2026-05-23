@@ -73,9 +73,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut clear = true;
     let mut last_title_rows = Vec::<String>::new();
     let mut last_footer = String::new();
-    let pure_terminal_renderer = std::env::var("KITTWM_NATIVE_RENDERER")
-        .map(|value| matches!(value.as_str(), "terminal" | "text" | "ansi" | "dec"))
-        .unwrap_or(false);
+    let pure_terminal_renderer = native_should_use_pure_terminal_renderer();
     loop {
         let frame_start = Instant::now();
         let mut chunk = [0u8; 1024];
@@ -626,6 +624,13 @@ fn native_shell_view(
                 panes.len(), focused_window, focused_weight, sock, log_path
             ),
         },
+    }
+}
+
+fn native_should_use_pure_terminal_renderer() -> bool {
+    match std::env::var("KITTWM_NATIVE_RENDERER") {
+        Ok(value) => matches!(value.as_str(), "terminal" | "text" | "ansi" | "dec"),
+        Err(_) => std::env::var_os("TMUX").is_some(),
     }
 }
 
@@ -1386,6 +1391,24 @@ fn write_native_pane_chrome<W: Write>(out: &mut W, chrome: &NativePaneChrome) ->
 #[cfg(test)]
 mod native_pane_tests {
     use super::*;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn native_renderer_defaults_to_terminal_inside_tmux_unless_overridden() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_NATIVE_RENDERER");
+        std::env::remove_var("TMUX");
+        assert!(!native_should_use_pure_terminal_renderer());
+        std::env::set_var("TMUX", "/tmp/tmux-1/default,1,0");
+        assert!(native_should_use_pure_terminal_renderer());
+        std::env::set_var("KITTWM_NATIVE_RENDERER", "kitty");
+        assert!(!native_should_use_pure_terminal_renderer());
+        std::env::set_var("KITTWM_NATIVE_RENDERER", "terminal");
+        assert!(native_should_use_pure_terminal_renderer());
+        std::env::remove_var("TMUX");
+        std::env::remove_var("KITTWM_NATIVE_RENDERER");
+    }
 
     #[test]
     fn fit_rgba_frame_to_cells_crops_and_pads_without_scaling() {

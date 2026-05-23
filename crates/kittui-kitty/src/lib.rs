@@ -11,9 +11,12 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
+use std::io::Write;
 use std::path::Path;
 
 use base64::Engine;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
 
 use kittui_core::geom::CellRect;
 use kittui_core::terminal::Transport;
@@ -25,6 +28,37 @@ use diacritics::{ROWCOLUMN_DIACRITICS, ROWCOLUMN_DIACRITICS_COUNT};
 /// Codepoint reserved by the kitty protocol for unicode image placeholders.
 pub const PLACEHOLDER_CHAR: char = '\u{10EEEE}';
 const ESC: &str = "\x1b";
+
+/// Compression mode for direct graphics payloads. Mirrors kitty's `o=` field.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+pub enum CompressionMode {
+    /// Send the payload uncompressed.
+    #[default]
+    None,
+    /// Compress with zlib and mark the transfer with `o=z`.
+    Zlib,
+}
+
+impl CompressionMode {
+    fn field(self) -> &'static str {
+        match self {
+            CompressionMode::None => "",
+            CompressionMode::Zlib => ",o=z",
+        }
+    }
+}
+
+/// Select kitty graphics compression from `KITTUI_KITTY_COMPRESSION`.
+pub fn compression_from_env() -> CompressionMode {
+    match std::env::var("KITTUI_KITTY_COMPRESSION")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "z" | "zlib" | "deflate" | "auto" => CompressionMode::Zlib,
+        _ => CompressionMode::None,
+    }
+}
 
 /// Quietness for control responses. Mirrors the kitty `q=` field.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
@@ -152,7 +186,9 @@ pub fn upload_still_ex(
     quiet: Quiet,
     transport: Transport,
 ) -> String {
-    upload(image_id, None, medium, quiet, transport, /*first_frame=*/ true, None)
+    upload(
+        image_id, None, medium, quiet, transport, /*first_frame=*/ true, None,
+    )
 }
 
 /// Back-compat: upload still bytes directly via base64 with the default
@@ -181,14 +217,7 @@ pub fn upload_still_rgba(
     height: u32,
     transport: Transport,
 ) -> String {
-    upload_still_rgba_ex(
-        image_id,
-        rgba,
-        width,
-        height,
-        Quiet::SuppressAll,
-        transport,
-    )
+    upload_still_rgba_ex(image_id, rgba, width, height, Quiet::SuppressAll, transport)
 }
 
 /// Variant of [`upload_still_rgba`] with explicit quiet selector.
@@ -200,8 +229,41 @@ pub fn upload_still_rgba_ex(
     quiet: Quiet,
     transport: Transport,
 ) -> String {
-    let b64 = base64::engine::general_purpose::STANDARD.encode(rgba);
-    encode_chunked_rgba(image_id, &b64, width, height, quiet, transport)
+    upload_still_rgba_compressed(
+        image_id,
+        rgba,
+        width,
+        height,
+        quiet,
+        transport,
+        compression_from_env(),
+    )
+}
+
+/// Upload a raw RGBA frame with an explicit compression mode.
+pub fn upload_still_rgba_compressed(
+    image_id: u32,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    quiet: Quiet,
+    transport: Transport,
+    compression: CompressionMode,
+) -> String {
+    let payload = compress_payload(rgba, compression).unwrap_or_else(|| rgba.to_vec());
+    let b64 = base64::engine::general_purpose::STANDARD.encode(payload);
+    encode_chunked_rgba(image_id, &b64, width, height, quiet, transport, compression)
+}
+
+fn compress_payload(bytes: &[u8], compression: CompressionMode) -> Option<Vec<u8>> {
+    match compression {
+        CompressionMode::None => Some(bytes.to_vec()),
+        CompressionMode::Zlib => {
+            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(bytes).ok()?;
+            encoder.finish().ok()
+        }
+    }
 }
 
 fn encode_chunked_rgba(
@@ -211,6 +273,7 @@ fn encode_chunked_rgba(
     height: u32,
     quiet: Quiet,
     transport: Transport,
+    compression: CompressionMode,
 ) -> String {
     const CHUNK: usize = 4096;
     let mut out = String::new();
@@ -221,11 +284,12 @@ fn encode_chunked_rgba(
         let more = if end < bytes.len() { 1 } else { 0 };
         let header = if offset == 0 {
             format!(
-                "a=t,f=32,s={s},v={v},i={id},m={more}{q}",
+                "a=t,f=32,s={s},v={v},i={id},m={more}{compression}{q}",
                 s = width,
                 v = height,
                 id = image_id,
                 more = more,
+                compression = compression.field(),
                 q = quiet.field(),
             )
         } else {
@@ -275,7 +339,11 @@ pub fn upload_animation_ex(
     let mut out = String::new();
     for (i, frame) in frames.iter().enumerate() {
         let medium = UploadMedium::Direct { bytes: frame };
-        let frame_index = if i == 0 { None } else { Some((i as u32).saturating_add(1)) };
+        let frame_index = if i == 0 {
+            None
+        } else {
+            Some((i as u32).saturating_add(1))
+        };
         out.push_str(&upload(
             image_id,
             frame_index,
@@ -325,7 +393,8 @@ pub fn placement_command_ex(
     options: &PlacementOptions,
     transport: Transport,
 ) -> String {
-    let mut fields = format!("a=p,i={id},c={cols},r={rows}",
+    let mut fields = format!(
+        "a=p,i={id},c={cols},r={rows}",
         id = image_id,
         cols = footprint.cols,
         rows = footprint.rows,
@@ -459,20 +528,58 @@ fn upload(
     };
     match medium {
         UploadMedium::Direct { bytes } => {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-            encode_chunked(image_id, verb, &b64, frame_index, frame_delay_ms, quiet, transport)
+            let compression = compression_from_env();
+            let payload = compress_payload(bytes, compression).unwrap_or_else(|| bytes.to_vec());
+            let b64 = base64::engine::general_purpose::STANDARD.encode(payload);
+            encode_chunked(
+                image_id,
+                verb,
+                &b64,
+                frame_index,
+                frame_delay_ms,
+                quiet,
+                transport,
+                compression,
+            )
         }
         UploadMedium::File { path } => {
             let b64 = base64::engine::general_purpose::STANDARD.encode(path_bytes(path));
-            single_payload(image_id, verb, "f", &b64, frame_index, frame_delay_ms, quiet, transport)
+            single_payload(
+                image_id,
+                verb,
+                "f",
+                &b64,
+                frame_index,
+                frame_delay_ms,
+                quiet,
+                transport,
+            )
         }
         UploadMedium::TempFile { path } => {
             let b64 = base64::engine::general_purpose::STANDARD.encode(path_bytes(path));
-            single_payload(image_id, verb, "t", &b64, frame_index, frame_delay_ms, quiet, transport)
+            single_payload(
+                image_id,
+                verb,
+                "t",
+                &b64,
+                frame_index,
+                frame_delay_ms,
+                quiet,
+                transport,
+            )
         }
         UploadMedium::SharedMemory { name } => {
             let b64 = base64::engine::general_purpose::STANDARD.encode(name.as_bytes());
-            single_payload(image_id, verb, "s", &b64, frame_index, frame_delay_ms, quiet, transport)
+            single_payload(
+                image_id,
+                verb,
+                "s",
+                &b64,
+                frame_index,
+                frame_delay_ms,
+                quiet,
+                transport,
+            )
         }
     }
 }
@@ -498,7 +605,9 @@ fn single_payload(
     transport: Transport,
 ) -> String {
     let frame_field = frame_index.map(|i| format!(",r={i}")).unwrap_or_default();
-    let delay_field = frame_delay_ms.map(|z| format!(",z={z}")).unwrap_or_default();
+    let delay_field = frame_delay_ms
+        .map(|z| format!(",z={z}"))
+        .unwrap_or_default();
     let header = format!(
         "{verb},f=100,t={medium},i={id}{frame}{delay}{q}",
         verb = verb,
@@ -520,24 +629,28 @@ fn encode_chunked(
     frame_delay_ms: Option<u32>,
     quiet: Quiet,
     transport: Transport,
+    compression: CompressionMode,
 ) -> String {
     const CHUNK: usize = 4096;
     let mut out = String::new();
     let bytes = base64_body.as_bytes();
     let mut offset = 0;
     let frame_field = frame_index.map(|i| format!(",r={i}")).unwrap_or_default();
-    let delay_field = frame_delay_ms.map(|z| format!(",z={z}")).unwrap_or_default();
+    let delay_field = frame_delay_ms
+        .map(|z| format!(",z={z}"))
+        .unwrap_or_default();
     while offset < bytes.len() {
         let end = (offset + CHUNK).min(bytes.len());
         let more = if end < bytes.len() { 1 } else { 0 };
         let header = if offset == 0 {
             format!(
-                "{verb},f=100,i={id},m={more}{frame_field}{delay_field}{q}",
+                "{verb},f=100,i={id},m={more}{frame_field}{delay_field}{compression}{q}",
                 verb = verb,
                 id = image_id,
                 more = more,
                 frame_field = frame_field,
                 delay_field = delay_field,
+                compression = compression.field(),
                 q = quiet.field(),
             )
         } else {
@@ -616,7 +729,10 @@ mod tests {
             ..PlacementOptions::unicode()
         };
         let cmd = placement_command_ex(5, CellRect::new(0, 0, 8, 4), &opts, Transport::Direct);
-        assert_eq!(cmd, "\x1b_Ga=p,i=5,c=8,r=4,U=1,P=42,Q=9,H=-3,V=12,q=2\x1b\\");
+        assert_eq!(
+            cmd,
+            "\x1b_Ga=p,i=5,c=8,r=4,U=1,P=42,Q=9,H=-3,V=12,q=2\x1b\\"
+        );
     }
 
     #[test]
@@ -625,7 +741,9 @@ mod tests {
         let placeholder_count = text.matches(PLACEHOLDER_CHAR).count();
         assert_eq!(placeholder_count, 4);
         // Each placeholder is followed by row + column diacritic; image id MSB is zero.
-        let mut chars = text.chars().filter(|c| *c == PLACEHOLDER_CHAR || ROWCOLUMN_DIACRITICS.contains(c));
+        let mut chars = text
+            .chars()
+            .filter(|c| *c == PLACEHOLDER_CHAR || ROWCOLUMN_DIACRITICS.contains(c));
         let first = chars.next().unwrap();
         let row0 = chars.next().unwrap();
         let col0 = chars.next().unwrap();
@@ -688,7 +806,8 @@ mod tests {
             Quiet::SuppressAll,
             Transport::Direct,
         );
-        let expected_b64 = base64::engine::general_purpose::STANDARD.encode(b"/tmp/kittui-image.png");
+        let expected_b64 =
+            base64::engine::general_purpose::STANDARD.encode(b"/tmp/kittui-image.png");
         let want = format!("\x1b_Ga=t,f=100,t=f,i=7,q=2;{expected_b64}\x1b\\");
         assert_eq!(escapes, want);
     }
@@ -748,6 +867,35 @@ mod tests {
         assert!(escapes.ends_with("\x1b\\"));
         // No PNG signature in the body — must be base64 of raw RGBA only.
         assert!(!escapes.contains("PNG"));
+    }
+
+    #[test]
+    fn upload_still_rgba_supports_zlib_compression() {
+        let rgba = vec![0x7fu8; 64];
+        let escapes = upload_still_rgba_compressed(
+            3,
+            &rgba,
+            4,
+            4,
+            Quiet::SuppressAll,
+            Transport::Direct,
+            CompressionMode::Zlib,
+        );
+        assert!(
+            escapes.starts_with("\x1b_Ga=t,f=32,s=4,v=4,i=3,m=0,o=z,q=2;"),
+            "compressed raw RGBA upload must mark o=z: {escapes:?}"
+        );
+        let body = escapes
+            .split_once(';')
+            .and_then(|(_, rest)| rest.strip_suffix("\x1b\\"))
+            .unwrap();
+        let compressed = base64::engine::general_purpose::STANDARD
+            .decode(body)
+            .unwrap();
+        let mut decoder = flate2::read::ZlibDecoder::new(&compressed[..]);
+        let mut decoded = Vec::new();
+        std::io::Read::read_to_end(&mut decoder, &mut decoded).unwrap();
+        assert_eq!(decoded, rgba);
     }
 
     #[test]
