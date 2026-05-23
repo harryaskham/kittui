@@ -922,6 +922,8 @@ pub enum KittwmEvent {
     PaneClosed(EventEnvelope),
     /// Pane metadata/text/status changed.
     PaneChanged(EventEnvelope),
+    /// Pane outer/app geometry changed.
+    PaneResized(EventEnvelope),
     /// Focus changed.
     FocusChanged(EventEnvelope),
     /// Layout changed.
@@ -966,6 +968,7 @@ impl KittwmEvent {
             | Self::PaneOpened(envelope)
             | Self::PaneClosed(envelope)
             | Self::PaneChanged(envelope)
+            | Self::PaneResized(envelope)
             | Self::FocusChanged(envelope)
             | Self::LayoutChanged(envelope)
             | Self::SemanticSnapshotReady(envelope)
@@ -996,6 +999,7 @@ impl KittwmEvent {
             Self::PaneOpened(_) => "pane_opened",
             Self::PaneClosed(_) => "pane_closed",
             Self::PaneChanged(_) => "pane_changed",
+            Self::PaneResized(_) => "pane_resized",
             Self::FocusChanged(_) => "focus_changed",
             Self::LayoutChanged(_) => "layout_changed",
             Self::SemanticSnapshotReady(_) => "semantic_snapshot_ready",
@@ -1033,6 +1037,7 @@ fn parse_event_value(value: Value) -> KittwmEvent {
         "pane_opened" => KittwmEvent::PaneOpened(envelope()),
         "pane_closed" => KittwmEvent::PaneClosed(envelope()),
         "pane_changed" => KittwmEvent::PaneChanged(envelope()),
+        "pane_resized" => KittwmEvent::PaneResized(envelope()),
         "focus_changed" => KittwmEvent::FocusChanged(envelope()),
         "layout_changed" => KittwmEvent::LayoutChanged(envelope()),
         "semantic_snapshot_ready" => KittwmEvent::SemanticSnapshotReady(envelope()),
@@ -2377,8 +2382,23 @@ mod tests {
             other => panic!("unexpected event: {other:?}"),
         }
 
+        let resized = KittwmEvent::parse_line(
+            r#"{"schema_version":1,"seq":8,"kind":"pane_resized","window":"native-1","detail":{"old":{"x":0,"y":0,"cols":80,"rows":24,"app_x":0,"app_y":1,"app_cols":80,"app_rows":23},"new":{"x":0,"y":0,"cols":100,"rows":30,"app_x":0,"app_y":1,"app_cols":100,"app_rows":29}}}"#,
+        )
+        .unwrap();
+        assert_eq!(resized.kind(), "pane_resized");
+        match resized {
+            KittwmEvent::PaneResized(envelope) => {
+                assert_eq!(envelope.seq, Some(8));
+                assert_eq!(envelope.window.as_deref(), Some("native-1"));
+                assert_eq!(envelope.detail["old"]["cols"], 80);
+                assert_eq!(envelope.detail["new"]["app_rows"], 29);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
         let semantic = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":8,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
+            r#"{"schema_version":1,"seq":9,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
         )
         .unwrap();
         assert_eq!(semantic.kind(), "semantic_value_changed");

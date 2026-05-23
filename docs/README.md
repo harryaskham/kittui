@@ -68,8 +68,10 @@ Current semantic implementation status:
   set number/bool, and select actions.
 - Semantic publish/focus/action/value changes and native surface side effects
   (title, bell, OSC52 clipboard set, notification) appear in the native bounded
-  `EVENTS [ms]` stream and parse as typed SDK events; SDK callers can collect
-  events as a batch or iterate the bounded batch with `KittwmEventIter`.
+  `EVENTS [ms]` stream and parse as typed SDK events, including pane lifecycle,
+  `pane_resized`, focus/layout, semantic, and side-effect variants; SDK callers
+  can collect events as a batch or iterate the bounded batch with
+  `KittwmEventIter`.
 - `kittui-affordances` owns the high-level form/control builders and gallery;
   `kittui-core` remains primitive-only.
 - `kittui-wm` can render both internal and public SDK semantic snapshots to
