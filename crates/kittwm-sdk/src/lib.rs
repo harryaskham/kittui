@@ -60,6 +60,8 @@ pub enum Capability {
     SubscribeEvents,
     /// Read semantic component trees.
     ReadSemanticTree,
+    /// Publish semantic component trees.
+    PublishSemanticTree,
     /// Invoke semantic component actions.
     InvokeSemanticAction,
 }
@@ -84,6 +86,7 @@ impl ClientCapabilities {
                 Capability::Clipboard,
                 Capability::SubscribeEvents,
                 Capability::ReadSemanticTree,
+                Capability::PublishSemanticTree,
                 Capability::InvokeSemanticAction,
             ],
         }
@@ -1047,6 +1050,16 @@ impl SurfaceHandle {
         )?)?)
     }
 
+    /// Publish the current semantic component snapshot for this surface.
+    pub fn semantic_publish(&self, snapshot: &SemanticSurfaceSnapshot) -> Result<String> {
+        self.client
+            .capabilities
+            .ensure(Capability::PublishSemanticTree)?;
+        let payload = serde_json::to_string(snapshot)?;
+        self.client
+            .request_protocol(format!("SEMANTIC_PUBLISH {} {}", self.id, payload))
+    }
+
     /// Invoke a semantic component action with a JSON payload.
     pub fn semantic_action(
         &self,
@@ -1422,6 +1435,15 @@ mod tests {
             surface.semantic_snapshot(),
             Err(Error::CapabilityDenied(Capability::ReadSemanticTree))
         ));
+        let snapshot = SemanticSurfaceSnapshot::new(
+            "focused",
+            1,
+            ComponentNode::new("focused.root", ComponentRole::Group),
+        );
+        assert!(matches!(
+            surface.semantic_publish(&snapshot),
+            Err(Error::CapabilityDenied(Capability::PublishSemanticTree))
+        ));
         assert!(matches!(
             surface.semantic_action("field", "set", serde_json::json!({"value":"x"})),
             Err(Error::CapabilityDenied(Capability::InvokeSemanticAction))
@@ -1444,7 +1466,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..3 {
+            for _ in 0..4 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -1459,6 +1481,8 @@ mod tests {
                         ComponentNode::new("root", ComponentRole::Group),
                     ))
                     .unwrap()
+                } else if command.starts_with("SEMANTIC_PUBLISH") {
+                    "SEMANTIC_PUBLISHED window=native-1".to_string()
                 } else if command.starts_with("SEMANTIC_ACTION") {
                     "ERR SEMANTIC_ACTION unsupported window=native-1 component=field action=set"
                         .to_string()
@@ -1474,6 +1498,10 @@ mod tests {
         let surface = Kittwm::connect_path(&path).surface("native-1");
         let snapshot = surface.semantic_snapshot().unwrap();
         assert_eq!(snapshot.surface, "native-1");
+        assert_eq!(
+            surface.semantic_publish(&snapshot).unwrap().trim(),
+            "SEMANTIC_PUBLISHED window=native-1"
+        );
         assert!(matches!(
             surface.semantic_action("field", "set", serde_json::json!({"value":"x"})),
             Err(Error::Daemon(_))
@@ -1485,11 +1513,12 @@ mod tests {
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(seen[0], "SEMANTIC_SNAPSHOT native-1");
+        assert!(seen[1].starts_with("SEMANTIC_PUBLISH native-1 {"));
         assert_eq!(
-            seen[1],
+            seen[2],
             "SEMANTIC_ACTION native-1 field set {\"value\":\"x\"}"
         );
-        assert_eq!(seen[2], "SEMANTIC_FOCUS native-1 field");
+        assert_eq!(seen[3], "SEMANTIC_FOCUS native-1 field");
     }
 
     #[cfg(unix)]

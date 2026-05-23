@@ -10,7 +10,7 @@ use kittwm_sdk::{
     ActionKind, ComponentAction, ComponentNode, ComponentRole, ComponentState, ComponentValue,
     SemanticSurfaceSnapshot,
 };
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -233,6 +233,7 @@ struct NativeSpawnQueueState {
     layout: Option<String>,
     events: VecDeque<serde_json::Value>,
     next_event_seq: u64,
+    semantic_snapshots: HashMap<String, SemanticSurfaceSnapshot>,
 }
 
 /// In-process socket queue used by the live native PTY session.
@@ -603,6 +604,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(target) = cmd.strip_prefix("SEMANTIC_SNAPSHOT ") {
         return native_spawn_semantic_snapshot_reply(pending, target);
     }
+    if let Some(rest) = cmd.strip_prefix("SEMANTIC_PUBLISH ") {
+        return native_spawn_semantic_publish_reply(pending, rest);
+    }
     if let Some(rest) = cmd.strip_prefix("SEMANTIC_ACTION ") {
         return native_spawn_semantic_action_reply(pending, rest);
     }
@@ -620,7 +624,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -751,6 +755,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "SEMANTIC_SNAPSHOT <window|focused>",
             "semantic",
             "read a semantic component snapshot for a native pane",
+        ),
+        (
+            "SEMANTIC_PUBLISH <window|focused> <snapshot-json>",
+            "semantic",
+            "publish the latest semantic component snapshot for a native pane",
         ),
         (
             "SEMANTIC_ACTION <window|focused> <component> <action> <json>",
@@ -1661,11 +1670,50 @@ fn native_spawn_semantic_snapshot_reply(
             serde_json::json!({ "error": "no pane matching target", "target": target.trim() })
         );
     };
-    let snapshot = native_semantic_snapshot_for_pane(pane);
+    let snapshot = state
+        .semantic_snapshots
+        .get(&pane.window)
+        .cloned()
+        .unwrap_or_else(|| native_semantic_snapshot_for_pane(pane));
     format!(
         "{}\n",
         serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string())
     )
+}
+
+fn native_spawn_semantic_publish_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+) -> String {
+    let Some((target, json)) = rest.trim_start().split_once(' ') else {
+        return "ERR SEMANTIC_PUBLISH requires window and snapshot-json\n".to_string();
+    };
+    let mut snapshot = match serde_json::from_str::<SemanticSurfaceSnapshot>(json.trim()) {
+        Ok(snapshot) => snapshot,
+        Err(_) => return "ERR SEMANTIC_PUBLISH snapshot must be JSON\n".to_string(),
+    };
+    if snapshot.schema_version != 1 {
+        return "ERR SEMANTIC_PUBLISH schema_version must be 1\n".to_string();
+    }
+    if snapshot.surface.trim().is_empty() || snapshot.root.id.as_str().trim().is_empty() {
+        return "ERR SEMANTIC_PUBLISH requires surface and root.id\n".to_string();
+    }
+    let Ok(mut state) = pending.lock() else {
+        return "ERR registry poisoned\n".to_string();
+    };
+    let Some(pane) = native_find_pane_target(&state.panes, target) else {
+        return format!("ERR SEMANTIC_PUBLISH no pane matching {}\n", target.trim());
+    };
+    let window = pane.window.clone();
+    if snapshot.surface != window {
+        return format!(
+            "ERR SEMANTIC_PUBLISH surface mismatch window={} snapshot={}\n",
+            window, snapshot.surface
+        );
+    }
+    snapshot.surface = window.clone();
+    state.semantic_snapshots.insert(window.clone(), snapshot);
+    format!("SEMANTIC_PUBLISHED window={window}\n")
 }
 
 fn native_semantic_snapshot_for_pane(pane: &NativePaneStatus) -> SemanticSurfaceSnapshot {
@@ -2648,6 +2696,56 @@ mod tests {
         assert_eq!(value["root"]["children"][0]["value"]["kind"], "text");
         assert_eq!(value["root"]["children"][0]["state"]["focused"], true);
         assert_eq!(value["focus"], "native-1.screen");
+    }
+
+    #[test]
+    fn native_spawn_queue_publishes_and_reads_semantic_snapshot() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        pending.lock().unwrap().panes = vec![native_status("native-1", true, 1)];
+        let snapshot = SemanticSurfaceSnapshot::new(
+            "native-1",
+            42,
+            ComponentNode::new("native-1.button", ComponentRole::Button).labeled("Run"),
+        );
+        let publish = native_spawn_queue_reply(
+            &format!(
+                "SEMANTIC_PUBLISH focused {}",
+                serde_json::to_string(&snapshot).unwrap()
+            ),
+            &pending,
+        );
+        assert_eq!(publish, "SEMANTIC_PUBLISHED window=native-1\n");
+        let reply = native_spawn_queue_reply("SEMANTIC_SNAPSHOT native-1", &pending);
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(value["revision"], 42);
+        assert_eq!(value["root"]["role"], "button");
+        assert_eq!(value["root"]["label"], "Run");
+    }
+
+    #[test]
+    fn native_spawn_queue_rejects_invalid_semantic_publish() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        pending.lock().unwrap().panes = vec![native_status("native-1", true, 1)];
+        assert_eq!(
+            native_spawn_queue_reply("SEMANTIC_PUBLISH focused not-json", &pending),
+            "ERR SEMANTIC_PUBLISH snapshot must be JSON\n"
+        );
+        let mismatch = SemanticSurfaceSnapshot::new(
+            "native-2",
+            1,
+            ComponentNode::new("native-2.root", ComponentRole::Group),
+        );
+        let reply = native_spawn_queue_reply(
+            &format!(
+                "SEMANTIC_PUBLISH focused {}",
+                serde_json::to_string(&mismatch).unwrap()
+            ),
+            &pending,
+        );
+        assert!(
+            reply.starts_with("ERR SEMANTIC_PUBLISH surface mismatch"),
+            "{reply}"
+        );
     }
 
     #[test]
