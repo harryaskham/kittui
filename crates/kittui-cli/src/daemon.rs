@@ -1712,7 +1712,15 @@ fn native_spawn_semantic_publish_reply(
         );
     }
     snapshot.surface = window.clone();
+    let revision = snapshot.revision;
+    let focus = snapshot.focus.as_ref().map(|id| id.as_str().to_string());
     state.semantic_snapshots.insert(window.clone(), snapshot);
+    push_native_event(
+        &mut state,
+        "semantic_snapshot_ready",
+        Some(window.clone()),
+        serde_json::json!({ "revision": revision, "focus": focus }),
+    );
     format!("SEMANTIC_PUBLISHED window={window}\n")
 }
 
@@ -1764,21 +1772,50 @@ fn native_spawn_semantic_action_reply(
         return format!("ERR SEMANTIC_ACTION no pane matching {}\n", target.trim());
     };
     let window = pane.window.clone();
-    let Some(snapshot) = state.semantic_snapshots.get_mut(&window) else {
-        return format!(
-            "ERR SEMANTIC_ACTION unsupported window={} component={} action={}\n",
-            window,
-            component.trim(),
-            action.trim()
-        );
+    let action_result = {
+        let Some(snapshot) = state.semantic_snapshots.get_mut(&window) else {
+            return format!(
+                "ERR SEMANTIC_ACTION unsupported window={} component={} action={}\n",
+                window,
+                component.trim(),
+                action.trim()
+            );
+        };
+        apply_semantic_action(snapshot, component.trim(), action.trim(), &payload)
+            .map(|detail| (snapshot.revision, detail.value))
     };
-    match apply_semantic_action(snapshot, component.trim(), action.trim(), &payload) {
-        Ok(()) => format!(
-            "SEMANTIC_ACTION_APPLIED window={} component={} action={}\n",
-            window,
-            component.trim(),
-            action.trim()
-        ),
+    match action_result {
+        Ok((revision, value)) => {
+            push_native_event(
+                &mut state,
+                "semantic_action_invoked",
+                Some(window.clone()),
+                serde_json::json!({
+                    "component": component.trim(),
+                    "action": action.trim(),
+                    "revision": revision,
+                    "value": value,
+                }),
+            );
+            if value != serde_json::Value::Null {
+                push_native_event(
+                    &mut state,
+                    "semantic_value_changed",
+                    Some(window.clone()),
+                    serde_json::json!({
+                        "component": component.trim(),
+                        "revision": revision,
+                        "value": value,
+                    }),
+                );
+            }
+            format!(
+                "SEMANTIC_ACTION_APPLIED window={} component={} action={}\n",
+                window,
+                component.trim(),
+                action.trim()
+            )
+        }
         Err(err) => format!(
             "ERR SEMANTIC_ACTION window={} component={} action={} {}\n",
             window,
@@ -1803,19 +1840,30 @@ fn native_spawn_semantic_focus_reply(
         return format!("ERR SEMANTIC_FOCUS no pane matching {}\n", target.trim());
     };
     let window = pane.window.clone();
-    let Some(snapshot) = state.semantic_snapshots.get_mut(&window) else {
-        return format!(
-            "ERR SEMANTIC_FOCUS unsupported window={} component={}\n",
-            window,
-            component.trim()
-        );
+    let focus_result = {
+        let Some(snapshot) = state.semantic_snapshots.get_mut(&window) else {
+            return format!(
+                "ERR SEMANTIC_FOCUS unsupported window={} component={}\n",
+                window,
+                component.trim()
+            );
+        };
+        apply_semantic_focus(snapshot, component.trim()).map(|()| snapshot.revision)
     };
-    match apply_semantic_focus(snapshot, component.trim()) {
-        Ok(()) => format!(
-            "SEMANTIC_FOCUSED window={} component={}\n",
-            window,
-            component.trim()
-        ),
+    match focus_result {
+        Ok(revision) => {
+            push_native_event(
+                &mut state,
+                "semantic_focus_changed",
+                Some(window.clone()),
+                serde_json::json!({ "component": component.trim(), "revision": revision }),
+            );
+            format!(
+                "SEMANTIC_FOCUSED window={} component={}\n",
+                window,
+                component.trim()
+            )
+        }
         Err(err) => format!(
             "ERR SEMANTIC_FOCUS window={} component={} {}\n",
             window,
@@ -1823,6 +1871,10 @@ fn native_spawn_semantic_focus_reply(
             err
         ),
     }
+}
+
+struct SemanticActionDetail {
+    value: serde_json::Value,
 }
 
 fn apply_semantic_focus(
@@ -1838,6 +1890,7 @@ fn apply_semantic_focus(
         node.state.focusable = true;
     })?;
     snapshot.focus = Some(SemanticComponentId::new(component));
+    snapshot.revision = snapshot.revision.saturating_add(1);
     Ok(())
 }
 
@@ -1846,9 +1899,14 @@ fn apply_semantic_action(
     component: &str,
     action: &str,
     payload: &serde_json::Value,
-) -> std::result::Result<(), &'static str> {
+) -> std::result::Result<SemanticActionDetail, &'static str> {
     match action {
-        "focus" => apply_semantic_focus(snapshot, component),
+        "focus" => {
+            apply_semantic_focus(snapshot, component)?;
+            Ok(SemanticActionDetail {
+                value: serde_json::Value::Null,
+            })
+        }
         "toggle" => apply_semantic_toggle(snapshot, component),
         "set" | "set_value" | "insert_text" => {
             apply_semantic_set_value(snapshot, component, payload)
@@ -1861,7 +1919,7 @@ fn apply_semantic_action(
 fn apply_semantic_toggle(
     snapshot: &mut SemanticSurfaceSnapshot,
     component: &str,
-) -> std::result::Result<(), &'static str> {
+) -> std::result::Result<SemanticActionDetail, &'static str> {
     let node = snapshot_component_mut(snapshot, component)?;
     let next = match node.value.as_ref() {
         Some(ComponentValue::Bool(value)) => !value,
@@ -1870,42 +1928,49 @@ fn apply_semantic_toggle(
     node.value = Some(ComponentValue::Bool(next));
     node.state.checked = next;
     node.state.selected = next;
-    Ok(())
+    snapshot.revision = snapshot.revision.saturating_add(1);
+    Ok(SemanticActionDetail {
+        value: serde_json::json!(next),
+    })
 }
 
 fn apply_semantic_set_value(
     snapshot: &mut SemanticSurfaceSnapshot,
     component: &str,
     payload: &serde_json::Value,
-) -> std::result::Result<(), &'static str> {
-    let node = snapshot_component_mut(snapshot, component)?;
-    if let Some(text) = payload.get("text").and_then(serde_json::Value::as_str) {
-        node.value = Some(ComponentValue::Text(text.to_string()));
-        return Ok(());
-    }
-    if let Some(value) = payload.get("value") {
-        if let Some(text) = value.as_str() {
+) -> std::result::Result<SemanticActionDetail, &'static str> {
+    let detail = {
+        let node = snapshot_component_mut(snapshot, component)?;
+        if let Some(text) = payload.get("text").and_then(serde_json::Value::as_str) {
             node.value = Some(ComponentValue::Text(text.to_string()));
-            return Ok(());
+            serde_json::json!(text)
+        } else if let Some(value) = payload.get("value") {
+            if let Some(text) = value.as_str() {
+                node.value = Some(ComponentValue::Text(text.to_string()));
+                serde_json::json!(text)
+            } else if let Some(number) = value.as_f64() {
+                node.value = Some(ComponentValue::Number(number as f32));
+                serde_json::json!(number)
+            } else if let Some(boolean) = value.as_bool() {
+                node.value = Some(ComponentValue::Bool(boolean));
+                node.state.checked = boolean;
+                serde_json::json!(boolean)
+            } else {
+                return Err("payload must contain text or scalar value");
+            }
+        } else {
+            return Err("payload must contain text or scalar value");
         }
-        if let Some(number) = value.as_f64() {
-            node.value = Some(ComponentValue::Number(number as f32));
-            return Ok(());
-        }
-        if let Some(boolean) = value.as_bool() {
-            node.value = Some(ComponentValue::Bool(boolean));
-            node.state.checked = boolean;
-            return Ok(());
-        }
-    }
-    Err("payload must contain text or scalar value")
+    };
+    snapshot.revision = snapshot.revision.saturating_add(1);
+    Ok(SemanticActionDetail { value: detail })
 }
 
 fn apply_semantic_select(
     snapshot: &mut SemanticSurfaceSnapshot,
     component: &str,
     payload: &serde_json::Value,
-) -> std::result::Result<(), &'static str> {
+) -> std::result::Result<SemanticActionDetail, &'static str> {
     let selection = payload
         .get("selection")
         .or_else(|| payload.get("value"))
@@ -1931,7 +1996,10 @@ fn apply_semantic_select(
         child.state.selected = selection.iter().any(|id| id == child.id.as_str());
         child.state.checked = child.state.selected;
     }
-    Ok(())
+    snapshot.revision = snapshot.revision.saturating_add(1);
+    Ok(SemanticActionDetail {
+        value: serde_json::json!(selection),
+    })
 }
 
 fn snapshot_component_mut<'a>(
@@ -3033,6 +3101,30 @@ mod tests {
         );
         assert_eq!(children[1]["state"]["checked"], true);
         assert_eq!(children[2]["children"][1]["state"]["selected"], true);
+
+        let events = pending
+            .lock()
+            .unwrap()
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(events
+            .iter()
+            .any(|event| event["kind"] == "semantic_snapshot_ready"));
+        assert!(events
+            .iter()
+            .any(|event| event["kind"] == "semantic_focus_changed"));
+        assert!(events
+            .iter()
+            .any(|event| event["kind"] == "semantic_action_invoked"));
+        assert!(events
+            .iter()
+            .any(|event| event["kind"] == "semantic_value_changed"
+                && event["detail"]["component"] == "settings.notify"));
+        assert!(events
+            .iter()
+            .all(|event| event["schema_version"] == NATIVE_EVENT_SCHEMA_VERSION));
     }
 
     #[test]
