@@ -80,5 +80,9 @@ Current semantic implementation status:
   app that prints, queries, and publishes a settings/form component tree.
 - `crates/kittui-cli/examples/kittwm_composite_app.rs` — composite SDK example
   spanning terminal plus browser/placeholder surfaces.
+- `kittwm-terminal` — first-party SDK terminal client for spawn/replace plus
+  typed `--status` and `--events-ms` inspection.
+- `kittwm-launch` — first-party SDK launcher with backend planning, URL/browser
+  auto-selection through `kittwm-browser`, `--dry-run`, and `--status`.
 - `crates/kittui-affordances/examples/control_gallery.rs` — first-party control
   palette summary over affordance builders.
