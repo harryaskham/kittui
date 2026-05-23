@@ -246,6 +246,56 @@ impl MouseEvent {
     }
 }
 
+/// Native layout axis accepted by `LAYOUT`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayoutMode {
+    /// Split panes into columns.
+    Columns,
+    /// Split panes into rows.
+    Rows,
+}
+
+impl LayoutMode {
+    fn protocol_label(self) -> &'static str {
+        match self {
+            Self::Columns => "columns",
+            Self::Rows => "rows",
+        }
+    }
+}
+
+/// Pane move direction accepted by `MOVE_PANE`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MoveDirection {
+    /// Move left in the layout order.
+    Left,
+    /// Move right in the layout order.
+    Right,
+    /// Move upward in the layout order.
+    Up,
+    /// Move downward in the layout order.
+    Down,
+    /// Move to the first slot.
+    First,
+    /// Move to the last slot.
+    Last,
+}
+
+impl MoveDirection {
+    fn protocol_label(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Up => "up",
+            Self::Down => "down",
+            Self::First => "first",
+            Self::Last => "last",
+        }
+    }
+}
+
 /// Native kittwm session manifest returned by `SESSION_JSON` and accepted by
 /// `RESTORE_SESSION_JSON`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1145,6 +1195,30 @@ impl Kittwm {
         )
     }
 
+    /// Focus the next pane/window.
+    pub fn focus_next(&self) -> Result<String> {
+        self.capabilities.ensure(Capability::ControlWindow)?;
+        self.request_protocol("FOCUS_NEXT")
+    }
+
+    /// Focus the previous pane/window.
+    pub fn focus_prev(&self) -> Result<String> {
+        self.capabilities.ensure(Capability::ControlWindow)?;
+        self.request_protocol("FOCUS_PREV")
+    }
+
+    /// Set the session layout axis.
+    pub fn layout(&self, mode: LayoutMode) -> Result<String> {
+        self.capabilities.ensure(Capability::ControlWindow)?;
+        self.request_protocol(format!("LAYOUT {}", mode.protocol_label()))
+    }
+
+    /// Balance pane weights in the current layout.
+    pub fn balance_panes(&self) -> Result<String> {
+        self.capabilities.ensure(Capability::ControlWindow)?;
+        self.request_protocol("BALANCE_PANES")
+    }
+
     /// Fetch a bounded batch of native JSON-lines events.
     pub fn events_ms(&self, ms: u64) -> Result<Vec<KittwmEvent>> {
         self.capabilities.ensure(Capability::SubscribeEvents)?;
@@ -1250,6 +1324,16 @@ impl SurfaceHandle {
         };
         self.client
             .request_protocol(format!("RESIZE_PANE {} {label}", self.id))
+    }
+
+    /// Move this pane within the current layout.
+    pub fn move_pane(&self, direction: MoveDirection) -> Result<String> {
+        self.client.capabilities.ensure(Capability::ControlWindow)?;
+        self.client.request_protocol(format!(
+            "MOVE_PANE {} {}",
+            self.id,
+            direction.protocol_label()
+        ))
     }
 
     /// Send raw UTF-8 text.
@@ -2310,6 +2394,95 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].kind(), "status");
         assert_eq!(events[1].kind(), "layout_changed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn control_helpers_send_expected_socket_commands() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwc-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..6 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                let command = request.trim().to_string();
+                seen.push(command);
+                stream.write_all(b"OK\n").unwrap();
+            }
+            seen
+        });
+
+        let client = Kittwm::connect_path(&path);
+        assert_eq!(client.focus_next().unwrap().trim(), "OK");
+        assert_eq!(client.focus_prev().unwrap().trim(), "OK");
+        assert_eq!(client.layout(LayoutMode::Columns).unwrap().trim(), "OK");
+        assert_eq!(client.balance_panes().unwrap().trim(), "OK");
+        let surface = client.surface("native-2");
+        assert_eq!(
+            surface.move_pane(MoveDirection::First).unwrap().trim(),
+            "OK"
+        );
+        assert_eq!(surface.move_pane(MoveDirection::Down).unwrap().trim(), "OK");
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            seen,
+            [
+                "FOCUS_NEXT",
+                "FOCUS_PREV",
+                "LAYOUT columns",
+                "BALANCE_PANES",
+                "MOVE_PANE native-2 first",
+                "MOVE_PANE native-2 down"
+            ]
+        );
+    }
+
+    #[test]
+    fn control_capabilities_deny_helpers_before_io() {
+        let client = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::ReadText]));
+        assert!(matches!(
+            client.focus_next(),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.focus_prev(),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.layout(LayoutMode::Rows),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.balance_panes(),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.surface("focused").move_pane(MoveDirection::Last),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+    }
+
+    #[test]
+    fn control_protocol_labels_match_daemon_vocab() {
+        assert_eq!(LayoutMode::Columns.protocol_label(), "columns");
+        assert_eq!(LayoutMode::Rows.protocol_label(), "rows");
+        assert_eq!(MoveDirection::Left.protocol_label(), "left");
+        assert_eq!(MoveDirection::Right.protocol_label(), "right");
+        assert_eq!(MoveDirection::Up.protocol_label(), "up");
+        assert_eq!(MoveDirection::Down.protocol_label(), "down");
+        assert_eq!(MoveDirection::First.protocol_label(), "first");
+        assert_eq!(MoveDirection::Last.protocol_label(), "last");
     }
 
     #[cfg(unix)]
