@@ -103,17 +103,13 @@ impl Composer {
         let mut placements_emitted = 0usize;
 
         for entry in &composition.entries {
-            let placed: Placement = runtime.place(&entry.scene)?;
+            let placed: Placement = runtime.place_at(&entry.scene, entry.footprint)?;
             let scene_id = entry.scene.id();
-            let key = entry
-                .key
-                .clone()
-                .unwrap_or_else(|| scene_id.0.clone());
+            let key = entry.key.clone().unwrap_or_else(|| scene_id.0.clone());
 
             let needs_placement = match prev.get(&key) {
                 Some(prev_record) => {
-                    prev_record.scene_id != scene_id
-                        || prev_record.footprint != entry.footprint
+                    prev_record.scene_id != scene_id || prev_record.footprint != entry.footprint
                 }
                 None => true,
             };
@@ -302,6 +298,11 @@ mod tests {
             diff
         );
         assert!(!diff.placement.is_empty());
+        assert!(
+            diff.placement.contains("\x1b[6;11H"),
+            "{:?}",
+            diff.placement
+        );
         assert_eq!(diff.placements_emitted, 1);
     }
 

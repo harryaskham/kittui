@@ -20,11 +20,11 @@ pub mod scene;
 
 pub use composition::{Composer, Composition, CompositionEntry, DiffResult};
 
+pub use kittui_core::terminal::Transport;
 pub use kittui_core::{
     Animation, BlendMode, CellRect, CellSize, Corners, Direction, Fit, ImageRef, Layer, Node,
     Paint, PhaseCurve, Px, PxRect, Rgba, Scene, SceneId, Stop, Stroke, TerminalInfo,
 };
-pub use kittui_core::terminal::Transport;
 
 use std::path::PathBuf;
 
@@ -50,6 +50,9 @@ pub enum KittuiError {
     /// Cache error.
     #[error(transparent)]
     Cache(#[from] kittui_cache::CacheError),
+    /// Invalid placement override.
+    #[error("invalid placement: {0}")]
+    InvalidPlacement(String),
 }
 
 /// Renderer selection.
@@ -90,6 +93,31 @@ impl Runtime {
     /// upload bytes (empty if already cached + uploaded), the placement
     /// escape, and the embeddable text grid.
     pub fn place(&self, scene: &Scene) -> Result<Placement, KittuiError> {
+        self.place_at(scene, scene.footprint)
+    }
+
+    /// Render/cache `scene` using its scene-local footprint, but place the
+    /// resulting image at `placement_footprint` in the host terminal.
+    ///
+    /// This lets hosts move an already-rendered scene without mutating the
+    /// scene itself. The placement footprint must have the same dimensions as
+    /// the scene footprint; only `x`/`y` may differ.
+    pub fn place_at(
+        &self,
+        scene: &Scene,
+        placement_footprint: CellRect,
+    ) -> Result<Placement, KittuiError> {
+        if scene.footprint.cols != placement_footprint.cols
+            || scene.footprint.rows != placement_footprint.rows
+        {
+            return Err(KittuiError::InvalidPlacement(format!(
+                "placement footprint dimensions {}x{} must match scene footprint {}x{}",
+                placement_footprint.cols,
+                placement_footprint.rows,
+                scene.footprint.cols,
+                scene.footprint.rows
+            )));
+        }
         let id = scene.id();
         let image_id = id.kitty_image_id();
         let transport = self.terminal.transport;
@@ -116,7 +144,7 @@ impl Runtime {
                 )?;
                 frame.png
             };
-            if !self.has_already_placed(image_id, scene.footprint) {
+            if !self.has_image_uploaded(image_id) {
                 upload.push_str(&kitty::upload_still(image_id, &png, transport));
             }
         } else {
@@ -139,7 +167,7 @@ impl Runtime {
             }
             let meta = self.cache.get_meta(&id)?;
             let frames = self.cache.get_animation(&id, meta.frames)?;
-            if !self.has_already_placed(image_id, scene.footprint) {
+            if !self.has_image_uploaded(image_id) {
                 upload.push_str(&kitty::upload_animation(
                     image_id,
                     &frames,
@@ -151,19 +179,19 @@ impl Runtime {
         }
 
         let placement = {
-            let mv = kitty::cursor_move(scene.footprint.x, scene.footprint.y, transport);
-            let p = kitty::placement_command(image_id, scene.footprint, transport);
+            let mv = kitty::cursor_move(placement_footprint.x, placement_footprint.y, transport);
+            let p = kitty::placement_command(image_id, placement_footprint, transport);
             format!("{mv}{p}")
         };
-        let embed = kitty::placeholder_text(image_id, scene.footprint);
-        self.mark_placed(image_id, scene.footprint);
+        let embed = kitty::placeholder_text(image_id, placement_footprint);
+        self.mark_placed(image_id, placement_footprint);
 
         Ok(Placement {
             image_id,
             upload,
             placement,
             embed,
-            footprint: scene.footprint,
+            footprint: placement_footprint,
         })
     }
 
@@ -351,6 +379,10 @@ impl Runtime {
         matches!(self.placed.lock().get(&image_id), Some(prev) if *prev == footprint)
     }
 
+    fn has_image_uploaded(&self, image_id: u32) -> bool {
+        self.placed.lock().contains_key(&image_id)
+    }
+
     fn mark_placed(&self, image_id: u32, footprint: CellRect) {
         self.placed.lock().insert(image_id, footprint);
     }
@@ -463,7 +495,8 @@ impl Placement {
     /// frame, then placement+embed at the widget origin) should use the
     /// individual fields.
     pub fn to_bytes(&self) -> String {
-        let mut out = String::with_capacity(self.upload.len() + self.placement.len() + self.embed.len());
+        let mut out =
+            String::with_capacity(self.upload.len() + self.placement.len() + self.embed.len());
         out.push_str(&self.upload);
         out.push_str(&self.placement);
         out.push_str(&self.embed);
@@ -506,6 +539,46 @@ mod tests {
     }
 
     #[test]
+    fn place_at_moves_scene_without_changing_image_id() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .build()
+            .unwrap();
+        let scene = builders::simple_solid_box(4, 2, "#00d8ff");
+        let first = runtime.place(&scene).unwrap();
+        let moved = runtime
+            .place_at(&scene, CellRect::new(10, 5, 4, 2))
+            .unwrap();
+        assert_eq!(moved.image_id, first.image_id);
+        assert_eq!(moved.footprint, CellRect::new(10, 5, 4, 2));
+        assert!(
+            moved.upload.is_empty(),
+            "move should not re-upload cached image"
+        );
+        assert!(
+            moved.placement.contains("\x1b[6;11H"),
+            "{:?}",
+            moved.placement
+        );
+    }
+
+    #[test]
+    fn place_at_rejects_dimension_mismatches() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .build()
+            .unwrap();
+        let scene = builders::simple_solid_box(4, 2, "#00d8ff");
+        let err = match runtime.place_at(&scene, CellRect::new(0, 0, 5, 2)) {
+            Ok(_) => panic!("dimension mismatch unexpectedly succeeded"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, KittuiError::InvalidPlacement(_)));
+    }
+
+    #[test]
     fn place_batch_returns_one_placement_per_scene_and_concatenates_bytes() {
         let runtime = Runtime::builder()
             .cache_dir(tempdir())
@@ -542,7 +615,11 @@ mod tests {
         // Second call should hit the cache for both (no new upload).
         let again = runtime.place_many(&scenes).unwrap();
         for p in &again {
-            assert!(p.upload.is_empty(), "cached scene re-uploaded: {:?}", p.image_id);
+            assert!(
+                p.upload.is_empty(),
+                "cached scene re-uploaded: {:?}",
+                p.image_id
+            );
         }
     }
 

@@ -3,7 +3,7 @@
 `kittui` is a Rust-native renderer for terminal graphics via the kitty graphics
 protocol. It ships as:
 
-- a Rust crate (`kittui`) — `Runtime`, `Scene`, builders.
+- a Rust crate (`kittui`) — `Runtime`, `Scene`, builders, and `Runtime::place_at` for moving cached scenes without re-rendering.
 - a C ABI shared library (`kittui-ffi`) — `libkittui_ffi.{so,dylib,dll}` for
   TypeScript / Python / Lua / shell callers.
 - a CLI (`kittui`) — `kittui box`, `kittui gradient`, `kittui glow`,
