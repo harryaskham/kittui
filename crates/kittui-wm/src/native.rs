@@ -568,8 +568,13 @@ impl TerminalState {
             self.current_style = TerminalStyle::default();
             return;
         }
-        for param in params.iter() {
-            let value = param.first().copied().unwrap_or(0);
+        let values = params
+            .iter()
+            .flat_map(|param| param.iter().copied())
+            .collect::<Vec<_>>();
+        let mut idx = 0;
+        while idx < values.len() {
+            let value = values[idx];
             match value {
                 0 => self.current_style = TerminalStyle::default(),
                 1 => self.current_style.bold = true,
@@ -582,9 +587,66 @@ impl TerminalState {
                 49 => self.current_style.bg = None,
                 90..=97 => self.current_style.fg = ansi_color((value - 60) as u8, true),
                 100..=107 => self.current_style.bg = ansi_color((value - 70) as u8, true),
+                38 | 48 => {
+                    if let Some((color, consumed)) = parse_extended_sgr_color(&values[idx + 1..]) {
+                        if value == 38 {
+                            self.current_style.fg = Some(color);
+                        } else {
+                            self.current_style.bg = Some(color);
+                        }
+                        idx += consumed;
+                    }
+                }
                 _ => {}
             }
+            idx += 1;
         }
+    }
+}
+
+fn parse_extended_sgr_color(values: &[u16]) -> Option<(TerminalColor, usize)> {
+    match values.first().copied()? {
+        5 => {
+            let index = values.get(1).copied()? as u8;
+            Some((ansi_256_color(index), 2))
+        }
+        2 => {
+            let r = values.get(1).copied()?.min(255) as u8;
+            let g = values.get(2).copied()?.min(255) as u8;
+            let b = values.get(3).copied()?.min(255) as u8;
+            Some((TerminalColor(r, g, b), 4))
+        }
+        _ => None,
+    }
+}
+
+fn ansi_256_color(index: u8) -> TerminalColor {
+    match index {
+        0..=7 => ansi_color(30 + index, false).unwrap_or(TerminalColor(0xd7, 0xf8, 0xff)),
+        8..=15 => ansi_color(30 + (index - 8), true).unwrap_or(TerminalColor(0xd7, 0xf8, 0xff)),
+        16..=231 => {
+            let n = index - 16;
+            let r = n / 36;
+            let g = (n / 6) % 6;
+            let b = n % 6;
+            TerminalColor(
+                color_cube_component(r),
+                color_cube_component(g),
+                color_cube_component(b),
+            )
+        }
+        232..=255 => {
+            let level = 8 + (index - 232) * 10;
+            TerminalColor(level, level, level)
+        }
+    }
+}
+
+fn color_cube_component(value: u8) -> u8 {
+    if value == 0 {
+        0
+    } else {
+        55 + value * 40
     }
 }
 
@@ -1165,6 +1227,39 @@ mod tests {
         assert!(rgba
             .chunks_exact(4)
             .any(|px| px == [0x19, 0x71, 0xc2, 0xff]));
+    }
+
+    #[test]
+    fn terminal_state_tracks_extended_sgr_colors() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        parser.advance(
+            &mut state,
+            b"\x1b[38;5;196mX\x1b[48:2:1:2:3mY\x1b[38:2:4:5:6mZ",
+        );
+        assert_eq!(
+            state.get_cell_at(0, 0).style.fg,
+            Some(TerminalColor(255, 0, 0))
+        );
+        assert_eq!(
+            state.get_cell_at(1, 0).style.bg,
+            Some(TerminalColor(1, 2, 3))
+        );
+        assert_eq!(
+            state.get_cell_at(2, 0).style.fg,
+            Some(TerminalColor(4, 5, 6))
+        );
+        assert!(state.text_snapshot().starts_with("XYZ"));
+    }
+
+    #[test]
+    fn terminal_renderer_uses_extended_sgr_colors() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(2, 1);
+        parser.advance(&mut state, b"\x1b[38;2;9;8;7;48;5;21mT");
+        let rgba = render_terminal_rgba(&state, 8, 16);
+        assert!(rgba.chunks_exact(4).any(|px| px == [9, 8, 7, 0xff]));
+        assert!(rgba.chunks_exact(4).any(|px| px == [0, 0, 255, 0xff]));
     }
 
     #[test]
