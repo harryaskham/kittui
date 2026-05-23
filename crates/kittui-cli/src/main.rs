@@ -794,10 +794,10 @@ fn run_render_batch(
     let Some(out_dir) = args.out_dir.as_ref() else {
         return Err(anyhow!("render scene arrays require --out-dir DIR"));
     };
+    let pngs = runtime.render_many_png(&scenes)?;
     let mut entries = Vec::with_capacity(scenes.len());
     let mut rendered = Vec::with_capacity(scenes.len());
-    for (idx, scene) in scenes.iter().enumerate() {
-        let png = runtime.render_png(scene)?;
+    for (idx, (scene, png)) in scenes.iter().zip(pngs).enumerate() {
         let path = out_dir.join(format!("scene-{idx:05}.png"));
         entries.push(serde_json::json!({
             "index": idx,

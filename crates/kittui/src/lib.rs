@@ -101,6 +101,18 @@ impl Runtime {
         Ok(self.render_still_with_backend(scene)?.png)
     }
 
+    /// Render many scenes into PNG bytes, preserving input order.
+    ///
+    /// Like [`render_png`](Self::render_png), this does not require terminal
+    /// placement support and does not mutate placement/upload state.
+    pub fn render_many_png(&self, scenes: &[Scene]) -> Result<Vec<Vec<u8>>, KittuiError> {
+        let mut out = Vec::with_capacity(scenes.len());
+        for scene in scenes {
+            out.push(self.render_png(scene)?);
+        }
+        Ok(out)
+    }
+
     /// Render, cache and place a scene. Returns a `Placement` containing the
     /// upload bytes (empty if already cached + uploaded), the placement
     /// escape, and the embeddable text grid.
@@ -756,6 +768,31 @@ mod tests {
             Ok(_) => panic!("place unexpectedly succeeded without terminal support"),
             Err(err) => assert!(matches!(err, KittuiError::UnsupportedTerminal(_))),
         }
+    }
+
+    #[test]
+    fn render_many_png_returns_one_png_per_scene() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .terminal(TerminalInfo::override_with(
+                Some(80),
+                Some(24),
+                CellSize::new(8, 16),
+                false,
+                false,
+                Transport::Direct,
+            ))
+            .build()
+            .unwrap();
+        let scenes = vec![
+            builders::simple_solid_box(2, 1, "#ff0000"),
+            builders::simple_solid_box(3, 1, "#00ff00"),
+        ];
+        let pngs = runtime.render_many_png(&scenes).unwrap();
+        assert_eq!(pngs.len(), 2);
+        assert!(pngs.iter().all(|png| png.starts_with(b"\x89PNG\r\n\x1a\n")));
+        assert!(runtime.render_many_png(&[]).unwrap().is_empty());
     }
 
     #[test]
