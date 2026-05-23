@@ -303,6 +303,133 @@ fn encode_chunked_rgba(
     out
 }
 
+/// Playback state for a kitty animation control command (`a=a`).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum AnimationState {
+    /// Stop playback.
+    Stop,
+    /// Play, typically looping until another control command changes state.
+    Play,
+    /// Play a finite number of loops, then stop.
+    PlayAndStop,
+}
+
+impl AnimationState {
+    fn field(self) -> u32 {
+        match self {
+            Self::Stop => 1,
+            Self::Play => 2,
+            Self::PlayAndStop => 3,
+        }
+    }
+}
+
+/// Upload one PNG animation frame with explicit frame index and delay.
+///
+/// Frame index `1` is uploaded with `a=t` and no redundant `r=1`; later frames
+/// use `a=f,r=<index>`. This is the typed primitive that full-frame animation
+/// or ring-buffer experiments can use without constructing a whole animation at
+/// once.
+pub fn upload_animation_frame(
+    image_id: u32,
+    frame_index: u32,
+    png: &[u8],
+    frame_delay_ms: Option<u32>,
+    transport: Transport,
+) -> String {
+    upload_animation_frame_ex(
+        image_id,
+        frame_index,
+        png,
+        frame_delay_ms,
+        Quiet::SuppressAll,
+        transport,
+    )
+}
+
+/// Variant of [`upload_animation_frame`] with explicit quiet selector.
+pub fn upload_animation_frame_ex(
+    image_id: u32,
+    frame_index: u32,
+    png: &[u8],
+    frame_delay_ms: Option<u32>,
+    quiet: Quiet,
+    transport: Transport,
+) -> String {
+    let normalized = frame_index.max(1);
+    upload(
+        image_id,
+        (normalized > 1).then_some(normalized),
+        UploadMedium::Direct { bytes: png },
+        quiet,
+        transport,
+        /*first_frame=*/ normalized == 1,
+        frame_delay_ms,
+    )
+}
+
+/// Emit a typed kitty animation control command (`a=a`).
+///
+/// `current_frame` maps to kitty's `c=` field. `loops` maps to `v=` and is most
+/// useful with [`AnimationState::PlayAndStop`].
+pub fn animation_control(
+    image_id: u32,
+    state: AnimationState,
+    loops: Option<u32>,
+    current_frame: Option<u32>,
+    transport: Transport,
+) -> String {
+    animation_control_ex(
+        image_id,
+        state,
+        loops,
+        current_frame,
+        Quiet::SuppressAll,
+        transport,
+    )
+}
+
+/// Variant of [`animation_control`] with explicit quiet selector.
+pub fn animation_control_ex(
+    image_id: u32,
+    state: AnimationState,
+    loops: Option<u32>,
+    current_frame: Option<u32>,
+    quiet: Quiet,
+    transport: Transport,
+) -> String {
+    let current = current_frame
+        .map(|frame| format!(",c={}", frame.max(1)))
+        .unwrap_or_default();
+    let loops = loops.map(|v| format!(",v={v}")).unwrap_or_default();
+    let control = format!(
+        "{ESC}_Ga=a,i={id},s={state}{current}{loops}{q}{ESC}\\",
+        id = image_id,
+        state = state.field(),
+        current = current,
+        loops = loops,
+        q = quiet.field(),
+    );
+    wrap_transport(control, transport)
+}
+
+/// Convenience control command that selects a displayed animation frame.
+pub fn set_animation_frame(
+    image_id: u32,
+    frame_index: u32,
+    quiet: Quiet,
+    transport: Transport,
+) -> String {
+    animation_control_ex(
+        image_id,
+        AnimationState::Stop,
+        None,
+        Some(frame_index),
+        quiet,
+        transport,
+    )
+}
+
 /// Build the escape sequences that upload an animated scene.
 ///
 /// Per kitty's protocol, the first frame is uploaded with `a=t,f=100,i=<id>`
@@ -338,39 +465,27 @@ pub fn upload_animation_ex(
     assert_eq!(frames.len(), frame_delays_ms.len());
     let mut out = String::new();
     for (i, frame) in frames.iter().enumerate() {
-        let medium = UploadMedium::Direct { bytes: frame };
-        let frame_index = if i == 0 {
-            None
-        } else {
-            Some((i as u32).saturating_add(1))
-        };
-        out.push_str(&upload(
+        out.push_str(&upload_animation_frame_ex(
             image_id,
-            frame_index,
-            medium,
+            (i as u32).saturating_add(1),
+            frame,
+            frame_delays_ms.get(i).copied(),
             quiet,
             transport,
-            /*first_frame=*/ i == 0,
-            frame_delays_ms.get(i).copied(),
         ));
     }
     // Animation control: pick state + loop count per spec.
     //   s=2          => loop forever
     //   s=3,v=<N>    => play N times then stop (kitty extension: v=0 also infinite)
     // c=<frame> would force current frame; omit it so playback starts at frame 1.
-    let (state, v_field): (u32, String) = if loops == 0 {
-        (2, String::new())
+    let (state, loops) = if loops == 0 {
+        (AnimationState::Play, None)
     } else {
-        (3, format!(",v={loops}"))
+        (AnimationState::PlayAndStop, Some(loops))
     };
-    let control = format!(
-        "{ESC}_Ga=a,i={id},s={state}{v_field}{q}{ESC}\\",
-        id = image_id,
-        state = state,
-        v_field = v_field,
-        q = quiet.field(),
-    );
-    out.push_str(&wrap_transport(control, transport));
+    out.push_str(&animation_control_ex(
+        image_id, state, loops, None, quiet, transport,
+    ));
     out
 }
 
@@ -777,6 +892,46 @@ mod tests {
         // Loop forever => s=2, no v field, no c field. (bd-ad5957)
         assert!(escapes.contains("\x1b_Ga=a,i=66,s=2,q=2\x1b\\"));
         assert!(!escapes.contains("a=a,i=66,r=1,z="));
+    }
+
+    #[test]
+    fn animation_frame_helper_uses_t_for_first_and_f_for_later_frames() {
+        let first = upload_animation_frame_ex(
+            5,
+            1,
+            b"first",
+            Some(33),
+            Quiet::SuppressAll,
+            Transport::Direct,
+        );
+        assert!(first.starts_with("\x1b_Ga=t,f=100,i=5,m=0,z=33,q=2;"));
+        assert!(!first.contains(",r=1,"));
+
+        let second = upload_animation_frame_ex(
+            5,
+            2,
+            b"second",
+            Some(44),
+            Quiet::SuppressAll,
+            Transport::Direct,
+        );
+        assert!(second.starts_with("\x1b_Ga=f,f=100,i=5,m=0,r=2,z=44,q=2;"));
+    }
+
+    #[test]
+    fn animation_control_helper_emits_state_frame_and_loop_fields() {
+        let control = animation_control_ex(
+            7,
+            AnimationState::PlayAndStop,
+            Some(3),
+            Some(2),
+            Quiet::SuppressAll,
+            Transport::Direct,
+        );
+        assert_eq!(control, "\x1b_Ga=a,i=7,s=3,c=2,v=3,q=2\x1b\\");
+
+        let select = set_animation_frame(7, 0, Quiet::SuppressAll, Transport::Direct);
+        assert_eq!(select, "\x1b_Ga=a,i=7,s=1,c=1,q=2\x1b\\");
     }
 
     #[test]
