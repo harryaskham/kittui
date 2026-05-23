@@ -209,8 +209,9 @@ Modes:
   keys, PageUp/PageDown, Home/End, `g/G`, `h`/`?` for in-pager help, `o` to
   toggle the document outline, `l` to inspect document links, `i` to inspect
   document image references, `t` to inspect parsed table summaries, `s` to
-  inspect code snippets, `f` to inspect footnotes, `r` to reload the file from
-  disk, `c` to clear the current status message, and `q`.
+  inspect code snippets, `f` to inspect footnotes, `d` to inspect definition-list
+  entries, `r` to reload the file from disk, `c` to clear the current status
+  message, and `q`.
   The footer shows the source path, current offset/max offset, viewport size,
   and total rendered rows; reloads also report an in-pager status message for
   both success and transient file errors.
