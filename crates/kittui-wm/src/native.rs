@@ -473,21 +473,198 @@ impl NativeSurface for RgbaFrameSurface {
     }
 }
 
-fn validate_rgba_frame(width: u32, height: u32, len: usize) -> Result<()> {
-    if width == 0 || height == 0 {
-        return Err(anyhow!("rgba frame dimensions must be non-zero"));
+/// One positioned RGBA child in a [`CompositeFrameSurface`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompositeFrameChild {
+    /// Left offset in output pixels.
+    pub x: u32,
+    /// Top offset in output pixels.
+    pub y: u32,
+    /// Child frame width in pixels.
+    pub width: u32,
+    /// Child frame height in pixels.
+    pub height: u32,
+    /// Child RGBA pixels.
+    pub rgba: Vec<u8>,
+}
+
+/// Capture-only surface that composites positioned RGBA children into one frame.
+pub struct CompositeFrameSurface {
+    id: SurfaceId,
+    title: String,
+    width: u32,
+    height: u32,
+    children: Vec<CompositeFrameChild>,
+}
+
+impl CompositeFrameSurface {
+    /// Create an empty composite canvas.
+    pub fn new(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        width: u32,
+        height: u32,
+    ) -> Result<Self> {
+        validate_rgba_dimensions(width, height)?;
+        Ok(Self {
+            id: SurfaceId::new(id),
+            title: title.into(),
+            width,
+            height,
+            children: Vec::new(),
+        })
     }
-    let expected = usize::try_from(width)
-        .ok()
-        .and_then(|w| usize::try_from(height).ok().and_then(|h| w.checked_mul(h)))
-        .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or_else(|| anyhow!("rgba frame dimensions overflow"))?;
+
+    /// Append a positioned RGBA child frame.
+    pub fn push_rgba_child(
+        &mut self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) -> Result<()> {
+        validate_rgba_frame(width, height, rgba.len())?;
+        self.children.push(CompositeFrameChild {
+            x,
+            y,
+            width,
+            height,
+            rgba,
+        });
+        Ok(())
+    }
+
+    /// Remove all children while preserving the canvas metadata.
+    pub fn clear_children(&mut self) {
+        self.children.clear();
+    }
+
+    /// Borrow positioned children in paint order.
+    pub fn children(&self) -> &[CompositeFrameChild] {
+        &self.children
+    }
+
+    fn frame_size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn composite_rgba(&self) -> Result<Vec<u8>> {
+        let mut out = vec![0u8; rgba_len(self.width, self.height)?];
+        for child in &self.children {
+            blend_child_rgba(&mut out, self.width, self.height, child)?;
+        }
+        Ok(out)
+    }
+}
+
+impl NativeSurface for CompositeFrameSurface {
+    fn metadata(&self) -> SurfaceMetadata {
+        SurfaceMetadata {
+            id: self.id.clone(),
+            kind: SurfaceKind::Composite,
+            title: self.title.clone(),
+            capabilities: SurfaceCapabilities::capture_only(),
+            frame_size: Some(self.frame_size()),
+        }
+    }
+
+    fn resize_surface(&mut self, _cols: u16, _rows: u16) -> Result<()> {
+        Err(anyhow!(
+            "composite frame surfaces are sized by their producer; rebuild the surface instead"
+        ))
+    }
+
+    fn send_surface_text(&mut self, _text: &str) -> Result<()> {
+        Err(anyhow!("composite frame surfaces do not accept text input"))
+    }
+
+    fn capture_surface(&mut self) -> Result<SurfaceFrame> {
+        Ok(SurfaceFrame {
+            metadata: self.metadata(),
+            frame: NativeFrame::Rgba {
+                width: self.width,
+                height: self.height,
+                rgba: self.composite_rgba()?,
+            },
+        })
+    }
+}
+
+fn validate_rgba_frame(width: u32, height: u32, len: usize) -> Result<()> {
+    let expected = rgba_len(width, height)?;
     if len != expected {
         return Err(anyhow!(
             "rgba frame payload length {len} does not match {width}x{height}x4 ({expected})"
         ));
     }
     Ok(())
+}
+
+fn validate_rgba_dimensions(width: u32, height: u32) -> Result<()> {
+    let _ = rgba_len(width, height)?;
+    Ok(())
+}
+
+fn rgba_len(width: u32, height: u32) -> Result<usize> {
+    if width == 0 || height == 0 {
+        return Err(anyhow!("rgba frame dimensions must be non-zero"));
+    }
+    usize::try_from(width)
+        .ok()
+        .and_then(|w| usize::try_from(height).ok().and_then(|h| w.checked_mul(h)))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| anyhow!("rgba frame dimensions overflow"))
+}
+
+fn blend_child_rgba(
+    out: &mut [u8],
+    canvas_width: u32,
+    canvas_height: u32,
+    child: &CompositeFrameChild,
+) -> Result<()> {
+    validate_rgba_frame(child.width, child.height, child.rgba.len())?;
+    let copy_width = child.width.min(canvas_width.saturating_sub(child.x));
+    let copy_height = child.height.min(canvas_height.saturating_sub(child.y));
+    if copy_width == 0 || copy_height == 0 {
+        return Ok(());
+    }
+    for row in 0..copy_height {
+        for col in 0..copy_width {
+            let src_idx = ((row * child.width + col) * 4) as usize;
+            let dst_idx = (((child.y + row) * canvas_width + child.x + col) * 4) as usize;
+            blend_pixel(
+                &mut out[dst_idx..dst_idx + 4],
+                &child.rgba[src_idx..src_idx + 4],
+            );
+        }
+    }
+    Ok(())
+}
+
+fn blend_pixel(dst: &mut [u8], src: &[u8]) {
+    let sa = u32::from(src[3]);
+    if sa == 0 {
+        return;
+    }
+    if sa == 255 || dst[3] == 0 {
+        dst.copy_from_slice(src);
+        return;
+    }
+    let da = u32::from(dst[3]);
+    let inv_sa = 255 - sa;
+    let out_a = sa + (da * inv_sa + 127) / 255;
+    if out_a == 0 {
+        dst.copy_from_slice(&[0, 0, 0, 0]);
+        return;
+    }
+    for channel in 0..3 {
+        let sc = u32::from(src[channel]);
+        let dc = u32::from(dst[channel]);
+        let premul = sc * sa + (dc * da * inv_sa + 127) / 255;
+        dst[channel] = ((premul + out_a / 2) / out_a).min(255) as u8;
+    }
+    dst[3] = out_a.min(255) as u8;
 }
 
 impl NativeSurface for XWindowSurface {
@@ -3612,6 +3789,92 @@ mod tests {
         assert!(RgbaFrameSurface::new("bad", "bad", 2, 2, vec![0; 15]).is_err());
         let mut surface = RgbaFrameSurface::new("ok", "ok", 1, 1, vec![0; 4]).unwrap();
         assert!(surface.update_frame(1, 2, vec![0; 4]).is_err());
+    }
+
+    #[test]
+    fn composite_frame_surface_composes_rgba_children() {
+        let mut surface = CompositeFrameSurface::new("composite:1", "preview", 3, 2).unwrap();
+        surface
+            .push_rgba_child(
+                0,
+                0,
+                2,
+                1,
+                vec![0xff, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff],
+            )
+            .unwrap();
+        surface
+            .push_rgba_child(
+                1,
+                1,
+                2,
+                1,
+                vec![0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x00, 0xff],
+            )
+            .unwrap();
+
+        let metadata = NativeSurface::metadata(&surface);
+        assert_eq!(metadata.id.as_str(), "composite:1");
+        assert_eq!(metadata.kind, SurfaceKind::Composite);
+        assert_eq!(metadata.title, "preview");
+        assert!(metadata.capabilities.capture);
+        assert!(!metadata.capabilities.input);
+        assert!(!metadata.capabilities.resize);
+        assert_eq!(metadata.frame_size, Some((3, 2)));
+        assert_eq!(surface.children().len(), 2);
+        assert!(NativeSurface::resize_surface(&mut surface, 4, 4).is_err());
+        assert!(NativeSurface::send_surface_text(&mut surface, "ignored").is_err());
+
+        let frame = NativeSurface::capture_surface(&mut surface).unwrap();
+        match frame.frame {
+            NativeFrame::Rgba {
+                width,
+                height,
+                rgba,
+            } => {
+                assert_eq!((width, height), (3, 2));
+                assert_eq!(&rgba[0..4], &[0xff, 0x00, 0x00, 0xff]);
+                assert_eq!(&rgba[4..8], &[0x00, 0xff, 0x00, 0xff]);
+                assert_eq!(&rgba[16..20], &[0x00, 0x00, 0xff, 0xff]);
+                assert_eq!(&rgba[20..24], &[0xff, 0xff, 0x00, 0xff]);
+            }
+            other => panic!("expected RGBA frame, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn composite_frame_surface_blends_and_clips_children() {
+        let mut surface = CompositeFrameSurface::new("composite:blend", "blend", 1, 1).unwrap();
+        surface
+            .push_rgba_child(0, 0, 1, 1, vec![0x00, 0x00, 0xff, 0xff])
+            .unwrap();
+        surface
+            .push_rgba_child(
+                0,
+                0,
+                2,
+                1,
+                vec![0xff, 0x00, 0x00, 0x80, 0xff, 0xff, 0xff, 0xff],
+            )
+            .unwrap();
+        let frame = NativeSurface::capture_surface(&mut surface).unwrap();
+        match frame.frame {
+            NativeFrame::Rgba { rgba, .. } => {
+                assert_eq!(rgba[3], 0xff);
+                assert!(rgba[0] >= 127 && rgba[0] <= 129, "{rgba:?}");
+                assert!(rgba[2] >= 126 && rgba[2] <= 128, "{rgba:?}");
+            }
+            other => panic!("expected RGBA frame, got {other:?}"),
+        }
+        surface.clear_children();
+        assert!(surface.children().is_empty());
+    }
+
+    #[test]
+    fn composite_frame_surface_rejects_invalid_inputs() {
+        assert!(CompositeFrameSurface::new("bad", "bad", 0, 1).is_err());
+        let mut surface = CompositeFrameSurface::new("ok", "ok", 2, 2).unwrap();
+        assert!(surface.push_rgba_child(0, 0, 1, 1, vec![0; 3]).is_err());
     }
 
     #[test]
