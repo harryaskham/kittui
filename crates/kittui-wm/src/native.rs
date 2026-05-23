@@ -1934,15 +1934,19 @@ impl HeadlessBrowserApp {
     }
 }
 
+fn browser_surface_metadata(pid: u32, title: String, width: u32, height: u32) -> SurfaceMetadata {
+    SurfaceMetadata {
+        id: SurfaceId::new(format!("browser:{pid}")),
+        kind: SurfaceKind::Browser,
+        title,
+        capabilities: SurfaceCapabilities::interactive_capture(),
+        frame_size: Some((width, height)),
+    }
+}
+
 impl NativeSurface for HeadlessBrowserApp {
     fn metadata(&self) -> SurfaceMetadata {
-        SurfaceMetadata {
-            id: SurfaceId::new(format!("browser:{}", self.child.id())),
-            kind: SurfaceKind::Browser,
-            title: self.title(),
-            capabilities: SurfaceCapabilities::interactive_capture(),
-            frame_size: Some((self.width, self.height)),
-        }
+        browser_surface_metadata(self.child.id(), self.title(), self.width, self.height)
     }
 
     fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()> {
@@ -2739,6 +2743,19 @@ mod tests {
             ),
             Some(54321)
         );
+    }
+
+    #[test]
+    fn browser_surface_metadata_uses_devtools_dimensions() {
+        let metadata = browser_surface_metadata(4242, "data:text/html,hi".to_string(), 320, 200);
+        assert_eq!(metadata.id.as_str(), "browser:4242");
+        assert_eq!(metadata.kind, SurfaceKind::Browser);
+        assert_eq!(metadata.title, "data:text/html,hi");
+        assert_eq!(metadata.frame_size, Some((320, 200)));
+        assert!(metadata.capabilities.capture);
+        assert!(metadata.capabilities.input);
+        assert!(metadata.capabilities.resize);
+        assert!(metadata.capabilities.title);
     }
 
     #[test]
