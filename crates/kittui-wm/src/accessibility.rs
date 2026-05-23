@@ -232,6 +232,8 @@ fn accessibility_component_role(role: &str) -> ComponentRole {
     let role_l = role.to_ascii_lowercase();
     if role_l.contains("button") {
         ComponentRole::Button
+    } else if role_l.contains("link") {
+        ComponentRole::Link
     } else if role_l.contains("check") || role_l.contains("toggle") {
         ComponentRole::Checkbox
     } else if role_l.contains("radio group") {
@@ -242,17 +244,35 @@ fn accessibility_component_role(role: &str) -> ComponentRole {
         ComponentRole::TextArea
     } else if role_l.contains("text") || role_l.contains("edit") || role_l.contains("field") {
         ComponentRole::TextInput
-    } else if role_l.contains("combo") || role_l.contains("list") || role_l.contains("select") {
+    } else if role_l.contains("list item") || role_l.contains("listitem") {
+        ComponentRole::ListItem
+    } else if role_l.contains("tree item") || role_l.contains("treeitem") {
+        ComponentRole::TreeItem
+    } else if role_l.contains("tree") {
+        ComponentRole::Tree
+    } else if role_l.contains("combo") || role_l.contains("select") {
         ComponentRole::SelectList
+    } else if role_l.contains("list") {
+        ComponentRole::List
     } else if role_l.contains("slider") || role_l.contains("incrementor") {
         ComponentRole::Slider
     } else if role_l.contains("progress") {
         ComponentRole::Progress
     } else if role_l.contains("menu") {
         ComponentRole::Menu
+    } else if role_l.contains("row") {
+        ComponentRole::Row
+    } else if role_l.contains("cell") {
+        ComponentRole::Cell
     } else if role_l.contains("table") || role_l.contains("grid") {
         ComponentRole::Table
-    } else if role_l.contains("static") || role_l.contains("label") || role_l.contains("heading") {
+    } else if role_l.contains("heading") {
+        ComponentRole::Heading
+    } else if role_l.contains("image") || role_l.contains("icon") {
+        ComponentRole::Image
+    } else if role_l.contains("canvas") || role_l.contains("pixel") {
+        ComponentRole::Canvas
+    } else if role_l.contains("static") || role_l.contains("label") {
         ComponentRole::Label
     } else if role_l.contains("window")
         || role_l.contains("frame")
@@ -278,7 +298,13 @@ fn accessibility_value(node: &AccessibilityNode, role: &ComponentRole) -> Option
             .as_deref()
             .and_then(|value| value.parse::<f32>().ok())
             .map(ComponentValue::Number),
-        ComponentRole::TextInput | ComponentRole::TextArea | ComponentRole::Label => node
+        ComponentRole::TextInput
+        | ComponentRole::TextArea
+        | ComponentRole::Label
+        | ComponentRole::Heading
+        | ComponentRole::Paragraph
+        | ComponentRole::Code
+        | ComponentRole::Link => node
             .value
             .as_ref()
             .or(node.name.as_ref())
@@ -642,6 +668,23 @@ mod tests {
                             .focusable(),
                     ]),
                 AccessibilityNode::new("atspi:progress", "progress bar").valued("0.5"),
+                AccessibilityNode::new("atspi:docs", "heading")
+                    .named("Documentation")
+                    .valued("Documentation"),
+                AccessibilityNode::new("atspi:home", "link")
+                    .named("Home")
+                    .focusable()
+                    .actions(["click"]),
+                AccessibilityNode::new("atspi:tree", "tree")
+                    .named("Project")
+                    .children(vec![AccessibilityNode::new("atspi:tree.src", "tree item")
+                        .named("src")
+                        .focusable()]),
+                AccessibilityNode::new("atspi:image", "image").named("Logo"),
+                AccessibilityNode::new("atspi:canvas", "canvas").named("Chart"),
+                AccessibilityNode::new("atspi:row", "table row").children(vec![
+                    AccessibilityNode::new("atspi:cell", "table cell").named("Value"),
+                ]),
             ]);
         let snapshot = accessibility_snapshot_from_tree(&assoc, &root);
         assert_eq!(snapshot.surface, "native-2");
@@ -662,6 +705,28 @@ mod tests {
         assert_eq!(
             snapshot.root.children[3].value,
             Some(ComponentValue::Number(0.5))
+        );
+        assert_eq!(snapshot.root.children[4].role, ComponentRole::Heading);
+        assert_eq!(
+            snapshot.root.children[4].value,
+            Some(ComponentValue::Text("Documentation".to_string()))
+        );
+        assert_eq!(snapshot.root.children[5].role, ComponentRole::Link);
+        assert!(snapshot.root.children[5]
+            .actions
+            .iter()
+            .any(|action| action.id == "activate"));
+        assert_eq!(snapshot.root.children[6].role, ComponentRole::Tree);
+        assert_eq!(
+            snapshot.root.children[6].children[0].role,
+            ComponentRole::TreeItem
+        );
+        assert_eq!(snapshot.root.children[7].role, ComponentRole::Image);
+        assert_eq!(snapshot.root.children[8].role, ComponentRole::Canvas);
+        assert_eq!(snapshot.root.children[9].role, ComponentRole::Row);
+        assert_eq!(
+            snapshot.root.children[9].children[0].role,
+            ComponentRole::Cell
         );
 
         let diag = AccessibilityDiagnostics::linux_atspi_unavailable("AT-SPI bus unavailable");
