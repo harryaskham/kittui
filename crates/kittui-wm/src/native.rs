@@ -294,6 +294,7 @@ struct TerminalState {
     origin_mode: bool,
     auto_wrap: bool,
     application_cursor_keys: bool,
+    insert_mode: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     cells: Vec<TerminalCell>,
@@ -363,6 +364,7 @@ impl TerminalState {
             origin_mode: false,
             auto_wrap: true,
             application_cursor_keys: false,
+            insert_mode: false,
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
             cells: vec![
@@ -391,6 +393,7 @@ impl TerminalState {
         self.origin_mode = old.origin_mode;
         self.auto_wrap = old.auto_wrap;
         self.application_cursor_keys = old.application_cursor_keys;
+        self.insert_mode = old.insert_mode;
         self.bracketed_paste = old.bracketed_paste;
         self.focus_reporting = old.focus_reporting;
         self.mouse_modes = old.mouse_modes;
@@ -557,6 +560,9 @@ impl TerminalState {
             } else {
                 self.cursor_col = self.cols.saturating_sub(1);
             }
+        }
+        if self.insert_mode {
+            self.insert_chars(1);
         }
         self.put_at(self.cursor_col, self.cursor_row, ch);
         if self.auto_wrap || self.cursor_col + 1 < self.cols {
@@ -794,6 +800,7 @@ impl TerminalState {
         self.origin_mode = false;
         self.auto_wrap = true;
         self.application_cursor_keys = false;
+        self.insert_mode = false;
         self.current_style = TerminalStyle::default();
         self.bracketed_paste = false;
         self.focus_reporting = false;
@@ -1052,6 +1059,7 @@ impl Perform for TerminalState {
                 let col = iter.next().and_then(|p| p.first().copied()).unwrap_or(1) as u16;
                 self.address_cursor(row, col);
             }
+            'h' if !is_dec_private && first_raw == 4 => self.insert_mode = true,
             'h' if is_dec_private && has_alt_screen_mode => self.enter_alternate_screen(),
             'h' if is_dec_private && has_application_cursor_mode => {
                 self.application_cursor_keys = true
@@ -1084,6 +1092,7 @@ impl Perform for TerminalState {
                 _ => {}
             },
             'L' => self.insert_lines(first_count),
+            'l' if !is_dec_private && first_raw == 4 => self.insert_mode = false,
             'l' if is_dec_private && has_alt_screen_mode => self.leave_alternate_screen(),
             'l' if is_dec_private && has_application_cursor_mode => {
                 self.application_cursor_keys = false
@@ -1592,6 +1601,23 @@ mod tests {
         assert!(text.starts_with("X\n\nY"), "snapshot was:\n{text}");
         assert_eq!(state.scroll_top, 0);
         assert_eq!(state.scroll_bottom, 3);
+    }
+
+    #[test]
+    fn terminal_state_honors_insert_mode() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(5, 1);
+        parser.advance(&mut state, b"abcde\x1b[1;3HX");
+        assert_eq!(state.text_snapshot(), "abXde\n");
+        assert!(!state.insert_mode);
+
+        let mut state = TerminalState::new(5, 1);
+        parser.advance(&mut state, b"abcde\x1b[1;3H\x1b[4hX");
+        assert_eq!(state.text_snapshot(), "abXcd\n");
+        assert!(state.insert_mode);
+        parser.advance(&mut state, b"\x1b[4lY");
+        assert_eq!(state.text_snapshot(), "abXYd\n");
+        assert!(!state.insert_mode);
     }
 
     #[test]
