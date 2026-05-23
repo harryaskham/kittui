@@ -1272,6 +1272,47 @@ pub struct AppCandidate {
     pub name: String,
 }
 
+/// Typed cached clipboard policy/read response returned by `CLIPBOARD_JSON`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClipboardStatus {
+    /// Whether the daemon policy allowed payload disclosure for this request.
+    pub allowed: bool,
+    /// Whether a cached OSC52 clipboard write is available.
+    #[serde(default)]
+    pub available: bool,
+    /// Source/policy message when denied or otherwise unavailable.
+    #[serde(default)]
+    pub policy: Option<String>,
+    /// Source window that produced the cached OSC52 write, when available.
+    #[serde(default)]
+    pub source_window: Option<String>,
+    /// Clipboard selection name, e.g. `c`/`clipboard`, when available.
+    #[serde(default)]
+    pub selection: Option<String>,
+    /// Base64 payload from the cached OSC52 write. Present only when allowed.
+    #[serde(default)]
+    pub payload_base64: Option<String>,
+    /// Decoded payload byte length reported by the daemon.
+    #[serde(default)]
+    pub payload_bytes: Option<usize>,
+    /// Daemon timestamp for the cached write.
+    #[serde(default)]
+    pub at_ms: Option<u128>,
+    /// Event sequence associated with the cached write.
+    #[serde(default)]
+    pub seq: Option<u64>,
+    /// Cache source label, currently `osc52-cache`.
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+impl ClipboardStatus {
+    /// Whether this reply includes a clipboard payload.
+    pub fn has_payload(&self) -> bool {
+        self.allowed && self.available && self.payload_base64.is_some()
+    }
+}
+
 /// Machine-readable socket help catalog returned by `HELP_JSON`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelpCatalog {
@@ -1405,6 +1446,23 @@ impl Kittwm {
         self.capabilities.ensure(Capability::ControlWindow)?;
         let payload = serde_json::to_string(manifest)?;
         self.request_protocol(format!("RESTORE_SESSION_JSON {payload}"))
+    }
+
+    /// Fetch the policy-gated cached OSC52 clipboard status via `CLIPBOARD_JSON`.
+    ///
+    /// The daemon is default-deny: denied replies parse successfully with
+    /// `allowed == false` and no payload. This helper does not read the host OS
+    /// clipboard; it only inspects kittwm's cached nested-app OSC52 write.
+    pub fn clipboard(&self) -> Result<ClipboardStatus> {
+        self.capabilities.ensure(Capability::Clipboard)?;
+        Ok(serde_json::from_str(
+            &self.request_protocol("CLIPBOARD_JSON")?,
+        )?)
+    }
+
+    /// Alias for [`Kittwm::clipboard`].
+    pub fn clipboard_json(&self) -> Result<ClipboardStatus> {
+        self.clipboard()
     }
 
     /// Fetch the native socket command catalog from `HELP_JSON`.
@@ -2329,6 +2387,44 @@ mod tests {
     }
 
     #[test]
+    fn clipboard_status_decodes_policy_shapes() {
+        let denied: ClipboardStatus = serde_json::from_str(
+            r#"{"allowed":false,"available":false,"policy":"set KITTWM_CLIPBOARD_READ=allow"}"#,
+        )
+        .unwrap();
+        assert!(!denied.allowed);
+        assert!(!denied.available);
+        assert!(!denied.has_payload());
+        assert!(denied.payload_base64.is_none());
+
+        let empty: ClipboardStatus =
+            serde_json::from_str(r#"{"allowed":true,"available":false,"source":"osc52-cache"}"#)
+                .unwrap();
+        assert!(empty.allowed);
+        assert!(!empty.available);
+        assert!(!empty.has_payload());
+
+        let cached: ClipboardStatus = serde_json::from_str(
+            r#"{"allowed":true,"available":true,"source_window":"native-1","selection":"clipboard","payload_base64":"aGVsbG8=","payload_bytes":5,"at_ms":123,"seq":9,"source":"osc52-cache"}"#,
+        )
+        .unwrap();
+        assert!(cached.has_payload());
+        assert_eq!(cached.source_window.as_deref(), Some("native-1"));
+        assert_eq!(cached.selection.as_deref(), Some("clipboard"));
+        assert_eq!(cached.payload_bytes, Some(5));
+    }
+
+    #[test]
+    fn clipboard_capability_denies_before_io() {
+        let client = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::ReadText]));
+        assert!(matches!(
+            client.clipboard(),
+            Err(Error::CapabilityDenied(Capability::Clipboard))
+        ));
+    }
+
+    #[test]
     fn help_catalog_decodes_json_shape() {
         let catalog: HelpCatalog = serde_json::from_str(
             r#"{"commands":[{"command":"STATUS_JSON","category":"status","description":"typed status"},{"command":"HELP_JSON","category":"help","description":"catalog"}]}"#,
@@ -2550,6 +2646,36 @@ mod tests {
         assert_eq!(iter.next().unwrap().kind(), "status");
         assert_eq!(iter.next().unwrap().kind(), "layout_changed");
         assert_eq!(iter.next(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clipboard_helper_sends_expected_socket_command() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwclip-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            stream
+                .write_all(b"{\"allowed\":false,\"available\":false}\n")
+                .unwrap();
+            request.trim().to_string()
+        });
+        let client = Kittwm::connect_path(&path);
+        let status = client.clipboard_json().unwrap();
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen, "CLIPBOARD_JSON");
+        assert!(!status.allowed);
+        assert!(!status.has_payload());
     }
 
     #[cfg(unix)]
