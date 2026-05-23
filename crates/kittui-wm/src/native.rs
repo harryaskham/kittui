@@ -303,6 +303,11 @@ impl TerminalState {
         self.cursor_col = 0;
     }
 
+    fn tab(&mut self) {
+        let next = ((self.cursor_col / 8) + 1) * 8;
+        self.cursor_col = next.min(self.cols.saturating_sub(1));
+    }
+
     fn put_char(&mut self, ch: char) {
         if self.cursor_col >= self.cols {
             self.newline();
@@ -343,6 +348,7 @@ impl Perform for TerminalState {
         match byte {
             b'\n' => self.newline(),
             b'\r' => self.carriage_return(),
+            b'\t' => self.tab(),
             0x08 => self.cursor_col = self.cursor_col.saturating_sub(1),
             _ => {}
         }
@@ -703,6 +709,15 @@ mod tests {
         assert_eq!((width, height), (320, 96));
         assert_eq!(rgba.len(), (width * height * 4) as usize);
         assert!(rgba.chunks_exact(4).any(|px| px[0] == 0xd7));
+    }
+
+    #[test]
+    fn terminal_state_expands_tabs_to_next_stop() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(16, 2);
+        parser.advance(&mut state, b"a\tb");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("a       b"), "snapshot was:\n{text}");
     }
 
     #[test]
