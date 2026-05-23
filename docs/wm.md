@@ -30,6 +30,8 @@ KITTUI_WM_DISPLAY=:7 kittwm --status
 kittwm --attach -c STATUS
 kittwm --attach -c PANES
 kittwm --attach -c 'SPAWN_PTY htop'
+kittwm --attach -c 'FOCUS_PANE native-2'
+kittwm --attach -c 'CLOSE_PANE focused'
 ```
 
 Use `Ctrl-]` to exit the current native PTY/browser viewer. Explicit capture-backed demos remain available with `--backend fake|quartz|xvfb`.

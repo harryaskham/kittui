@@ -100,9 +100,16 @@ pub struct NativePaneStatus {
     pub focused: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativePaneCommand {
+    SpawnPty(String),
+    Focus(String),
+    Close(String),
+}
+
 #[derive(Default, Debug)]
 struct NativeSpawnQueueState {
-    pending: Vec<String>,
+    pending: Vec<NativePaneCommand>,
     panes: Vec<NativePaneStatus>,
 }
 
@@ -151,8 +158,8 @@ impl NativeSpawnQueue {
         &self.path
     }
 
-    /// Drain all queued PTY spawn commands in FIFO order.
-    pub fn drain(&self) -> Vec<String> {
+    /// Drain all queued native pane commands in FIFO order.
+    pub fn drain(&self) -> Vec<NativePaneCommand> {
         drain_native_spawn_pending(&self.pending)
     }
 
@@ -175,7 +182,9 @@ impl Drop for NativeSpawnQueue {
     }
 }
 
-fn drain_native_spawn_pending(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Vec<String> {
+fn drain_native_spawn_pending(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+) -> Vec<NativePaneCommand> {
     let Ok(mut state) = pending.lock() else {
         return Vec::new();
     };
@@ -198,22 +207,57 @@ fn handle_native_spawn_request(
 }
 
 fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
-    let Some(argv) = cmd.strip_prefix("SPAWN_PTY ") else {
-        return match cmd {
-            "PING" => "PONG\n".to_string(),
-            "STATUS" => native_spawn_status_reply(pending),
-            "PANES" => native_spawn_panes_reply(pending),
-            _ => "ERR expected SPAWN_PTY <cmd>\n".to_string(),
-        };
-    };
-    let argv = argv.trim();
-    if argv.is_empty() {
-        return "ERR SPAWN_PTY requires argv\n".to_string();
+    if let Some(argv) = cmd.strip_prefix("SPAWN_PTY ") {
+        return queue_native_pane_command(
+            pending,
+            argv,
+            "SPAWN_PTY requires argv",
+            NativePaneCommand::SpawnPty,
+            "QUEUED",
+        );
+    }
+    if let Some(window) = cmd.strip_prefix("FOCUS_PANE ") {
+        return queue_native_pane_command(
+            pending,
+            window,
+            "FOCUS_PANE requires window",
+            NativePaneCommand::Focus,
+            "FOCUS_QUEUED",
+        );
+    }
+    if let Some(window) = cmd.strip_prefix("CLOSE_PANE ") {
+        return queue_native_pane_command(
+            pending,
+            window,
+            "CLOSE_PANE requires window",
+            NativePaneCommand::Close,
+            "CLOSE_QUEUED",
+        );
+    }
+    match cmd {
+        "PING" => "PONG\n".to_string(),
+        "STATUS" => native_spawn_status_reply(pending),
+        "PANES" => native_spawn_panes_reply(pending),
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | CLOSE_PANE <window|focused>\n"
+            .to_string(),
+    }
+}
+
+fn queue_native_pane_command(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    arg: &str,
+    empty_error: &str,
+    build: impl FnOnce(String) -> NativePaneCommand,
+    ok_prefix: &str,
+) -> String {
+    let arg = arg.trim();
+    if arg.is_empty() {
+        return format!("ERR {empty_error}\n");
     }
     match pending.lock() {
         Ok(mut state) => {
-            state.pending.push(argv.to_string());
-            format!("QUEUED pane={} argv={}\n", state.pending.len(), argv)
+            state.pending.push(build(arg.to_string()));
+            format!("{ok_prefix} command={} arg={}\n", state.pending.len(), arg)
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
@@ -518,9 +562,31 @@ mod tests {
         );
         assert_eq!(
             drain_native_spawn_pending(&pending),
-            vec!["htop".to_string(), "bash -lc true".to_string()]
+            vec![
+                NativePaneCommand::SpawnPty("htop".to_string()),
+                NativePaneCommand::SpawnPty("bash -lc true".to_string())
+            ]
         );
         assert!(drain_native_spawn_pending(&pending).is_empty());
+    }
+
+    #[test]
+    fn native_spawn_queue_parses_focus_and_close_commands() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        assert!(
+            native_spawn_queue_reply("FOCUS_PANE native-2", &pending).starts_with("FOCUS_QUEUED")
+        );
+        assert!(
+            native_spawn_queue_reply("CLOSE_PANE focused", &pending).starts_with("CLOSE_QUEUED")
+        );
+        assert!(native_spawn_queue_reply("FOCUS_PANE", &pending).contains("ERR"));
+        assert_eq!(
+            drain_native_spawn_pending(&pending),
+            vec![
+                NativePaneCommand::Focus("native-2".to_string()),
+                NativePaneCommand::Close("focused".to_string())
+            ]
+        );
     }
 
     #[test]

@@ -159,17 +159,49 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
 
         focused = reap_exited_native_panes(&mut panes, focused, &dbg)?;
-        for spawn_cmd in queue.drain() {
-            let id = next_native_pane_id(&panes);
-            panes.push(spawn_native_pane(id, &spawn_cmd, &sock, 1, 1)?);
-            focused = panes.len() - 1;
-            let pane_count = panes.len();
-            resize_native_panes(
-                &mut panes,
-                native_pane_layouts(cols, rows, pane_count, layout_axis),
-            )?;
-            clear = true;
-            dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
+        for command in queue.drain() {
+            match command {
+                crate::daemon::NativePaneCommand::SpawnPty(spawn_cmd) => {
+                    let id = next_native_pane_id(&panes);
+                    panes.push(spawn_native_pane(id, &spawn_cmd, &sock, 1, 1)?);
+                    focused = panes.len() - 1;
+                    let pane_count = panes.len();
+                    resize_native_panes(
+                        &mut panes,
+                        native_pane_layouts(cols, rows, pane_count, layout_axis),
+                    )?;
+                    clear = true;
+                    dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
+                }
+                crate::daemon::NativePaneCommand::Focus(window) => {
+                    if let Some(idx) = native_pane_index(&panes, &window) {
+                        focused = idx;
+                        clear = true;
+                        dbg.log(&format!("native terminal socket focus: {window}"));
+                    }
+                }
+                crate::daemon::NativePaneCommand::Close(window) => {
+                    if panes.len() > 1 {
+                        let target = if window == "focused" {
+                            Some(focused)
+                        } else {
+                            native_pane_index(&panes, &window)
+                        };
+                        if let Some(idx) = target {
+                            panes[idx].app.terminate()?;
+                            panes.remove(idx);
+                            focused = focus_after_remove(focused, idx, panes.len() + 1);
+                            let pane_count = panes.len();
+                            resize_native_panes(
+                                &mut panes,
+                                native_pane_layouts(cols, rows, pane_count, layout_axis),
+                            )?;
+                            clear = true;
+                            dbg.log(&format!("native terminal socket close: {window}"));
+                        }
+                    }
+                }
+            }
         }
         queue.update_panes(native_pane_statuses(&panes, focused));
         let (new_cols, new_rows) = native_terminal_size();
@@ -253,6 +285,10 @@ struct NativePaneLayout {
     app_y: u16,
     app_cols: u16,
     app_rows: u16,
+}
+
+fn native_pane_index(panes: &[NativePane], window: &str) -> Option<usize> {
+    panes.iter().position(|pane| pane.window == window)
 }
 
 fn next_native_pane_id(panes: &[NativePane]) -> u32 {
@@ -481,6 +517,24 @@ mod native_pane_tests {
         assert_eq!(focus_after_remove(2, 1, 3), 1);
         assert_eq!(focus_after_remove(0, 2, 3), 0);
         assert_eq!(focus_after_remove(0, 0, 1), 0);
+    }
+
+    #[test]
+    fn native_pane_index_finds_window_tokens() {
+        let panes = vec![
+            NativePane {
+                window: "native-1".to_string(),
+                image_id: 1,
+                app: dummy_native_pane_app(),
+            },
+            NativePane {
+                window: "native-2".to_string(),
+                image_id: 2,
+                app: dummy_native_pane_app(),
+            },
+        ];
+        assert_eq!(native_pane_index(&panes, "native-2"), Some(1));
+        assert_eq!(native_pane_index(&panes, "missing"), None);
     }
 
     #[test]
