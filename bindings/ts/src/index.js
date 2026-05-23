@@ -164,6 +164,9 @@ export class Kittui {
     this._kittui_place_many_json_at = this.lib.func(
       'int kittui_place_many_json_at(void* runtime, const char* scenes_json, uint16_t x, uint16_t y, _Out_ KittuiOwnedStr* out)',
     );
+    this._kittui_place_many_json_channels = this.lib.func(
+      'int kittui_place_many_json_channels(void* runtime, const char* scenes_json, uint16_t x, uint16_t y, _Out_ KittuiOwnedStr* out)',
+    );
     this._kittui_abi_version = this.lib.func('uint32_t kittui_abi_version()');
   }
 
@@ -288,6 +291,26 @@ export class Kittui {
       throw new Error(`kittui_place_many_json_at failed: status=${status}`);
     }
     return outBox[0] || '';
+  }
+
+  /**
+   * Render and place multiple scenes at a batch origin, returning parsed
+   * channel JSON with upload/placement/embed strings and metadata.
+   *
+   * @param {(object|string)[]} scenes
+   * @param {number} x Terminal x column for the batch origin.
+   * @param {number} y Terminal y row for the batch origin.
+   * @returns {object}
+   */
+  placeManyChannels(scenes, x = 0, y = 0) {
+    if (!this.runtime) throw new Error('kittui runtime closed');
+    const normalized = scenes.map((scene) => (typeof scene === 'string' ? JSON.parse(scene) : scene));
+    const outBox = [null];
+    const status = this._kittui_place_many_json_channels(this.runtime, JSON.stringify(normalized), x, y, outBox);
+    if (status !== KittuiStatus.Ok) {
+      throw new Error(`kittui_place_many_json_channels failed: status=${status}`);
+    }
+    return JSON.parse(outBox[0] || '{}');
   }
 
   /**

@@ -86,6 +86,13 @@ function fakeLib(calls) {
           return 'deleted';
         };
       }
+      if (signature.includes('kittui_place_many_json_channels')) {
+        return (_runtime, scenesJson, x, y, out) => {
+          calls.push(['place_many_channels', JSON.parse(scenesJson), x, y]);
+          out[0] = JSON.stringify({ count: 2, upload: 'u', placement: 'p', embed: 'e' });
+          return 0;
+        };
+      }
       if (signature.includes('kittui_place_many_json_at')) {
         return (_runtime, scenesJson, x, y, out) => {
           calls.push(['place_many_at', JSON.parse(scenesJson), x, y]);
@@ -206,6 +213,26 @@ test('placeManyAt forwards scene array and origin to FFI', () => {
   assert.equal(call[2], 10);
   assert.equal(call[3], 20);
   assert.equal(call[1][0].footprint.cols, 4);
+  k.close();
+});
+
+test('placeManyChannels returns parsed channel JSON', () => {
+  const calls = [];
+  const k = new Kittui(fakeLib(calls), {});
+  const s = scene.build({
+    footprintCells: [4, 2],
+    layers: [scene.backgroundSolid([0, 216, 255, 255])],
+  });
+  assert.deepEqual(k.placeManyChannels([s, JSON.stringify(s)], 10, 20), {
+    count: 2,
+    upload: 'u',
+    placement: 'p',
+    embed: 'e',
+  });
+  const call = calls.find((c) => c[0] === 'place_many_channels');
+  assert.equal(call[1].length, 2);
+  assert.equal(call[2], 10);
+  assert.equal(call[3], 20);
   k.close();
 });
 

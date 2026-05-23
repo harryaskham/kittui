@@ -20,7 +20,7 @@ use kittui::{CellSize, RendererKind, Runtime, Scene, TerminalInfo, Transport};
 /// Major version of the FFI ABI. Bumped on any breaking change.
 pub const KITTUI_ABI_MAJOR: u32 = 0;
 /// Minor version of the FFI ABI. Bumped on additive changes.
-pub const KITTUI_ABI_MINOR: u32 = 6;
+pub const KITTUI_ABI_MINOR: u32 = 7;
 
 /// Opaque pointer to a runtime instance. Owned by the caller; freed via
 /// [`kittui_runtime_free`].
@@ -273,6 +273,28 @@ pub unsafe extern "C" fn kittui_place_many_json_at(
     place_many_json_impl(runtime, scenes_json, Some(x), Some(y), out)
 }
 
+/// Render/place a JSON array of scenes at a runtime group origin and return a
+/// JSON object with separated upload, placement, and embed channels.
+///
+/// # Safety
+///
+/// `runtime` must be valid. `scenes_json` must be a NUL-terminated UTF-8
+/// string containing a JSON array of scenes. `out` must point to writable
+/// storage.
+#[no_mangle]
+pub unsafe extern "C" fn kittui_place_many_json_channels(
+    runtime: *mut KittuiRuntime,
+    scenes_json: *const c_char,
+    x: u16,
+    y: u16,
+    out: *mut *mut c_char,
+) -> KittuiStatus {
+    place_many_json_impl_with(runtime, scenes_json, out, |rt, scenes| {
+        let batch = rt.inner.place_batch_at_origin(scenes, x, y)?;
+        Ok(batch_json(&batch))
+    })
+}
+
 unsafe fn place_many_json_impl(
     runtime: *mut KittuiRuntime,
     scenes_json: *const c_char,
@@ -280,6 +302,28 @@ unsafe fn place_many_json_impl(
     y: Option<u16>,
     out: *mut *mut c_char,
 ) -> KittuiStatus {
+    place_many_json_impl_with(runtime, scenes_json, out, |rt, scenes| {
+        let batch = match (x, y) {
+            (Some(x), Some(y)) => rt.inner.place_batch_at_origin(scenes, x, y),
+            _ => rt.inner.place_batch(scenes),
+        }?;
+        let mut bytes = String::new();
+        bytes.push_str(&batch.upload);
+        bytes.push_str(&batch.placement);
+        bytes.push_str(&batch.embed);
+        Ok(bytes)
+    })
+}
+
+unsafe fn place_many_json_impl_with<F>(
+    runtime: *mut KittuiRuntime,
+    scenes_json: *const c_char,
+    out: *mut *mut c_char,
+    f: F,
+) -> KittuiStatus
+where
+    F: FnOnce(&KittuiRuntime, &[Scene]) -> Result<String, kittui::KittuiError>,
+{
     if runtime.is_null() || scenes_json.is_null() || out.is_null() {
         return KittuiStatus::NullPointer;
     }
@@ -296,24 +340,14 @@ unsafe fn place_many_json_impl(
                 return KittuiStatus::BadScene;
             }
         };
-        let batch = match (x, y) {
-            (Some(x), Some(y)) => rt.inner.place_batch_at_origin(&scenes, x, y),
-            _ => rt.inner.place_batch(&scenes),
-        };
-        match batch {
-            Ok(batch) => {
-                let mut bytes = String::new();
-                bytes.push_str(&batch.upload);
-                bytes.push_str(&batch.placement);
-                bytes.push_str(&batch.embed);
-                match CString::new(bytes) {
-                    Ok(c) => {
-                        *out = c.into_raw();
-                        KittuiStatus::Ok
-                    }
-                    Err(_) => KittuiStatus::Runtime,
+        match f(rt, &scenes) {
+            Ok(bytes) => match CString::new(bytes) {
+                Ok(c) => {
+                    *out = c.into_raw();
+                    KittuiStatus::Ok
                 }
-            }
+                Err(_) => KittuiStatus::Runtime,
+            },
             Err(e) => {
                 *rt.last_error.lock().unwrap() = CString::new(e.to_string()).ok();
                 KittuiStatus::Runtime
@@ -321,6 +355,21 @@ unsafe fn place_many_json_impl(
         }
     }));
     result.unwrap_or(KittuiStatus::Panic)
+}
+
+fn batch_json(batch: &kittui::BatchPlacement) -> String {
+    serde_json::json!({
+        "count": batch.image_ids.len(),
+        "image_ids": batch.image_ids.iter().map(|id| format!("0x{id:08x}")).collect::<Vec<_>>(),
+        "footprints": batch.footprints,
+        "upload_bytes": batch.upload.len(),
+        "placement_bytes": batch.placement.len(),
+        "embed_bytes": batch.embed.len(),
+        "upload": batch.upload,
+        "placement": batch.placement,
+        "embed": batch.embed,
+    })
+    .to_string()
 }
 
 unsafe fn place_json_impl(
@@ -676,6 +725,45 @@ mod tests {
             let bytes = owned_string(out);
             assert!(bytes.contains("\x1b[21;11H"), "{bytes:?}");
             assert!(bytes.contains("\x1b[23;16H"), "{bytes:?}");
+            kittui_runtime_free(runtime);
+        }
+    }
+
+    #[test]
+    fn place_many_json_channels_returns_metadata_and_bytes() {
+        let config = CString::new(format!(
+            r#"{{"cache_dir": {:?}, "renderer": "cpu", "transport": "direct", "supports_kitty": true, "supports_unicode_placeholders": true}}"#,
+            tempdir().display().to_string()
+        ))
+        .unwrap();
+        unsafe {
+            let runtime = kittui_runtime_new_config(config.as_ptr());
+            assert!(!runtime.is_null());
+            let mut scene_a: kittui::Scene =
+                serde_json::from_str(scene_json().to_str().unwrap()).unwrap();
+            let mut scene_b: kittui::Scene =
+                serde_json::from_str(scene_json().to_str().unwrap()).unwrap();
+            scene_a.footprint.x = 2;
+            scene_a.footprint.y = 4;
+            scene_b.footprint.x = 7;
+            scene_b.footprint.y = 6;
+            let scenes =
+                CString::new(serde_json::to_string(&vec![scene_a, scene_b]).unwrap()).unwrap();
+            let mut out: *mut c_char = std::ptr::null_mut();
+            let status =
+                kittui_place_many_json_channels(runtime, scenes.as_ptr(), 10, 20, &mut out);
+            assert_eq!(status, KittuiStatus::Ok);
+            let json = owned_string(out);
+            let payload: serde_json::Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(payload["count"], 2);
+            assert_eq!(payload["footprints"][0]["x"], 10);
+            assert_eq!(payload["footprints"][1]["x"], 15);
+            assert!(payload["upload_bytes"].as_u64().unwrap() > 0);
+            assert!(payload["placement"]
+                .as_str()
+                .unwrap()
+                .contains("\x1b[21;11H"));
+            assert!(payload["embed"].as_str().unwrap().len() > 0);
             kittui_runtime_free(runtime);
         }
     }
