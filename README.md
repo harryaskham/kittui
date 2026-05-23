@@ -19,7 +19,7 @@ protocol. It ships as:
   and shell pipelines such as `kittui box --scene-json | kittui compose -`.
 - a ratatui adapter (`ratakittui`) — widget decoration + lifecycle.
 
-See [`DESIGN.md`](DESIGN.md) for the full design.
+See [`DESIGN.md`](DESIGN.md) for the full design, and [`docs/README.md`](docs/README.md) for the docs map covering semantic surfaces, browser/accessibility adapters, graphics transport, and kittwm SDK architecture.
 
 ## Quick start
 

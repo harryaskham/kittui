@@ -1,0 +1,82 @@
+# kittui / kittwm docs map
+
+This directory contains design notes, runtime references, and implementation
+plans for kittui and kittwm.
+
+## Core kittwm docs
+
+- [`wm.md`](wm.md) — native kittwm runtime, socket commands, pane lifecycle,
+  renderer modes, transport controls, and operator-facing behavior.
+- [`kittwm-sdk-plan.md`](kittwm-sdk-plan.md) — long-range SDK/surface runtime
+  architecture: surfaces, windows, first-party apps, events, capabilities, and
+  renderer split.
+- [`protocol-conformance.md`](protocol-conformance.md) — terminal/protocol
+  behavior notes and conformance tracking.
+
+## Graphics transport and frame performance
+
+- [`adaptive-graphics-transport.md`](adaptive-graphics-transport.md) — transport
+  selection plan for direct kitty streams, zlib, file/tempfile/shared-memory,
+  tmux safety, local/remote detection, and diagnostics.
+- [`kittwm-dirty-frame-updates.md`](kittwm-dirty-frame-updates.md) — dirty-grid
+  frame diff model, safe unchanged-frame skipping, and why partial/overlay kitty
+  updates remain experimental.
+
+Current implementation status:
+
+- tmux defaults to pure terminal rendering unless explicitly overridden;
+- direct raw RGBA uploads support zlib and threshold-based `auto` compression;
+- file/tempfile and shared-memory raw-frame grammar/path exist with safe fallback;
+- dirty-grid unchanged-frame skipping and dirty-frame status metrics exist;
+- typed kitty animation/frame control helpers exist for future experiments.
+
+## Semantic surface docs
+
+Semantic surfaces let kittwm represent labels, buttons, inputs, selection state,
+focus, actions, and events as structured component trees instead of pixels only.
+
+Read in this order:
+
+1. [`kittwm-semantic-surfaces.md`](kittwm-semantic-surfaces.md) — protocol and
+   architecture plan: component tree model, roles, values, layout, actions,
+   events, renderer mapping, capabilities, and adapter sources.
+2. [`kittwm-semantic-quickstart.md`](kittwm-semantic-quickstart.md) — runnable
+   workflow: print/publish/read semantic snapshots, use SDK/CLI helpers, inspect
+   fallback PTY snapshots, and understand current action behavior.
+3. [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md) —
+   browser DOM/ARIA adapter design and current browser implementation status.
+4. [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md)
+   — platform accessibility-tree adapter plan for macOS AX / Linux AT-SPI style
+   semantics.
+
+Current semantic implementation status:
+
+- `kittwm-sdk` owns public semantic protocol types, snapshot/action/focus/publish
+  wrappers, typed semantic events, and convenience action helpers.
+- Native kittwm socket exposes `SEMANTIC_SNAPSHOT`, `SEMANTIC_PUBLISH`,
+  `SEMANTIC_ACTION`, and `SEMANTIC_FOCUS`.
+- Terminal panes expose a fallback semantic text-area tree when no published
+  snapshot exists.
+- Published semantic snapshots support in-memory focus, toggle, set/insert text,
+  set number/bool, and select actions.
+- Semantic publish/focus/action/value changes appear in the native bounded
+  `EVENTS [ms]` stream and parse as typed SDK events.
+- `kittui-affordances` owns the high-level form/control builders and gallery;
+  `kittui-core` remains primitive-only.
+- `kittui-wm` can render both internal and public SDK semantic snapshots to
+  primitive kittui scenes via shared affordance controls.
+- `kittwm-browser` can extract DOM/ARIA semantic snapshots, best-effort publish
+  changed snapshots when running with `KITTWM_SOCKET`/`KITTWM_WINDOW`, and route
+  supported browser semantic actions through DevTools/DOM.
+- Accessibility-tree adapters are planned; macOS AX, Linux AT-SPI, and action
+  routing spikes are tracked as follow-ups.
+
+## Examples and artifacts
+
+- [`examples/`](examples/) — docs/examples assets and proof inputs.
+- `crates/kittui-cli/examples/kittwm_semantic_app.rs` — synthetic semantic SDK
+  app that prints, queries, and publishes a settings/form component tree.
+- `crates/kittui-cli/examples/kittwm_composite_app.rs` — composite SDK example
+  spanning terminal plus browser/placeholder surfaces.
+- `crates/kittui-affordances/examples/control_gallery.rs` — first-party control
+  palette summary over affordance builders.
