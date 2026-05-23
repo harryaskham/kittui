@@ -27,6 +27,10 @@ name = "kittwm-launch"
 path = "src/bin/kittwm_launch.rs"
 
 [[bin]]
+name = "kittwm-bar"
+path = "src/bin/kittwm_bar.rs"
+
+[[bin]]
 name = "kittui-md"
 path = "src/bin/kittui_md.rs"
 
