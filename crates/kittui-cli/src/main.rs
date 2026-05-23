@@ -585,16 +585,32 @@ fn run_probe(global: &GlobalConfig, args: &ProbeArgs) -> Result<()> {
         let probe_path = cache_root.join("probe.json");
         let _ = std::fs::remove_file(&probe_path);
     }
-    let probe = serde_json::json!({
-        "supports_kitty": true,
-        "supports_unicode_placeholders": true,
+    let mut terminal = TerminalInfo::detect();
+    terminal.columns = Some(global.terminal_cols.value);
+    terminal.rows = Some(global.terminal_rows.value);
+    let probe = probe_payload(global, &terminal, args.force);
+    println!("{}", serde_json::to_string_pretty(&probe)?);
+    Ok(())
+}
+
+fn probe_payload(
+    global: &GlobalConfig,
+    terminal: &TerminalInfo,
+    force_invalidated: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "supports_kitty": terminal.supports_kitty,
+        "supports_unicode_placeholders": terminal.supports_unicode_placeholders,
+        "transport": terminal.transport,
+        "columns": terminal.columns,
+        "rows": terminal.rows,
+        "cell_size": terminal.cell_size,
+        "terminal": terminal,
         "renderer": global.renderer.value.to_string(),
         "version": env!("CARGO_PKG_VERSION"),
         "config_sources": { "global": global.source_json() },
-        "force_invalidated": args.force,
-    });
-    println!("{}", serde_json::to_string_pretty(&probe)?);
-    Ok(())
+        "force_invalidated": force_invalidated,
+    })
 }
 
 fn run_proof(global: &GlobalConfig, args: &ProofArgs) -> Result<()> {
@@ -943,5 +959,39 @@ mod tests {
         let parsed = read_compose_scene(&path).unwrap();
         assert_eq!(parsed.footprint, scene.footprint);
         let _ = std::fs::remove_file(path);
+    }
+
+    fn test_global() -> GlobalConfig {
+        config::ConfigLayers::from_parts(
+            config::FileConfig::default(),
+            config::EnvConfig::default(),
+        )
+        .resolve_global(GlobalFlagValues {
+            cache_dir: None,
+            renderer: None,
+            terminal_cols: Some(132),
+            terminal_rows: Some(43),
+            json: true,
+        })
+    }
+
+    #[test]
+    fn probe_payload_reports_detected_terminal_descriptor() {
+        let terminal = TerminalInfo::override_with(
+            Some(132),
+            Some(43),
+            CellSize::new(9, 18),
+            false,
+            false,
+            kittui_core::terminal::Transport::TmuxPassthrough,
+        );
+        let payload = probe_payload(&test_global(), &terminal, true);
+        assert_eq!(payload["supports_kitty"], false);
+        assert_eq!(payload["supports_unicode_placeholders"], false);
+        assert_eq!(payload["transport"], "tmux_passthrough");
+        assert_eq!(payload["terminal"]["cell_size"]["width_px"], 9);
+        assert_eq!(payload["columns"], 132);
+        assert_eq!(payload["rows"], 43);
+        assert_eq!(payload["force_invalidated"], true);
     }
 }
