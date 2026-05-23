@@ -101,6 +101,16 @@ class Kittui:
             raise KittuiError("failed to create kittui runtime")
         return cls(lib, runtime)
 
+    def configure(self, config: dict[str, Any]) -> "Kittui":
+        """Reconfigure this live runtime using the FFI JSON config shape."""
+        if not self.runtime:
+            raise KittuiError("kittui runtime closed")
+        self._check(
+            self.lib.kittui_runtime_configure(self.runtime, _json(config)),
+            "kittui_runtime_configure",
+        )
+        return self
+
     def close(self) -> None:
         if self.runtime:
             self.lib.kittui_runtime_free(self.runtime)
@@ -213,6 +223,8 @@ def _wire_library(lib: Any) -> None:
     lib.kittui_runtime_new_config.restype = c_void_p
     lib.kittui_runtime_free.argtypes = [c_void_p]
     lib.kittui_runtime_free.restype = None
+    lib.kittui_runtime_configure.argtypes = [c_void_p, c_char_p]
+    lib.kittui_runtime_configure.restype = c_int
     lib.kittui_string_free.argtypes = [c_char_p]
     lib.kittui_string_free.restype = None
     lib.kittui_bytes_free.argtypes = [POINTER(c_uint8), c_size_t]

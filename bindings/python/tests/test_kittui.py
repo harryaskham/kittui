@@ -22,6 +22,10 @@ class FakeLib:
     def kittui_runtime_free(self, runtime):
         self.calls.append(("free", bool(runtime)))
 
+    def kittui_runtime_configure(self, runtime, config):
+        self.calls.append(("configure", json.loads(config.decode())))
+        return 0
+
     def kittui_string_free(self, ptr):
         self.calls.append(("free_string", bool(ptr)))
 
@@ -88,6 +92,11 @@ class FailingLib(FakeLib):
         return 3
 
 
+class FailingConfigureLib(FakeLib):
+    def kittui_runtime_configure(self, runtime, config):
+        return 2
+
+
 class FailingRenderLib(FakeLib):
     def kittui_render_json(self, runtime, scene_json, out_ptr, out_len):
         return 3
@@ -114,12 +123,14 @@ class KittuiBindingTests(unittest.TestCase):
         self.assertTrue(args.abi)
         self.assertEqual(args.config_json, '{"renderer":"cpu"}')
 
-    def test_config_probe_unplace_and_close(self):
+    def test_config_probe_unplace_configure_and_close(self):
         lib = FakeLib()
         k = Kittui.from_library(lib, {"cache_dir": "/tmp/kittui", "renderer": "cpu"})
         self.assertEqual(lib.calls[0], ("new_config", {"cache_dir": "/tmp/kittui", "renderer": "cpu"}))
         self.assertEqual(k.abi_version(), {"major": 0, "minor": 7})
         self.assertEqual(k.probe()["transport"], "Direct")
+        self.assertIs(k.configure({"renderer": "cpu", "transport": "tmux"}), k)
+        self.assertIn(("configure", {"renderer": "cpu", "transport": "tmux"}), lib.calls)
         self.assertEqual(k.unplace("0x10"), "deleted")
         k.close()
         self.assertEqual(lib.calls[-1][0], "free")
@@ -146,6 +157,11 @@ class KittuiBindingTests(unittest.TestCase):
         k = Kittui.from_library(FailingLib())
         with self.assertRaisesRegex(KittuiError, "fake error"):
             k.place(SCENE)
+
+    def test_configure_errors_include_last_error(self):
+        k = Kittui.from_library(FailingConfigureLib())
+        with self.assertRaisesRegex(KittuiError, "kittui_runtime_configure.*fake error"):
+            k.configure({"renderer": "bogus"})
 
     def test_render_errors_include_last_error(self):
         k = Kittui.from_library(FailingRenderLib())

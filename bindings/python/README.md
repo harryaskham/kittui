@@ -14,6 +14,7 @@ scene = {
 }
 
 with Kittui.open({"renderer": "cpu", "transport": "direct"}) as k:
+    k.configure({"renderer": "cpu", "transport": "tmux"})
     print(k.abi_version())
     png_bytes = k.render(scene)
     png_manifest = k.render_many([scene, scene])
@@ -50,6 +51,7 @@ python3 -m kittui --probe --config-json '{"renderer":"cpu"}'
 - `Kittui.from_library(lib, config=None)` for tests/embedding
 - `abi_version()`
 - `probe()`
+- `configure(config)`
 - `unplace(image_id)`
 - `render(scene)`
 - `render_many(scenes)`
