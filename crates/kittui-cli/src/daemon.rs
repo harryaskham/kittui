@@ -457,6 +457,12 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("SEND_BYTES_B64 ") {
         return queue_native_send_bytes_b64(pending, rest);
     }
+    if let Some(rest) = cmd.strip_prefix("WAIT_OUTPUT_MS ") {
+        return native_spawn_wait_output_ms_reply(pending, rest);
+    }
+    if let Some(rest) = cmd.strip_prefix("WAIT_OUTPUT ") {
+        return native_spawn_wait_output_reply(pending, rest, Duration::from_secs(5));
+    }
     if let Some(rest) = cmd.strip_prefix("WAIT_TEXT_MS ") {
         return native_spawn_wait_text_ms_reply(pending, rest);
     }
@@ -486,7 +492,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -607,6 +613,16 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "WAIT_TEXT_MS <window|focused> <ms> <needle>",
             "automation",
             "wait until pane text contains text with explicit timeout",
+        ),
+        (
+            "WAIT_OUTPUT <window|focused> <needle>",
+            "automation",
+            "wait until pane text or scrollback contains text",
+        ),
+        (
+            "WAIT_OUTPUT_MS <window|focused> <ms> <needle>",
+            "automation",
+            "wait until pane text or scrollback contains text with explicit timeout",
         ),
         ("APPS", "apps", "text app discovery listing"),
         ("APPS_JSON", "apps", "JSON app discovery listing"),
@@ -1002,22 +1018,44 @@ fn native_spawn_wait_text_ms_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
 ) -> String {
+    native_spawn_wait_ms_reply(pending, rest, "WAIT_TEXT_MS", false)
+}
+
+fn native_spawn_wait_output_ms_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+) -> String {
+    native_spawn_wait_ms_reply(pending, rest, "WAIT_OUTPUT_MS", true)
+}
+
+fn native_spawn_wait_ms_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+    verb: &str,
+    include_scrollback: bool,
+) -> String {
     let Some((target, rest)) = rest.trim_start().split_once(' ') else {
-        return "ERR WAIT_TEXT_MS requires window, milliseconds, and needle\n".to_string();
+        return format!("ERR {verb} requires window, milliseconds, and needle\n");
     };
     let Some((ms, needle)) = rest.trim_start().split_once(' ') else {
-        return "ERR WAIT_TEXT_MS requires window, milliseconds, and needle\n".to_string();
+        return format!("ERR {verb} requires window, milliseconds, and needle\n");
     };
     let Ok(ms) = ms.trim().parse::<u64>() else {
-        return "ERR WAIT_TEXT_MS milliseconds must be an integer\n".to_string();
+        return format!("ERR {verb} milliseconds must be an integer\n");
     };
     if ms == 0 || ms > 60_000 {
-        return "ERR WAIT_TEXT_MS milliseconds must be in 1..=60000\n".to_string();
+        return format!("ERR {verb} milliseconds must be in 1..=60000\n");
     }
-    native_spawn_wait_text_reply(
+    native_spawn_wait_reply(
         pending,
         &format!("{} {}", target.trim(), needle.trim()),
         Duration::from_millis(ms),
+        if include_scrollback {
+            "WAIT_OUTPUT"
+        } else {
+            "WAIT_TEXT"
+        },
+        include_scrollback,
     )
 }
 
@@ -1026,34 +1064,58 @@ fn native_spawn_wait_text_reply(
     rest: &str,
     timeout: Duration,
 ) -> String {
+    native_spawn_wait_reply(pending, rest, timeout, "WAIT_TEXT", false)
+}
+
+fn native_spawn_wait_output_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+    timeout: Duration,
+) -> String {
+    native_spawn_wait_reply(pending, rest, timeout, "WAIT_OUTPUT", true)
+}
+
+fn native_spawn_wait_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+    timeout: Duration,
+    verb: &str,
+    include_scrollback: bool,
+) -> String {
     let Some((target, needle)) = rest.trim_start().split_once(' ') else {
-        return "ERR WAIT_TEXT requires window and needle\n".to_string();
+        return format!("ERR {verb} requires window and needle\n");
     };
     let target = target.trim();
     let needle = needle.trim();
     if target.is_empty() || needle.is_empty() {
-        return "ERR WAIT_TEXT requires window and needle\n".to_string();
+        return format!("ERR {verb} requires window and needle\n");
     }
     let deadline = Instant::now() + timeout;
     loop {
         let snapshot = match pending.lock() {
             Ok(state) => native_find_pane_target(&state.panes, target).map(|pane| {
-                (
-                    pane.window.clone(),
-                    pane.text_snapshot.clone().unwrap_or_default(),
-                )
+                let mut text = pane.text_snapshot.clone().unwrap_or_default();
+                if include_scrollback {
+                    text.push_str(pane.scrollback_snapshot.as_deref().unwrap_or(""));
+                }
+                (pane.window.clone(), text)
             }),
             Err(_) => return "ERR registry poisoned\n".to_string(),
         };
         let Some((window, text)) = snapshot else {
-            return format!("ERR WAIT_TEXT no pane matching {target}\n");
+            return format!("ERR {verb} no pane matching {target}\n");
         };
         if text.contains(needle) {
-            return format!("MATCH_TEXT window={window} bytes={}\n", text.len());
+            let match_tag = if include_scrollback {
+                "MATCH_OUTPUT"
+            } else {
+                "MATCH_TEXT"
+            };
+            return format!("{match_tag} window={window} bytes={}\n", text.len());
         }
         if Instant::now() >= deadline {
             return format!(
-                "ERR WAIT_TEXT timeout window={window} needle_bytes={}\n",
+                "ERR {verb} timeout window={window} needle_bytes={}\n",
                 needle.len()
             );
         }
@@ -1428,7 +1490,10 @@ fn daemon_help_json_reply() -> String {
 
 fn client_read_timeout_for(cmd: &str) -> Duration {
     let trimmed = cmd.trim_start();
-    let Some(rest) = trimmed.strip_prefix("WAIT_TEXT_MS ") else {
+    let Some(rest) = trimmed
+        .strip_prefix("WAIT_TEXT_MS ")
+        .or_else(|| trimmed.strip_prefix("WAIT_OUTPUT_MS "))
+    else {
         return CLIENT_READ_TIMEOUT;
     };
     let mut parts = rest.split_whitespace();
@@ -1486,6 +1551,10 @@ mod tests {
         );
         assert_eq!(
             client_read_timeout_for("WAIT_TEXT_MS focused 60000 build finished"),
+            Duration::from_secs(65)
+        );
+        assert_eq!(
+            client_read_timeout_for("WAIT_OUTPUT_MS focused 60000 build finished"),
             Duration::from_secs(65)
         );
         assert_eq!(
@@ -1843,6 +1912,14 @@ mod tests {
             help.contains("WAIT_TEXT_MS <window|focused> <ms> <needle>"),
             "{help}"
         );
+        assert!(
+            help.contains("WAIT_OUTPUT <window|focused> <needle>"),
+            "{help}"
+        );
+        assert!(
+            help.contains("WAIT_OUTPUT_MS <window|focused> <ms> <needle>"),
+            "{help}"
+        );
         assert!(help.contains("APPS_JSON"), "{help}");
 
         let help_json: serde_json::Value =
@@ -2012,6 +2089,21 @@ mod tests {
         assert_eq!(
             native_spawn_wait_text_ms_reply(&pending, "focused 10 second").trim(),
             "MATCH_TEXT window=native-2 bytes=17"
+        );
+        assert_eq!(
+            native_spawn_wait_output_reply(&pending, "focused history", Duration::from_millis(1))
+                .trim(),
+            "MATCH_OUTPUT window=native-2 bytes=30"
+        );
+        assert!(native_spawn_wait_text_reply(
+            &pending,
+            "focused history",
+            Duration::from_millis(1)
+        )
+        .contains("ERR WAIT_TEXT timeout"));
+        assert_eq!(
+            native_spawn_wait_output_ms_reply(&pending, "focused 10 history").trim(),
+            "MATCH_OUTPUT window=native-2 bytes=30"
         );
         assert!(
             native_spawn_wait_text_ms_reply(&pending, "focused nope second")

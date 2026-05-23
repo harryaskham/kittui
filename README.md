@@ -127,7 +127,9 @@ kittwm --send-file focused ./payload.txt
 kittwm --read-text focused
 kittwm --read-scrollback focused
 kittwm --wait-text focused ready
+kittwm --wait-output focused 'previous output'
 kittwm --wait-text-ms 15000 focused 'build finished'
+kittwm --wait-output-ms 15000 focused 'scrolled sentinel'
 kittwm --save-session session.json
 kittwm --restore-session session.json
 kittwm --session-json  # persistence-oriented layout/order/focus manifest

@@ -271,6 +271,15 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--wait-text WINDOW NEEDLE"))?;
                 out.automation_request = Some(automation_request("WAIT_TEXT", &window, &needle)?);
             }
+            "--wait-output" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output WINDOW NEEDLE"))?;
+                let needle = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output WINDOW NEEDLE"))?;
+                out.automation_request = Some(automation_request("WAIT_OUTPUT", &window, &needle)?);
+            }
             "--wait-text-ms" => {
                 let ms = args
                     .next()
@@ -281,7 +290,21 @@ fn parse_args() -> Result<Cli> {
                 let needle = args
                     .next()
                     .ok_or_else(|| anyhow!("--wait-text-ms MS WINDOW NEEDLE"))?;
-                out.automation_request = Some(wait_text_ms_request(&ms, &window, &needle)?);
+                out.automation_request =
+                    Some(wait_ms_request("WAIT_TEXT_MS", &ms, &window, &needle)?);
+            }
+            "--wait-output-ms" => {
+                let ms = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output-ms MS WINDOW NEEDLE"))?;
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output-ms MS WINDOW NEEDLE"))?;
+                let needle = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output-ms MS WINDOW NEEDLE"))?;
+                out.automation_request =
+                    Some(wait_ms_request("WAIT_OUTPUT_MS", &ms, &window, &needle)?);
             }
             "--status-json" => out.automation_request = Some("STATUS_JSON".to_string()),
             "--panes" => out.automation_request = Some("PANES".to_string()),
@@ -440,6 +463,8 @@ fn print_help() {
          --read-scrollback WINDOW print native pane scrollback lines.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
          --wait-text-ms MS WINDOW TEXT  wait with explicit millisecond timeout.\n\
+         --wait-output WINDOW TEXT  wait until pane text or scrollback contains TEXT.\n\
+         --wait-output-ms MS WINDOW TEXT  wait for output with explicit timeout.\n\
          --status-json            print native socket STATUS_JSON.\n\
          --panes                  print native socket PANES listing.\n\
          --panes-json             print native socket PANES_JSON.\n\
@@ -1315,15 +1340,15 @@ fn rename_pane_request(window: &str, title: &str) -> Result<String> {
     protocol_payload_request("RENAME_PANE", &format!("{window} {title}"))
 }
 
-fn wait_text_ms_request(ms: &str, window: &str, needle: &str) -> Result<String> {
+fn wait_ms_request(verb: &str, ms: &str, window: &str, needle: &str) -> Result<String> {
     let parsed = ms
         .trim()
         .parse::<u64>()
-        .map_err(|_| anyhow!("--wait-text-ms expects integer milliseconds"))?;
+        .map_err(|_| anyhow!("{verb} expects integer milliseconds"))?;
     if parsed == 0 || parsed > 60_000 {
-        return Err(anyhow!("--wait-text-ms must be in 1..=60000"));
+        return Err(anyhow!("{verb} must be in 1..=60000"));
     }
-    automation_request("WAIT_TEXT_MS", window, &format!("{parsed} {needle}"))
+    automation_request(verb, window, &format!("{parsed} {needle}"))
 }
 
 fn automation_cmd(request: &str) -> Result<()> {
@@ -2192,7 +2217,7 @@ mod tests {
             "READ_TEXT native-2"
         );
         assert_eq!(
-            wait_text_ms_request("2500", "focused", "Ready Now").unwrap(),
+            wait_ms_request("WAIT_TEXT_MS", "2500", "focused", "Ready Now").unwrap(),
             "WAIT_TEXT_MS focused 2500 Ready Now"
         );
         assert_eq!(
@@ -2203,7 +2228,11 @@ mod tests {
             send_bytes_request("focused", b"hi\n\0").unwrap(),
             "SEND_BYTES_B64 focused aGkKAA=="
         );
-        assert!(wait_text_ms_request("0", "focused", "ready").is_err());
+        assert_eq!(
+            wait_ms_request("WAIT_OUTPUT_MS", "2500", "focused", "Ready Now").unwrap(),
+            "WAIT_OUTPUT_MS focused 2500 Ready Now"
+        );
+        assert!(wait_ms_request("WAIT_TEXT_MS", "0", "focused", "ready").is_err());
         assert!(automation_request("SEND_KEY", "bad window", "ctrl-c").is_err());
     }
 
