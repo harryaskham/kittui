@@ -17,6 +17,76 @@ use kittui_kitty as kitty;
 use kittui_wm::native::{HeadlessBrowserApp, NativeApp, NativeFrame};
 use kittwm_sdk::{Kittwm, SemanticSurfaceSnapshot};
 
+const DEFAULT_URL: &str =
+    "data:text/html,<html><body><h1>kittwm-browser</h1><input autofocus value='ready'></body></html>";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BrowserArgs {
+    url: String,
+    semantic_snapshot: bool,
+    compact_json: bool,
+    help: bool,
+}
+
+impl BrowserArgs {
+    fn parse_from<I, S>(args: I) -> Result<Self, String>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let mut url = None;
+        let mut semantic_snapshot = false;
+        let mut compact_json = true;
+        let mut help = false;
+        let mut iter = args.into_iter().map(Into::into);
+        while let Some(arg) = iter.next() {
+            match arg.as_str() {
+                "--help" | "-h" => help = true,
+                "--semantic-snapshot" | "--print-semantic" => semantic_snapshot = true,
+                "--pretty" | "--pretty-json" => compact_json = false,
+                "--compact" | "--compact-json" => compact_json = true,
+                "--" => {
+                    if let Some(value) = iter.next() {
+                        url = Some(value);
+                    }
+                    if let Some(extra) = iter.next() {
+                        return Err(format!(
+                            "unexpected extra argument {extra}\n\n{}",
+                            help_text()
+                        ));
+                    }
+                    break;
+                }
+                other if other.starts_with('-') => {
+                    return Err(format!("unknown option {other}\n\n{}", help_text()));
+                }
+                other => {
+                    if url.replace(other.to_string()).is_some() {
+                        return Err(format!(
+                            "unexpected extra argument {other}\n\n{}",
+                            help_text()
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(Self {
+            url: url.unwrap_or_else(|| DEFAULT_URL.to_string()),
+            semantic_snapshot,
+            compact_json,
+            help,
+        })
+    }
+}
+
+fn help_text() -> String {
+    "kittwm-browser — first-party kittwm-native browser app\n\n\
+Usage:\n  kittwm-browser [OPTIONS] [URL]\n\n\
+Options:\n  --semantic-snapshot, --print-semantic  load URL, print DOM/ARIA semantic snapshot JSON, and exit\n  --pretty, --pretty-json                pretty-print semantic snapshot JSON\n  --compact, --compact-json              compact semantic snapshot JSON (default)\n  -h, --help                             show this help\n\n\
+Default mode renders the browser surface in the terminal and publishes semantic snapshots to kittwm when KITTWM_SOCKET is set.\n"
+        .to_string()
+}
+
 fn main() -> ExitCode {
     match real_main() {
         Ok(()) => ExitCode::SUCCESS,
@@ -28,10 +98,15 @@ fn main() -> ExitCode {
 }
 
 fn real_main() -> Result<()> {
-    let mut args = std::env::args().skip(1);
-    let url = args.next().unwrap_or_else(|| {
-        "data:text/html,<html><body><h1>kittwm-browser</h1><input autofocus value='ready'></body></html>".to_string()
-    });
+    let args = BrowserArgs::parse_from(std::env::args().skip(1)).map_err(anyhow::Error::msg)?;
+    if args.help {
+        print!("{}", help_text());
+        return Ok(());
+    }
+    if args.semantic_snapshot {
+        return print_semantic_snapshot(&args.url, args.compact_json);
+    }
+    let url = args.url;
     let (mut cols, mut rows) = terminal_cells().unwrap_or((80, 24));
     rows = rows.saturating_sub(2).max(1);
     let mut browser = HeadlessBrowserApp::launch(&url, u32::from(cols) * 8, u32::from(rows) * 16)?;
@@ -107,6 +182,17 @@ fn real_main() -> Result<()> {
             std::thread::sleep(slack);
         }
     }
+}
+
+fn print_semantic_snapshot(url: &str, compact: bool) -> Result<()> {
+    let mut browser = HeadlessBrowserApp::launch(url, 1024, 768)?;
+    let snapshot = browser.semantic_snapshot()?;
+    if compact {
+        println!("{}", serde_json::to_string(&snapshot)?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    }
+    Ok(())
 }
 
 struct BrowserSemanticPublisher {
@@ -256,6 +342,31 @@ impl Drop for TtyGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_semantic_snapshot_flags() {
+        let args =
+            BrowserArgs::parse_from(["--semantic-snapshot", "--pretty", "https://example.com/app"])
+                .unwrap();
+        assert_eq!(args.url, "https://example.com/app");
+        assert!(args.semantic_snapshot);
+        assert!(!args.compact_json);
+    }
+
+    #[test]
+    fn parses_print_semantic_alias_and_default_url() {
+        let args = BrowserArgs::parse_from(["--print-semantic"]).unwrap();
+        assert_eq!(args.url, DEFAULT_URL);
+        assert!(args.semantic_snapshot);
+        assert!(args.compact_json);
+    }
+
+    #[test]
+    fn rejects_unknown_browser_option() {
+        let err = BrowserArgs::parse_from(["--bogus"]).unwrap_err();
+        assert!(err.contains("unknown option --bogus"));
+        assert!(err.contains("--semantic-snapshot"));
+    }
 
     #[test]
     fn semantic_publisher_debounces_and_skips_unchanged_payloads() {
