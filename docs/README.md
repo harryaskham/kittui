@@ -76,6 +76,11 @@ Current semantic implementation status:
   `kittui-core` remains primitive-only.
 - `kittui-wm` can render both internal and public SDK semantic snapshots to
   primitive kittui scenes via shared affordance controls.
+- Capture-only `NativeSurface` adapters exist for kittui scenes, raw RGBA frames,
+  and composed RGBA frames: `KittuiSceneSurface` produces PNG via the CPU
+  renderer, while `RgbaFrameSurface` and `CompositeFrameSurface` expose raw RGBA
+  frames. Wiring these into the default live kittwm runtime remains follow-up
+  work.
 - `kittwm-browser` can extract DOM/ARIA semantic snapshots, print one-shot
   snapshots with `--semantic-snapshot` / `--print-semantic`, best-effort publish
   changed snapshots when running with `KITTWM_SOCKET`/`KITTWM_WINDOW`, and route
