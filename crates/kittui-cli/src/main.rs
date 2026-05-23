@@ -8,7 +8,7 @@
 
 mod config;
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
@@ -51,23 +51,27 @@ struct Cli {
     terminal_rows: Option<u16>,
 
     /// Emit JSON describing the placement instead of raw escapes.
-    #[arg(long)]
+    #[arg(long, global = true)]
     json: bool,
 
     /// Print only the upload escape bytes.
-    #[arg(long, group = "channels")]
+    #[arg(long, global = true, group = "channels")]
     upload_only: bool,
 
     /// Print only the placement escape bytes.
-    #[arg(long, group = "channels")]
+    #[arg(long, global = true, group = "channels")]
     placement_only: bool,
 
     /// Print only the embed placeholder grid.
-    #[arg(long, group = "channels")]
+    #[arg(long, global = true, group = "channels")]
     embed_only: bool,
 
+    /// Build and print the generated `kittui::Scene` JSON instead of rendering.
+    #[arg(long, global = true)]
+    scene_json: bool,
+
     /// Build the scene + side effects but do not write any bytes.
-    #[arg(long)]
+    #[arg(long, global = true)]
     dry_run: bool,
 
     #[command(subcommand)]
@@ -110,6 +114,7 @@ enum CacheCmd {
 }
 
 #[derive(clap::Args, Clone)]
+#[command(disable_help_flag = true)]
 struct ImageArgs {
     /// Path to a PNG or JPEG image.
     #[arg(long)]
@@ -149,6 +154,7 @@ struct ProofArgs {
 }
 
 #[derive(clap::Args)]
+#[command(disable_help_flag = true)]
 struct BoxArgs {
     #[arg(short, long)]
     x: Option<u16>,
@@ -178,6 +184,7 @@ struct BoxArgs {
 }
 
 #[derive(clap::Args)]
+#[command(disable_help_flag = true)]
 struct GradientArgs {
     #[arg(short = 'w', long)]
     width: Option<String>,
@@ -192,6 +199,7 @@ struct GradientArgs {
 }
 
 #[derive(clap::Args)]
+#[command(disable_help_flag = true)]
 struct GlowArgs {
     #[arg(short = 'w', long)]
     width: Option<String>,
@@ -205,7 +213,7 @@ struct GlowArgs {
 
 #[derive(clap::Args)]
 struct ComposeArgs {
-    /// Path to a JSON file describing a `kittui::Scene`.
+    /// Path to a JSON file describing a `kittui::Scene`; use `-` for stdin.
     path: PathBuf,
 }
 
@@ -285,6 +293,7 @@ fn main() -> Result<()> {
         upload_only: cli.upload_only,
         placement_only: cli.placement_only,
         embed_only: cli.embed_only,
+        scene_json: cli.scene_json,
         dry_run: cli.dry_run,
     };
     match &cli.cmd {
@@ -333,7 +342,12 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_box(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedBoxConfig, mode: EmitMode) -> Result<()> {
+fn run_box(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &ResolvedBoxConfig,
+    mode: EmitMode,
+) -> Result<()> {
     let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height.value, global.terminal_rows.value)?;
     let cell = CellSize::default();
@@ -395,7 +409,12 @@ fn run_gradient(
     emit_with_mode(global, runtime, &scene, Some(args.source_json()), mode)
 }
 
-fn run_glow(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedGlowConfig, mode: EmitMode) -> Result<()> {
+fn run_glow(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &ResolvedGlowConfig,
+    mode: EmitMode,
+) -> Result<()> {
     let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height.value, global.terminal_rows.value)?;
     let cell = CellSize::default();
@@ -426,13 +445,33 @@ fn run_glow(global: &GlobalConfig, runtime: &Runtime, args: &ResolvedGlowConfig,
     emit_with_mode(global, runtime, &scene, Some(args.source_json()), mode)
 }
 
-fn run_compose(global: &GlobalConfig, runtime: &Runtime, args: &ComposeArgs, mode: EmitMode) -> Result<()> {
-    let bytes = std::fs::read(&args.path)?;
-    let scene: Scene = serde_json::from_slice(&bytes)?;
+fn run_compose(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &ComposeArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let scene = read_compose_scene(&args.path)?;
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 
-fn run_image(global: &GlobalConfig, runtime: &Runtime, args: &ImageArgs, mode: EmitMode) -> Result<()> {
+fn read_compose_scene(path: &PathBuf) -> Result<Scene> {
+    let bytes = if path.as_os_str() == "-" {
+        let mut bytes = Vec::new();
+        std::io::stdin().read_to_end(&mut bytes)?;
+        bytes
+    } else {
+        std::fs::read(path)?
+    };
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+fn run_image(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &ImageArgs,
+    mode: EmitMode,
+) -> Result<()> {
     use kittui_core::node::{Fit, ImageRef};
     let fit = match args.fit.to_ascii_lowercase().as_str() {
         "contain" => Fit::Contain,
@@ -560,12 +599,12 @@ fn run_probe(global: &GlobalConfig, args: &ProbeArgs) -> Result<()> {
 
 fn run_proof(global: &GlobalConfig, args: &ProofArgs) -> Result<()> {
     use kittui::scene::{background_solid, rounded_rect};
+    use kittui_core::terminal::Transport;
     use kittui_kitty::{
-        delete, delete_placement, placement_command, placement_command_ex, placeholder_text,
-        placeholder_text_ex, upload_animation, upload_still, upload_still_ex, PlacementOptions,
+        delete, delete_placement, placeholder_text, placeholder_text_ex, placement_command,
+        placement_command_ex, upload_animation, upload_still, upload_still_ex, PlacementOptions,
         Quiet, SubcellOffset, UploadMedium,
     };
-    use kittui_core::terminal::Transport;
 
     // Build a single small still scene and one tiny animation through the
     // CPU renderer so the proof commands carry real PNG bytes.
@@ -793,7 +832,12 @@ struct EmitMode {
     upload_only: bool,
     placement_only: bool,
     embed_only: bool,
+    scene_json: bool,
     dry_run: bool,
+}
+
+fn serialize_scene_json(scene: &Scene) -> Result<String> {
+    Ok(serde_json::to_string_pretty(scene)?)
 }
 
 fn emit_with_mode(
@@ -803,6 +847,10 @@ fn emit_with_mode(
     command_sources: Option<serde_json::Value>,
     mode: EmitMode,
 ) -> Result<()> {
+    if mode.scene_json {
+        println!("{}", serialize_scene_json(scene)?);
+        return Ok(());
+    }
     let placement = runtime.place(scene)?;
     if mode.dry_run {
         // Always JSON shape for dry-run so callers can compare.
@@ -851,4 +899,49 @@ fn emit_with_mode(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tiny_scene() -> Scene {
+        let cell = CellSize::default();
+        let footprint = CellRect::new(0, 0, 2, 1);
+        Scene {
+            footprint,
+            cell_size: cell,
+            layers: vec![background_solid(
+                footprint,
+                cell,
+                Rgba::rgba(0x10, 0x20, 0x30, 0xff),
+            )],
+            animation: None,
+        }
+    }
+
+    #[test]
+    fn scene_json_round_trips_as_compose_input() {
+        let scene = tiny_scene();
+        let json = serialize_scene_json(&scene).unwrap();
+        assert!(json.contains("footprint"), "{json}");
+        let parsed: Scene = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.footprint, scene.footprint);
+        assert_eq!(parsed.cell_size, scene.cell_size);
+        assert_eq!(parsed.layers.len(), scene.layers.len());
+    }
+
+    #[test]
+    fn compose_scene_reader_accepts_files() {
+        let path = std::env::temp_dir().join(format!(
+            "kittui-compose-scene-{}-{}.json",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let scene = tiny_scene();
+        std::fs::write(&path, serialize_scene_json(&scene).unwrap()).unwrap();
+        let parsed = read_compose_scene(&path).unwrap();
+        assert_eq!(parsed.footprint, scene.footprint);
+        let _ = std::fs::remove_file(path);
+    }
 }

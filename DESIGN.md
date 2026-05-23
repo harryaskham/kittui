@@ -488,7 +488,7 @@ kittui glow      -w W -h H --color COLOR [--intensity 0..1]
 kittui panel     --tone assistant|tool|user -w W -h H
                  [--caption TEXT] [--animate pulse:8@800ms]
 kittui image     --src PATH -w W -h H [--fit contain|cover|stretch|none] [--tint COLOR]
-kittui compose   <scene.json>
+kittui compose   <scene.json>|-                              # `-` reads Scene JSON from stdin
 kittui place     --id 0xID --x X --y Y --cols C --rows R       # re-place a cached id
 kittui cache     info | gc [--budget BYTES] | clear
 kittui probe     [--force]
@@ -506,6 +506,7 @@ Common flags:
   payload as a quoted string).
 - `--upload-only` / `--placement-only` / `--embed-only` for scripts that
   buffer their own writes.
+- `--scene-json` prints the generated `Scene` JSON for shell pipelines.
 - `--dry-run` returns the JSON that `Runtime::place` would have built,
   without rendering or uploading.
 
@@ -519,11 +520,12 @@ Animation curves accept `linear`, `ease-in-out`, `pulse[:harmonics]`, and
 `custom:f0,f1,…,fN-1`. The CLI validates loop closure before invoking
 the runtime.
 
-`kittui scene emit` is the integration story for shell pipelines:
+`--scene-json` plus `compose -` is the integration story for shell pipelines:
 
 ```sh
-kittui panel --tone assistant -w 60 -h 9 --dry-run > assistant.json
-jq '.animation.frames = 16' assistant.json | kittui compose -
+kittui box -w 60 -h 9 --fg '#00d8ff' --bg '#08111fcc' --scene-json > panel.json
+jq '.animation = {"frames": 16, "cycle_ms": 800, "curve": {"Pulse": {"harmonics": 0}}, "loops": 0}' panel.json \
+  | kittui compose - --dry-run --json
 ```
 
 ## FFI (`kittui-ffi`)
