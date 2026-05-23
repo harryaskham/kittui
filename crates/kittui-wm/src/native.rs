@@ -241,6 +241,8 @@ struct TerminalState {
     rows: u16,
     cursor_col: u16,
     cursor_row: u16,
+    saved_cursor_col: u16,
+    saved_cursor_row: u16,
     cells: Vec<TerminalCell>,
     current_style: TerminalStyle,
     scrollback: Vec<String>,
@@ -297,6 +299,8 @@ impl TerminalState {
             rows,
             cursor_col: 0,
             cursor_row: 0,
+            saved_cursor_col: 0,
+            saved_cursor_row: 0,
             cells: vec![
                 TerminalCell::blank(TerminalStyle::default());
                 usize::from(cols) * usize::from(rows)
@@ -324,6 +328,8 @@ impl TerminalState {
         });
         self.cursor_col = old.cursor_col.min(cols.saturating_sub(1));
         self.cursor_row = old.cursor_row.min(rows.saturating_sub(1));
+        self.saved_cursor_col = old.saved_cursor_col.min(cols.saturating_sub(1));
+        self.saved_cursor_row = old.saved_cursor_row.min(rows.saturating_sub(1));
     }
 
     fn text_snapshot(&self) -> String {
@@ -563,6 +569,16 @@ impl TerminalState {
         }
     }
 
+    fn save_cursor(&mut self) {
+        self.saved_cursor_col = self.cursor_col;
+        self.saved_cursor_row = self.cursor_row;
+    }
+
+    fn restore_cursor(&mut self) {
+        self.cursor_col = self.saved_cursor_col.min(self.cols.saturating_sub(1));
+        self.cursor_row = self.saved_cursor_row.min(self.rows.saturating_sub(1));
+    }
+
     fn apply_sgr(&mut self, params: &Params) {
         if params.is_empty() {
             self.current_style = TerminalStyle::default();
@@ -799,7 +815,17 @@ impl Perform for TerminalState {
             'M' => self.delete_lines(first_count),
             'm' => self.apply_sgr(params),
             'P' => self.delete_chars(first_count),
+            's' => self.save_cursor(),
+            'u' => self.restore_cursor(),
             'X' => self.erase_chars(first_count),
+            _ => {}
+        }
+    }
+
+    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, byte: u8) {
+        match byte {
+            b'7' => self.save_cursor(),
+            b'8' => self.restore_cursor(),
             _ => {}
         }
     }
@@ -1195,6 +1221,20 @@ mod tests {
             text.starts_with("x    y\n      z\nk  n\nw"),
             "snapshot was:\n{text}"
         );
+    }
+
+    #[test]
+    fn terminal_state_honors_cursor_save_restore_modes() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(12, 3);
+        parser.advance(&mut state, b"ab\x1b7\x1b[3;6HXY\x1b8c");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("abc\n\n     XY"), "snapshot was:\n{text}");
+
+        let mut state = TerminalState::new(12, 3);
+        parser.advance(&mut state, b"ab\x1b[s\x1b[3;6HXY\x1b[uC");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("abC\n\n     XY"), "snapshot was:\n{text}");
     }
 
     #[test]
