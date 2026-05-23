@@ -310,6 +310,66 @@ pub fn upload_still_rgba_medium(
     }
 }
 
+/// Upload a raw 24-bit RGB frame using the kitty `f=24` format.
+///
+/// This is additive for callers that already own tightly packed RGB bytes.
+/// Current kittui renderers and kittwm hot paths generally produce RGBA and
+/// should keep using [`upload_still_rgba`] unless they can avoid conversion.
+pub fn upload_still_rgb(
+    image_id: u32,
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+    transport: Transport,
+) -> String {
+    upload_still_rgb_ex(image_id, rgb, width, height, Quiet::SuppressAll, transport)
+}
+
+/// Variant of [`upload_still_rgb`] with explicit quiet selector.
+pub fn upload_still_rgb_ex(
+    image_id: u32,
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+    quiet: Quiet,
+    transport: Transport,
+) -> String {
+    upload_still_rgb_compressed(
+        image_id,
+        rgb,
+        width,
+        height,
+        quiet,
+        transport,
+        compression_from_env(),
+    )
+}
+
+/// Upload a raw RGB frame with an explicit compression mode.
+pub fn upload_still_rgb_compressed(
+    image_id: u32,
+    rgb: &[u8],
+    width: u32,
+    height: u32,
+    quiet: Quiet,
+    transport: Transport,
+    compression: CompressionMode,
+) -> String {
+    let compression = resolve_compression_for_len(compression, rgb.len());
+    let payload = compress_payload(rgb, compression).unwrap_or_else(|| rgb.to_vec());
+    let b64 = base64::engine::general_purpose::STANDARD.encode(payload);
+    encode_chunked_raw(
+        image_id,
+        &b64,
+        24,
+        width,
+        height,
+        quiet,
+        transport,
+        compression,
+    )
+}
+
 /// Upload a raw RGBA frame with an explicit compression mode.
 pub fn upload_still_rgba_compressed(
     image_id: u32,
@@ -323,7 +383,16 @@ pub fn upload_still_rgba_compressed(
     let compression = resolve_compression_for_len(compression, rgba.len());
     let payload = compress_payload(rgba, compression).unwrap_or_else(|| rgba.to_vec());
     let b64 = base64::engine::general_purpose::STANDARD.encode(payload);
-    encode_chunked_rgba(image_id, &b64, width, height, quiet, transport, compression)
+    encode_chunked_raw(
+        image_id,
+        &b64,
+        32,
+        width,
+        height,
+        quiet,
+        transport,
+        compression,
+    )
 }
 
 fn compress_payload(bytes: &[u8], compression: CompressionMode) -> Option<Vec<u8>> {
@@ -338,9 +407,10 @@ fn compress_payload(bytes: &[u8], compression: CompressionMode) -> Option<Vec<u8
     }
 }
 
-fn encode_chunked_rgba(
+fn encode_chunked_raw(
     image_id: u32,
     base64_body: &str,
+    format: u8,
     width: u32,
     height: u32,
     quiet: Quiet,
@@ -356,7 +426,8 @@ fn encode_chunked_rgba(
         let more = if end < bytes.len() { 1 } else { 0 };
         let header = if offset == 0 {
             format!(
-                "a=t,f=32,s={s},v={v},i={id},m={more}{compression}{q}",
+                "a=t,f={format},s={s},v={v},i={id},m={more}{compression}{q}",
+                format = format,
                 s = width,
                 v = height,
                 id = image_id,
@@ -1136,6 +1207,30 @@ mod tests {
     }
 
     #[test]
+    fn upload_still_rgb_emits_f24_grammar_with_s_v_width_height() {
+        let rgb: Vec<u8> = vec![
+            0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
+        ];
+        let escapes = upload_still_rgb(0x1234, &rgb, 2, 2, Transport::Direct);
+        assert!(
+            escapes.starts_with("\x1b_Ga=t,f=24,s=2,v=2,i=4660,m=0,q=2;"),
+            "raw RGB upload must use f=24,s=W,v=H: prefix was {}",
+            &escapes[..escapes.len().min(60)]
+        );
+        assert!(escapes.ends_with("\x1b\\"));
+        assert!(!escapes.contains("PNG"));
+        let body = escapes
+            .split_once(';')
+            .unwrap()
+            .1
+            .trim_end_matches("\x1b\\");
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(body)
+            .unwrap();
+        assert_eq!(decoded, rgb);
+    }
+
+    #[test]
     fn upload_still_rgba_emits_f32_grammar_with_s_v_width_height() {
         // 2x2 RGBA, alternating red/green pixels.
         let rgba: Vec<u8> = vec![
@@ -1199,6 +1294,35 @@ mod tests {
             "{large:?}"
         );
         std::env::remove_var("KITTUI_ZLIB_MIN_BYTES");
+    }
+
+    #[test]
+    fn upload_still_rgb_supports_zlib_compression() {
+        let rgb = vec![0x3fu8; 48];
+        let escapes = upload_still_rgb_compressed(
+            6,
+            &rgb,
+            4,
+            4,
+            Quiet::SuppressAll,
+            Transport::Direct,
+            CompressionMode::Zlib,
+        );
+        assert!(
+            escapes.starts_with("\x1b_Ga=t,f=24,s=4,v=4,i=6,m=0,o=z,q=2;"),
+            "compressed raw RGB upload must mark o=z and f=24: {escapes:?}"
+        );
+        let body = escapes
+            .split_once(';')
+            .and_then(|(_, rest)| rest.strip_suffix("\x1b\\"))
+            .unwrap();
+        let compressed = base64::engine::general_purpose::STANDARD
+            .decode(body)
+            .unwrap();
+        let mut decoder = flate2::read::ZlibDecoder::new(&compressed[..]);
+        let mut decoded = Vec::new();
+        std::io::Read::read_to_end(&mut decoder, &mut decoded).unwrap();
+        assert_eq!(decoded, rgb);
     }
 
     #[test]
