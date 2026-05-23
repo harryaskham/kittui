@@ -74,6 +74,21 @@ pub struct TransportDiagnostics {
     pub override_source: Option<String>,
     /// Human-readable reason for fallback/conservative behavior.
     pub fallback_reason: Option<String>,
+    /// Whether an opt-in interactive kitty probe was attempted.
+    #[serde(default)]
+    pub probe_attempted: bool,
+    /// Probe status label, e.g. `matched`, `timeout`, `unsupported`, or `error`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_status: Option<String>,
+    /// Whether probe data indicated kitty graphics support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_supports_kitty: Option<bool>,
+    /// Compact probe error/reason, when unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_error: Option<String>,
+    /// Probe elapsed time in milliseconds, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_elapsed_ms: Option<u64>,
 }
 
 impl TransportDiagnostics {
@@ -136,7 +151,28 @@ impl TransportDiagnostics {
             supports_unicode_placeholders: info.supports_unicode_placeholders,
             override_source,
             fallback_reason,
+            probe_attempted: false,
+            probe_status: None,
+            probe_supports_kitty: None,
+            probe_error: None,
+            probe_elapsed_ms: None,
         }
+    }
+
+    /// Return a copy annotated with opt-in probe diagnostics.
+    pub fn with_probe(
+        mut self,
+        status: impl Into<String>,
+        supports_kitty: Option<bool>,
+        error: Option<String>,
+        elapsed_ms: Option<u64>,
+    ) -> Self {
+        self.probe_attempted = true;
+        self.probe_status = Some(status.into());
+        self.probe_supports_kitty = supports_kitty;
+        self.probe_error = error;
+        self.probe_elapsed_ms = elapsed_ms;
+        self
     }
 }
 

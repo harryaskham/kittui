@@ -25,13 +25,19 @@
 //! XQuartz on macOS, xterm via Xvfb on Linux) and route keystrokes into
 //! it. See bead bd-a9ec5b.
 
+use std::io::Write;
 use std::process::ExitCode;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
 
 use kittui::{CellSize, Runtime, TerminalInfo, TransportDiagnostics};
 use kittui_core::geom::PxRect;
+use kittui_core::terminal::{
+    read_kitty_response, KittyResponseReadConfig, KittyResponseReadStatus,
+};
+use kittui_kitty::{parse_response, query_capabilities, KittyResponseStatus};
 use kittui_wm::compositor::{Compositor, Layout, WindowMode};
 #[cfg(all(target_os = "macos", feature = "quartz"))]
 use kittui_xvfb::XServer;
@@ -47,6 +53,7 @@ struct Cli {
     capture: Option<String>,
     fps: Option<u32>,
     doctor: bool,
+    probe_kitty: bool,
     json: bool,
     config: bool,
     record: bool,
@@ -176,6 +183,7 @@ fn parse_args() -> Result<Cli> {
                 );
             }
             "--json" => out.json = true,
+            "--probe-kitty" => out.probe_kitty = true,
             "--keymap" => {
                 out.keymap_path = Some(args.next().ok_or_else(|| anyhow!("--keymap PATH"))?);
             }
@@ -580,6 +588,8 @@ SUBCOMMANDS\n\
          doctor          print a diagnostics report (backends, displays,\n\
                          terminal probe, log status, version). Pass --json\n\
                          for machine-readable output. Never enters raw mode.\n\
+         --probe-kitty   with doctor, opt into a bounded interactive kitty a=q\n\
+                         response probe (also KITTUI_KITTY_PROBE=1).\n\
          config          inspect resolved kittwm config env/paths and keymap\n\
                          validation status.\n\
          record          capture N frames from --capture/--backend target and\n\
@@ -683,7 +693,7 @@ fn real_main() -> Result<()> {
 
     // Inspection flags run cooked, never enter raw mode.
     if cli.doctor {
-        return doctor_cmd(cli.json);
+        return doctor_cmd(cli.json, cli.probe_kitty || kitty_probe_env_enabled());
     }
     if cli.config {
         return config_cmd(&cli);
@@ -1011,7 +1021,7 @@ fn resolve_capture_spec(spec: &str) -> Result<kittui_quartz::CaptureTarget> {
     ))
 }
 
-fn doctor_cmd(json: bool) -> Result<()> {
+fn doctor_cmd(json: bool, probe_kitty: bool) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
@@ -1036,7 +1046,10 @@ fn doctor_cmd(json: bool) -> Result<()> {
     let display_count = displays.len();
 
     let terminal_info = TerminalInfo::detect();
-    let transport_diagnostics = TransportDiagnostics::detect(&terminal_info);
+    let mut transport_diagnostics = TransportDiagnostics::detect(&terminal_info);
+    if probe_kitty {
+        transport_diagnostics = run_kitty_doctor_probe(&terminal_info, transport_diagnostics);
+    }
     let kitty_graphics = transport_diagnostics.supports_kitty;
 
     if json {
@@ -1099,6 +1112,26 @@ fn doctor_cmd(json: bool) -> Result<()> {
         if let Some(reason) = &transport_diagnostics.fallback_reason {
             println!("  transport note : {reason}");
         }
+        println!(
+            "  kitty probe    : {}",
+            if transport_diagnostics.probe_attempted {
+                transport_diagnostics
+                    .probe_status
+                    .as_deref()
+                    .unwrap_or("attempted")
+            } else {
+                "not attempted"
+            }
+        );
+        if let Some(supported) = transport_diagnostics.probe_supports_kitty {
+            println!("  probe support  : {supported}");
+        }
+        if let Some(elapsed) = transport_diagnostics.probe_elapsed_ms {
+            println!("  probe elapsed  : {elapsed} ms");
+        }
+        if let Some(error) = &transport_diagnostics.probe_error {
+            println!("  probe note     : {error}");
+        }
         println!("  displays       : {display_count}");
         println!(
             "  log            : {} ({}{})",
@@ -1118,6 +1151,149 @@ fn doctor_cmd(json: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn kitty_probe_env_enabled() -> bool {
+    matches!(
+        std::env::var("KITTUI_KITTY_PROBE")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn run_kitty_doctor_probe(
+    terminal_info: &TerminalInfo,
+    diagnostics: TransportDiagnostics,
+) -> TransportDiagnostics {
+    match run_kitty_doctor_probe_inner(terminal_info) {
+        Ok(probe) => diagnostics.with_probe(
+            probe.status,
+            probe.supports_kitty,
+            probe.error,
+            Some(probe.elapsed_ms),
+        ),
+        Err(err) => diagnostics.with_probe("error", None, Some(err.to_string()), None),
+    }
+}
+
+struct KittyDoctorProbe {
+    status: String,
+    supports_kitty: Option<bool>,
+    error: Option<String>,
+    elapsed_ms: u64,
+}
+
+fn run_kitty_doctor_probe_inner(terminal_info: &TerminalInfo) -> Result<KittyDoctorProbe> {
+    let query_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| (duration.as_millis() & 0xffff_ffff) as u32)
+        .unwrap_or(1)
+        .max(1);
+    let query = query_capabilities(query_id, terminal_info.transport);
+    {
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(query.as_bytes())?;
+        stdout.flush()?;
+    }
+    let _guard = NonblockingStdinGuard::enter()?;
+    let mut stdin = std::io::stdin().lock();
+    let read = read_kitty_response(
+        &mut stdin,
+        KittyResponseReadConfig {
+            timeout: Duration::from_millis(500),
+            max_bytes: 16 * 1024,
+            poll_interval: Duration::from_millis(5),
+        },
+        |text| {
+            parse_response(text)
+                .map(|response| response.image_id == Some(query_id))
+                .unwrap_or(false)
+        },
+    )?;
+    match read.status {
+        KittyResponseReadStatus::Matched => match parse_response(&read.response) {
+            Ok(response) => {
+                let supports_kitty = match response.status {
+                    KittyResponseStatus::Capability(_) | KittyResponseStatus::Ok => Some(true),
+                    KittyResponseStatus::Error(_) => Some(false),
+                    KittyResponseStatus::Other(_) => None,
+                };
+                Ok(KittyDoctorProbe {
+                    status: format!("matched:{:?}", response.status),
+                    supports_kitty,
+                    error: None,
+                    elapsed_ms: read.elapsed_ms,
+                })
+            }
+            Err(err) => Ok(KittyDoctorProbe {
+                status: "parse_error".to_string(),
+                supports_kitty: None,
+                error: Some(err.to_string()),
+                elapsed_ms: read.elapsed_ms,
+            }),
+        },
+        KittyResponseReadStatus::Timeout => Ok(KittyDoctorProbe {
+            status: "timeout".to_string(),
+            supports_kitty: None,
+            error: Some("no matching kitty response before timeout".to_string()),
+            elapsed_ms: read.elapsed_ms,
+        }),
+        KittyResponseReadStatus::Eof => Ok(KittyDoctorProbe {
+            status: "eof".to_string(),
+            supports_kitty: None,
+            error: Some("stdin reached EOF while probing".to_string()),
+            elapsed_ms: read.elapsed_ms,
+        }),
+        KittyResponseReadStatus::ByteLimitExceeded => Ok(KittyDoctorProbe {
+            status: "byte_limit_exceeded".to_string(),
+            supports_kitty: None,
+            error: Some("probe response exceeded byte limit".to_string()),
+            elapsed_ms: read.elapsed_ms,
+        }),
+    }
+}
+
+#[cfg(unix)]
+struct NonblockingStdinGuard {
+    fd: i32,
+    old_flags: i32,
+}
+
+#[cfg(unix)]
+impl NonblockingStdinGuard {
+    fn enter() -> Result<Self> {
+        let fd = libc::STDIN_FILENO;
+        let old_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if old_flags < 0 {
+            return Err(anyhow!("fcntl(F_GETFL) failed"));
+        }
+        let new_flags = old_flags | libc::O_NONBLOCK;
+        if unsafe { libc::fcntl(fd, libc::F_SETFL, new_flags) } < 0 {
+            return Err(anyhow!("fcntl(F_SETFL O_NONBLOCK) failed"));
+        }
+        Ok(Self { fd, old_flags })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for NonblockingStdinGuard {
+    fn drop(&mut self) {
+        let _ = unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.old_flags) };
+    }
+}
+
+#[cfg(not(unix))]
+struct NonblockingStdinGuard;
+
+#[cfg(not(unix))]
+impl NonblockingStdinGuard {
+    fn enter() -> Result<Self> {
+        Err(anyhow!(
+            "kitty probe response reading is currently Unix-only"
+        ))
+    }
 }
 
 #[cfg(all(target_os = "macos", feature = "quartz"))]
