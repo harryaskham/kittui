@@ -83,7 +83,11 @@ Current semantic implementation status:
   spanning terminal plus browser/placeholder surfaces.
 - `kittwm-terminal` — first-party SDK terminal client for spawn/replace plus
   typed `--status` and `--events-ms` inspection.
-- `kittwm-launch` — first-party SDK launcher with backend planning, URL/browser
-  auto-selection through `kittwm-browser`, `--dry-run`, and `--status`.
+- `kittwm-launch` — first-party SDK launcher with backend planning, typed app
+  discovery helpers, URL/browser auto-selection through `kittwm-browser`,
+  `--dry-run`, and `--status`.
+- `kittwm-sdk::SurfaceSpec::browser(...)` — browser surface requests currently
+  spawn the first-party `kittwm-browser` app through the PTY transport; dedicated
+  browser/X/Quartz surface protocols remain future work.
 - `crates/kittui-affordances/examples/control_gallery.rs` — first-party control
   palette summary over affordance builders.

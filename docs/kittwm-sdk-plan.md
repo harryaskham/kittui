@@ -117,7 +117,7 @@ loop {
 }
 ```
 
-Initial transport wraps the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types. Current typed helpers cover status/panes, bounded events, terminal surface spawn/replace, semantic snapshot/publish/action/focus, text snapshots, control/input helpers, and app discovery through `Kittwm::apps`, `Kittwm::app_first`, and `Kittwm::app_launch_first`.
+Initial transport wraps the existing socket protocol; later it can switch to a structured framed protocol without changing app-facing types. Current typed helpers cover status/panes, bounded events, terminal surface spawn/replace, first-party browser surface spawn via `SurfaceSpec::browser(...)`, semantic snapshot/publish/action/focus, text snapshots, control/input helpers, and app discovery through `Kittwm::apps`, `Kittwm::app_first`, and `Kittwm::app_launch_first`.
 
 ## First-party apps
 
@@ -136,7 +136,7 @@ A standalone launcher/spawner:
 
 - Current first-party binary: `kittwm-launch` detects/accepts backend choices and uses SDK paths for terminal/app/browser-ish launching.
 - It now has clearer backend selection, dry-run/status planning, URL/browser behavior, and dogfoods the typed SDK app-discovery helpers for app backend discovery/launch.
-- Future work: make dedicated browser/X/Quartz surface spawning first-class in the SDK transport rather than relying on app-discovery or terminal fallbacks.
+- Browser targets can now be requested from SDK clients with `SurfaceSpec::browser("https://...")`; the current transport launches the first-party `kittwm-browser` app inside a PTY-backed surface. Future work: dedicated browser/X/Quartz surface protocols instead of PTY/app fallbacks; `SurfaceKind::Other` remains unsupported.
 - Lets specialized launchers exist without bloating the shell.
 
 ### Composite apps
@@ -233,7 +233,7 @@ Built-in shell and first-party apps can receive broader capabilities; arbitrary 
 ### Stage 6: first-party standalone apps
 
 - `kittwm-terminal` exists and now includes SDK status/event inspection helpers.
-- `kittwm-launch` exists and is being matured as a backend-aware SDK launcher.
+- `kittwm-launch` exists and is now a backend-aware SDK launcher using typed app discovery and first-party browser app paths.
 - A composite SDK example exists at `crates/kittui-cli/examples/kittwm_composite_app.rs`.
 - A synthetic semantic SDK app exists at `crates/kittui-cli/examples/kittwm_semantic_app.rs` and can print/query/publish component trees.
 
@@ -252,7 +252,7 @@ Recommended beads:
 9. `kittwm: extract presentation-agnostic shell view/chrome model`
 10. `kittwm: add pure terminal/DEC renderer backend for shell view model`
 11. `kittwm-terminal: add standalone first-party terminal app skeleton` — landed; follow-up maturity includes SDK status/events.
-12. `kittwm-launch: add standalone app launcher skeleton` — landed; backend/app-discovery maturity is in progress.
+12. `kittwm-launch: add standalone app launcher skeleton` — landed; backend/app-discovery maturity and first-party browser path are active.
 13. `kittwm: model clipboard/bell/notification events and policy`
 14. `kittwm: add capability scoping for SDK clients`
 15. `examples: add composite app spawning terminal plus browser surfaces` — initial SDK example lives at `crates/kittui-cli/examples/kittwm_composite_app.rs`.
