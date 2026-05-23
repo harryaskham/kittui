@@ -68,8 +68,10 @@ Current semantic implementation status:
 - `kittwm-browser` can extract DOM/ARIA semantic snapshots, best-effort publish
   changed snapshots when running with `KITTWM_SOCKET`/`KITTWM_WINDOW`, and route
   supported browser semantic actions through DevTools/DOM.
-- Accessibility-tree adapters are planned; macOS AX, Linux AT-SPI, and action
-  routing spikes are tracked as follow-ups.
+- Accessibility-tree adapters are planned; the macOS AX safe adapter core now
+  exists with association metadata, AX-style node mapping, redaction/action
+  descriptors, and permission diagnostics. Linux AT-SPI and accessibility action
+  routing spikes remain follow-ups.
 
 ## Examples and artifacts
 
