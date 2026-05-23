@@ -324,9 +324,14 @@ flow through kittwm clipboard policy.
 Potential semantic adapters:
 
 - native kittwm SDK apps that construct component trees directly;
-- browser DOM/ARIA/DevTools adapter (planned in [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md));
+- browser DOM/ARIA/DevTools adapter, now landed for first-party browser surfaces
+  with extraction, best-effort publishing, CLI inspection, and DevTools-backed
+  action routing; see [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md);
 - accessibility tree adapters for macOS AX, AT-SPI, UI Automation, or platform
-  equivalents (planned in [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md));
+  equivalents; the safe platform-neutral core now maps extracted trees, routes
+  actions through an `AccessibilityActionBackend`, and uses first-class roles for
+  obvious document/list/tree/media nodes, while direct platform bindings remain
+  follow-up work; see [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md);
 - toolkit plugins/backends for Qt, GTK, egui, iced, Tauri, Electron, etc.;
 - terminal apps with future semantic escape extensions, while classic TUIs remain
   terminal/cell surfaces.
@@ -345,8 +350,9 @@ semantics while still providing screenshots for canvas/video/custom content.
    button.
 5. Render that synthetic tree through kittui affordances in kittwm (`bd-586ce3`).
 6. Expose narrow socket/SDK commands for semantic snapshot/action/focus.
-7. Add one real adapter proof: likely a native SDK app first, then browser
-   DOM/ARIA or accessibility-tree adapter.
+7. Keep expanding real adapter proofs: native SDK publishing, browser DOM/ARIA,
+   and safe accessibility-tree mapping/action routing now exist; durable platform
+   bindings and richer lifecycle policy remain follow-up work.
 
 ## Follow-up bead map
 
@@ -355,17 +361,23 @@ Existing beads:
 - `bd-0337ce` — `kittui-affordances: add first-party form and control components`.
 - `bd-586ce3` — `kittwm: render semantic component surfaces via kittui affordances`.
 
-Recommended follow-ups to file/implement after this plan:
+Landed follow-ups from this plan now include:
 
-- `kittwm-sdk: add semantic component protocol types` — Rust SDK structs/enums
-  for snapshots, nodes, roles, values, actions, and semantic events.
-- `kittwm: expose semantic snapshot/action socket commands` — narrow control
-  plane commands plus capability checks.
-- `examples: add synthetic semantic surface app` — first-party SDK app publishing
-  a small settings/form tree and responding to actions.
-- `kittwm: plan browser DOM/ARIA semantic adapter` (`bd-2250e1`) — detailed architecture in [`kittwm-browser-semantic-adapter.md`](kittwm-browser-semantic-adapter.md).
-- `kittwm: add browser DOM/ARIA semantic surface adapter` — map browser semantics
-  when available while retaining screenshot fallback.
-- `kittwm: plan accessibility-tree semantic adapter` (`bd-4a49aa`) — detailed architecture in [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md).
-- `kittwm: add accessibility-tree semantic adapter spike` — evaluate platform
-  accessibility trees for arbitrary GUI apps.
+- SDK semantic protocol types, events, snapshot/publish/action/focus wrappers,
+  and convenience helpers.
+- Native socket semantic snapshot/publish/action/focus commands.
+- Synthetic semantic SDK example app and publish/readback workflows.
+- Browser DOM/ARIA snapshot extraction, best-effort publishing, CLI inspection,
+  DevTools-backed focus/action routing, and first-class link/canvas role mapping.
+- Accessibility semantic adapter planning, safe macOS AX-style and Linux
+  AT-SPI-style mapping core, permission/unavailable diagnostics, platform-neutral
+  action routing, and first-class role remapping for obvious document/list/tree
+  and media roles.
+
+Remaining follow-ups:
+
+- Durable standalone semantic surface lifecycle and richer app-owned event loops.
+- Direct macOS AX / Linux AT-SPI / UI Automation bindings that feed the safe
+  accessibility adapter core.
+- Toolkit plugins/backends for Qt, GTK, egui, iced, Tauri, Electron, etc.
+- Optional future terminal semantic escape extensions for TUIs.
