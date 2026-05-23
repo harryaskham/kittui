@@ -122,6 +122,7 @@ kittwm --move-pane focused last
 kittwm --balance-panes
 kittwm --send-line focused 'echo hello from controller'
 kittwm --send-key focused ctrl-c
+kittwm --send-bytes-b64 focused aGkKAA==
 kittwm --read-text focused
 kittwm --wait-text focused ready
 kittwm --wait-text-ms 15000 focused 'build finished'

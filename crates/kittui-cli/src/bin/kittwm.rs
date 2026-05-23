@@ -232,6 +232,16 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--send-key WINDOW KEY"))?;
                 out.automation_request = Some(automation_request("SEND_KEY", &window, &key)?);
             }
+            "--send-bytes-b64" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-bytes-b64 WINDOW BASE64"))?;
+                let encoded = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-bytes-b64 WINDOW BASE64"))?;
+                out.automation_request =
+                    Some(automation_request("SEND_BYTES_B64", &window, &encoded)?);
+            }
             "--read-text" => {
                 let window = args.next().ok_or_else(|| anyhow!("--read-text WINDOW"))?;
                 out.automation_request = Some(automation_request("READ_TEXT", &window, "")?);
@@ -408,6 +418,7 @@ fn print_help() {
          --send-text WINDOW TEXT  send text bytes to a native pane.\n\
          --send-line WINDOW TEXT  send text plus newline to a native pane.\n\
          --send-key WINDOW KEY    send a named key (ctrl-c, escape, arrows, ...).\n\
+         --send-bytes-b64 WINDOW BASE64 send arbitrary base64-decoded bytes.\n\
          --read-text WINDOW       print a native pane text snapshot.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
          --wait-text-ms MS WINDOW TEXT  wait with explicit millisecond timeout.\n\
@@ -2146,6 +2157,10 @@ mod tests {
         assert_eq!(
             wait_text_ms_request("2500", "focused", "Ready Now").unwrap(),
             "WAIT_TEXT_MS focused 2500 Ready Now"
+        );
+        assert_eq!(
+            automation_request("send_bytes_b64", "focused", "aGkKAA==").unwrap(),
+            "SEND_BYTES_B64 focused aGkKAA=="
         );
         assert!(wait_text_ms_request("0", "focused", "ready").is_err());
         assert!(automation_request("SEND_KEY", "bad window", "ctrl-c").is_err());

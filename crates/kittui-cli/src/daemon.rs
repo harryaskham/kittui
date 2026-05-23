@@ -5,6 +5,7 @@
 //! thread and exits when the main thread drops the [`DaemonServer`].
 
 use anyhow::{anyhow, Result};
+use base64::Engine;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -447,6 +448,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("SEND_KEY ") {
         return queue_native_send_key(pending, rest);
     }
+    if let Some(rest) = cmd.strip_prefix("SEND_BYTES_B64 ") {
+        return queue_native_send_bytes_b64(pending, rest);
+    }
     if let Some(rest) = cmd.strip_prefix("WAIT_TEXT_MS ") {
         return native_spawn_wait_text_ms_reply(pending, rest);
     }
@@ -470,7 +474,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -556,6 +560,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "SEND_KEY <window|focused> <key>",
             "control",
             "send a named key sequence to a native pane",
+        ),
+        (
+            "SEND_BYTES_B64 <window|focused> <base64>",
+            "automation",
+            "send base64-decoded bytes to a native pane",
         ),
         (
             "READ_TEXT <window|focused>",
@@ -754,6 +763,37 @@ fn queue_native_send_text(
                 state.pending.len(),
                 window,
                 text.len() + usize::from(newline)
+            )
+        }
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
+}
+
+fn queue_native_send_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
+    let Some((window, encoded)) = rest.trim().split_once(' ') else {
+        return "ERR SEND_BYTES_B64 requires window and base64\n".to_string();
+    };
+    let window = window.trim();
+    let encoded = encoded.trim();
+    if window.is_empty() || window.contains(char::is_whitespace) || encoded.is_empty() {
+        return "ERR SEND_BYTES_B64 requires window and base64\n".to_string();
+    }
+    let bytes = match base64::engine::general_purpose::STANDARD.decode(encoded) {
+        Ok(bytes) => bytes,
+        Err(err) => return format!("ERR SEND_BYTES_B64 invalid base64: {err}\n"),
+    };
+    match pending.lock() {
+        Ok(mut state) => {
+            state.pending.push(NativePaneCommand::SendBytes {
+                window: window.to_string(),
+                bytes: bytes.clone(),
+                label: "base64".to_string(),
+            });
+            format!(
+                "SEND_BYTES_B64_QUEUED command={} window={} bytes={}\n",
+                state.pending.len(),
+                window,
+                bytes.len()
             )
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
@@ -1520,6 +1560,10 @@ mod tests {
             native_spawn_queue_reply("SEND_KEY native-2 page-down", &pending)
                 .starts_with("SEND_KEY_QUEUED")
         );
+        assert!(
+            native_spawn_queue_reply("SEND_BYTES_B64 focused aGkKAA==", &pending)
+                .starts_with("SEND_BYTES_B64_QUEUED")
+        );
         let manifest = serde_json::json!({
             "layout": "rows",
             "panes": [
@@ -1540,6 +1584,7 @@ mod tests {
         assert!(native_spawn_queue_reply("SEND_LINE", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_KEY focused nope", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_KEY focused page down", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("SEND_BYTES_B64 focused !!!", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RESTORE_SESSION_JSON {}", &pending).contains("ERR"));
         assert_eq!(
             drain_native_spawn_pending(&pending),
@@ -1581,6 +1626,11 @@ mod tests {
                     window: "native-2".to_string(),
                     bytes: b"\x1b[6~".to_vec(),
                     label: "page-down".to_string(),
+                },
+                NativePaneCommand::SendBytes {
+                    window: "focused".to_string(),
+                    bytes: b"hi\n\0".to_vec(),
+                    label: "base64".to_string(),
                 },
                 NativePaneCommand::RestoreSession(NativeSessionRestore {
                     layout: Some("rows".to_string()),
@@ -1687,6 +1737,10 @@ mod tests {
         assert!(help.contains("SEND_TEXT <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_LINE <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_KEY <window|focused> <key>"), "{help}");
+        assert!(
+            help.contains("SEND_BYTES_B64 <window|focused> <base64>"),
+            "{help}"
+        );
         assert!(help.contains("READ_TEXT <window|focused>"), "{help}");
         assert!(help.contains("READ_TEXT_JSON <window|focused>"), "{help}");
         assert!(
