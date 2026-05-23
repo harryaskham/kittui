@@ -8,8 +8,8 @@ protocol. It ships as:
   TypeScript / Python / Lua / shell callers.
 - a CLI (`kittui`) — `kittui box`, `kittui gradient`, `kittui glow`,
   `kittui image --src -`, `kittui place --id 0x...`,
-  `kittui compose scene.json`, and shell pipelines such as
-  `kittui box --scene-json | kittui compose -`.
+  `kittui delete --id 0x...`, `kittui compose scene.json`, and shell
+  pipelines such as `kittui box --scene-json | kittui compose -`.
 - a ratatui adapter (`ratakittui`) — widget decoration + lifecycle.
 
 See [`DESIGN.md`](DESIGN.md) for the full design.

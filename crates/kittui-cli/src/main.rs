@@ -96,6 +96,8 @@ enum Cmd {
     Image(ImageArgs),
     /// Re-place an already-uploaded image id at a terminal footprint.
     Place(PlaceArgs),
+    /// Delete an uploaded image or one placement from the terminal.
+    Delete(DeleteArgs),
     /// Cache management subcommands.
     #[command(subcommand)]
     Cache(CacheCmd),
@@ -157,6 +159,16 @@ struct PlaceArgs {
     /// Height in cells.
     #[arg(short = 'h', long)]
     rows: u16,
+}
+
+#[derive(clap::Args, Clone)]
+struct DeleteArgs {
+    /// Existing kitty image id, decimal or 0x-prefixed hex.
+    #[arg(long)]
+    id: String,
+    /// Optional placement id to delete instead of the whole image.
+    #[arg(long)]
+    placement_id: Option<u32>,
 }
 
 #[derive(clap::Args, Clone)]
@@ -364,6 +376,7 @@ fn main() -> Result<()> {
         Cmd::Compose(args) => run_compose(&global, &runtime, args, emit_mode),
         Cmd::Image(args) => run_image(&global, &runtime, args, emit_mode),
         Cmd::Place(args) => run_place(&global, &runtime, args, emit_mode),
+        Cmd::Delete(args) => run_delete(&global, &runtime, args, emit_mode),
         Cmd::Cache(sub) => run_cache(&global, &layers, sub),
         Cmd::Probe(args) => run_probe(&global, args),
         Cmd::Proof(args) => run_proof(&global, args),
@@ -563,6 +576,22 @@ fn run_place(
         footprint,
     };
     emit_placement_with_mode(global, &placement, None, mode)
+}
+
+fn run_delete(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &DeleteArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let image_id = parse_image_id(&args.id)?;
+    let delete = match args.placement_id {
+        Some(placement_id) => {
+            kittui_kitty::delete_placement(image_id, placement_id, runtime.transport())
+        }
+        None => kittui_kitty::delete(image_id, runtime.transport()),
+    };
+    emit_delete_with_mode(global, image_id, args.placement_id, &delete, mode)
 }
 
 fn parse_image_id(value: &str) -> Result<u32> {
@@ -961,6 +990,33 @@ fn placement_json_payload(
         payload["embed"] = serde_json::json!(placement.embed);
     }
     payload
+}
+
+fn emit_delete_with_mode(
+    global: &GlobalConfig,
+    image_id: u32,
+    placement_id: Option<u32>,
+    delete: &str,
+    mode: EmitMode,
+) -> Result<()> {
+    if global.json.value || mode.dry_run {
+        let mut payload = serde_json::json!({
+            "image_id": format!("0x{:08x}", image_id),
+            "placement_id": placement_id,
+            "delete_bytes": delete.len(),
+            "config_sources": { "global": global.source_json() },
+        });
+        if mode.dry_run {
+            payload["dry_run"] = serde_json::json!(true);
+        }
+        if mode.json_bytes {
+            payload["delete"] = serde_json::json!(delete);
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        return Ok(());
+    }
+    std::io::stdout().lock().write_all(delete.as_bytes())?;
+    Ok(())
 }
 
 fn emit_placement_with_mode(
