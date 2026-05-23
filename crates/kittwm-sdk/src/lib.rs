@@ -93,7 +93,41 @@ impl ClientCapabilities {
         }
     }
 
-    /// Allow only low-risk status/inspection helpers. Raw requests are denied.
+    /// Allow no SDK operations. Useful as a baseline for explicit opt-in.
+    pub fn none() -> Self {
+        Self {
+            allowed: Vec::new(),
+        }
+    }
+
+    /// Allow only low-risk status/inspection helpers. Raw requests and mutation
+    /// operations are denied.
+    pub fn inspect_only() -> Self {
+        Self {
+            allowed: vec![
+                Capability::ReadText,
+                Capability::SubscribeEvents,
+                Capability::ReadSemanticTree,
+            ],
+        }
+    }
+
+    /// Allow common automation of existing surfaces without creating/replacing
+    /// windows or invoking semantic actions.
+    pub fn automation() -> Self {
+        Self {
+            allowed: vec![
+                Capability::ControlWindow,
+                Capability::SendInput,
+                Capability::ReadText,
+                Capability::SubscribeEvents,
+                Capability::ReadSemanticTree,
+            ],
+        }
+    }
+
+    /// Allow only the original minimal read scope. Prefer [`inspect_only`](Self::inspect_only)
+    /// for new inspection clients that need events or semantic reads.
     pub fn restricted() -> Self {
         Self {
             allowed: vec![Capability::ReadText],
@@ -105,6 +139,16 @@ impl ClientCapabilities {
         Self {
             allowed: allowed.into_iter().collect(),
         }
+    }
+
+    /// Borrow the allowed capability list in declaration order.
+    pub fn allowed(&self) -> &[Capability] {
+        &self.allowed
+    }
+
+    /// Iterate over allowed capabilities.
+    pub fn iter(&self) -> impl Iterator<Item = Capability> + '_ {
+        self.allowed.iter().copied()
     }
 
     /// Whether a capability is allowed.
@@ -1873,9 +1917,32 @@ mod tests {
 
     #[test]
     fn capability_helpers_report_allowed_values() {
+        let none = ClientCapabilities::none();
+        assert!(none.allowed().is_empty());
+        assert_eq!(none.iter().count(), 0);
+
         let caps = ClientCapabilities::restricted();
+        assert_eq!(caps.allowed(), &[Capability::ReadText]);
         assert!(caps.allows(Capability::ReadText));
+        assert!(!caps.allows(Capability::SubscribeEvents));
         assert!(!caps.allows(Capability::CreateWindow));
+
+        let inspect = ClientCapabilities::inspect_only();
+        assert!(inspect.allows(Capability::ReadText));
+        assert!(inspect.allows(Capability::SubscribeEvents));
+        assert!(inspect.allows(Capability::ReadSemanticTree));
+        assert!(!inspect.allows(Capability::SendInput));
+        assert!(!inspect.allows(Capability::RawRequest));
+
+        let automation = ClientCapabilities::automation();
+        assert!(automation.allows(Capability::ControlWindow));
+        assert!(automation.allows(Capability::SendInput));
+        assert!(automation.allows(Capability::ReadText));
+        assert!(automation.allows(Capability::SubscribeEvents));
+        assert!(automation.allows(Capability::ReadSemanticTree));
+        assert!(!automation.allows(Capability::CreateWindow));
+        assert!(!automation.allows(Capability::InvokeSemanticAction));
+
         assert!(ClientCapabilities::all().allows(Capability::SubscribeEvents));
         assert!(ClientCapabilities::all().allows(Capability::ReadSemanticTree));
         assert!(ClientCapabilities::all().allows(Capability::InvokeSemanticAction));
