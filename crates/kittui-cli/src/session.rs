@@ -145,6 +145,24 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 dbg.log(&format!("native terminal close: panes={}", panes.len()));
                             }
                         }
+                        b'+' | b'=' => {
+                            panes[focused].weight = native_adjust_weight(panes[focused].weight, 1);
+                            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                            clear = true;
+                            dbg.log(&format!(
+                                "native terminal resize grow: {} weight={}",
+                                panes[focused].window, panes[focused].weight
+                            ));
+                        }
+                        b'_' | b'<' => {
+                            panes[focused].weight = native_adjust_weight(panes[focused].weight, -1);
+                            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                            clear = true;
+                            dbg.log(&format!(
+                                "native terminal resize shrink: {} weight={}",
+                                panes[focused].window, panes[focused].weight
+                            ));
+                        }
                         0x01 => panes[focused].app.send_bytes(&[0x01])?,
                         other => panes[focused].app.send_bytes(&[other])?,
                     }
@@ -309,10 +327,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         write!(
             handle,
-            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} — C-a % cols — C-a - rows — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
+            "\x1b[{};1H\x1b[Kkittwm native terminal — panes={} focused={} weight={} — C-a % cols — C-a - rows — C-a +/- resize — C-a Tab focus — C-a x close — KITTWM_SOCKET={} — Ctrl-] exits — frame {} (log: {})",
             rows + 2,
             panes.len(),
             panes[focused].window,
+            panes[focused].weight,
             sock,
             frame,
             dbg.path_display()
