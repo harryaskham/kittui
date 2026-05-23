@@ -487,7 +487,7 @@ kittui gradient  -w W -h H --left COLOR --right COLOR [--direction h|v|d] [--fad
 kittui glow      -w W -h H --color COLOR [--intensity 0..1]
 kittui panel     --tone assistant|tool|user -w W -h H
                  [--caption TEXT] [--animate pulse:8@800ms]
-kittui image     --src PATH -w W -h H [--fit contain|cover|stretch|none] [--tint COLOR]
+kittui image     --src PATH|- -w W -h H [--fit contain|cover|stretch|none] [--tint COLOR]
 kittui compose   <scene.json>|-                              # `-` reads Scene JSON from stdin
 kittui place     --id 0xID --x X --y Y --cols C --rows R       # re-place a cached id
 kittui cache     info | gc [--budget BYTES] | clear

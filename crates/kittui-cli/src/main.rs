@@ -120,7 +120,7 @@ enum CacheCmd {
 #[derive(clap::Args, Clone)]
 #[command(disable_help_flag = true)]
 struct ImageArgs {
-    /// Path to a PNG or JPEG image.
+    /// Path to a PNG or JPEG image; use `-` to read bytes from stdin.
     #[arg(long)]
     src: PathBuf,
     /// Width in cells.
@@ -477,7 +477,7 @@ fn run_image(
     args: &ImageArgs,
     mode: EmitMode,
 ) -> Result<()> {
-    use kittui_core::node::{Fit, ImageRef};
+    use kittui_core::node::Fit;
     let fit = match args.fit.to_ascii_lowercase().as_str() {
         "contain" => Fit::Contain,
         "cover" => Fit::Cover,
@@ -489,6 +489,7 @@ fn run_image(
         Some(s) => Some(Rgba::parse(s)?),
         None => None,
     };
+    let src = read_image_ref(&args.src)?;
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, args.width, args.height);
     let rect = footprint.to_pixels(cell);
@@ -497,15 +498,25 @@ fn run_image(
         cell_size: cell,
         layers: vec![Layer::anon(Node::Image {
             rect,
-            src: ImageRef::Path {
-                path: args.src.to_string_lossy().into_owned(),
-            },
+            src,
             fit,
             tint,
         })],
         animation: None,
     };
     emit_with_mode(global, runtime, &scene, None, mode)
+}
+
+fn read_image_ref(path: &PathBuf) -> Result<kittui_core::node::ImageRef> {
+    if path.as_os_str() == "-" {
+        let mut bytes = Vec::new();
+        std::io::stdin().read_to_end(&mut bytes)?;
+        Ok(kittui_core::node::ImageRef::Bytes { bytes })
+    } else {
+        Ok(kittui_core::node::ImageRef::Path {
+            path: path.to_string_lossy().into_owned(),
+        })
+    }
 }
 
 fn run_cache(global: &GlobalConfig, layers: &ConfigLayers, sub: &CacheCmd) -> Result<()> {
