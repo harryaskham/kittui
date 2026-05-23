@@ -363,6 +363,74 @@ impl TerminalState {
             }
         }
     }
+
+    fn insert_chars(&mut self, count: u16) {
+        if self.cursor_col >= self.cols {
+            return;
+        }
+        let count = count.min(self.cols - self.cursor_col);
+        for col in (self.cursor_col..self.cols - count).rev() {
+            self.put_at(
+                col + count,
+                self.cursor_row,
+                self.get_at(col, self.cursor_row),
+            );
+        }
+        self.clear_line_range(self.cursor_col, self.cursor_col + count - 1);
+    }
+
+    fn delete_chars(&mut self, count: u16) {
+        if self.cursor_col >= self.cols {
+            return;
+        }
+        let count = count.min(self.cols - self.cursor_col);
+        for col in self.cursor_col + count..self.cols {
+            self.put_at(
+                col - count,
+                self.cursor_row,
+                self.get_at(col, self.cursor_row),
+            );
+        }
+        self.clear_line_range(self.cols - count, self.cols.saturating_sub(1));
+    }
+
+    fn erase_chars(&mut self, count: u16) {
+        if self.cursor_col >= self.cols {
+            return;
+        }
+        let end = (self.cursor_col + count.saturating_sub(1)).min(self.cols.saturating_sub(1));
+        self.clear_line_range(self.cursor_col, end);
+    }
+
+    fn insert_lines(&mut self, count: u16) {
+        if self.cursor_row >= self.rows {
+            return;
+        }
+        let count = count.min(self.rows - self.cursor_row);
+        let cols = usize::from(self.cols);
+        let start = usize::from(self.cursor_row) * cols;
+        let shift = usize::from(count) * cols;
+        let end = self.cells.len().saturating_sub(shift);
+        self.cells.copy_within(start..end, start + shift);
+        for cell in &mut self.cells[start..start + shift] {
+            *cell = ' ';
+        }
+    }
+
+    fn delete_lines(&mut self, count: u16) {
+        if self.cursor_row >= self.rows {
+            return;
+        }
+        let count = count.min(self.rows - self.cursor_row);
+        let cols = usize::from(self.cols);
+        let start = usize::from(self.cursor_row) * cols;
+        let shift = usize::from(count) * cols;
+        self.cells.copy_within(start + shift.., start);
+        let clear_start = self.cells.len().saturating_sub(shift);
+        for cell in &mut self.cells[clear_start..] {
+            *cell = ' ';
+        }
+    }
 }
 
 impl Perform for TerminalState {
@@ -391,29 +459,43 @@ impl Perform for TerminalState {
         _ignore: bool,
         action: char,
     ) {
-        let first = params
+        let first_raw = params
             .iter()
             .next()
             .and_then(|p| p.first().copied())
-            .unwrap_or(1) as u16;
+            .unwrap_or(0) as u16;
+        let first_count = if first_raw == 0 { 1 } else { first_raw };
         match action {
-            'A' => self.cursor_row = self.cursor_row.saturating_sub(first),
-            'B' => self.cursor_row = (self.cursor_row + first).min(self.rows.saturating_sub(1)),
-            'C' | 'a' => {
-                self.cursor_col = (self.cursor_col + first).min(self.cols.saturating_sub(1))
+            '@' => self.insert_chars(first_count),
+            'A' => self.cursor_row = self.cursor_row.saturating_sub(first_count),
+            'B' => {
+                self.cursor_row = (self.cursor_row + first_count).min(self.rows.saturating_sub(1))
             }
-            'D' => self.cursor_col = self.cursor_col.saturating_sub(first),
+            'C' | 'a' => {
+                self.cursor_col = (self.cursor_col + first_count).min(self.cols.saturating_sub(1))
+            }
+            'D' => self.cursor_col = self.cursor_col.saturating_sub(first_count),
             'E' => {
-                self.cursor_row = (self.cursor_row + first).min(self.rows.saturating_sub(1));
+                self.cursor_row = (self.cursor_row + first_count).min(self.rows.saturating_sub(1));
                 self.cursor_col = 0;
             }
             'F' => {
-                self.cursor_row = self.cursor_row.saturating_sub(first);
+                self.cursor_row = self.cursor_row.saturating_sub(first_count);
                 self.cursor_col = 0;
             }
-            'G' => self.cursor_col = first.saturating_sub(1).min(self.cols.saturating_sub(1)),
-            'd' => self.cursor_row = first.saturating_sub(1).min(self.rows.saturating_sub(1)),
-            'e' => self.cursor_row = (self.cursor_row + first).min(self.rows.saturating_sub(1)),
+            'G' => {
+                self.cursor_col = first_count
+                    .saturating_sub(1)
+                    .min(self.cols.saturating_sub(1))
+            }
+            'd' => {
+                self.cursor_row = first_count
+                    .saturating_sub(1)
+                    .min(self.rows.saturating_sub(1))
+            }
+            'e' => {
+                self.cursor_row = (self.cursor_row + first_count).min(self.rows.saturating_sub(1))
+            }
             'H' | 'f' => {
                 let mut iter = params.iter();
                 let row = iter.next().and_then(|p| p.first().copied()).unwrap_or(1) as u16;
@@ -421,7 +503,7 @@ impl Perform for TerminalState {
                 self.cursor_row = row.saturating_sub(1).min(self.rows.saturating_sub(1));
                 self.cursor_col = col.saturating_sub(1).min(self.cols.saturating_sub(1));
             }
-            'J' => match first {
+            'J' => match first_raw {
                 0 => self.clear_screen_range(
                     self.cursor_row,
                     self.cursor_col,
@@ -432,12 +514,16 @@ impl Perform for TerminalState {
                 2 => self.cells.fill(' '),
                 _ => {}
             },
-            'K' => match first {
+            'K' => match first_raw {
                 0 => self.clear_line_range(self.cursor_col, self.cols.saturating_sub(1)),
                 1 => self.clear_line_range(0, self.cursor_col),
                 2 => self.clear_line_range(0, self.cols.saturating_sub(1)),
                 _ => {}
             },
+            'L' => self.insert_lines(first_count),
+            'M' => self.delete_lines(first_count),
+            'P' => self.delete_chars(first_count),
+            'X' => self.erase_chars(first_count),
             _ => {}
         }
     }
@@ -788,6 +874,42 @@ mod tests {
             text.starts_with("x    y\n      z\nk  n\nw"),
             "snapshot was:\n{text}"
         );
+    }
+
+    #[test]
+    fn terminal_state_honors_edit_character_csi_modes() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(10, 2);
+        parser.advance(&mut state, b"abcdef\r\x1b[3C\x1b[2@XY");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("abcXYdef"), "snapshot was:\n{text}");
+
+        let mut state = TerminalState::new(10, 2);
+        parser.advance(&mut state, b"abcdef\r\x1b[2C\x1b[2P");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("abef"), "snapshot was:\n{text}");
+
+        let mut state = TerminalState::new(10, 2);
+        parser.advance(&mut state, b"abcdef\r\x1b[2C\x1b[3X");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("ab   f"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn terminal_state_honors_edit_line_csi_modes() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 4);
+        parser.advance(&mut state, b"one\ntwo\nthree\x1b[2;1H\x1b[L");
+        let text = state.text_snapshot();
+        assert!(
+            text.starts_with("one\n\ntwo\nthree"),
+            "snapshot was:\n{text}"
+        );
+
+        let mut state = TerminalState::new(8, 4);
+        parser.advance(&mut state, b"one\ntwo\nthree\x1b[2;1H\x1b[M");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("one\nthree"), "snapshot was:\n{text}");
     }
 
     #[test]
