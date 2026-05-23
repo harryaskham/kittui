@@ -54,6 +54,7 @@ process.stdout.write(k.placeAt(sceneJsonOrObject, 10, 4));
 // Batch placement at a group origin, with channelized output for hosts that
 // want to schedule upload / placement / embed writes separately.
 const channels = k.placeManyChannels([sceneJsonOrObject], 10, 4);
+console.log(channels.image_ids, channels.footprints, channels.upload_bytes);
 process.stdout.write(channels.upload + channels.placement + channels.embed);
 ```
 

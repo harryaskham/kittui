@@ -96,6 +96,18 @@ export interface Scene {
   animation?: Animation;
 }
 
+export interface BatchChannels {
+  count: number;
+  image_ids: string[];
+  footprints: CellRect[];
+  upload_bytes: number;
+  placement_bytes: number;
+  embed_bytes: number;
+  upload: string;
+  placement: string;
+  embed: string;
+}
+
 export interface KittuiOptions {
   cacheDir?: string;
   renderer?: 'cpu' | 'gpu' | 'auto';
@@ -119,7 +131,7 @@ export class Kittui {
   placeAt(scene: Scene | string, x: number, y: number): string;
   placeMany(scenes: (Scene | string)[]): string;
   placeManyAt(scenes: (Scene | string)[], x: number, y: number): string;
-  placeManyChannels(scenes: (Scene | string)[], x?: number, y?: number): Record<string, unknown>;
+  placeManyChannels(scenes: (Scene | string)[], x?: number, y?: number): BatchChannels;
   close(): void;
 }
 

@@ -93,7 +93,17 @@ function fakeLib(calls, options = {}) {
         return (_runtime, scenesJson, x, y, out) => {
           calls.push(['place_many_channels', JSON.parse(scenesJson), x, y]);
           if (options.fail === 'place_many_channels') return 3;
-          out[0] = JSON.stringify({ count: 2, upload: 'u', placement: 'p', embed: 'e' });
+          out[0] = JSON.stringify({
+            count: 2,
+            image_ids: ['0x00000001', '0x00000002'],
+            footprints: [{ x: 10, y: 20, cols: 4, rows: 2 }],
+            upload_bytes: 1,
+            placement_bytes: 1,
+            embed_bytes: 1,
+            upload: 'u',
+            placement: 'p',
+            embed: 'e',
+          });
           return 0;
         };
       }
@@ -231,12 +241,16 @@ test('placeManyChannels returns parsed channel JSON', () => {
     footprintCells: [4, 2],
     layers: [scene.backgroundSolid([0, 216, 255, 255])],
   });
-  assert.deepEqual(k.placeManyChannels([s, JSON.stringify(s)], 10, 20), {
-    count: 2,
-    upload: 'u',
-    placement: 'p',
-    embed: 'e',
-  });
+  const channels = k.placeManyChannels([s, JSON.stringify(s)], 10, 20);
+  assert.equal(channels.count, 2);
+  assert.deepEqual(channels.image_ids, ['0x00000001', '0x00000002']);
+  assert.equal(channels.footprints[0].x, 10);
+  assert.equal(channels.upload_bytes, 1);
+  assert.equal(channels.placement_bytes, 1);
+  assert.equal(channels.embed_bytes, 1);
+  assert.equal(channels.upload, 'u');
+  assert.equal(channels.placement, 'p');
+  assert.equal(channels.embed, 'e');
   const call = calls.find((c) => c[0] === 'place_many_channels');
   assert.equal(call[1].length, 2);
   assert.equal(call[2], 10);
