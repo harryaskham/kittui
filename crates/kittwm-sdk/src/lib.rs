@@ -12,6 +12,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -200,6 +201,49 @@ pub struct SurfaceHandle {
     client: Kittwm,
     /// Window/surface id, e.g. `native-1`, or the protocol alias `focused`.
     pub id: String,
+}
+
+/// Pane-local mouse event label accepted by `SEND_MOUSE`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MouseEvent {
+    /// Press the primary/left mouse button.
+    PressLeft,
+    /// Press the middle mouse button.
+    PressMiddle,
+    /// Press the secondary/right mouse button.
+    PressRight,
+    /// Release the currently pressed mouse button.
+    Release,
+    /// Move the pointer without a button held.
+    Move,
+    /// Move while the left button is held.
+    MoveLeft,
+    /// Move while the middle button is held.
+    MoveMiddle,
+    /// Move while the right button is held.
+    MoveRight,
+    /// Scroll up at the given cell.
+    ScrollUp,
+    /// Scroll down at the given cell.
+    ScrollDown,
+}
+
+impl MouseEvent {
+    fn protocol_label(self) -> &'static str {
+        match self {
+            Self::PressLeft => "press-left",
+            Self::PressMiddle => "press-middle",
+            Self::PressRight => "press-right",
+            Self::Release => "release",
+            Self::Move => "move",
+            Self::MoveLeft => "move-left",
+            Self::MoveMiddle => "move-middle",
+            Self::MoveRight => "move-right",
+            Self::ScrollUp => "scroll-up",
+            Self::ScrollDown => "scroll-down",
+        }
+    }
 }
 
 /// Native kittwm session manifest returned by `SESSION_JSON` and accepted by
@@ -1199,6 +1243,48 @@ impl SurfaceHandle {
             .request_protocol(format!("SEND_KEY {} {}", self.id, key.as_ref()))
     }
 
+    /// Send exact bytes, base64-encoding them for `SEND_BYTES_B64`.
+    pub fn send_bytes(&self, bytes: impl AsRef<[u8]>) -> Result<String> {
+        self.send_bytes_b64(BASE64_STANDARD.encode(bytes.as_ref()))
+    }
+
+    /// Send an already-base64-encoded exact byte payload.
+    pub fn send_bytes_b64(&self, payload_b64: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::SendInput)?;
+        self.client.request_protocol(format!(
+            "SEND_BYTES_B64 {} {}",
+            self.id,
+            payload_b64.as_ref()
+        ))
+    }
+
+    /// Paste exact bytes, base64-encoding them for `PASTE_BYTES_B64`.
+    pub fn paste_bytes(&self, bytes: impl AsRef<[u8]>) -> Result<String> {
+        self.paste_bytes_b64(BASE64_STANDARD.encode(bytes.as_ref()))
+    }
+
+    /// Paste an already-base64-encoded byte payload.
+    pub fn paste_bytes_b64(&self, payload_b64: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::SendInput)?;
+        self.client.request_protocol(format!(
+            "PASTE_BYTES_B64 {} {}",
+            self.id,
+            payload_b64.as_ref()
+        ))
+    }
+
+    /// Send a pane-local mouse event at cell coordinates.
+    pub fn send_mouse(&self, event: MouseEvent, col: u16, row: u16) -> Result<String> {
+        self.client.capabilities.ensure(Capability::SendInput)?;
+        self.client.request_protocol(format!(
+            "SEND_MOUSE {} {} {} {}",
+            self.id,
+            event.protocol_label(),
+            col,
+            row
+        ))
+    }
+
     /// Read the current screen text snapshot.
     pub fn read_text(&self) -> Result<TextSnapshot> {
         self.client.capabilities.ensure(Capability::ReadText)?;
@@ -2147,6 +2233,88 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].kind(), "status");
         assert_eq!(events[1].kind(), "layout_changed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn input_helpers_send_expected_socket_commands() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwi-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..4 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                let command = request.trim().to_string();
+                seen.push(command);
+                stream.write_all(b"OK\n").unwrap();
+            }
+            seen
+        });
+
+        let surface = Kittwm::connect_path(&path).surface("native-1");
+        assert_eq!(surface.send_bytes(b"hi\n\0").unwrap().trim(), "OK");
+        assert_eq!(surface.send_bytes_b64("AQID").unwrap().trim(), "OK");
+        assert_eq!(surface.paste_bytes(b"paste me").unwrap().trim(), "OK");
+        assert_eq!(
+            surface
+                .send_mouse(MouseEvent::PressLeft, 7, 9)
+                .unwrap()
+                .trim(),
+            "OK"
+        );
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            seen,
+            [
+                "SEND_BYTES_B64 native-1 aGkKAA==",
+                "SEND_BYTES_B64 native-1 AQID",
+                "PASTE_BYTES_B64 native-1 cGFzdGUgbWU=",
+                "SEND_MOUSE native-1 press-left 7 9"
+            ]
+        );
+    }
+
+    #[test]
+    fn input_capabilities_deny_helpers_before_io() {
+        let surface = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::ReadText]))
+            .surface("focused");
+        assert!(matches!(
+            surface.send_bytes(b"x"),
+            Err(Error::CapabilityDenied(Capability::SendInput))
+        ));
+        assert!(matches!(
+            surface.paste_bytes(b"x"),
+            Err(Error::CapabilityDenied(Capability::SendInput))
+        ));
+        assert!(matches!(
+            surface.send_mouse(MouseEvent::ScrollDown, 1, 2),
+            Err(Error::CapabilityDenied(Capability::SendInput))
+        ));
+    }
+
+    #[test]
+    fn mouse_event_protocol_labels_match_daemon_vocab() {
+        assert_eq!(MouseEvent::PressLeft.protocol_label(), "press-left");
+        assert_eq!(MouseEvent::PressMiddle.protocol_label(), "press-middle");
+        assert_eq!(MouseEvent::PressRight.protocol_label(), "press-right");
+        assert_eq!(MouseEvent::Release.protocol_label(), "release");
+        assert_eq!(MouseEvent::Move.protocol_label(), "move");
+        assert_eq!(MouseEvent::MoveLeft.protocol_label(), "move-left");
+        assert_eq!(MouseEvent::MoveMiddle.protocol_label(), "move-middle");
+        assert_eq!(MouseEvent::MoveRight.protocol_label(), "move-right");
+        assert_eq!(MouseEvent::ScrollUp.protocol_label(), "scroll-up");
+        assert_eq!(MouseEvent::ScrollDown.protocol_label(), "scroll-down");
     }
 
     #[test]
