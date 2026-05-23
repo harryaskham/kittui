@@ -8,7 +8,7 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 use kittwm_sdk::{
     ActionKind, ComponentAction, ComponentNode, ComponentRole, ComponentState, ComponentValue,
-    SemanticSurfaceSnapshot,
+    SemanticComponentId, SemanticSurfaceSnapshot,
 };
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
@@ -1753,21 +1753,40 @@ fn native_spawn_semantic_action_reply(
     let Some((action, payload)) = rest.trim_start().split_once(' ') else {
         return "ERR SEMANTIC_ACTION requires window component action json\n".to_string();
     };
-    if serde_json::from_str::<serde_json::Value>(payload.trim()).is_err() {
-        return "ERR SEMANTIC_ACTION payload must be JSON\n".to_string();
-    }
-    let Ok(state) = pending.lock() else {
+    let payload = match serde_json::from_str::<serde_json::Value>(payload.trim()) {
+        Ok(value) => value,
+        Err(_) => return "ERR SEMANTIC_ACTION payload must be JSON\n".to_string(),
+    };
+    let Ok(mut state) = pending.lock() else {
         return "ERR registry poisoned\n".to_string();
     };
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
         return format!("ERR SEMANTIC_ACTION no pane matching {}\n", target.trim());
     };
-    format!(
-        "ERR SEMANTIC_ACTION unsupported window={} component={} action={}\n",
-        pane.window,
-        component.trim(),
-        action.trim()
-    )
+    let window = pane.window.clone();
+    let Some(snapshot) = state.semantic_snapshots.get_mut(&window) else {
+        return format!(
+            "ERR SEMANTIC_ACTION unsupported window={} component={} action={}\n",
+            window,
+            component.trim(),
+            action.trim()
+        );
+    };
+    match apply_semantic_action(snapshot, component.trim(), action.trim(), &payload) {
+        Ok(()) => format!(
+            "SEMANTIC_ACTION_APPLIED window={} component={} action={}\n",
+            window,
+            component.trim(),
+            action.trim()
+        ),
+        Err(err) => format!(
+            "ERR SEMANTIC_ACTION window={} component={} action={} {}\n",
+            window,
+            component.trim(),
+            action.trim(),
+            err
+        ),
+    }
 }
 
 fn native_spawn_semantic_focus_reply(
@@ -1777,17 +1796,191 @@ fn native_spawn_semantic_focus_reply(
     let Some((target, component)) = rest.trim_start().split_once(' ') else {
         return "ERR SEMANTIC_FOCUS requires window and component\n".to_string();
     };
-    let Ok(state) = pending.lock() else {
+    let Ok(mut state) = pending.lock() else {
         return "ERR registry poisoned\n".to_string();
     };
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
         return format!("ERR SEMANTIC_FOCUS no pane matching {}\n", target.trim());
     };
-    format!(
-        "ERR SEMANTIC_FOCUS unsupported window={} component={}\n",
-        pane.window,
-        component.trim()
-    )
+    let window = pane.window.clone();
+    let Some(snapshot) = state.semantic_snapshots.get_mut(&window) else {
+        return format!(
+            "ERR SEMANTIC_FOCUS unsupported window={} component={}\n",
+            window,
+            component.trim()
+        );
+    };
+    match apply_semantic_focus(snapshot, component.trim()) {
+        Ok(()) => format!(
+            "SEMANTIC_FOCUSED window={} component={}\n",
+            window,
+            component.trim()
+        ),
+        Err(err) => format!(
+            "ERR SEMANTIC_FOCUS window={} component={} {}\n",
+            window,
+            component.trim(),
+            err
+        ),
+    }
+}
+
+fn apply_semantic_focus(
+    snapshot: &mut SemanticSurfaceSnapshot,
+    component: &str,
+) -> std::result::Result<(), &'static str> {
+    if !semantic_component_exists(&snapshot.root, component) {
+        return Err("component not found");
+    }
+    clear_semantic_focus(&mut snapshot.root);
+    set_semantic_component_state(&mut snapshot.root, component, |node| {
+        node.state.focused = true;
+        node.state.focusable = true;
+    })?;
+    snapshot.focus = Some(SemanticComponentId::new(component));
+    Ok(())
+}
+
+fn apply_semantic_action(
+    snapshot: &mut SemanticSurfaceSnapshot,
+    component: &str,
+    action: &str,
+    payload: &serde_json::Value,
+) -> std::result::Result<(), &'static str> {
+    match action {
+        "focus" => apply_semantic_focus(snapshot, component),
+        "toggle" => apply_semantic_toggle(snapshot, component),
+        "set" | "set_value" | "insert_text" => {
+            apply_semantic_set_value(snapshot, component, payload)
+        }
+        "select" => apply_semantic_select(snapshot, component, payload),
+        _ => Err("unsupported action"),
+    }
+}
+
+fn apply_semantic_toggle(
+    snapshot: &mut SemanticSurfaceSnapshot,
+    component: &str,
+) -> std::result::Result<(), &'static str> {
+    let node = snapshot_component_mut(snapshot, component)?;
+    let next = match node.value.as_ref() {
+        Some(ComponentValue::Bool(value)) => !value,
+        _ => !node.state.checked,
+    };
+    node.value = Some(ComponentValue::Bool(next));
+    node.state.checked = next;
+    node.state.selected = next;
+    Ok(())
+}
+
+fn apply_semantic_set_value(
+    snapshot: &mut SemanticSurfaceSnapshot,
+    component: &str,
+    payload: &serde_json::Value,
+) -> std::result::Result<(), &'static str> {
+    let node = snapshot_component_mut(snapshot, component)?;
+    if let Some(text) = payload.get("text").and_then(serde_json::Value::as_str) {
+        node.value = Some(ComponentValue::Text(text.to_string()));
+        return Ok(());
+    }
+    if let Some(value) = payload.get("value") {
+        if let Some(text) = value.as_str() {
+            node.value = Some(ComponentValue::Text(text.to_string()));
+            return Ok(());
+        }
+        if let Some(number) = value.as_f64() {
+            node.value = Some(ComponentValue::Number(number as f32));
+            return Ok(());
+        }
+        if let Some(boolean) = value.as_bool() {
+            node.value = Some(ComponentValue::Bool(boolean));
+            node.state.checked = boolean;
+            return Ok(());
+        }
+    }
+    Err("payload must contain text or scalar value")
+}
+
+fn apply_semantic_select(
+    snapshot: &mut SemanticSurfaceSnapshot,
+    component: &str,
+    payload: &serde_json::Value,
+) -> std::result::Result<(), &'static str> {
+    let selection = payload
+        .get("selection")
+        .or_else(|| payload.get("value"))
+        .and_then(|value| {
+            value.as_array().map(|items| {
+                items
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            })
+        })
+        .or_else(|| {
+            payload
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(|id| vec![id.to_string()])
+        })
+        .ok_or("payload must contain selection/value array or id")?;
+    let node = snapshot_component_mut(snapshot, component)?;
+    node.value = Some(ComponentValue::Selection(selection.clone()));
+    for child in &mut node.children {
+        child.state.selected = selection.iter().any(|id| id == child.id.as_str());
+        child.state.checked = child.state.selected;
+    }
+    Ok(())
+}
+
+fn snapshot_component_mut<'a>(
+    snapshot: &'a mut SemanticSurfaceSnapshot,
+    component: &str,
+) -> std::result::Result<&'a mut ComponentNode, &'static str> {
+    find_semantic_component_mut(&mut snapshot.root, component).ok_or("component not found")
+}
+
+fn semantic_component_exists(node: &ComponentNode, component: &str) -> bool {
+    node.id.as_str() == component
+        || node
+            .children
+            .iter()
+            .any(|child| semantic_component_exists(child, component))
+}
+
+fn find_semantic_component_mut<'a>(
+    node: &'a mut ComponentNode,
+    component: &str,
+) -> Option<&'a mut ComponentNode> {
+    if node.id.as_str() == component {
+        return Some(node);
+    }
+    for child in &mut node.children {
+        if let Some(found) = find_semantic_component_mut(child, component) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn set_semantic_component_state(
+    node: &mut ComponentNode,
+    component: &str,
+    update: impl FnOnce(&mut ComponentNode),
+) -> std::result::Result<(), &'static str> {
+    let Some(node) = find_semantic_component_mut(node, component) else {
+        return Err("component not found");
+    };
+    update(node);
+    Ok(())
+}
+
+fn clear_semantic_focus(node: &mut ComponentNode) {
+    node.state.focused = false;
+    for child in &mut node.children {
+        clear_semantic_focus(child);
+    }
 }
 
 fn native_find_pane_target<'a>(
@@ -2749,7 +2942,7 @@ mod tests {
     }
 
     #[test]
-    fn native_spawn_queue_rejects_semantic_action_and_focus_until_supported() {
+    fn native_spawn_queue_rejects_fallback_semantic_action_and_focus_until_supported() {
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
         pending.lock().unwrap().panes = vec![native_status("native-1", true, 1)];
         let action = native_spawn_queue_reply(
@@ -2770,6 +2963,76 @@ mod tests {
             focus.starts_with("ERR SEMANTIC_FOCUS unsupported window=native-1"),
             "{focus}"
         );
+    }
+
+    #[test]
+    fn native_spawn_queue_routes_published_semantic_focus_and_actions() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        pending.lock().unwrap().panes = vec![native_status("native-1", true, 1)];
+        let snapshot = SemanticSurfaceSnapshot::new(
+            "native-1",
+            1,
+            ComponentNode::new("settings", ComponentRole::Group).children(vec![
+                ComponentNode::new("settings.name", ComponentRole::TextInput)
+                    .valued(ComponentValue::Text("Ada".to_string())),
+                ComponentNode::new("settings.notify", ComponentRole::Checkbox)
+                    .valued(ComponentValue::Bool(false)),
+                ComponentNode::new("settings.profile", ComponentRole::SelectList).children(vec![
+                    ComponentNode::new("settings.profile.dev", ComponentRole::Label),
+                    ComponentNode::new("settings.profile.ops", ComponentRole::Label),
+                ]),
+            ]),
+        );
+        assert_eq!(
+            native_spawn_queue_reply(
+                &format!(
+                    "SEMANTIC_PUBLISH focused {}",
+                    serde_json::to_string(&snapshot).unwrap()
+                ),
+                &pending,
+            ),
+            "SEMANTIC_PUBLISHED window=native-1\n"
+        );
+        assert_eq!(
+            native_spawn_queue_reply("SEMANTIC_FOCUS focused settings.name", &pending),
+            "SEMANTIC_FOCUSED window=native-1 component=settings.name\n"
+        );
+        assert_eq!(
+            native_spawn_queue_reply(
+                "SEMANTIC_ACTION focused settings.notify toggle {}",
+                &pending,
+            ),
+            "SEMANTIC_ACTION_APPLIED window=native-1 component=settings.notify action=toggle\n"
+        );
+        assert_eq!(
+            native_spawn_queue_reply(
+                "SEMANTIC_ACTION focused settings.name set {\"text\":\"Grace\"}",
+                &pending,
+            ),
+            "SEMANTIC_ACTION_APPLIED window=native-1 component=settings.name action=set\n"
+        );
+        assert_eq!(
+            native_spawn_queue_reply(
+                "SEMANTIC_ACTION focused settings.profile select {\"id\":\"settings.profile.ops\"}",
+                &pending,
+            ),
+            "SEMANTIC_ACTION_APPLIED window=native-1 component=settings.profile action=select\n"
+        );
+        let reply = native_spawn_queue_reply("SEMANTIC_SNAPSHOT focused", &pending);
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        let children = value["root"]["children"].as_array().unwrap();
+        assert_eq!(value["focus"], "settings.name");
+        assert_eq!(
+            children[0]["value"],
+            serde_json::json!({"kind":"text","value":"Grace"})
+        );
+        assert_eq!(children[0]["state"]["focused"], true);
+        assert_eq!(
+            children[1]["value"],
+            serde_json::json!({"kind":"bool","value":true})
+        );
+        assert_eq!(children[1]["state"]["checked"], true);
+        assert_eq!(children[2]["children"][1]["state"]["selected"], true);
     }
 
     #[test]
