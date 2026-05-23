@@ -125,6 +125,8 @@ pub struct NativePaneStatus {
     pub cursor_col: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor_row: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bracketed_paste: Option<bool>,
     #[serde(skip_serializing)]
     pub text_snapshot: Option<String>,
     #[serde(skip_serializing)]
@@ -163,6 +165,10 @@ pub enum NativePaneCommand {
         window: String,
         bytes: Vec<u8>,
         label: String,
+    },
+    PasteBytes {
+        window: String,
+        bytes: Vec<u8>,
     },
     RestoreSession(NativeSessionRestore),
 }
@@ -457,6 +463,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("SEND_BYTES_B64 ") {
         return queue_native_send_bytes_b64(pending, rest);
     }
+    if let Some(rest) = cmd.strip_prefix("PASTE_BYTES_B64 ") {
+        return queue_native_paste_bytes_b64(pending, rest);
+    }
     if let Some(rest) = cmd.strip_prefix("WAIT_OUTPUT_MS ") {
         return native_spawn_wait_output_ms_reply(pending, rest);
     }
@@ -492,7 +501,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | PANES_JSON | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -583,6 +592,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "SEND_BYTES_B64 <window|focused> <base64>",
             "automation",
             "send base64-decoded bytes to a native pane",
+        ),
+        (
+            "PASTE_BYTES_B64 <window|focused> <base64>",
+            "automation",
+            "paste base64-decoded bytes, wrapping when bracketed paste is enabled",
         ),
         (
             "READ_TEXT <window|focused>",
@@ -808,22 +822,14 @@ fn queue_native_send_text(
 }
 
 fn queue_native_send_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
-    let Some((window, encoded)) = rest.trim().split_once(' ') else {
-        return "ERR SEND_BYTES_B64 requires window and base64\n".to_string();
-    };
-    let window = window.trim();
-    let encoded = encoded.trim();
-    if window.is_empty() || window.contains(char::is_whitespace) || encoded.is_empty() {
-        return "ERR SEND_BYTES_B64 requires window and base64\n".to_string();
-    }
-    let bytes = match base64::engine::general_purpose::STANDARD.decode(encoded) {
-        Ok(bytes) => bytes,
-        Err(err) => return format!("ERR SEND_BYTES_B64 invalid base64: {err}\n"),
+    let (window, bytes) = match parse_window_base64(rest, "SEND_BYTES_B64") {
+        Ok(parsed) => parsed,
+        Err(err) => return err,
     };
     match pending.lock() {
         Ok(mut state) => {
             state.pending.push(NativePaneCommand::SendBytes {
-                window: window.to_string(),
+                window: window.clone(),
                 bytes: bytes.clone(),
                 label: "base64".to_string(),
             });
@@ -836,6 +842,43 @@ fn queue_native_send_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
+}
+
+fn queue_native_paste_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
+    let (window, bytes) = match parse_window_base64(rest, "PASTE_BYTES_B64") {
+        Ok(parsed) => parsed,
+        Err(err) => return err,
+    };
+    match pending.lock() {
+        Ok(mut state) => {
+            state.pending.push(NativePaneCommand::PasteBytes {
+                window: window.clone(),
+                bytes: bytes.clone(),
+            });
+            format!(
+                "PASTE_BYTES_B64_QUEUED command={} window={} bytes={}\n",
+                state.pending.len(),
+                window,
+                bytes.len()
+            )
+        }
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
+}
+
+fn parse_window_base64(rest: &str, verb: &str) -> Result<(String, Vec<u8>), String> {
+    let Some((window, encoded)) = rest.trim().split_once(' ') else {
+        return Err(format!("ERR {verb} requires window and base64\n"));
+    };
+    let window = window.trim();
+    let encoded = encoded.trim();
+    if window.is_empty() || window.contains(char::is_whitespace) || encoded.is_empty() {
+        return Err(format!("ERR {verb} requires window and base64\n"));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|err| format!("ERR {verb} invalid base64: {err}\n"))?;
+    Ok((window.to_string(), bytes))
 }
 
 fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
@@ -963,7 +1006,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} pid={} command={:?} cursor={} layout={} title={:?}",
+            "  window={} focused={} weight={} pid={} command={:?} cursor={} bracketed_paste={} layout={} title={:?}",
             pane.window,
             pane.focused,
             pane.weight,
@@ -972,6 +1015,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
                 .unwrap_or_else(|| "-".to_string()),
             pane.command,
             native_pane_cursor_label(pane),
+            native_pane_bracketed_paste_label(pane),
             native_pane_layout_label(pane),
             pane.title
         );
@@ -984,6 +1028,14 @@ fn native_pane_cursor_label(pane: &NativePaneStatus) -> String {
     match (pane.cursor_col, pane.cursor_row) {
         (Some(col), Some(row)) => format!("{col},{row}"),
         _ => "-".to_string(),
+    }
+}
+
+fn native_pane_bracketed_paste_label(pane: &NativePaneStatus) -> &'static str {
+    match pane.bracketed_paste {
+        Some(true) => "on",
+        Some(false) => "off",
+        None => "-",
     }
 }
 
@@ -1707,6 +1759,10 @@ mod tests {
             native_spawn_queue_reply("SEND_BYTES_B64 focused aGkKAA==", &pending)
                 .starts_with("SEND_BYTES_B64_QUEUED")
         );
+        assert!(
+            native_spawn_queue_reply("PASTE_BYTES_B64 focused cGFzdGUK", &pending)
+                .starts_with("PASTE_BYTES_B64_QUEUED")
+        );
         let manifest = serde_json::json!({
             "layout": "rows",
             "panes": [
@@ -1728,6 +1784,7 @@ mod tests {
         assert!(native_spawn_queue_reply("SEND_KEY focused nope", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_KEY focused page down", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_BYTES_B64 focused !!!", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("PASTE_BYTES_B64 focused !!!", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RESTORE_SESSION_JSON {}", &pending).contains("ERR"));
         assert_eq!(
             drain_native_spawn_pending(&pending),
@@ -1775,6 +1832,10 @@ mod tests {
                     bytes: b"hi\n\0".to_vec(),
                     label: "base64".to_string(),
                 },
+                NativePaneCommand::PasteBytes {
+                    window: "focused".to_string(),
+                    bytes: b"paste\n".to_vec(),
+                },
                 NativePaneCommand::RestoreSession(NativeSessionRestore {
                     layout: Some("rows".to_string()),
                     focus_index: Some(1),
@@ -1819,6 +1880,7 @@ mod tests {
             app_cols: None,
             cursor_col: None,
             cursor_row: None,
+            bracketed_paste: Some(false),
             text_snapshot: Some("ready\n$ ".to_string()),
             scrollback_snapshot: Some("boot\n".to_string()),
             app_rows: None,
@@ -1859,6 +1921,7 @@ mod tests {
             app_cols: None,
             cursor_col: None,
             cursor_row: None,
+            bracketed_paste: Some(false),
             text_snapshot: Some("waiting\n".to_string()),
             scrollback_snapshot: Some("previous\n".to_string()),
             app_rows: None,
@@ -1895,6 +1958,10 @@ mod tests {
         assert!(help.contains("SEND_KEY <window|focused> <key>"), "{help}");
         assert!(
             help.contains("SEND_BYTES_B64 <window|focused> <base64>"),
+            "{help}"
+        );
+        assert!(
+            help.contains("PASTE_BYTES_B64 <window|focused> <base64>"),
             "{help}"
         );
         assert!(help.contains("READ_TEXT <window|focused>"), "{help}");
@@ -1973,6 +2040,7 @@ mod tests {
                 app_cols: Some(40),
                 cursor_col: Some(4),
                 cursor_row: Some(1),
+                bracketed_paste: Some(true),
                 text_snapshot: Some("shell line\n".to_string()),
                 scrollback_snapshot: Some("shell history\n".to_string()),
                 app_rows: Some(23),
@@ -1993,6 +2061,7 @@ mod tests {
                 app_cols: Some(80),
                 cursor_col: Some(12),
                 cursor_row: Some(2),
+                bracketed_paste: Some(false),
                 text_snapshot: Some("htop line\nsecond\n".to_string()),
                 scrollback_snapshot: Some("htop history\n".to_string()),
                 app_rows: Some(23),
@@ -2006,11 +2075,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") cursor=4,1 layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") cursor=4,1 bracketed_paste=on layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") cursor=12,2 layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") cursor=12,2 bracketed_paste=off layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let status_json: serde_json::Value =
@@ -2026,6 +2095,7 @@ mod tests {
         assert_eq!(status_json["focused_pane"]["app_cols"], 80);
         assert_eq!(status_json["focused_pane"]["cursor_col"], 12);
         assert_eq!(status_json["focused_pane"]["cursor_row"], 2);
+        assert_eq!(status_json["focused_pane"]["bracketed_paste"], false);
         assert_eq!(status_json["panes_detail"].as_array().unwrap().len(), 2);
         let panes_json: serde_json::Value =
             serde_json::from_str(&native_spawn_queue_reply("PANES_JSON", &pending)).unwrap();
@@ -2037,6 +2107,7 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["app_cols"], 80);
         assert_eq!(panes_json["panes_detail"][1]["cursor_col"], 12);
         assert_eq!(panes_json["panes_detail"][1]["cursor_row"], 2);
+        assert_eq!(panes_json["panes_detail"][0]["bracketed_paste"], true);
         assert!(panes_json["panes_detail"][1].get("text_snapshot").is_none());
 
         let session_json: serde_json::Value =

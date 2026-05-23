@@ -170,6 +170,11 @@ impl PtyTerminalApp {
         (state.cursor_col, state.cursor_row)
     }
 
+    /// Whether the terminal application has enabled bracketed paste mode.
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        self.state.lock().bracketed_paste
+    }
+
     /// Return the PTY child process id when the backend exposes one.
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
@@ -239,6 +244,7 @@ struct TerminalState {
     cells: Vec<char>,
     scrollback: Vec<String>,
     alt_screen: Option<AlternateScreen>,
+    bracketed_paste: bool,
     title: Option<String>,
 }
 
@@ -259,6 +265,7 @@ impl TerminalState {
             cells: vec![' '; usize::from(cols) * usize::from(rows)],
             scrollback: Vec::new(),
             alt_screen: None,
+            bracketed_paste: false,
             title: None,
         }
     }
@@ -268,6 +275,7 @@ impl TerminalState {
         *self = Self::new(cols, rows);
         self.title = old.title.clone();
         self.scrollback = old.scrollback.clone();
+        self.bracketed_paste = old.bracketed_paste;
         self.cells = resize_cells(&old.cells, old.cols, old.rows, cols, rows);
         self.alt_screen = old.alt_screen.map(|alt| AlternateScreen {
             normal_cells: resize_cells(&alt.normal_cells, old.cols, old.rows, cols, rows),
@@ -551,6 +559,9 @@ impl Perform for TerminalState {
                 .copied()
                 .is_some_and(|mode| matches!(mode, 47 | 1047 | 1049))
         });
+        let has_bracketed_paste_mode = params
+            .iter()
+            .any(|param| param.first().copied() == Some(2004));
         match action {
             '@' => self.insert_chars(first_count),
             'A' => self.cursor_row = self.cursor_row.saturating_sub(first_count),
@@ -590,6 +601,7 @@ impl Perform for TerminalState {
                 self.cursor_col = col.saturating_sub(1).min(self.cols.saturating_sub(1));
             }
             'h' if is_dec_private && has_alt_screen_mode => self.enter_alternate_screen(),
+            'h' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = true,
             'J' => match first_raw {
                 0 => self.clear_screen_range(
                     self.cursor_row,
@@ -609,6 +621,7 @@ impl Perform for TerminalState {
             },
             'L' => self.insert_lines(first_count),
             'l' if is_dec_private && has_alt_screen_mode => self.leave_alternate_screen(),
+            'l' if is_dec_private && has_bracketed_paste_mode => self.bracketed_paste = false,
             'M' => self.delete_lines(first_count),
             'P' => self.delete_chars(first_count),
             'X' => self.erase_chars(first_count),
@@ -962,6 +975,17 @@ mod tests {
             text.starts_with("x    y\n      z\nk  n\nw"),
             "snapshot was:\n{text}"
         );
+    }
+
+    #[test]
+    fn terminal_state_tracks_bracketed_paste_mode() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        assert!(!state.bracketed_paste);
+        parser.advance(&mut state, b"\x1b[?2004h");
+        assert!(state.bracketed_paste);
+        parser.advance(&mut state, b"\x1b[?2004l");
+        assert!(!state.bracketed_paste);
     }
 
     #[test]

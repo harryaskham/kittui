@@ -124,6 +124,7 @@ kittwm --send-line focused 'echo hello from controller'
 kittwm --send-key focused ctrl-c
 kittwm --send-bytes-b64 focused aGkKAA==
 kittwm --send-file focused ./payload.txt
+kittwm --paste-file focused ./payload.txt
 kittwm --read-text focused
 kittwm --read-scrollback focused
 kittwm --wait-text focused ready

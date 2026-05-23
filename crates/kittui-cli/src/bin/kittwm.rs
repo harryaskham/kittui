@@ -252,6 +252,15 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--send-file WINDOW PATH|-"))?;
                 out.automation_request = Some(send_file_request(&window, &path)?);
             }
+            "--paste-file" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--paste-file WINDOW PATH|-"))?;
+                let path = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--paste-file WINDOW PATH|-"))?;
+                out.automation_request = Some(paste_file_request(&window, &path)?);
+            }
             "--read-text" => {
                 let window = args.next().ok_or_else(|| anyhow!("--read-text WINDOW"))?;
                 out.automation_request = Some(automation_request("READ_TEXT", &window, "")?);
@@ -459,6 +468,7 @@ fn print_help() {
          --send-key WINDOW KEY    send a named key (ctrl-c, escape, arrows, ...).\n\
          --send-bytes-b64 WINDOW BASE64 send arbitrary base64-decoded bytes.\n\
          --send-file WINDOW PATH|- read bytes from file/stdin and send them.\n\
+         --paste-file WINDOW PATH|- paste bytes, respecting bracketed-paste mode.\n\
          --read-text WINDOW       print a native pane text snapshot.\n\
          --read-scrollback WINDOW print native pane scrollback lines.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
@@ -1289,14 +1299,34 @@ fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String>
 }
 
 fn send_bytes_request(window: &str, bytes: &[u8]) -> Result<String> {
+    encoded_bytes_request("SEND_BYTES_B64", window, bytes)
+}
+
+fn paste_bytes_request(window: &str, bytes: &[u8]) -> Result<String> {
+    encoded_bytes_request("PASTE_BYTES_B64", window, bytes)
+}
+
+fn encoded_bytes_request(verb: &str, window: &str, bytes: &[u8]) -> Result<String> {
     automation_request(
-        "SEND_BYTES_B64",
+        verb,
         window,
         &base64::engine::general_purpose::STANDARD.encode(bytes),
     )
 }
 
 fn send_file_request(window: &str, path: &str) -> Result<String> {
+    file_bytes_request(window, path, send_bytes_request)
+}
+
+fn paste_file_request(window: &str, path: &str) -> Result<String> {
+    file_bytes_request(window, path, paste_bytes_request)
+}
+
+fn file_bytes_request(
+    window: &str,
+    path: &str,
+    build: fn(window: &str, bytes: &[u8]) -> Result<String>,
+) -> Result<String> {
     use std::io::Read as _;
     let mut bytes = Vec::new();
     if path == "-" {
@@ -1304,7 +1334,7 @@ fn send_file_request(window: &str, path: &str) -> Result<String> {
     } else {
         bytes = std::fs::read(path)?;
     }
-    send_bytes_request(window, &bytes)
+    build(window, &bytes)
 }
 
 fn layout_request(axis: &str) -> Result<String> {
@@ -2227,6 +2257,10 @@ mod tests {
         assert_eq!(
             send_bytes_request("focused", b"hi\n\0").unwrap(),
             "SEND_BYTES_B64 focused aGkKAA=="
+        );
+        assert_eq!(
+            paste_bytes_request("focused", b"hi\n\0").unwrap(),
+            "PASTE_BYTES_B64 focused aGkKAA=="
         );
         assert_eq!(
             wait_ms_request("WAIT_OUTPUT_MS", "2500", "focused", "Ready Now").unwrap(),

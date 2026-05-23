@@ -423,6 +423,23 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         ));
                     }
                 }
+                crate::daemon::NativePaneCommand::PasteBytes { window, bytes } => {
+                    let target = if window == "focused" {
+                        Some(focused)
+                    } else {
+                        native_pane_index(&panes, &window)
+                    };
+                    if let Some(idx) = target {
+                        let bracketed = panes[idx].app.bracketed_paste_enabled();
+                        let payload = native_paste_payload(&bytes, bracketed);
+                        panes[idx].app.send_bytes(&payload)?;
+                        dbg.log(&format!(
+                            "native terminal socket paste bytes: {window} bytes={} bracketed={}",
+                            bytes.len(),
+                            bracketed
+                        ));
+                    }
+                }
             }
         }
         queue.update_layout(layout_axis.label());
@@ -719,6 +736,17 @@ fn native_pane_display_title(pane: &NativePane) -> String {
         .unwrap_or_else(|| pane.app.title())
 }
 
+fn native_paste_payload(bytes: &[u8], bracketed_paste: bool) -> Vec<u8> {
+    if !bracketed_paste {
+        return bytes.to_vec();
+    }
+    let mut wrapped = Vec::with_capacity(bytes.len() + 12);
+    wrapped.extend_from_slice(b"\x1b[200~");
+    wrapped.extend_from_slice(bytes);
+    wrapped.extend_from_slice(b"\x1b[201~");
+    wrapped
+}
+
 fn native_pane_statuses(
     panes: &[NativePane],
     focused: usize,
@@ -746,6 +774,7 @@ fn native_pane_statuses(
                 app_cols: layout.map(|l| l.app_cols),
                 cursor_col: Some(cursor_col),
                 cursor_row: Some(cursor_row),
+                bracketed_paste: Some(pane.app.bracketed_paste_enabled()),
                 text_snapshot: Some(pane.app.text_snapshot()),
                 scrollback_snapshot: Some(pane.app.scrollback_snapshot()),
                 app_rows: layout.map(|l| l.app_rows),
@@ -838,6 +867,15 @@ fn write_native_pane_title<W: Write>(
 #[cfg(test)]
 mod native_pane_tests {
     use super::*;
+
+    #[test]
+    fn native_paste_payload_wraps_when_bracketed() {
+        assert_eq!(native_paste_payload(b"a\nb", false), b"a\nb".to_vec());
+        assert_eq!(
+            native_paste_payload(b"a\nb", true),
+            b"\x1b[200~a\nb\x1b[201~".to_vec()
+        );
+    }
 
     #[test]
     fn native_pane_layout_axis_labels_and_parses() {
