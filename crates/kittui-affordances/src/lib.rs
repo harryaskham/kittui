@@ -20,6 +20,7 @@
 
 pub mod components;
 pub mod controls;
+pub mod gallery;
 pub mod inline;
 pub mod markdown;
 pub mod palette;
@@ -33,6 +34,7 @@ pub use controls::{
     button, checkbox, menu, progress, radio, radio_group, select_list, slider, split_pane, tabs,
     text_area, text_input, ControlComponent, ControlKind, ControlOption, ControlState,
 };
+pub use gallery::{control_gallery, control_gallery_scenes};
 pub use inline::{chip_chrome, divider_chrome, title_chrome};
 pub use markdown::{
     render_markdown, HeadingOutline, LinkChip, MarkdownCodeBlock, MarkdownDefinition,
