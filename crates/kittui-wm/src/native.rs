@@ -337,6 +337,26 @@ impl TerminalState {
             self.title = Some(title);
         }
     }
+
+    fn clear_line_range(&mut self, start: u16, end_inclusive: u16) {
+        for col in start..=end_inclusive.min(self.cols.saturating_sub(1)) {
+            self.put_at(col, self.cursor_row, ' ');
+        }
+    }
+
+    fn clear_screen_range(&mut self, start_row: u16, start_col: u16, end_row: u16, end_col: u16) {
+        for row in start_row..=end_row.min(self.rows.saturating_sub(1)) {
+            let first_col = if row == start_row { start_col } else { 0 };
+            let last_col = if row == end_row {
+                end_col.min(self.cols.saturating_sub(1))
+            } else {
+                self.cols.saturating_sub(1)
+            };
+            for col in first_col..=last_col {
+                self.put_at(col, row, ' ');
+            }
+        }
+    }
 }
 
 impl Perform for TerminalState {
@@ -382,12 +402,23 @@ impl Perform for TerminalState {
                 self.cursor_row = row.saturating_sub(1).min(self.rows.saturating_sub(1));
                 self.cursor_col = col.saturating_sub(1).min(self.cols.saturating_sub(1));
             }
-            'J' => self.cells.fill(' '),
-            'K' => {
-                for col in self.cursor_col..self.cols {
-                    self.put_at(col, self.cursor_row, ' ');
-                }
-            }
+            'J' => match first {
+                0 => self.clear_screen_range(
+                    self.cursor_row,
+                    self.cursor_col,
+                    self.rows.saturating_sub(1),
+                    self.cols.saturating_sub(1),
+                ),
+                1 => self.clear_screen_range(0, 0, self.cursor_row, self.cursor_col),
+                2 => self.cells.fill(' '),
+                _ => {}
+            },
+            'K' => match first {
+                0 => self.clear_line_range(self.cursor_col, self.cols.saturating_sub(1)),
+                1 => self.clear_line_range(0, self.cursor_col),
+                2 => self.clear_line_range(0, self.cols.saturating_sub(1)),
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -718,6 +749,40 @@ mod tests {
         parser.advance(&mut state, b"a\tb");
         let text = state.text_snapshot();
         assert!(text.starts_with("a       b"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn terminal_state_honors_erase_line_modes() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 2);
+        parser.advance(&mut state, b"abcdef\r\x1b[3C\x1b[1K");
+        assert!(state.text_snapshot().starts_with("    ef"));
+
+        let mut state = TerminalState::new(8, 2);
+        parser.advance(&mut state, b"abcdef\r\x1b[2C\x1b[0K");
+        assert!(state.text_snapshot().starts_with("ab"));
+
+        let mut state = TerminalState::new(8, 2);
+        parser.advance(&mut state, b"abcdef\r\x1b[2K");
+        assert_eq!(state.text_snapshot().lines().next().unwrap_or(""), "");
+    }
+
+    #[test]
+    fn terminal_state_honors_erase_display_modes() {
+        let mut parser = Parser::new();
+        let mut state = TerminalState::new(8, 3);
+        parser.advance(&mut state, b"11111111\n22222222\n33333333\x1b[2;4H\x1b[0J");
+        let text = state.text_snapshot();
+        assert!(text.starts_with("11111111\n222"), "snapshot was:\n{text}");
+        assert!(text.contains("\n\n"), "snapshot was:\n{text}");
+
+        let mut state = TerminalState::new(8, 3);
+        parser.advance(&mut state, b"11111111\n22222222\n33333333\x1b[2;4H\x1b[1J");
+        let text = state.text_snapshot();
+        assert!(
+            text.starts_with("\n    2222\n33333333"),
+            "snapshot was:\n{text}"
+        );
     }
 
     #[test]
