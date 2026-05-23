@@ -1023,6 +1023,13 @@ pub fn run_loop_with<S: XServer>(
                                 }
                                 Action::FullscreenToggle => {
                                     let msg = toggle_state.apply(&action);
+                                    let msg = match compositor.toggle_focused_fullscreen() {
+                                        Ok(Some((id, fullscreen))) => {
+                                            format!("{msg} window={} fullscreen={fullscreen}", id.0)
+                                        }
+                                        Ok(None) => format!("{msg} window=-"),
+                                        Err(e) => format!("{msg} error={e}"),
+                                    };
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("toggle action: {msg}"));
                                 }
@@ -1333,7 +1340,8 @@ fn write_raw_frame_chrome<W: Write>(
         kittui_wm::compositor::WindowMode::Floating => "float",
         kittui_wm::compositor::WindowMode::Tiled => "tile",
     };
-    let label = format!("{marker} {} {mode}", frame.title);
+    let fullscreen = if frame.fullscreen { " full" } else { "" };
+    let label = format!("{marker} {} {mode}{fullscreen}", frame.title);
     let mut clipped = label
         .chars()
         .take(frame.footprint.cols as usize)

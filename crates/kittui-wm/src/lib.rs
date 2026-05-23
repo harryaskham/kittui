@@ -409,6 +409,7 @@ pub mod compositor {
         cell: CellSize,
         focused: Mutex<Option<XWindowId>>,
         modes: Mutex<HashMap<XWindowId, WindowMode>>,
+        fullscreen: Mutex<HashMap<XWindowId, bool>>,
         /// Last-known `(source_rect, terminal_footprint)` pair per window,
         /// populated by every `compose_with_layout` call. Pointer routing
         /// reads this to map terminal cells back into source pixels.
@@ -445,6 +446,8 @@ pub mod compositor {
         pub focused: bool,
         /// Layout mode used for chrome labels.
         pub mode: WindowMode,
+        /// Whether this frame is fullscreened by the compositor.
+        pub fullscreen: bool,
     }
 
     /// Derive a stable 32-bit kitty image id for an XWindowId. The kitty
@@ -463,6 +466,7 @@ pub mod compositor {
                 cell,
                 focused: Mutex::new(None),
                 modes: Mutex::new(HashMap::new()),
+                fullscreen: Mutex::new(HashMap::new()),
                 placements: Mutex::new(HashMap::new()),
             }
         }
@@ -494,6 +498,24 @@ pub mod compositor {
                 WindowMode::Tiled => WindowMode::Floating,
             };
             self.set_mode(id, next);
+            Ok(Some((id, next)))
+        }
+
+        /// Return whether a window is currently fullscreened.
+        pub fn fullscreen_of(&self, id: XWindowId) -> bool {
+            self.fullscreen.lock().get(&id).copied().unwrap_or(false)
+        }
+
+        /// Toggle fullscreen for the focused-or-first backend window.
+        pub fn toggle_focused_fullscreen(
+            &self,
+        ) -> Result<Option<(XWindowId, bool)>, kittui_xvfb::XError> {
+            let Some(id) = self.focused_or_first_window()? else {
+                return Ok(None);
+            };
+            self.set_focused(id);
+            let next = !self.fullscreen_of(id);
+            self.fullscreen.lock().insert(id, next);
             Ok(Some((id, next)))
         }
 
@@ -560,15 +582,16 @@ pub mod compositor {
         pub fn raw_frames(&self, layout: &Layout) -> Result<Vec<RawFrame>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
             let modes = self.modes.lock().clone();
+            let fullscreen = self.fullscreen.lock().clone();
             let focused_window = self.focused_or_first_window()?;
+            let layout_bounds = layout.bounds();
             let mut placements_snapshot = HashMap::new();
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
                 let mode = modes.get(&w.id).copied().unwrap_or(WindowMode::Floating);
-                let target_rect = match mode {
-                    WindowMode::Floating => w.rect,
-                    WindowMode::Tiled => layout.tiled_rect(w.id).unwrap_or(w.rect),
-                };
+                let is_fullscreen = fullscreen.get(&w.id).copied().unwrap_or(false);
+                let target_rect =
+                    target_rect_for(w.rect, mode, is_fullscreen, layout, layout_bounds, w.id);
                 let cap = self.server.capture(w.id)?;
                 let footprint_cols =
                     ((target_rect.width / self.cell.width_px as f32).ceil() as u16).max(1);
@@ -597,6 +620,7 @@ pub mod compositor {
                     title: format!("x11:{}", w.id.0),
                     focused: focused_window == Some(w.id),
                     mode,
+                    fullscreen: is_fullscreen,
                 });
             }
             *self.placements.lock() = placements_snapshot;
@@ -612,15 +636,16 @@ pub mod compositor {
         ) -> Result<Vec<Scene>, kittui_xvfb::XError> {
             let windows = self.server.windows()?;
             let modes = self.modes.lock().clone();
+            let fullscreen = self.fullscreen.lock().clone();
             let focused_window = self.focused_or_first_window()?;
+            let layout_bounds = layout.bounds();
             let mut placements_snapshot = HashMap::new();
             let mut out = Vec::with_capacity(windows.len());
             for w in &windows {
                 let mode = modes.get(&w.id).copied().unwrap_or(WindowMode::Floating);
-                let target_rect = match mode {
-                    WindowMode::Floating => w.rect,
-                    WindowMode::Tiled => layout.tiled_rect(w.id).unwrap_or(w.rect),
-                };
+                let is_fullscreen = fullscreen.get(&w.id).copied().unwrap_or(false);
+                let target_rect =
+                    target_rect_for(w.rect, mode, is_fullscreen, layout, layout_bounds, w.id);
                 let cap = self.server.capture(w.id)?;
                 let footprint_cols =
                     ((target_rect.width / self.cell.width_px as f32).ceil() as u16).max(1);
@@ -777,6 +802,38 @@ pub mod compositor {
         pub fn tiled_rect(&self, id: XWindowId) -> Option<PxRect> {
             self.tiled.get(&id).copied()
         }
+
+        /// Bounding rectangle enclosing all tiled slots, if any exist.
+        pub fn bounds(&self) -> Option<PxRect> {
+            let mut rects = self.tiled.values().copied();
+            let first = rects.next()?;
+            Some(rects.fold(first, px_rect_union))
+        }
+    }
+
+    fn target_rect_for(
+        window_rect: PxRect,
+        mode: WindowMode,
+        fullscreen: bool,
+        layout: &Layout,
+        layout_bounds: Option<PxRect>,
+        id: XWindowId,
+    ) -> PxRect {
+        if fullscreen {
+            return layout_bounds.unwrap_or_else(|| layout.tiled_rect(id).unwrap_or(window_rect));
+        }
+        match mode {
+            WindowMode::Floating => window_rect,
+            WindowMode::Tiled => layout.tiled_rect(id).unwrap_or(window_rect),
+        }
+    }
+
+    fn px_rect_union(a: PxRect, b: PxRect) -> PxRect {
+        let min_x = a.origin.0.min(b.origin.0);
+        let min_y = a.origin.1.min(b.origin.1);
+        let max_x = (a.origin.0 + a.width).max(b.origin.0 + b.width);
+        let max_y = (a.origin.1 + a.height).max(b.origin.1 + b.height);
+        PxRect::new(min_x, min_y, max_x - min_x, max_y - min_y)
     }
 
     fn footprint_contains(fp: &CellRect, col: u16, row: u16) -> bool {
@@ -1031,6 +1088,31 @@ pub mod compositor {
                 .unwrap();
             assert!(!unfocused.focused);
             assert_eq!(unfocused.mode, WindowMode::Floating);
+            assert!(!unfocused.fullscreen);
+        }
+
+        #[test]
+        fn raw_frames_fullscreen_uses_layout_bounds() {
+            let comp = Compositor::new(server(), CellSize::new(8, 16));
+            let mut layout = Layout::all_floating();
+            layout.tile(XWindowId(1), PxRect::new(0.0, 0.0, 32.0, 16.0));
+            layout.tile(XWindowId(2), PxRect::new(32.0, 0.0, 32.0, 16.0));
+            assert_eq!(
+                comp.toggle_focused_fullscreen().unwrap(),
+                Some((XWindowId(1), true))
+            );
+            let frames = comp.raw_frames(&layout).unwrap();
+            let fullscreen = frames
+                .iter()
+                .find(|frame| frame.window_id == XWindowId(1))
+                .unwrap();
+            assert!(fullscreen.fullscreen);
+            assert_eq!(fullscreen.footprint, CellRect::new(0, 0, 8, 1));
+            assert_eq!(
+                comp.toggle_focused_fullscreen().unwrap(),
+                Some((XWindowId(1), false))
+            );
+            assert!(!comp.fullscreen_of(XWindowId(1)));
         }
 
         #[test]
