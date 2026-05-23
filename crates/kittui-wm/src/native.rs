@@ -95,6 +95,37 @@ impl NativeFrame {
         }
     }
 
+    /// Frame dimensions in pixels.
+    pub fn size(&self) -> (u32, u32) {
+        (self.width(), self.height())
+    }
+
+    /// Stable lowercase frame format label.
+    pub fn format(&self) -> &'static str {
+        match self {
+            Self::Rgba { .. } => "rgba",
+            Self::Png { .. } => "png",
+        }
+    }
+
+    /// Encoded or raw payload length in bytes.
+    pub fn payload_len(&self) -> usize {
+        match self {
+            Self::Rgba { rgba, .. } => rgba.len(),
+            Self::Png { bytes, .. } => bytes.len(),
+        }
+    }
+
+    /// Whether this frame contains raw RGBA pixels.
+    pub fn is_rgba(&self) -> bool {
+        matches!(self, Self::Rgba { .. })
+    }
+
+    /// Whether this frame contains encoded PNG bytes.
+    pub fn is_png(&self) -> bool {
+        matches!(self, Self::Png { .. })
+    }
+
     /// Convert an RGBA frame into the existing XCapture shape used by the WM.
     pub fn as_xcapture(&self, id: XWindowId) -> Option<XCapture> {
         match self {
@@ -207,6 +238,23 @@ pub struct SurfaceFrame {
     pub metadata: SurfaceMetadata,
     /// Native frame payload.
     pub frame: NativeFrame,
+}
+
+impl SurfaceFrame {
+    /// Captured frame dimensions in pixels.
+    pub fn frame_size(&self) -> (u32, u32) {
+        self.frame.size()
+    }
+
+    /// Stable lowercase captured frame format label.
+    pub fn format(&self) -> &'static str {
+        self.frame.format()
+    }
+
+    /// Encoded or raw captured payload length in bytes.
+    pub fn payload_len(&self) -> usize {
+        self.frame.payload_len()
+    }
 }
 
 /// Semantic side effects emitted by a surface while parsing/applying output.
@@ -3737,6 +3785,45 @@ mod tests {
         state.osc_dispatch(&[b"52", b"c", b"not base64!!!"], true);
         state.osc_dispatch(&[b"52", b"bad;selector", b"aGVsbG8="], true);
         assert!(state.take_pending_host_sequences().is_empty());
+    }
+
+    #[test]
+    fn native_frame_and_surface_frame_helpers_report_non_payload_metadata() {
+        let rgba = NativeFrame::Rgba {
+            width: 2,
+            height: 1,
+            rgba: vec![0; 8],
+        };
+        assert_eq!(rgba.size(), (2, 1));
+        assert_eq!(rgba.format(), "rgba");
+        assert_eq!(rgba.payload_len(), 8);
+        assert!(rgba.is_rgba());
+        assert!(!rgba.is_png());
+
+        let png = NativeFrame::Png {
+            width: 3,
+            height: 4,
+            bytes: b"png".to_vec(),
+        };
+        assert_eq!(png.size(), (3, 4));
+        assert_eq!(png.format(), "png");
+        assert_eq!(png.payload_len(), 3);
+        assert!(png.is_png());
+        assert!(!png.is_rgba());
+
+        let frame = SurfaceFrame {
+            metadata: SurfaceMetadata {
+                id: SurfaceId::new("frame:1"),
+                kind: SurfaceKind::Composite,
+                title: "frame".to_string(),
+                capabilities: SurfaceCapabilities::capture_only(),
+                frame_size: Some((3, 4)),
+            },
+            frame: png,
+        };
+        assert_eq!(frame.frame_size(), (3, 4));
+        assert_eq!(frame.format(), "png");
+        assert_eq!(frame.payload_len(), 3);
     }
 
     #[test]
