@@ -264,6 +264,16 @@ pub struct TextSnapshot {
     pub cursor_row: Option<u16>,
 }
 
+/// Scrollback snapshot returned by `READ_SCROLLBACK_JSON`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScrollbackSnapshot {
+    /// Window id.
+    pub window: String,
+    /// Lines that have scrolled off the visible screen.
+    #[serde(default)]
+    pub scrollback: String,
+}
+
 /// Stable semantic component identifier.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SemanticComponentId(pub String);
@@ -1195,6 +1205,50 @@ impl SurfaceHandle {
         Ok(serde_json::from_str(&self.client.request_protocol(
             format!("READ_TEXT_JSON {}", self.id),
         )?)?)
+    }
+
+    /// Read the current scrollback snapshot.
+    pub fn read_scrollback(&self) -> Result<ScrollbackSnapshot> {
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(&self.client.request_protocol(
+            format!("READ_SCROLLBACK_JSON {}", self.id),
+        )?)?)
+    }
+
+    /// Wait for text to appear in the visible screen snapshot.
+    pub fn wait_text_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        self.client.request_protocol(format!(
+            "WAIT_TEXT_MS {} {} {}",
+            self.id,
+            ms.clamp(1, 60_000),
+            needle.as_ref()
+        ))
+    }
+
+    /// Wait for text to appear in the visible screen or scrollback snapshots.
+    pub fn wait_output_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        self.client.request_protocol(format!(
+            "WAIT_OUTPUT_MS {} {} {}",
+            self.id,
+            ms.clamp(1, 60_000),
+            needle.as_ref()
+        ))
+    }
+
+    /// Wait up to the daemon's default timeout for visible screen text.
+    pub fn wait_text(&self, needle: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        self.client
+            .request_protocol(format!("WAIT_TEXT {} {}", self.id, needle.as_ref()))
+    }
+
+    /// Wait up to the daemon's default timeout for visible screen or scrollback text.
+    pub fn wait_output(&self, needle: impl AsRef<str>) -> Result<String> {
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        self.client
+            .request_protocol(format!("WAIT_OUTPUT {} {}", self.id, needle.as_ref()))
     }
 
     /// Read the semantic component snapshot for this surface.
@@ -2257,7 +2311,7 @@ mod tests {
     }
 
     #[test]
-    fn text_snapshot_decodes_json_shape() {
+    fn text_and_scrollback_snapshots_decode_json_shape() {
         let snapshot: TextSnapshot = serde_json::from_str(
             r#"{"window":"native-1","text":"hello\n","cursor_col":2,"cursor_row":0}"#,
         )
@@ -2265,5 +2319,102 @@ mod tests {
         assert_eq!(snapshot.window, "native-1");
         assert_eq!(snapshot.text, "hello\n");
         assert_eq!(snapshot.cursor_col, Some(2));
+
+        let scrollback: ScrollbackSnapshot =
+            serde_json::from_str(r#"{"window":"native-1","scrollback":"old\nlines\n"}"#).unwrap();
+        assert_eq!(scrollback.window, "native-1");
+        assert_eq!(scrollback.scrollback, "old\nlines\n");
+    }
+
+    #[test]
+    fn scrollback_and_wait_helpers_deny_before_io() {
+        let client = Kittwm::connect_path("/tmp/does-not-exist.sock")
+            .with_capabilities(ClientCapabilities::only([Capability::SubscribeEvents]));
+        let surface = client.focused_surface();
+        assert!(matches!(
+            surface.read_scrollback(),
+            Err(Error::CapabilityDenied(Capability::ReadText))
+        ));
+        assert!(matches!(
+            surface.wait_text_ms(100, "ready"),
+            Err(Error::CapabilityDenied(Capability::ReadText))
+        ));
+        assert!(matches!(
+            surface.wait_output_ms(100, "ready"),
+            Err(Error::CapabilityDenied(Capability::ReadText))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scrollback_and_wait_helpers_send_expected_commands() {
+        let path = PathBuf::from(format!(
+            "/tmp/kww-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..5 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                let command = request.trim().to_string();
+                seen.push(command.clone());
+                let reply = match command.as_str() {
+                    "READ_SCROLLBACK_JSON native-1" => {
+                        "{\"window\":\"native-1\",\"scrollback\":\"old\\n\"}"
+                    }
+                    "WAIT_TEXT_MS native-1 250 ready" => "MATCH_TEXT window=native-1 bytes=12",
+                    "WAIT_OUTPUT_MS native-1 500 build finished" => {
+                        "MATCH_OUTPUT window=native-1 bytes=64"
+                    }
+                    "WAIT_TEXT native-1 prompt" => "MATCH_TEXT window=native-1 bytes=10",
+                    "WAIT_OUTPUT native-1 done" => "MATCH_OUTPUT window=native-1 bytes=20",
+                    other => panic!("unexpected command {other}"),
+                };
+                stream.write_all(reply.as_bytes()).unwrap();
+                stream.write_all(b"\n").unwrap();
+            }
+            seen
+        });
+
+        let surface = Kittwm::connect_path(&path).surface("native-1");
+        assert_eq!(surface.read_scrollback().unwrap().scrollback, "old\n");
+        assert_eq!(
+            surface.wait_text_ms(250, "ready").unwrap().trim(),
+            "MATCH_TEXT window=native-1 bytes=12"
+        );
+        assert_eq!(
+            surface
+                .wait_output_ms(500, "build finished")
+                .unwrap()
+                .trim(),
+            "MATCH_OUTPUT window=native-1 bytes=64"
+        );
+        assert_eq!(
+            surface.wait_text("prompt").unwrap().trim(),
+            "MATCH_TEXT window=native-1 bytes=10"
+        );
+        assert_eq!(
+            surface.wait_output("done").unwrap().trim(),
+            "MATCH_OUTPUT window=native-1 bytes=20"
+        );
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            seen,
+            [
+                "READ_SCROLLBACK_JSON native-1",
+                "WAIT_TEXT_MS native-1 250 ready",
+                "WAIT_OUTPUT_MS native-1 500 build finished",
+                "WAIT_TEXT native-1 prompt",
+                "WAIT_OUTPUT native-1 done"
+            ]
+        );
     }
 }
