@@ -5,9 +5,7 @@ Tracking bead: `bd-829e64`
 This quickstart shows the current end-to-end semantic surface workflow. The
 semantic stack is intentionally incremental: kittwm can expose a terminal pane as
 a semantic fallback, SDK apps can build/publish component snapshots, and scripts
-can inspect the current tree. Published snapshots support basic in-memory focus/value actions; browser DOM
-snapshot publishing exists, while toolkit/browser action routing remains future
-adapter work.
+can inspect the current tree. Published snapshots support basic in-memory focus/value actions; browser DOM/ARIA extraction, publishing, CLI inspection, and DevTools-backed action routing now exist for the first-party browser app. Toolkit/platform accessibility bindings are still adapter-specific follow-up work.
 
 ## Current pieces
 
@@ -26,6 +24,7 @@ adapter work.
   - `SEMANTIC_FOCUS <window|focused> <component>`.
 - Example app: `crates/kittui-cli/examples/kittwm_semantic_app.rs`.
 - Browser adapter plan/current state: `docs/kittwm-browser-semantic-adapter.md`.
+- Platform accessibility adapter plan/current state: `docs/kittwm-accessibility-semantic-adapter.md`.
 
 ## Start kittwm
 
@@ -192,16 +191,20 @@ primitive-only.
   DOM/DevTools, or native SDK adapter exposes semantics.
 - Published snapshots are the first runtime storage path, not a full lifecycle
   model for standalone semantic surfaces.
-- Basic semantic action/focus mutation is in-memory for published snapshots; real
-  adapter-backed mutation is still adapter-specific.
-- Browser DOM/ARIA snapshot extraction and best-effort publishing exist; browser
-  action routing through DevTools is follow-up work.
-- Qt/GTK/accessibility adapters are future work; the first platform accessibility plan lives in [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md).
+- Published snapshot action/focus mutation is in-memory; adapter-backed mutation
+  is implemented for the browser DOM/ARIA adapter through DevTools, while other
+  adapters still need their own routing.
+- Browser DOM/ARIA snapshot extraction, best-effort publishing, DevTools action
+  routing, and `kittwm-browser --semantic-snapshot` CLI inspection exist.
+- The accessibility adapter has a safe SDK mapping/action-routing core for
+  AX/AT-SPI-style trees; direct macOS AX, Linux AT-SPI, Qt, and GTK platform
+  bindings remain follow-up work. See
+  [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md).
 - Published semantic trees do not replace terminal input routing by default.
 
 ## Next useful work
 
 - Add a real standalone semantic surface/app lifecycle around SDK publishing.
-- Route browser semantic actions through DevTools.
-- Add Qt/GTK/accessibility-tree adapter spikes from the [`kittwm-accessibility-semantic-adapter.md`](kittwm-accessibility-semantic-adapter.md) plan.
+- Wire direct macOS AX / Linux AT-SPI / Qt / GTK accessibility-tree bindings into
+  the landed safe accessibility mapping/action-routing core.
 - Make semantic renderer output selectable in live kittwm views where useful.
