@@ -566,6 +566,7 @@ fn native_spawn_status_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -
         .find(|pane| pane.focused)
         .map(|pane| pane.window.as_str())
         .unwrap_or("-");
+    let focused_pane = state.panes.iter().find(|pane| pane.focused).cloned();
     format!(
         "{}\n",
         serde_json::json!({
@@ -573,6 +574,8 @@ fn native_spawn_status_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -
             "panes": state.panes.len(),
             "focus": focused,
             "layout": state.layout.as_deref().unwrap_or("-"),
+            "focused_pane": focused_pane,
+            "panes_detail": state.panes,
         })
     )
 }
@@ -1155,6 +1158,10 @@ mod tests {
         assert_eq!(status_json["panes"], 2);
         assert_eq!(status_json["focus"], "native-2");
         assert_eq!(status_json["layout"], "rows");
+        assert_eq!(status_json["focused_pane"]["window"], "native-2");
+        assert_eq!(status_json["focused_pane"]["weight"], 3);
+        assert_eq!(status_json["focused_pane"]["app_cols"], 80);
+        assert_eq!(status_json["panes_detail"].as_array().unwrap().len(), 2);
         let panes_json: serde_json::Value =
             serde_json::from_str(&native_spawn_queue_reply("PANES_JSON", &pending)).unwrap();
         assert_eq!(panes_json["panes_detail"].as_array().unwrap().len(), 2);
