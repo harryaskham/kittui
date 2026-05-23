@@ -18,6 +18,9 @@ plans for kittui and kittwm.
 - [`adaptive-graphics-transport.md`](adaptive-graphics-transport.md) — transport
   selection plan for direct kitty streams, zlib, file/tempfile/shared-memory,
   tmux safety, local/remote detection, and diagnostics.
+- [`kitty-response-probing.md`](kitty-response-probing.md) — plan for opt-in
+  kitty terminal response reading and `a=q` capability probing without blocking
+  render loops or consuming app input.
 - [`kittwm-dirty-frame-updates.md`](kittwm-dirty-frame-updates.md) — dirty-grid
   frame diff model, safe unchanged-frame skipping, and why partial/overlay kitty
   updates remain experimental.

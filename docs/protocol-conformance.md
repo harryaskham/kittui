@@ -36,8 +36,8 @@ from that crate's public API.
 | Z-index (`z=`) | ✅ | `PlacementOptions::z_index`. |
 | Delete by image id (`a=d,d=I,i=`) | ✅ | `delete`. |
 | Delete by placement id (`a=d,d=I,i=,p=`) | ✅ | `delete_placement`. |
-| Reading responses from the terminal | ⛔ | `bd-3dc8c7` epic — see "Open work" below. |
-| Querying terminal capabilities (`a=q`) | ⛔ | `bd-3dc8c7` epic — see "Open work" below. |
+| Reading responses from the terminal | ⛔ | `bd-3dc8c7` epic; implementation plan in [`kitty-response-probing.md`](kitty-response-probing.md). |
+| Querying terminal capabilities (`a=q`) | ⛔ | `bd-3dc8c7` epic; implementation plan in [`kitty-response-probing.md`](kitty-response-probing.md). |
 | tmux passthrough wrapping | ✅ | `Transport::TmuxPassthrough` wraps every payload in `\ePtmux;…\e\\` with escape doubling. Auto-selected by `TerminalInfo::detect()` when `$TMUX` is set. |
 | File / temp-file/shared-memory format hints (`f=100` PNG, `f=32` raw RGBA) | ✅ | PNG helpers use `f=100`; raw-frame file/temp/shared-memory paths use `f=32` and the kitty `t=f` / `t=t` / `t=s` grammar. |
 
@@ -60,8 +60,8 @@ from that crate's public API.
 The remaining gaps are tracked under the protocol epic `bd-3dc8c7`:
 
 - raw RGB (`f=24`) helper coverage if callers need it beyond current PNG/RGBA paths.
-- terminal response reading (`OK`, `ENOENT`, capability queries).
-- `a=q` capability probing into `TerminalInfo::detect()`.
+- terminal response reading (`OK`, `ENOENT`, capability queries); see [`kitty-response-probing.md`](kitty-response-probing.md).
+- `a=q` capability probing into `TerminalInfo::detect()` / diagnostics; see [`kitty-response-probing.md`](kitty-response-probing.md).
 - broader visual proof coverage for file/temp/shared-memory raw-frame transports across terminals.
 - ratakittui complete widget coverage example + decoration matrix
   (`bd-6ccb5e`).
