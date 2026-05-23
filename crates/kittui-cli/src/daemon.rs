@@ -93,9 +93,17 @@ impl PaneRegistry {
 
 type SharedPanes = Arc<Mutex<PaneRegistry>>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativePaneStatus {
+    pub window: String,
+    pub title: String,
+    pub focused: bool,
+}
+
 #[derive(Default, Debug)]
 struct NativeSpawnQueueState {
     pending: Vec<String>,
+    panes: Vec<NativePaneStatus>,
 }
 
 /// In-process socket queue used by the live native PTY session.
@@ -147,6 +155,13 @@ impl NativeSpawnQueue {
     pub fn drain(&self) -> Vec<String> {
         drain_native_spawn_pending(&self.pending)
     }
+
+    /// Publish a live native pane snapshot for STATUS/PANES requests.
+    pub fn update_panes(&self, panes: Vec<NativePaneStatus>) {
+        if let Ok(mut state) = self.pending.lock() {
+            state.panes = panes;
+        }
+    }
 }
 
 impl Drop for NativeSpawnQueue {
@@ -186,10 +201,8 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     let Some(argv) = cmd.strip_prefix("SPAWN_PTY ") else {
         return match cmd {
             "PING" => "PONG\n".to_string(),
-            "STATUS" => pending
-                .lock()
-                .map(|p| format!("OK pending={}\n", p.pending.len()))
-                .unwrap_or_else(|_| "ERR registry poisoned\n".to_string()),
+            "STATUS" => native_spawn_status_reply(pending),
+            "PANES" => native_spawn_panes_reply(pending),
             _ => "ERR expected SPAWN_PTY <cmd>\n".to_string(),
         };
     };
@@ -204,6 +217,50 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
+}
+
+fn native_spawn_status_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    pending
+        .lock()
+        .map(|state| {
+            let focused = state
+                .panes
+                .iter()
+                .find(|pane| pane.focused)
+                .map(|pane| pane.window.as_str())
+                .unwrap_or("-");
+            format!(
+                "OK pending={} panes={} focus={}\n",
+                state.pending.len(),
+                state.panes.len(),
+                focused
+            )
+        })
+        .unwrap_or_else(|_| "ERR registry poisoned\n".to_string())
+}
+
+fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    use std::fmt::Write as _;
+    let Ok(state) = pending.lock() else {
+        return "ERR registry poisoned\n".to_string();
+    };
+    let focused = state
+        .panes
+        .iter()
+        .find(|pane| pane.focused)
+        .map(|pane| pane.window.as_str())
+        .unwrap_or("-");
+    let mut out = String::new();
+    let _ = writeln!(out, "PANES {} focus={}", state.panes.len(), focused);
+    for pane in &state.panes {
+        let _ = writeln!(
+            out,
+            "  window={} focused={} title={:?}",
+            pane.window, pane.focused, pane.title
+        );
+    }
+    out.push_str("END\n");
+    out
 }
 
 /// Accept-loop daemon that answers `PING` / `STATUS` / `QUIT`.
@@ -464,6 +521,37 @@ mod tests {
             vec!["htop".to_string(), "bash -lc true".to_string()]
         );
         assert!(drain_native_spawn_pending(&pending).is_empty());
+    }
+
+    #[test]
+    fn native_spawn_queue_reports_live_pane_status() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        pending.lock().unwrap().panes = vec![
+            NativePaneStatus {
+                window: "native-1".to_string(),
+                title: "shell".to_string(),
+                focused: false,
+            },
+            NativePaneStatus {
+                window: "native-2".to_string(),
+                title: "htop".to_string(),
+                focused: true,
+            },
+        ];
+        assert_eq!(
+            native_spawn_queue_reply("STATUS", &pending).trim(),
+            "OK pending=0 panes=2 focus=native-2"
+        );
+        let panes = native_spawn_queue_reply("PANES", &pending);
+        assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
+        assert!(
+            panes.contains("window=native-1 focused=false title=\"shell\""),
+            "{panes}"
+        );
+        assert!(
+            panes.contains("window=native-2 focused=true title=\"htop\""),
+            "{panes}"
+        );
     }
 
     #[test]

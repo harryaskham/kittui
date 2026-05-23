@@ -25,8 +25,10 @@ kittwm replace htop
 KITTUI_WM_DISPLAY=:7 kittwm --serve
 KITTUI_WM_DISPLAY=:7 kittwm --status
 
-# While a no-arg native kittwm session is running, create a visible PTY pane
+# While a no-arg native kittwm session is running, inspect or create panes
 # through its inherited/display-style socket.
+kittwm --attach -c STATUS
+kittwm --attach -c PANES
 kittwm --attach -c 'SPAWN_PTY htop'
 ```
 

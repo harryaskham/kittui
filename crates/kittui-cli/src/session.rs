@@ -60,6 +60,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         &mut panes,
         native_pane_layouts(cols, rows, pane_count, layout_axis),
     )?;
+    queue.update_panes(native_pane_statuses(&panes, focused));
 
     let fps = std::env::var("KITTUI_WM_FPS")
         .ok()
@@ -170,6 +171,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             clear = true;
             dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
         }
+        queue.update_panes(native_pane_statuses(&panes, focused));
         let (new_cols, new_rows) = native_terminal_size();
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
@@ -350,6 +352,21 @@ fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>)
     Ok(())
 }
 
+fn native_pane_statuses(
+    panes: &[NativePane],
+    focused: usize,
+) -> Vec<crate::daemon::NativePaneStatus> {
+    panes
+        .iter()
+        .enumerate()
+        .map(|(idx, pane)| crate::daemon::NativePaneStatus {
+            window: pane.window.clone(),
+            title: pane.app.title(),
+            focused: idx == focused,
+        })
+        .collect()
+}
+
 fn next_native_focus(current: usize, count: usize) -> usize {
     if count == 0 {
         0
@@ -481,6 +498,27 @@ mod native_pane_tests {
             },
         ];
         assert_eq!(next_native_pane_id(&panes), 8);
+    }
+
+    #[test]
+    fn native_pane_statuses_mark_focused_window() {
+        let panes = vec![
+            NativePane {
+                window: "native-1".to_string(),
+                image_id: 1,
+                app: dummy_native_pane_app(),
+            },
+            NativePane {
+                window: "native-2".to_string(),
+                image_id: 2,
+                app: dummy_native_pane_app(),
+            },
+        ];
+        let statuses = native_pane_statuses(&panes, 1);
+        assert_eq!(statuses.len(), 2);
+        assert!(!statuses[0].focused);
+        assert!(statuses[1].focused);
+        assert_eq!(statuses[1].window, "native-2");
     }
 
     fn dummy_native_pane_app() -> PtyTerminalApp {
