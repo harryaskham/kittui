@@ -130,9 +130,49 @@ kittwm --semantic-snapshot native-2
 ```
 
 The semantic tree is intentionally side-band state. Opaque/canvas/video/custom
-content still relies on screenshots, and browser semantic actions through
-DevTools are tracked by `bd-15cde5`.
-- `bd-15cde5`: route `SEMANTIC_ACTION`/`SEMANTIC_FOCUS` for browser semantic nodes to DevTools/DOM operations for focus, activate, set value, insert text, and select.
-  - Landed first slice: `HeadlessBrowserApp::semantic_focus` and `semantic_action` generate/evaluate DOM action scripts for focus, activate/toggle, set value, insert text, select, and scroll, returning stale-component errors when ids no longer resolve.
+content still relies on screenshots.
 
-These should be separate implementation beads because extraction, publishing cadence, and action routing each carry different risk.
+## Current browser action routing
+
+`bd-15cde5` landed the first DevTools-backed semantic action path for browser
+semantic nodes. `HeadlessBrowserApp::semantic_focus` and `semantic_action`
+generate/evaluate DOM action scripts for:
+
+- focus;
+- activate/click and toggle;
+- set value;
+- insert text;
+- select option/list item;
+- scroll.
+
+When a component id no longer resolves after a DOM update, the browser adapter
+returns a stale-component error rather than guessing a new target. Callers should
+refresh `SEMANTIC_SNAPSHOT` and retry with the new component id.
+
+Example socket/CLI flow against a browser pane:
+
+```sh
+kittwm --semantic-snapshot native-2
+kittwm --semantic-focus native-2 login.email
+kittwm --semantic-action native-2 login.email set '{"text":"ada@example.com"}'
+kittwm --semantic-action native-2 login.submit activate '{}'
+```
+
+SDK clients can use the convenience helpers:
+
+```rust
+let browser = wm.surface("native-2");
+browser.semantic_focus_component("login.email")?;
+browser.semantic_set_text("login.email", "ada@example.com")?;
+browser.semantic_action("login.submit", "activate", serde_json::json!({}))?;
+```
+
+The first implementation remains best-effort and DOM/ARIA based. Native browser
+behavior stays screenshot-first, with semantics used for inspection, automation,
+and future semantic renderers.
+
+## Landed proof slices
+
+- `bd-22195b`: DevTools DOM/ARIA snapshot extraction for common controls.
+- `bd-fea819`: best-effort browser snapshot publishing from `kittwm-browser`.
+- `bd-15cde5`: DevTools-backed focus/action routing with stale-component errors.

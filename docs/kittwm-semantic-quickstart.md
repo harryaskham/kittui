@@ -167,8 +167,10 @@ For fallback PTY text-area snapshots, action/focus still returns explicit
 unsupported errors. This is intentional: kittwm should not pretend to mutate
 arbitrary terminal or pixel UI semantics by synthesizing fragile coordinates.
 
-Browser semantic action routing through DevTools is tracked separately and should
-return stale-component errors when ids no longer resolve.
+Browser semantic action routing through DevTools supports focus,
+activate/toggle, set value, insert text, select, and scroll for DOM/ARIA nodes.
+It returns stale-component errors when ids no longer resolve; refresh the
+snapshot and retry with the new component id.
 
 ## Rendering semantic trees
 
