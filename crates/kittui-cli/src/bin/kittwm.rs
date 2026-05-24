@@ -84,6 +84,7 @@ struct Cli {
     shortcuts: bool,
     shortcuts_json: bool,
     help_topic: Option<String>,
+    info: bool,
     keymap_path: Option<String>,
     keymap_check: bool,
     native_terminal: bool,
@@ -147,6 +148,7 @@ fn parse_args() -> Result<Cli> {
                 }
                 break;
             }
+            "info" => out.info = true,
             "apps" => out.apps = true,
             "native-terminal" => out.native_terminal = true,
             "native-browser" => out.native_browser = true,
@@ -604,6 +606,7 @@ USAGE
   kittwm --display :N COMMAND    Target a DISPLAY-like kittwm socket token
   kittwm --help                  Show this overview
   kittwm help <topic>            Show focused help (when available)
+  kittwm info                    Show friendly running-WM overview
 
 DAILY DRIVER BASICS
   Start:           kittwm
@@ -614,6 +617,7 @@ DAILY DRIVER BASICS
   Old startup:     KITTWM_STARTUP_TERMINAL=1 kittwm
 
 COMMON INSPECTION
+  info                Friendly one-screen status/panes/chrome overview
   --status-json       Current WM status JSON
   --panes             Human-readable pane list
   --panes-json        Pane list + geometry/cursor/mode metadata JSON
@@ -679,6 +683,7 @@ DIAGNOSTICS AND BACKENDS
 
 EXAMPLES
   kittwm
+  kittwm info
   kittwm --panes
   kittwm --spawn-pty 'htop'
   kittwm --read-text-json focused
@@ -866,6 +871,9 @@ fn real_main() -> Result<()> {
     }
     if let Some(topic) = &cli.help_topic {
         return help_topic_cmd(topic);
+    }
+    if cli.info {
+        return info_cmd();
     }
     if cli.shortcuts {
         return shortcuts_cmd();
@@ -1972,6 +1980,115 @@ fn semantic_publish_cmd(window: &str, json_arg: &str) -> Result<()> {
     Ok(())
 }
 
+fn info_cmd() -> Result<()> {
+    use kittui_cli::daemon::{client_request_multi, default_socket_path};
+    let path = default_socket_path();
+    let status = match client_request_multi(&path, "STATUS_JSON") {
+        Ok(reply) => reply,
+        Err(err) => {
+            println!(
+                "kittwm: no running WM reachable at {}\n\nStart one with:\n  kittwm\n\nThen inspect it with:\n  kittwm info\n  kittwm --panes\n",
+                path.display()
+            );
+            return Err(anyhow!("connect {}: {err}", path.display()));
+        }
+    };
+    let chrome = client_request_multi(&path, "CHROME_JSON").unwrap_or_else(|_| "{}".to_string());
+    let panes = client_request_multi(&path, "PANES_JSON").unwrap_or_else(|_| "{}".to_string());
+    let status: serde_json::Value = serde_json::from_str(&status)?;
+    let chrome: serde_json::Value = serde_json::from_str(&chrome)?;
+    let panes: serde_json::Value = serde_json::from_str(&panes)?;
+    print!("{}", format_info_output(&path, &status, &chrome, &panes));
+    Ok(())
+}
+
+fn format_info_output(
+    socket: &std::path::Path,
+    status: &serde_json::Value,
+    chrome: &serde_json::Value,
+    panes: &serde_json::Value,
+) -> String {
+    let workspace = chrome
+        .get("workspace")
+        .or_else(|| status.get("workspace"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let top_bar_rows = chrome
+        .get("top_bar_rows")
+        .and_then(serde_json::Value::as_u64)
+        .map(|rows| rows.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let tilable_rows = chrome
+        .get("tilable_rows")
+        .and_then(serde_json::Value::as_u64)
+        .map(|rows| rows.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let pane_count = status
+        .get("panes")
+        .or_else(|| panes.get("panes"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let focus = status
+        .get("focus")
+        .or_else(|| panes.get("focus"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let layout = status
+        .get("layout")
+        .or_else(|| panes.get("layout"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let pane_details = panes
+        .get("panes_detail")
+        .or_else(|| status.get("panes_detail"))
+        .and_then(serde_json::Value::as_array);
+
+    let mut out = format!(
+        "kittwm info\n  socket: {}\n  workspace: {workspace}\n  chrome: top_bar_rows={top_bar_rows} tilable_rows={tilable_rows}\n  panes: {pane_count} focus={focus} layout={layout}\n",
+        socket.display()
+    );
+    if let Some(details) = pane_details {
+        if !details.is_empty() {
+            out.push_str("\nPanes\n");
+            for pane in details {
+                let window = pane
+                    .get("window")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("-");
+                let title = pane
+                    .get("title")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("-");
+                let focused = if pane
+                    .get("focused")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    "*"
+                } else {
+                    " "
+                };
+                let bounds = match (
+                    pane.get("x").and_then(serde_json::Value::as_u64),
+                    pane.get("y").and_then(serde_json::Value::as_u64),
+                    pane.get("cols").and_then(serde_json::Value::as_u64),
+                    pane.get("rows").and_then(serde_json::Value::as_u64),
+                ) {
+                    (Some(x), Some(y), Some(cols), Some(rows)) => {
+                        format!(" {x},{y} {cols}x{rows}")
+                    }
+                    _ => String::new(),
+                };
+                out.push_str(&format!("  {focused} {window}  {title}{bounds}\n"));
+            }
+        }
+    }
+    out.push_str(
+        "\nNext\n  kittwm help panes\n  kittwm --read-text-json focused\n  kittwm --spawn-pty 'htop'\n",
+    );
+    out
+}
+
 fn status_cmd() -> Result<()> {
     use kittui_cli::daemon::{client_request, default_socket_path};
     let path = default_socket_path();
@@ -2667,6 +2784,41 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn info_output_formats_daily_driver_snapshot() {
+        let status = serde_json::json!({
+            "panes": 2,
+            "focus": "native-2",
+            "layout": "columns",
+            "workspace": "dev"
+        });
+        let chrome = serde_json::json!({
+            "workspace": "dev",
+            "top_bar_rows": 1,
+            "tilable_rows": 23
+        });
+        let panes = serde_json::json!({
+            "panes_detail": [
+                {"window":"native-1","title":"shell","focused":false,"x":0,"y":1,"cols":40,"rows":23},
+                {"window":"native-2","title":"editor","focused":true,"x":40,"y":1,"cols":40,"rows":23}
+            ]
+        });
+        let text = format_info_output(
+            std::path::Path::new("/tmp/kittwm-test.sock"),
+            &status,
+            &chrome,
+            &panes,
+        );
+        assert!(text.contains("kittwm info"), "{text}");
+        assert!(text.contains("workspace: dev"), "{text}");
+        assert!(
+            text.contains("panes: 2 focus=native-2 layout=columns"),
+            "{text}"
+        );
+        assert!(text.contains("* native-2  editor"), "{text}");
+        assert!(text.contains("kittwm --spawn-pty 'htop'"), "{text}");
     }
 
     #[test]
