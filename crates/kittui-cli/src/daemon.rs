@@ -27,6 +27,7 @@ const CLIENT_EVENTS_MAX_TIMEOUT: Duration = Duration::from_secs(60);
 const CLIENT_EVENTS_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const NATIVE_EVENT_SCHEMA_VERSION: u8 = 1;
 const NATIVE_EVENT_BACKLOG_LIMIT: usize = 512;
+const NATIVE_CHROME_TOP_BAR_ROWS: u16 = 1;
 
 /// Default socket path for the kittwm daemon.
 ///
@@ -1648,10 +1649,30 @@ fn native_spawn_status_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -
             "panes": state.panes.len(),
             "focus": focused,
             "layout": state.layout.as_deref().unwrap_or("-"),
+            "workspace": native_workspace_id(),
+            "chrome": native_chrome_status_value(&state),
             "focused_pane": focused_pane,
             "panes_detail": state.panes,
         })
     )
+}
+
+fn native_workspace_id() -> &'static str {
+    "1"
+}
+
+fn native_chrome_status_value(state: &NativeSpawnQueueState) -> serde_json::Value {
+    let tilable_rows = state
+        .panes
+        .iter()
+        .filter_map(|pane| Some(u32::from(pane.y?) + u32::from(pane.rows?)))
+        .max()
+        .map(|bottom| bottom.saturating_sub(u32::from(NATIVE_CHROME_TOP_BAR_ROWS)));
+    serde_json::json!({
+        "workspace": native_workspace_id(),
+        "top_bar_rows": NATIVE_CHROME_TOP_BAR_ROWS,
+        "tilable_rows": tilable_rows,
+    })
 }
 
 fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
@@ -2414,6 +2435,8 @@ fn native_spawn_panes_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) ->
             "panes": state.panes.len(),
             "focus": focused,
             "layout": state.layout.as_deref().unwrap_or("-"),
+            "workspace": native_workspace_id(),
+            "chrome": native_chrome_status_value(&state),
             "panes_detail": state.panes,
         })
     )
@@ -3724,6 +3747,10 @@ mod tests {
         assert_eq!(status_json["panes"], 2);
         assert_eq!(status_json["focus"], "native-2");
         assert_eq!(status_json["layout"], "rows");
+        assert_eq!(status_json["workspace"], "1");
+        assert_eq!(status_json["chrome"]["workspace"], "1");
+        assert_eq!(status_json["chrome"]["top_bar_rows"], 1);
+        assert_eq!(status_json["chrome"]["tilable_rows"], 23);
         assert_eq!(status_json["focused_pane"]["window"], "native-2");
         assert_eq!(status_json["focused_pane"]["weight"], 3);
         assert_eq!(status_json["focused_pane"]["pid"], 202);
@@ -3740,6 +3767,9 @@ mod tests {
         assert_eq!(status_json["panes_detail"].as_array().unwrap().len(), 2);
         let panes_json: serde_json::Value =
             serde_json::from_str(&native_spawn_queue_reply("PANES_JSON", &pending)).unwrap();
+        assert_eq!(panes_json["workspace"], "1");
+        assert_eq!(panes_json["chrome"]["top_bar_rows"], 1);
+        assert_eq!(panes_json["chrome"]["tilable_rows"], 23);
         assert_eq!(panes_json["panes_detail"].as_array().unwrap().len(), 2);
         assert_eq!(panes_json["panes_detail"][1]["window"], "native-2");
         assert_eq!(panes_json["panes_detail"][1]["focused"], true);
