@@ -1532,6 +1532,18 @@ impl Kittwm {
         Ok(serde_json::from_str(&self.request_protocol("PANES_JSON")?)?)
     }
 
+    /// Fetch typed native chrome/workspace reservation metadata from `CHROME_JSON`.
+    pub fn chrome(&self) -> Result<ChromeReservationStatus> {
+        Ok(serde_json::from_str(
+            &self.request_protocol("CHROME_JSON")?,
+        )?)
+    }
+
+    /// Alias for [`Kittwm::chrome`].
+    pub fn chrome_json(&self) -> Result<ChromeReservationStatus> {
+        self.chrome()
+    }
+
     /// Fetch the current native session manifest via `SESSION_JSON`.
     pub fn session(&self) -> Result<SessionManifest> {
         self.capabilities.ensure(Capability::ReadText)?;
@@ -2797,6 +2809,37 @@ mod tests {
         assert_eq!(iter.next().unwrap().kind(), "status");
         assert_eq!(iter.next().unwrap().kind(), "layout_changed");
         assert_eq!(iter.next(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn chrome_helper_sends_expected_socket_command() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwchrome-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            stream
+                .write_all(b"{\"workspace\":\"dev\",\"top_bar_rows\":1,\"tilable_rows\":23}\n")
+                .unwrap();
+            request.trim().to_string()
+        });
+        let client = Kittwm::connect_path(&path);
+        let chrome = client.chrome_json().unwrap();
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen, "CHROME_JSON");
+        assert_eq!(chrome.workspace.as_deref(), Some("dev"));
+        assert_eq!(chrome.top_bar_rows_or_zero(), 1);
+        assert_eq!(chrome.tilable_rows(), Some(23));
     }
 
     #[cfg(unix)]
