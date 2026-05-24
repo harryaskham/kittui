@@ -1668,6 +1668,10 @@ fn doctor_cmd(json: bool, probe_kitty: bool) -> Result<()> {
                 String::new()
             }
         );
+        print!(
+            "{}",
+            doctor_daily_driver_text(&transport_diagnostics, log_present)
+        );
         if cfg!(target_os = "macos") {
             println!();
             println!("Hint: SCK + CGEventPost both require Screen Recording + Accessibility");
@@ -1676,6 +1680,38 @@ fn doctor_cmd(json: bool, probe_kitty: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn doctor_daily_driver_text(transport: &TransportDiagnostics, log_present: bool) -> String {
+    use kittui_cli::daemon::default_socket_path;
+    let socket_path = default_socket_path();
+    let socket_reachable = std::os::unix::net::UnixStream::connect(&socket_path).is_ok();
+    let renderer_hint = if transport.tmux {
+        "tmux detected: kittwm defaults to the pure terminal renderer; override with KITTWM_NATIVE_RENDERER=kitty only when you want graphics passthrough."
+    } else if transport.supports_kitty {
+        "kitty graphics likely available; if rendering is slow or remote, try KITTWM_NATIVE_RENDERER=terminal."
+    } else {
+        "kitty graphics not confirmed; kittwm can run with KITTWM_NATIVE_RENDERER=terminal for a stable ANSI path."
+    };
+    let socket_hint = if socket_reachable {
+        format!(
+            "running WM detected at {}; inspect it with `kittwm info`, `kittwm panes`, or `kittwm events 1000`.",
+            socket_path.display()
+        )
+    } else {
+        format!(
+            "no running WM socket at {}; start one with `kittwm`, then inspect with `kittwm info`.",
+            socket_path.display()
+        )
+    };
+    let log_hint = if log_present {
+        "log file exists; use `tail -f ${KITTUI_WM_LOG:-/tmp/kittui-wm.log}` while iterating."
+    } else {
+        "log file missing so far; start kittwm once to create it, or set KITTUI_WM_LOG for a custom path."
+    };
+    format!(
+        "\nDaily driver readiness\n  renderer        : {renderer_hint}\n  socket          : {socket_hint}\n  next steps      : run `kittwm quickstart`, `kittwm examples`, or `kittwm help panes` for copy-paste workflows.\n  log hint        : {log_hint}\n"
+    )
 }
 
 fn kitty_probe_env_enabled() -> bool {
@@ -3303,6 +3339,23 @@ mod tests {
         ] {
             assert!(text.contains(line), "missing {line}: {text}");
         }
+    }
+
+    #[test]
+    fn doctor_daily_driver_readiness_mentions_next_steps() {
+        let diagnostics = TransportDiagnostics::detect(&TerminalInfo::override_with(
+            Some(80),
+            Some(24),
+            CellSize::new(8, 16),
+            false,
+            false,
+            kittui::Transport::Direct,
+        ));
+        let text = doctor_daily_driver_text(&diagnostics, false);
+        assert!(text.contains("Daily driver readiness"), "{text}");
+        assert!(text.contains("kittwm quickstart"), "{text}");
+        assert!(text.contains("kittwm info"), "{text}");
+        assert!(text.contains("KITTWM_NATIVE_RENDERER="), "{text}");
     }
 
     #[test]
