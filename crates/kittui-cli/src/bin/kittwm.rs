@@ -88,6 +88,8 @@ struct Cli {
     quickstart: bool,
     examples: bool,
     cheat: bool,
+    commands: bool,
+    commands_json: bool,
     keymap_path: Option<String>,
     keymap_check: bool,
     native_terminal: bool,
@@ -157,6 +159,8 @@ fn parse_args() -> Result<Cli> {
             "quickstart" => out.quickstart = true,
             "examples" => out.examples = true,
             "cheat" | "cheatsheet" | "cheat-sheet" => out.cheat = true,
+            "commands" => out.commands = true,
+            "commands-json" => out.commands_json = true,
             "status" => {
                 out.automation_request =
                     parse_inspection_alias("status", args.next(), args.next())?;
@@ -682,6 +686,8 @@ USAGE
   kittwm info                    Show friendly running-WM overview
   kittwm quickstart              Show first-run daily-driver checklist
   kittwm examples                Show copy-paste daily-driver workflows
+  kittwm commands                Show grouped local CLI command catalog
+  kittwm commands-json           Show local CLI command catalog JSON
   kittwm cheat                   Show compact daily-driver cheat sheet
 
 DAILY DRIVER BASICS
@@ -777,6 +783,7 @@ DIAGNOSTICS AND BACKENDS
 EXAMPLES
   kittwm
   kittwm quickstart
+  kittwm commands
   kittwm info
   kittwm --panes
   kittwm spawn htop
@@ -1241,6 +1248,12 @@ fn real_main() -> Result<()> {
     }
     if cli.cheat {
         return cheat_cmd();
+    }
+    if cli.commands {
+        return commands_cmd();
+    }
+    if cli.commands_json {
+        return commands_json_cmd();
     }
     if cli.shortcuts {
         return shortcuts_cmd();
@@ -2383,6 +2396,233 @@ fn semantic_publish_cmd(window: &str, json_arg: &str) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug)]
+struct LocalCommandEntry {
+    command: &'static str,
+    category: &'static str,
+    description: &'static str,
+}
+
+fn local_command_entries() -> &'static [LocalCommandEntry] {
+    &[
+        LocalCommandEntry {
+            command: "start",
+            category: "lifecycle",
+            description: "start the foreground terminal WM",
+        },
+        LocalCommandEntry {
+            command: "stop",
+            category: "lifecycle",
+            description: "stop a socket daemon",
+        },
+        LocalCommandEntry {
+            command: "quickstart",
+            category: "help",
+            description: "first-run daily-driver checklist",
+        },
+        LocalCommandEntry {
+            command: "cheat",
+            category: "help",
+            description: "compact daily reference",
+        },
+        LocalCommandEntry {
+            command: "examples",
+            category: "help",
+            description: "copy-paste workflows",
+        },
+        LocalCommandEntry {
+            command: "commands",
+            category: "help",
+            description: "grouped local command catalog",
+        },
+        LocalCommandEntry {
+            command: "help <topic>",
+            category: "help",
+            description: "focused topic help",
+        },
+        LocalCommandEntry {
+            command: "info",
+            category: "inspect",
+            description: "friendly running-WM overview",
+        },
+        LocalCommandEntry {
+            command: "status",
+            category: "inspect",
+            description: "daemon status",
+        },
+        LocalCommandEntry {
+            command: "panes",
+            category: "inspect",
+            description: "human-readable pane list",
+        },
+        LocalCommandEntry {
+            command: "panes-json",
+            category: "inspect",
+            description: "structured pane list",
+        },
+        LocalCommandEntry {
+            command: "events [ms]",
+            category: "inspect",
+            description: "bounded event stream",
+        },
+        LocalCommandEntry {
+            command: "spawn CMD [ARGS...]",
+            category: "action",
+            description: "spawn a terminal pane",
+        },
+        LocalCommandEntry {
+            command: "read [WINDOW]",
+            category: "action",
+            description: "read pane text",
+        },
+        LocalCommandEntry {
+            command: "read-json [WINDOW]",
+            category: "action",
+            description: "read pane text JSON",
+        },
+        LocalCommandEntry {
+            command: "type [WINDOW] TEXT",
+            category: "action",
+            description: "send text",
+        },
+        LocalCommandEntry {
+            command: "line [WINDOW] TEXT",
+            category: "action",
+            description: "send line",
+        },
+        LocalCommandEntry {
+            command: "key [WINDOW] KEY",
+            category: "action",
+            description: "send key",
+        },
+        LocalCommandEntry {
+            command: "wait [WINDOW] TEXT",
+            category: "action",
+            description: "wait for output",
+        },
+        LocalCommandEntry {
+            command: "focus WINDOW",
+            category: "panes",
+            description: "focus a pane",
+        },
+        LocalCommandEntry {
+            command: "close [WINDOW]",
+            category: "panes",
+            description: "close a pane",
+        },
+        LocalCommandEntry {
+            command: "layout columns|rows",
+            category: "panes",
+            description: "change layout axis",
+        },
+        LocalCommandEntry {
+            command: "move [WINDOW] DIR",
+            category: "panes",
+            description: "move pane",
+        },
+        LocalCommandEntry {
+            command: "resize [WINDOW] N",
+            category: "panes",
+            description: "resize pane weight",
+        },
+        LocalCommandEntry {
+            command: "balance",
+            category: "panes",
+            description: "equalize pane weights",
+        },
+        LocalCommandEntry {
+            command: "rename WINDOW TITLE",
+            category: "panes",
+            description: "set pane title",
+        },
+        LocalCommandEntry {
+            command: "apps",
+            category: "apps",
+            description: "list launch candidates",
+        },
+        LocalCommandEntry {
+            command: "launcher",
+            category: "apps",
+            description: "launcher preview",
+        },
+        LocalCommandEntry {
+            command: "launch -- CMD",
+            category: "apps",
+            description: "backend launcher",
+        },
+        LocalCommandEntry {
+            command: "--save-session PATH",
+            category: "session",
+            description: "save session manifest",
+        },
+        LocalCommandEntry {
+            command: "--restore-session PATH",
+            category: "session",
+            description: "restore session manifest",
+        },
+        LocalCommandEntry {
+            command: "doctor",
+            category: "diagnostics",
+            description: "diagnostics and readiness hints",
+        },
+        LocalCommandEntry {
+            command: "config",
+            category: "diagnostics",
+            description: "config and keymap inspection",
+        },
+        LocalCommandEntry {
+            command: "keymap",
+            category: "diagnostics",
+            description: "resolved keybindings",
+        },
+    ]
+}
+
+fn commands_text() -> String {
+    let mut out = String::from("kittwm commands — local CLI catalog\n");
+    let mut current = "";
+    for entry in local_command_entries() {
+        if entry.category != current {
+            current = entry.category;
+            out.push_str(&format!("\n{}\n", current.to_ascii_uppercase()));
+        }
+        out.push_str(&format!("  {:28} {}\n", entry.command, entry.description));
+    }
+    out.push_str("\nFor socket verbs from a running WM: kittwm --help-json\n");
+    out
+}
+
+fn commands_json_text() -> String {
+    let commands: Vec<_> = local_command_entries()
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "command": entry.command,
+                "category": entry.category,
+                "description": entry.description,
+            })
+        })
+        .collect();
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "schema_version": 1,
+            "kind": "kittwm-local-commands",
+            "commands": commands,
+        })
+    )
+}
+
+fn commands_cmd() -> Result<()> {
+    print!("{}", commands_text());
+    Ok(())
+}
+
+fn commands_json_cmd() -> Result<()> {
+    print!("{}", commands_json_text());
+    Ok(())
+}
+
 fn quickstart_text() -> &'static str {
     r#"kittwm quickstart — daily-driver path
 
@@ -3354,6 +3594,27 @@ mod tests {
         assert!(err.contains("unknown kittwm help topic"), "{err}");
         assert!(err.contains("kittwm help panes"), "{err}");
         assert!(err.contains("kittwm help topics"), "{err}");
+    }
+
+    #[test]
+    fn commands_catalog_lists_daily_driver_aliases() {
+        let text = commands_text();
+        assert!(text.contains("kittwm commands"), "{text}");
+        assert!(text.contains("LIFECYCLE"), "{text}");
+        assert!(text.contains("spawn CMD [ARGS...]"), "{text}");
+        assert!(text.contains("focus WINDOW"), "{text}");
+        assert!(text.contains("doctor"), "{text}");
+
+        let json: serde_json::Value = serde_json::from_str(&commands_json_text()).unwrap();
+        assert_eq!(json["kind"], "kittwm-local-commands");
+        assert!(json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "quickstart" && entry["category"] == "help" }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "wait [WINDOW] TEXT" && entry["category"] == "action"
+        }));
     }
 
     #[test]
