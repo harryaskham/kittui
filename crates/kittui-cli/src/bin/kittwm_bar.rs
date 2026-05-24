@@ -10,13 +10,59 @@ use std::process::ExitCode;
 use std::time::SystemTime;
 
 use kittui_cli::top_bar::{workspace_label, BarModel};
-use kittwm_sdk::Kittwm;
+use kittwm_sdk::{ChromeReservationStatus, Kittwm};
+use serde::Serialize;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum OutputMode {
     Text,
     Json,
     SceneJson,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct BarChromeModel {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_bar_rows: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tilable_rows: Option<u16>,
+}
+
+impl From<&ChromeReservationStatus> for BarChromeModel {
+    fn from(status: &ChromeReservationStatus) -> Self {
+        Self {
+            workspace: status.workspace.clone(),
+            top_bar_rows: status.top_bar_rows,
+            tilable_rows: status.tilable_rows,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct BarOutputModel {
+    #[serde(flatten)]
+    bar: BarModel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chrome: Option<BarChromeModel>,
+}
+
+impl BarOutputModel {
+    fn offline(now: SystemTime) -> Self {
+        Self {
+            bar: BarModel::offline(now),
+            chrome: None,
+        }
+    }
+
+    fn render(&self) -> String {
+        self.bar.render()
+    }
+
+    fn scene(&self, cols: u16) -> kittui::Scene {
+        self.bar.scene(cols)
+    }
 }
 
 fn main() -> ExitCode {
@@ -74,22 +120,30 @@ fn scene_cols() -> u16 {
         .unwrap_or(80)
 }
 
-fn load_bar_model(now: SystemTime) -> BarModel {
+fn load_bar_model(now: SystemTime) -> BarOutputModel {
     let Ok(client) = Kittwm::connect_from_env() else {
-        return BarModel::offline(now);
+        return BarOutputModel::offline(now);
     };
     match client.status() {
         Ok(status) => {
             let panes = status.panes.unwrap_or(status.panes_detail.len() as u64);
-            BarModel::new(
-                workspace_label(),
-                panes,
-                status.focus.unwrap_or_else(|| "-".to_string()),
-                true,
-                now,
-            )
+            let workspace = status
+                .workspace_id()
+                .map(str::to_string)
+                .unwrap_or_else(workspace_label);
+            let chrome = status.chrome_reservation().map(BarChromeModel::from);
+            BarOutputModel {
+                bar: BarModel::new(
+                    workspace,
+                    panes,
+                    status.focus.unwrap_or_else(|| "-".to_string()),
+                    true,
+                    now,
+                ),
+                chrome,
+            }
         }
-        Err(_) => BarModel::offline(now),
+        Err(_) => BarOutputModel::offline(now),
     }
 }
 
@@ -107,20 +161,39 @@ mod tests {
 
     #[test]
     fn bar_model_json_shape_is_stable() {
-        let model = BarModel::offline(UNIX_EPOCH);
+        let model = BarOutputModel::offline(UNIX_EPOCH);
         let json = serde_json::to_value(&model).unwrap();
         assert_eq!(json["workspace"], "1");
         assert_eq!(json["panes"], 0);
         assert_eq!(json["state"], "empty");
         assert_eq!(json["connected"], false);
+        assert!(json.get("chrome").is_none());
     }
 
     #[test]
     fn scene_json_shape_is_stable() {
-        let model = BarModel::offline(UNIX_EPOCH);
+        let model = BarOutputModel::offline(UNIX_EPOCH);
         let json = serde_json::to_value(model.scene(12)).unwrap();
         assert_eq!(json["footprint"]["cols"], 12);
         assert_eq!(json["footprint"]["rows"], 1);
         assert_eq!(json["layers"][0]["label"], "kittwm-bar:empty:1");
+    }
+
+    #[test]
+    fn bar_output_json_includes_chrome_when_available() {
+        let model = BarOutputModel {
+            bar: BarModel::new("dev", 2, "native-2", true, UNIX_EPOCH),
+            chrome: Some(BarChromeModel {
+                workspace: Some("dev".to_string()),
+                top_bar_rows: Some(1),
+                tilable_rows: Some(23),
+            }),
+        };
+        let json = serde_json::to_value(&model).unwrap();
+        assert_eq!(json["workspace"], "dev");
+        assert_eq!(json["chrome"]["workspace"], "dev");
+        assert_eq!(json["chrome"]["top_bar_rows"], 1);
+        assert_eq!(json["chrome"]["tilable_rows"], 23);
+        assert!(model.render().contains("panes:2"));
     }
 }
