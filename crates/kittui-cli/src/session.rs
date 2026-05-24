@@ -2649,7 +2649,9 @@ mod native_pane_tests {
     }
 
     fn dummy_native_pane_app() -> PtyTerminalApp {
-        PtyTerminalApp::spawn_program("true", &[], 1, 1).unwrap()
+        let current_exe = std::env::current_exe().expect("current test executable path");
+        let program = current_exe.to_string_lossy().into_owned();
+        PtyTerminalApp::spawn_program(&program, &["--help"], 1, 1).unwrap()
     }
 }
 

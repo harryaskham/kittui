@@ -3477,7 +3477,7 @@ mod tests {
         let ping = client_request(queue.path(), "PING").unwrap();
         assert_eq!(ping.trim(), "PONG");
         let waited = waiter.join().unwrap();
-        assert!(waited.contains("ERR WAIT_TEXT timeout"), "{waited}");
+        assert!(waited.contains("ERR WAIT_TEXT_MS timeout"), "{waited}");
     }
 
     #[test]
