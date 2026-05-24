@@ -295,11 +295,24 @@ fn parse_args() -> Result<Cli> {
                 let window = args.next().ok_or_else(|| anyhow!("--read-text WINDOW"))?;
                 out.automation_request = Some(automation_request("READ_TEXT", &window, "")?);
             }
+            "--read-text-json" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--read-text-json WINDOW"))?;
+                out.automation_request = Some(automation_request("READ_TEXT_JSON", &window, "")?);
+            }
             "--read-scrollback" => {
                 let window = args
                     .next()
                     .ok_or_else(|| anyhow!("--read-scrollback WINDOW"))?;
                 out.automation_request = Some(automation_request("READ_SCROLLBACK", &window, "")?);
+            }
+            "--read-scrollback-json" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--read-scrollback-json WINDOW"))?;
+                out.automation_request =
+                    Some(automation_request("READ_SCROLLBACK_JSON", &window, "")?);
             }
             "--semantic-snapshot" => {
                 let window = args
@@ -552,7 +565,9 @@ fn print_help() {
          --send-file WINDOW PATH|- read bytes from file/stdin and send them.\n\
          --paste-file WINDOW PATH|- paste bytes, respecting bracketed-paste mode.\n\
          --read-text WINDOW       print a native pane text snapshot.\n\
+         --read-text-json WINDOW  print native pane text snapshot JSON.\n\
          --read-scrollback WINDOW print native pane scrollback lines.\n\
+         --read-scrollback-json WINDOW print native pane scrollback JSON.\n\
          --semantic-snapshot WINDOW print semantic component snapshot JSON.\n\
          --semantic-publish WINDOW JSON_OR_PATH|- publish semantic snapshot JSON.\n\
          --semantic-action WINDOW COMPONENT ACTION JSON invoke semantic action.\n\
@@ -2666,6 +2681,14 @@ mod tests {
         assert_eq!(
             automation_request("read_text", "native-2", "").unwrap(),
             "READ_TEXT native-2"
+        );
+        assert_eq!(
+            automation_request("READ_TEXT_JSON", "focused", "").unwrap(),
+            "READ_TEXT_JSON focused"
+        );
+        assert_eq!(
+            automation_request("READ_SCROLLBACK_JSON", "native-2", "").unwrap(),
+            "READ_SCROLLBACK_JSON native-2"
         );
         assert_eq!(
             wait_ms_request("WAIT_TEXT_MS", "2500", "focused", "Ready Now").unwrap(),
