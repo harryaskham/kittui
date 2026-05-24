@@ -8,4 +8,5 @@
 pub mod daemon;
 pub mod keymap;
 pub mod session;
+pub mod shortcuts;
 pub mod top_bar;

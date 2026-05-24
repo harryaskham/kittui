@@ -717,19 +717,7 @@ fn native_status_line_text(panes: usize, log_path: &str) -> String {
 }
 
 fn native_help_overlay_lines() -> &'static [&'static str] {
-    &[
-        "kittwm shortcuts",
-        "C-a Enter / C-a t  launch terminal",
-        "C-a ?              toggle this help",
-        "C-a % / C-a |      split columns",
-        "C-a -              split rows",
-        "C-a Tab            focus next pane",
-        "C-a x              close pane (last pane returns to empty workspace)",
-        "C-a +/-            resize focused pane",
-        "C-a [ / C-a ]      move focused pane",
-        "C-a b              balance panes",
-        "Ctrl-]             exit kittwm",
-    ]
+    crate::shortcuts::NATIVE_SHORTCUTS
 }
 
 fn native_startup_terminal_enabled() -> bool {

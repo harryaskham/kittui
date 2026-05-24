@@ -81,6 +81,7 @@ struct Cli {
     apps_first: bool,
     apps_launch_first: bool,
     keymap: bool,
+    shortcuts: bool,
     keymap_path: Option<String>,
     keymap_check: bool,
     native_terminal: bool,
@@ -133,6 +134,7 @@ fn parse_args() -> Result<Cli> {
             }
             "launcher" => out.launcher_preview = true,
             "keymap" => out.keymap = true,
+            "shortcuts" => out.shortcuts = true,
             "apps" => out.apps = true,
             "native-terminal" => out.native_terminal = true,
             "native-browser" => out.native_browser = true,
@@ -188,6 +190,7 @@ fn parse_args() -> Result<Cli> {
                 out.keymap_path = Some(args.next().ok_or_else(|| anyhow!("--keymap PATH"))?);
             }
             "--check" => out.keymap_check = true,
+            "--shortcuts" => out.shortcuts = true,
             "-c" | "--command" => {
                 out.attach_command = Some(args.next().ok_or_else(|| anyhow!("--command CMD"))?);
             }
@@ -535,6 +538,7 @@ fn print_help() {
                    no daemon is reachable.\n\
          --save-session PATH|-    write native SESSION_JSON from the running socket.\n\
          --restore-session PATH|- read SESSION_JSON and queue RESTORE_SESSION_JSON.\n\
+         --shortcuts              print native C-a shortcut list and exit.\n\
          --send-text WINDOW TEXT  send text bytes to a native pane.\n\
          --send-line WINDOW TEXT  send text plus newline to a native pane.\n\
          --send-key WINDOW KEY    send a named key (ctrl-c, escape, arrows, ...).\n\
@@ -720,6 +724,9 @@ fn real_main() -> Result<()> {
     }
     if cli.keymap {
         return keymap_cmd(&cli);
+    }
+    if cli.shortcuts {
+        return shortcuts_cmd();
     }
     if cli.native_terminal {
         return native_terminal_cmd();
@@ -1938,6 +1945,11 @@ fn launch_cmd(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
+fn shortcuts_cmd() -> Result<()> {
+    print!("{}", kittui_cli::shortcuts::render_native_shortcuts());
+    Ok(())
+}
+
 fn keymap_cmd(cli: &Cli) -> Result<()> {
     let km = if let Some(path) = &cli.keymap_path {
         kittui_cli::keymap::Keymap::load(std::path::Path::new(path))?
@@ -2505,6 +2517,14 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn shortcuts_command_uses_native_shortcut_list() {
+        let text = kittui_cli::shortcuts::render_native_shortcuts();
+        assert!(text.contains("launch terminal"), "{text}");
+        assert!(text.contains("toggle this help"), "{text}");
+        assert!(text.contains("Ctrl-]"), "{text}");
     }
 
     #[test]
