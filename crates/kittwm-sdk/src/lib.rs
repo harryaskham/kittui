@@ -1924,6 +1924,32 @@ impl SurfaceHandle {
         parse_wait_match(&self.wait_output_ms(ms, needle)?)
     }
 
+    /// Wait for visible screen text via the JSON wait command and return typed metadata.
+    pub fn wait_text_match_json_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<WaitMatch> {
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(&self.client.request_protocol(
+            format!(
+                "WAIT_TEXT_JSON_MS {} {} {}",
+                self.id,
+                ms.clamp(1, 60_000),
+                needle.as_ref()
+            ),
+        )?)?)
+    }
+
+    /// Wait for visible screen or scrollback output via the JSON wait command.
+    pub fn wait_output_match_json_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<WaitMatch> {
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(&self.client.request_protocol(
+            format!(
+                "WAIT_OUTPUT_JSON_MS {} {} {}",
+                self.id,
+                ms.clamp(1, 60_000),
+                needle.as_ref()
+            ),
+        )?)?)
+    }
+
     /// Wait up to the daemon's default timeout for visible text and return typed metadata.
     pub fn wait_text_match(&self, needle: impl AsRef<str>) -> Result<WaitMatch> {
         parse_wait_match(&self.wait_text(needle)?)
@@ -1932,6 +1958,22 @@ impl SurfaceHandle {
     /// Wait up to the daemon's default timeout for visible or scrollback output and return typed metadata.
     pub fn wait_output_match(&self, needle: impl AsRef<str>) -> Result<WaitMatch> {
         parse_wait_match(&self.wait_output(needle)?)
+    }
+
+    /// Wait up to the daemon's default timeout for visible text via the JSON wait command.
+    pub fn wait_text_match_json(&self, needle: impl AsRef<str>) -> Result<WaitMatch> {
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(&self.client.request_protocol(
+            format!("WAIT_TEXT_JSON {} {}", self.id, needle.as_ref()),
+        )?)?)
+    }
+
+    /// Wait up to the daemon's default timeout for visible or scrollback output via JSON.
+    pub fn wait_output_match_json(&self, needle: impl AsRef<str>) -> Result<WaitMatch> {
+        self.client.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(&self.client.request_protocol(
+            format!("WAIT_OUTPUT_JSON {} {}", self.id, needle.as_ref()),
+        )?)?)
     }
 
     /// Read the semantic component snapshot for this surface.
@@ -3657,6 +3699,10 @@ mod tests {
             surface.wait_output_ms(100, "ready"),
             Err(Error::CapabilityDenied(Capability::ReadText))
         ));
+        assert!(matches!(
+            surface.wait_text_match_json("ready"),
+            Err(Error::CapabilityDenied(Capability::ReadText))
+        ));
     }
 
     #[cfg(unix)]
@@ -3671,7 +3717,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..9 {
+            for _ in 0..13 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -3695,6 +3741,18 @@ mod tests {
                     }
                     "WAIT_TEXT native-1 prompt2" => "MATCH_TEXT window=native-1 bytes=50",
                     "WAIT_OUTPUT native-1 done2" => "MATCH_OUTPUT window=native-1 bytes=60",
+                    "WAIT_TEXT_JSON_MS native-1 300 typed json" => {
+                        r#"{"kind":"text","match":"MATCH_TEXT","window":"native-1","bytes":70}"#
+                    }
+                    "WAIT_OUTPUT_JSON_MS native-1 400 output json" => {
+                        r#"{"kind":"output","match":"MATCH_OUTPUT","window":"native-1","bytes":80}"#
+                    }
+                    "WAIT_TEXT_JSON native-1 prompt json" => {
+                        r#"{"kind":"text","match":"MATCH_TEXT","window":"native-1","bytes":90}"#
+                    }
+                    "WAIT_OUTPUT_JSON native-1 done json" => {
+                        r#"{"kind":"output","match":"MATCH_OUTPUT","window":"native-1","bytes":100}"#
+                    }
                     other => panic!("unexpected command {other}"),
                 };
                 stream.write_all(reply.as_bytes()).unwrap();
@@ -3742,6 +3800,32 @@ mod tests {
         );
         assert_eq!(surface.wait_text_match("prompt2").unwrap().bytes, 50);
         assert_eq!(surface.wait_output_match("done2").unwrap().bytes, 60);
+        assert_eq!(
+            surface.wait_text_match_json_ms(300, "typed json").unwrap(),
+            WaitMatch {
+                kind: WaitMatchKind::Text,
+                window: "native-1".to_string(),
+                bytes: 70,
+            }
+        );
+        assert_eq!(
+            surface
+                .wait_output_match_json_ms(400, "output json")
+                .unwrap(),
+            WaitMatch {
+                kind: WaitMatchKind::Output,
+                window: "native-1".to_string(),
+                bytes: 80,
+            }
+        );
+        assert_eq!(
+            surface.wait_text_match_json("prompt json").unwrap().bytes,
+            90
+        );
+        assert_eq!(
+            surface.wait_output_match_json("done json").unwrap().bytes,
+            100
+        );
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(
@@ -3755,7 +3839,11 @@ mod tests {
                 "WAIT_TEXT_MS native-1 100 typed",
                 "WAIT_OUTPUT_MS native-1 200 typed out",
                 "WAIT_TEXT native-1 prompt2",
-                "WAIT_OUTPUT native-1 done2"
+                "WAIT_OUTPUT native-1 done2",
+                "WAIT_TEXT_JSON_MS native-1 300 typed json",
+                "WAIT_OUTPUT_JSON_MS native-1 400 output json",
+                "WAIT_TEXT_JSON native-1 prompt json",
+                "WAIT_OUTPUT_JSON native-1 done json"
             ]
         );
     }
