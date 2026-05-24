@@ -128,7 +128,8 @@ Current semantic implementation status:
 - `kittwm-terminal` — first-party SDK terminal client for spawn/replace plus
   typed `--status` and `--events-ms` inspection.
 - `kittwm-sdk` automation helpers now include screen text, scrollback,
-  visible-text waits, screen-plus-scrollback output waits, typed wait-match
+  visible-text waits, screen-plus-scrollback output waits, CLI JSON text reads
+  (`kittwm --read-text-json` / `--read-scrollback-json`), typed wait-match
   results, exact byte sends (`send_bytes` / `send_bytes_b64`), bracketed paste
   byte payloads (`paste_bytes` / `paste_bytes_b64`), and typed `MouseEvent`
   injection through `SurfaceHandle` methods; these are `SendInput`-gated and map
