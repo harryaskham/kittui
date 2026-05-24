@@ -30,6 +30,8 @@ Current implementation status:
 - `kittwm` now starts on a clean empty workspace with a stable `kittui-bar` top
   bar and shortcut hint instead of auto-spawning a shell; `Ctrl-A Enter` /
   `Ctrl-A t` launches the default terminal, `Ctrl-A ?` toggles shortcut help,
+  `kittwm shortcuts-json` / `kittwm --shortcuts-json` / socket `SHORTCUTS_JSON`
+  expose the same shortcut catalog as machine-readable JSON,
   `KITTWM_WORKSPACE=<label>` overrides the displayed/reported label for the
   current single-workspace runtime, and `KITTWM_STARTUP_TERMINAL=1` restores the
   old startup-terminal behavior. The opt-in live kittui scene chrome path
