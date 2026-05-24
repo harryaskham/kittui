@@ -381,6 +381,7 @@ fn parse_args() -> Result<Cli> {
                     Some(wait_ms_request("WAIT_OUTPUT_MS", &ms, &window, &needle)?);
             }
             "--status-json" => out.automation_request = Some("STATUS_JSON".to_string()),
+            "--chrome-json" => out.automation_request = Some("CHROME_JSON".to_string()),
             "--clipboard-json" => out.automation_request = Some("CLIPBOARD_JSON".to_string()),
             "--panes" => out.automation_request = Some("PANES".to_string()),
             "--panes-json" => out.automation_request = Some("PANES_JSON".to_string()),
@@ -552,6 +553,7 @@ fn print_help() {
          --wait-output WINDOW TEXT  wait until pane text or scrollback contains TEXT.\n\
          --wait-output-ms MS WINDOW TEXT  wait for output with explicit timeout.\n\
          --status-json            print native socket STATUS_JSON.\n\
+         --chrome-json            print native top-bar/chrome reservation JSON.\n\
          --clipboard-json         print policy-gated cached OSC52 clipboard JSON\n\
                                   (default denied; set KITTWM_CLIPBOARD_READ=allow).\n\
          --panes                  print native socket PANES listing.\n\
@@ -2602,6 +2604,7 @@ mod tests {
     #[test]
     fn normalize_daemon_command_preserves_json_inspection_verbs() {
         assert_eq!(normalize_daemon_command("status_json"), "STATUS_JSON");
+        assert_eq!(normalize_daemon_command("chrome_json"), "CHROME_JSON");
         assert_eq!(normalize_daemon_command("panes_json"), "PANES_JSON");
         assert_eq!(normalize_daemon_command("session_json"), "SESSION_JSON");
         assert_eq!(normalize_daemon_command("clipboard_json"), "CLIPBOARD_JSON");

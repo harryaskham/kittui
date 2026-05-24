@@ -664,6 +664,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
         "STATUS_JSON" => native_spawn_status_json_reply(pending),
+        "CHROME_JSON" => native_chrome_json_reply(pending),
         "CLIPBOARD_JSON" => native_clipboard_json_reply(pending),
         "PANES" => native_spawn_panes_reply(pending),
         "PANES_JSON" => native_spawn_panes_json_reply(pending),
@@ -672,7 +673,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -701,6 +702,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "EVENTS [ms]",
             "events",
             "stream JSON status/pane/focus/layout events until timeout",
+        ),
+        (
+            "CHROME_JSON",
+            "inspect",
+            "JSON native chrome reservation metadata",
         ),
         (
             "CLIPBOARD_JSON",
@@ -1655,6 +1661,13 @@ fn native_spawn_status_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -
             "panes_detail": state.panes,
         })
     )
+}
+
+fn native_chrome_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    let Ok(state) = pending.lock() else {
+        return "{\"error\":\"registry poisoned\"}\n".to_string();
+    };
+    format!("{}\n", native_chrome_status_value(&state))
 }
 
 fn native_workspace_id() -> &'static str {
@@ -3741,6 +3754,12 @@ mod tests {
             panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off app_cursor=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
+        let chrome_json: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("CHROME_JSON", &pending)).unwrap();
+        assert_eq!(chrome_json["workspace"], "1");
+        assert_eq!(chrome_json["top_bar_rows"], 1);
+        assert_eq!(chrome_json["tilable_rows"], 23);
+
         let status_json: serde_json::Value =
             serde_json::from_str(&native_spawn_queue_reply("STATUS_JSON", &pending)).unwrap();
         assert_eq!(status_json["pending"], 0);
