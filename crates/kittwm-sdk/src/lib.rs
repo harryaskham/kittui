@@ -1215,6 +1215,37 @@ impl NativePaneDetail {
     }
 }
 
+/// Chrome/workspace reservation metadata returned by `STATUS_JSON` / `PANES_JSON`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChromeReservationStatus {
+    /// Workspace identifier displayed in the top bar.
+    #[serde(default)]
+    pub workspace: Option<String>,
+    /// Rows reserved for top-bar chrome.
+    #[serde(default)]
+    pub top_bar_rows: Option<u16>,
+    /// Rows available for tiled pane content after chrome reservation.
+    #[serde(default)]
+    pub tilable_rows: Option<u16>,
+}
+
+impl ChromeReservationStatus {
+    /// Whether any chrome reservation field was reported.
+    pub fn is_reported(&self) -> bool {
+        self.workspace.is_some() || self.top_bar_rows.is_some() || self.tilable_rows.is_some()
+    }
+
+    /// Top-bar rows, defaulting to zero when older daemons omit the field.
+    pub fn top_bar_rows_or_zero(&self) -> u16 {
+        self.top_bar_rows.unwrap_or(0)
+    }
+
+    /// Tilable rows, if reported by the daemon.
+    pub fn tilable_rows(&self) -> Option<u16> {
+        self.tilable_rows
+    }
+}
+
 /// Typed `PANES_JSON` response.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PanesStatus {
@@ -1224,9 +1255,42 @@ pub struct PanesStatus {
     pub focus: String,
     /// Layout label.
     pub layout: String,
+    /// Workspace identifier, when reported by native kittwm.
+    #[serde(default)]
+    pub workspace: Option<String>,
+    /// Chrome reservation metadata, when reported by native kittwm.
+    #[serde(default)]
+    pub chrome: Option<ChromeReservationStatus>,
     /// Detailed panes.
     #[serde(default)]
     pub panes_detail: Vec<NativePaneDetail>,
+}
+
+impl PanesStatus {
+    /// Workspace id, preferring the top-level field and falling back to chrome metadata.
+    pub fn workspace_id(&self) -> Option<&str> {
+        self.workspace
+            .as_deref()
+            .or_else(|| self.chrome.as_ref()?.workspace.as_deref())
+    }
+
+    /// Chrome reservation metadata, if present.
+    pub fn chrome_reservation(&self) -> Option<&ChromeReservationStatus> {
+        self.chrome.as_ref()
+    }
+
+    /// Reserved top-bar rows, defaulting to zero for older daemons.
+    pub fn top_bar_rows(&self) -> u16 {
+        self.chrome
+            .as_ref()
+            .and_then(|chrome| chrome.top_bar_rows)
+            .unwrap_or(0)
+    }
+
+    /// Tilable rows after chrome reservation, if reported.
+    pub fn tilable_rows(&self) -> Option<u16> {
+        self.chrome.as_ref().and_then(|chrome| chrome.tilable_rows)
+    }
 }
 
 /// Minimal status response shape shared by standalone and native daemons.
@@ -1244,12 +1308,45 @@ pub struct Status {
     /// Layout label when available.
     #[serde(default)]
     pub layout: Option<String>,
+    /// Workspace identifier, when reported by native kittwm.
+    #[serde(default)]
+    pub workspace: Option<String>,
+    /// Chrome reservation metadata, when reported by native kittwm.
+    #[serde(default)]
+    pub chrome: Option<ChromeReservationStatus>,
     /// Focused pane detail when available.
     #[serde(default)]
     pub focused_pane: Option<NativePaneDetail>,
     /// Pane details when available.
     #[serde(default)]
     pub panes_detail: Vec<NativePaneDetail>,
+}
+
+impl Status {
+    /// Workspace id, preferring the top-level field and falling back to chrome metadata.
+    pub fn workspace_id(&self) -> Option<&str> {
+        self.workspace
+            .as_deref()
+            .or_else(|| self.chrome.as_ref()?.workspace.as_deref())
+    }
+
+    /// Chrome reservation metadata, if present.
+    pub fn chrome_reservation(&self) -> Option<&ChromeReservationStatus> {
+        self.chrome.as_ref()
+    }
+
+    /// Reserved top-bar rows, defaulting to zero for older daemons.
+    pub fn top_bar_rows(&self) -> u16 {
+        self.chrome
+            .as_ref()
+            .and_then(|chrome| chrome.top_bar_rows)
+            .unwrap_or(0)
+    }
+
+    /// Tilable rows after chrome reservation, if reported.
+    pub fn tilable_rows(&self) -> Option<u16> {
+        self.chrome.as_ref().and_then(|chrome| chrome.tilable_rows)
+    }
 }
 
 /// Native app discovery catalog returned by `APPS_JSON`.
@@ -2293,6 +2390,8 @@ mod tests {
               "panes": 1,
               "focus": "native-1",
               "layout": "columns",
+              "workspace": "1",
+              "chrome": {"workspace":"1","top_bar_rows":1,"tilable_rows":23},
               "panes_detail": [{
                 "window": "native-1",
                 "title": "shell",
@@ -2329,6 +2428,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(panes.focus, "native-1");
+        assert_eq!(panes.workspace_id(), Some("1"));
+        assert_eq!(panes.top_bar_rows(), 1);
+        assert_eq!(panes.tilable_rows(), Some(23));
+        assert!(panes.chrome_reservation().unwrap().is_reported());
         let pane = &panes.panes_detail[0];
         assert_eq!(pane.cursor_col, Some(4));
         assert_eq!(pane.mouse_sgr, Some(true));
@@ -2354,8 +2457,34 @@ mod tests {
             serde_json::from_str(r#"{"pending":0,"panes":1,"focus":"native-1","layout":"rows"}"#)
                 .unwrap();
         assert_eq!(status.focus.as_deref(), Some("native-1"));
+        assert_eq!(status.workspace_id(), None);
+        assert_eq!(status.top_bar_rows(), 0);
+        assert_eq!(status.tilable_rows(), None);
+        assert!(status.chrome_reservation().is_none());
         assert!(status.focused_pane.is_none());
         assert!(status.panes_detail.is_empty());
+    }
+
+    #[test]
+    fn status_decodes_chrome_reservation_metadata() {
+        let status: Status = serde_json::from_str(
+            r#"{
+              "pending": 0,
+              "panes": 0,
+              "focus": null,
+              "layout": "columns",
+              "workspace": "1",
+              "chrome": {"workspace":"1","top_bar_rows":1,"tilable_rows":23}
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(status.workspace_id(), Some("1"));
+        assert_eq!(status.top_bar_rows(), 1);
+        assert_eq!(status.tilable_rows(), Some(23));
+        let chrome = status.chrome_reservation().unwrap();
+        assert_eq!(chrome.workspace.as_deref(), Some("1"));
+        assert_eq!(chrome.top_bar_rows_or_zero(), 1);
+        assert_eq!(chrome.tilable_rows(), Some(23));
     }
 
     #[test]
