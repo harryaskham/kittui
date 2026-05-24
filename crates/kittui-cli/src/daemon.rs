@@ -665,6 +665,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "STATUS" => native_spawn_status_reply(pending),
         "STATUS_JSON" => native_spawn_status_json_reply(pending),
         "CHROME_JSON" => native_chrome_json_reply(pending),
+        "SHORTCUTS_JSON" => native_shortcuts_json_reply(),
         "CLIPBOARD_JSON" => native_clipboard_json_reply(pending),
         "PANES" => native_spawn_panes_reply(pending),
         "PANES_JSON" => native_spawn_panes_json_reply(pending),
@@ -673,7 +674,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -708,6 +709,7 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "inspect",
             "JSON native chrome reservation metadata",
         ),
+        ("SHORTCUTS_JSON", "inspect", "JSON native shortcut catalog"),
         (
             "CLIPBOARD_JSON",
             "clipboard",
@@ -1668,6 +1670,10 @@ fn native_chrome_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
         return "{\"error\":\"registry poisoned\"}\n".to_string();
     };
     format!("{}\n", native_chrome_status_value(&state))
+}
+
+fn native_shortcuts_json_reply() -> String {
+    crate::shortcuts::render_native_shortcuts_json()
 }
 
 fn native_workspace_id() -> String {
@@ -3408,6 +3414,7 @@ mod tests {
         assert!(help.contains("STATUS_JSON"), "{help}");
         assert!(help.contains("PANES_JSON"), "{help}");
         assert!(help.contains("SESSION_JSON"), "{help}");
+        assert!(help.contains("SHORTCUTS_JSON"), "{help}");
         assert!(help.contains("EVENTS [ms]"), "{help}");
         assert!(help.contains("FOCUS_NEXT"), "{help}");
         assert!(help.contains("FOCUS_PREV"), "{help}");
@@ -3479,6 +3486,27 @@ mod tests {
                 entry["command"] == "SEMANTIC_SNAPSHOT <window|focused>"
                     && entry["category"] == "semantic"
             }));
+        assert!(help_json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["command"] == "SHORTCUTS_JSON" && entry["category"] == "inspect"
+            }));
+    }
+
+    #[test]
+    fn native_spawn_queue_serves_shortcuts_json() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let value: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("SHORTCUTS_JSON", &pending)).unwrap();
+        assert_eq!(value["kind"], "kittwm-native-shortcuts");
+        let shortcuts = value["shortcuts"].as_array().unwrap();
+        assert!(shortcuts
+            .iter()
+            .any(|entry| entry["id"] == "launch_terminal"));
+        assert!(shortcuts.iter().any(|entry| entry["id"] == "toggle_help"));
+        assert!(shortcuts.iter().any(|entry| entry["keys"] == "Ctrl-]"));
     }
 
     #[test]
