@@ -85,6 +85,7 @@ struct Cli {
     shortcuts_json: bool,
     help_topic: Option<String>,
     info: bool,
+    quickstart: bool,
     keymap_path: Option<String>,
     keymap_check: bool,
     native_terminal: bool,
@@ -149,6 +150,7 @@ fn parse_args() -> Result<Cli> {
                 break;
             }
             "info" => out.info = true,
+            "quickstart" => out.quickstart = true,
             "status" => {
                 out.automation_request =
                     parse_inspection_alias("status", args.next(), args.next())?;
@@ -666,8 +668,10 @@ USAGE
   kittwm --help                  Show this overview
   kittwm help <topic>            Show focused help (when available)
   kittwm info                    Show friendly running-WM overview
+  kittwm quickstart              Show first-run daily-driver checklist
 
 DAILY DRIVER BASICS
+  Quickstart:      kittwm quickstart
   Start:           kittwm
   New terminal:    press C-a Enter or C-a t inside kittwm
   Help overlay:    press C-a ? inside kittwm
@@ -749,6 +753,7 @@ DIAGNOSTICS AND BACKENDS
 
 EXAMPLES
   kittwm
+  kittwm quickstart
   kittwm info
   kittwm --panes
   kittwm spawn htop
@@ -1017,6 +1022,9 @@ fn real_main() -> Result<()> {
     }
     if cli.info {
         return info_cmd();
+    }
+    if cli.quickstart {
+        return quickstart_cmd();
     }
     if cli.shortcuts {
         return shortcuts_cmd();
@@ -2123,6 +2131,56 @@ fn semantic_publish_cmd(window: &str, json_arg: &str) -> Result<()> {
     Ok(())
 }
 
+fn quickstart_text() -> &'static str {
+    r#"kittwm quickstart — daily-driver path
+
+1. Start the WM
+   kittwm
+
+2. Inside kittwm
+   C-a Enter / C-a t   open a terminal pane
+   C-a ?               show the shortcut overlay
+   C-a Tab             focus next pane
+   C-a x               close focused pane
+   Ctrl-]              exit kittwm
+
+3. From another shell, inspect the running WM
+   kittwm info
+   kittwm panes
+   kittwm events 1000
+
+4. Do common pane work without long flags
+   kittwm spawn htop
+   kittwm read-json focused
+   kittwm type focused 'echo hello'
+   kittwm line focused 'cargo test'
+   kittwm key focused ctrl-c
+   kittwm wait focused 'finished'
+
+5. Manage panes
+   kittwm focus native-2
+   kittwm close focused
+   kittwm layout rows
+   kittwm balance
+
+6. Save and restore a working layout
+   kittwm --save-session session.json
+   kittwm --restore-session session.json
+
+More help
+   kittwm --help
+   kittwm help topics
+   kittwm help panes
+   kittwm help input
+   kittwm shortcuts
+"#
+}
+
+fn quickstart_cmd() -> Result<()> {
+    print!("{}", quickstart_text());
+    Ok(())
+}
+
 fn info_cmd() -> Result<()> {
     use kittui_cli::daemon::{client_request_multi, default_socket_path};
     let path = default_socket_path();
@@ -2927,6 +2985,16 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn quickstart_teaches_daily_driver_path() {
+        let text = quickstart_text();
+        assert!(text.contains("kittwm quickstart"), "{text}");
+        assert!(text.contains("C-a Enter / C-a t"), "{text}");
+        assert!(text.contains("kittwm info"), "{text}");
+        assert!(text.contains("kittwm spawn htop"), "{text}");
+        assert!(text.contains("kittwm help topics"), "{text}");
     }
 
     #[test]
