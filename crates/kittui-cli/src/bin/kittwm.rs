@@ -87,6 +87,7 @@ struct Cli {
     info: bool,
     quickstart: bool,
     examples: bool,
+    cheat: bool,
     keymap_path: Option<String>,
     keymap_check: bool,
     native_terminal: bool,
@@ -155,6 +156,7 @@ fn parse_args() -> Result<Cli> {
             "info" => out.info = true,
             "quickstart" => out.quickstart = true,
             "examples" => out.examples = true,
+            "cheat" | "cheatsheet" | "cheat-sheet" => out.cheat = true,
             "status" => {
                 out.automation_request =
                     parse_inspection_alias("status", args.next(), args.next())?;
@@ -680,10 +682,12 @@ USAGE
   kittwm info                    Show friendly running-WM overview
   kittwm quickstart              Show first-run daily-driver checklist
   kittwm examples                Show copy-paste daily-driver workflows
+  kittwm cheat                   Show compact daily-driver cheat sheet
 
 DAILY DRIVER BASICS
   Quickstart:      kittwm quickstart
   Examples:        kittwm examples
+  Cheat sheet:     kittwm cheat
   Start:           kittwm        (or: kittwm start)
   New terminal:    press C-a Enter or C-a t inside kittwm
   Help overlay:    press C-a ? inside kittwm
@@ -1234,6 +1238,9 @@ fn real_main() -> Result<()> {
     }
     if cli.examples {
         return examples_cmd();
+    }
+    if cli.cheat {
+        return cheat_cmd();
     }
     if cli.shortcuts {
         return shortcuts_cmd();
@@ -2484,6 +2491,40 @@ fn examples_cmd() -> Result<()> {
     Ok(())
 }
 
+fn cheat_text() -> &'static str {
+    r#"kittwm cheat — daily keys + commands
+
+IN SESSION
+  C-a Enter/t  terminal     C-a ? help       Ctrl-] exit
+  C-a % split columns       C-a - split rows  C-a x close
+  C-a Tab focus next        C-a b balance     C-a +/- resize
+
+INSPECT
+  kittwm info               kittwm panes      kittwm events 1000
+  kittwm --chrome-json      kittwm shortcuts  kittwm --help-json
+
+PANE CONTROL
+  kittwm spawn htop         kittwm focus native-2
+  kittwm close              kittwm layout rows
+  kittwm move last          kittwm resize focused +2
+  kittwm balance            kittwm rename focused editor
+
+AUTOMATION
+  kittwm type focused 'echo hi'
+  kittwm line focused 'cargo test'
+  kittwm read-json focused
+  kittwm wait focused 'Finished'
+
+MORE
+  kittwm quickstart         kittwm examples    kittwm help panes
+"#
+}
+
+fn cheat_cmd() -> Result<()> {
+    print!("{}", cheat_text());
+    Ok(())
+}
+
 fn info_cmd() -> Result<()> {
     use kittui_cli::daemon::{client_request_multi, default_socket_path};
     let path = default_socket_path();
@@ -3339,6 +3380,20 @@ mod tests {
         ] {
             assert!(text.contains(line), "missing {line}: {text}");
         }
+    }
+
+    #[test]
+    fn cheat_sheet_is_compact_daily_reference() {
+        let text = cheat_text();
+        assert!(text.contains("C-a Enter/t"), "{text}");
+        assert!(text.contains("kittwm info"), "{text}");
+        assert!(text.contains("kittwm spawn htop"), "{text}");
+        assert!(text.contains("kittwm balance"), "{text}");
+        assert!(text.contains("kittwm wait focused 'Finished'"), "{text}");
+        assert!(
+            text.lines().count() < quickstart_text().lines().count(),
+            "{text}"
+        );
     }
 
     #[test]
