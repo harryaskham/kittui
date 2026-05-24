@@ -169,6 +169,45 @@ fn parse_args() -> Result<Cli> {
                     parse_inspection_alias("events", args.next(), args.next())?;
                 break;
             }
+            "spawn" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.automation_request = Some(spawn_alias_request(&argv)?);
+                break;
+            }
+            "read" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.automation_request = Some(read_alias_request(false, &argv)?);
+                break;
+            }
+            "read-json" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.automation_request = Some(read_alias_request(true, &argv)?);
+                break;
+            }
+            "type" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.automation_request =
+                    Some(default_window_payload_alias("SEND_TEXT", "type", &argv)?);
+                break;
+            }
+            "line" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.automation_request =
+                    Some(default_window_payload_alias("SEND_LINE", "line", &argv)?);
+                break;
+            }
+            "key" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.automation_request =
+                    Some(default_window_payload_alias("SEND_KEY", "key", &argv)?);
+                break;
+            }
+            "wait" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.automation_request =
+                    Some(default_window_payload_alias("WAIT_OUTPUT", "wait", &argv)?);
+                break;
+            }
             "apps" => out.apps = true,
             "native-terminal" => out.native_terminal = true,
             "native-browser" => out.native_browser = true,
@@ -646,6 +685,7 @@ COMMON INSPECTION
   --events-ms MS      Bounded JSON-lines event stream
 
 PANE CONTROL
+  spawn CMD [ARGS...]         Spawn a terminal pane
   --spawn-pty CMD             Spawn a terminal pane
   --focus-pane WINDOW         Focus pane by id, or use focused
   --focus-next | --focus-prev Cycle focus
@@ -657,6 +697,12 @@ PANE CONTROL
   --rename-pane WINDOW TITLE  Set pane display title
 
 INPUT AND AUTOMATION
+  type [WINDOW] TEXT               Send text bytes (default window: focused)
+  line [WINDOW] TEXT               Send text plus newline
+  key [WINDOW] KEY                 Send a named key
+  read [WINDOW]                    Read text (default window: focused)
+  read-json [WINDOW]               Read text JSON
+  wait [WINDOW] TEXT               Wait for text or scrollback
   --send-text WINDOW TEXT          Send text bytes
   --send-line WINDOW TEXT          Send text plus newline
   --send-key WINDOW KEY            KEY: ctrl-c, escape, enter, arrows, ...
@@ -705,8 +751,8 @@ EXAMPLES
   kittwm
   kittwm info
   kittwm --panes
-  kittwm --spawn-pty 'htop'
-  kittwm --read-text-json focused
+  kittwm spawn htop
+  kittwm read-json focused
   kittwm --wait-output-json-ms 10000 focused 'build finished'
   kittwm --save-session session.json
   kittwm --restore-session session.json
@@ -813,6 +859,36 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
         )),
     }
 }
+fn spawn_alias_request(argv: &[String]) -> Result<String> {
+    if argv.is_empty() {
+        return Err(anyhow!("usage: kittwm spawn CMD [ARGS...]"));
+    }
+    protocol_payload_request("SPAWN_PTY", &argv_to_shell_words(argv))
+}
+
+fn read_alias_request(json: bool, argv: &[String]) -> Result<String> {
+    let window = match argv {
+        [] => "focused",
+        [window] => window.as_str(),
+        _ => return Err(anyhow!("usage: kittwm read[-json] [WINDOW]")),
+    };
+    automation_request(
+        if json { "READ_TEXT_JSON" } else { "READ_TEXT" },
+        window,
+        "",
+    )
+}
+
+fn default_window_payload_alias(verb: &str, label: &str, argv: &[String]) -> Result<String> {
+    let (window, payload) = match argv {
+        [payload] => ("focused", payload.as_str()),
+        [window, payload] => (window.as_str(), payload.as_str()),
+        [] => return Err(anyhow!("usage: kittwm {label} [WINDOW] VALUE")),
+        _ => return Err(anyhow!("usage: kittwm {label} [WINDOW] VALUE")),
+    };
+    automation_request(verb, window, payload)
+}
+
 fn parse_inspection_alias(
     alias: &str,
     arg: Option<String>,
@@ -2950,6 +3026,39 @@ mod tests {
             err.to_string().contains("unknown kittwm help topic"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn action_aliases_map_to_socket_commands() {
+        assert_eq!(
+            spawn_alias_request(&args(&["htop", "--tree"])).unwrap(),
+            "SPAWN_PTY htop --tree"
+        );
+        assert_eq!(read_alias_request(false, &[]).unwrap(), "READ_TEXT focused");
+        assert_eq!(
+            read_alias_request(true, &args(&["native-2"])).unwrap(),
+            "READ_TEXT_JSON native-2"
+        );
+        assert_eq!(
+            default_window_payload_alias("SEND_TEXT", "type", &args(&["hello"])).unwrap(),
+            "SEND_TEXT focused hello"
+        );
+        assert_eq!(
+            default_window_payload_alias("SEND_LINE", "line", &args(&["native-2", "make test"]))
+                .unwrap(),
+            "SEND_LINE native-2 make test"
+        );
+        assert_eq!(
+            default_window_payload_alias("SEND_KEY", "key", &args(&["ctrl-c"])).unwrap(),
+            "SEND_KEY focused ctrl-c"
+        );
+        assert_eq!(
+            default_window_payload_alias("WAIT_OUTPUT", "wait", &args(&["native-2", "Ready"]))
+                .unwrap(),
+            "WAIT_OUTPUT native-2 Ready"
+        );
+        assert!(spawn_alias_request(&[]).is_err());
+        assert!(read_alias_request(false, &args(&["a", "b"])).is_err());
     }
 
     #[test]
