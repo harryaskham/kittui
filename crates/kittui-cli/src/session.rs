@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 
-use kittui::{CellRect, CellSize, Rgba, Runtime, Scene};
-use kittui_affordances::{button, text_input, title_chrome, ControlState};
+use kittui::{CellRect, CellSize, Runtime, Scene};
+use kittui_affordances::{button, text_input, ControlState};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
@@ -31,6 +31,7 @@ use kittui_wm::native::{
 use kittui_xvfb::XServer;
 
 use crate::keymap::{Action, KeyMods, KeySpec, Keymap};
+use crate::top_bar::BarModel;
 
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
@@ -693,13 +694,18 @@ fn native_shell_view(
     }
 }
 
-fn native_top_bar_text(workspace_id: u16, panes: usize, sock: &str) -> String {
-    let state = if panes == 0 { "empty" } else { "active" };
-    format!(
-        " kittui-bar  ws:{workspace_id}  {state}  {}  display={} ",
-        native_time_label(),
-        sock
+fn native_top_bar_model(workspace_id: u16, panes: usize, sock: &str) -> BarModel {
+    let focus = if panes == 0 { "-" } else { sock };
+    BarModel::live(
+        workspace_id.to_string(),
+        panes,
+        focus,
+        std::time::SystemTime::now(),
     )
+}
+
+fn native_top_bar_text(workspace_id: u16, panes: usize, sock: &str) -> String {
+    native_top_bar_model(workspace_id, panes, sock).render()
 }
 
 fn native_status_line_text(panes: usize, log_path: &str) -> String {
@@ -708,17 +714,6 @@ fn native_status_line_text(panes: usize, log_path: &str) -> String {
     } else {
         format!(" C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: {log_path}")
     }
-}
-
-fn native_time_label() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    let day = secs % 86_400;
-    let hour = day / 3_600;
-    let minute = (day % 3_600) / 60;
-    format!("{hour:02}:{minute:02} UTC")
 }
 
 fn native_help_overlay_lines() -> &'static [&'static str] {
@@ -1737,40 +1732,36 @@ struct NativeShellChromeScene {
 }
 
 fn native_top_bar_scene(view: &NativeShellView, cols: u16, cell_size: CellSize) -> Scene {
-    let (left, right) = if view.panes.is_empty() {
-        (Rgba::rgb(0x20, 0x20, 0x24), Rgba::rgb(0x3a, 0x3a, 0x44))
-    } else {
-        (Rgba::rgb(0x18, 0x4e, 0x77), Rgba::rgb(0x52, 0xb6, 0x9a))
-    };
-    let mut scene = title_chrome(left, right)
-        .to_scene(ratatui::layout::Rect::new(
-            0,
-            view.top_bar.row,
-            cols.max(1),
-            1,
-        ))
-        .expect("top bar chrome produces a scene");
+    let mut scene =
+        native_top_bar_model_from_view(view).scene_with_prefix(cols, "kittwm-live-top-bar");
+    scene.footprint.y = view.top_bar.row;
     scene.cell_size = cell_size;
-    for layer in &mut scene.layers {
-        if layer.label.as_deref() == Some("background") {
-            layer.label = Some(format!(
-                "kittwm-live-top-bar:{}",
-                if view.panes.is_empty() {
-                    "empty"
-                } else {
-                    "active"
-                }
-            ));
-        }
-    }
-    scene.layers.push(kittui::Layer::new(
-        format!("kittwm-live-top-bar-text:{}", view.top_bar.text.trim()),
-        kittui::Node::Group {
-            opacity: 1.0,
-            children: Vec::new(),
-        },
-    ));
     scene
+}
+
+fn native_top_bar_model_from_view(view: &NativeShellView) -> BarModel {
+    let text = view.top_bar.text.trim();
+    let mut parts = text.split_whitespace().collect::<Vec<_>>();
+    let time = if parts.len() >= 2 && parts.last() == Some(&"UTC") {
+        let zone = parts.pop().unwrap_or("UTC");
+        let clock = parts.pop().unwrap_or("00:00");
+        format!("{clock} {zone}")
+    } else {
+        "00:00 UTC".to_string()
+    };
+    BarModel {
+        workspace: "1".to_string(),
+        panes: view.panes.len() as u64,
+        state: if view.panes.is_empty() {
+            "empty"
+        } else {
+            "active"
+        }
+        .to_string(),
+        focus: "-".to_string(),
+        time,
+        connected: true,
+    }
 }
 
 fn render_native_shell_view_affordance_scenes(
@@ -2269,7 +2260,7 @@ mod native_pane_tests {
             .scene
             .layers
             .iter()
-            .any(|layer| layer.label.as_deref() == Some("kittwm-live-top-bar:active")));
+            .any(|layer| layer.label.as_deref() == Some("kittwm-live-top-bar:active:1")));
         assert_eq!(scenes[1].id, "pane-0-title");
         assert_eq!((scenes[2].x, scenes[2].y), (8, 1));
         assert_eq!(scenes[3].id, "footer");
@@ -2301,12 +2292,12 @@ mod native_pane_tests {
         assert!(scene
             .layers
             .iter()
-            .any(|layer| layer.label.as_deref() == Some("kittwm-live-top-bar:empty")));
+            .any(|layer| layer.label.as_deref() == Some("kittwm-live-top-bar:empty:1")));
         assert!(scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
             .unwrap_or_default()
-            .contains("kittui-bar  ws:1  empty  12:00 UTC")));
+            .contains("kittui-bar  ws:1  empty")));
     }
 
     #[test]

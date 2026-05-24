@@ -5,6 +5,7 @@
 //! render loop, terminal raw-mode handling, signal restoration, and
 //! the file-based debug logger.
 
-pub mod session;
 pub mod daemon;
 pub mod keymap;
+pub mod session;
+pub mod top_bar;
