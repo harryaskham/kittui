@@ -210,6 +210,10 @@ fn parse_args() -> Result<Cli> {
                     Some(default_window_payload_alias("WAIT_OUTPUT", "wait", &argv)?);
                 break;
             }
+            "focus" | "close" | "layout" | "move" | "resize" | "balance" | "rename" => {
+                out.automation_request = Some(parse_pane_control_alias(a.as_str(), args.by_ref())?);
+                break;
+            }
             "apps" => out.apps = true,
             "native-terminal" => out.native_terminal = true,
             "native-browser" => out.native_browser = true,
@@ -690,6 +694,13 @@ COMMON INSPECTION
 
 PANE CONTROL
   spawn CMD [ARGS...]         Spawn a terminal pane
+  focus WINDOW                Alias for --focus-pane WINDOW
+  close [WINDOW]              Alias for --close-pane (default focused)
+  layout columns|rows         Alias for --layout
+  move [WINDOW] DIR           Alias for --move-pane (default focused)
+  resize [WINDOW] AMOUNT      Alias for --resize-pane (default focused)
+  balance                     Alias for --balance-panes
+  rename WINDOW TITLE         Alias for --rename-pane
   --spawn-pty CMD             Spawn a terminal pane
   --focus-pane WINDOW         Focus pane by id, or use focused
   --focus-next | --focus-prev Cycle focus
@@ -799,19 +810,48 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                             opt into kittui scene chrome\n\
              Ctrl-A Enter / Ctrl-A t        launch terminal from empty workspace\n\
              Ctrl-]                         exit kittwm\n"),
-        "panes" | "pane" => Ok("kittwm help panes\n\
-             =================\n\n\
-             --spawn-pty CMD                spawn a native PTY pane\n\
-             --focus-pane WINDOW            focus window or focused token\n\
-             --focus-next / --focus-prev    cycle focus\n\
-             --close-pane WINDOW            close pane; last pane returns empty\n\
-             --layout columns|rows          switch layout axis\n\
-             --move-pane WINDOW DIR         left/right/up/down/first/last\n\
-             --resize-pane WINDOW AMOUNT    grow/shrink/+N/-N pane weight\n\
-             --balance-panes                equalize weights\n\
-             --rename-pane WINDOW TITLE     set display title\n\n\
-             Socket equivalents include SPAWN_PTY, FOCUS_PANE, CLOSE_PANE,\n\
-             LAYOUT, MOVE_PANE, RESIZE_PANE, BALANCE_PANES, and RENAME_PANE.\n"),
+        "panes" | "pane" => Ok("kittwm help panes
+\
+             =================
+
+\
+             --spawn-pty CMD                spawn a native PTY pane
+\
+             focus WINDOW                   focus window or focused token
+\
+             close [WINDOW]                 close pane (default focused)
+\
+             layout columns|rows            switch layout axis
+\
+             move [WINDOW] DIR              move pane (default focused)
+\
+             resize [WINDOW] AMOUNT         resize pane weight (default focused)
+\
+             balance                        equalize weights
+\
+             rename WINDOW TITLE            set display title
+\
+             --focus-pane WINDOW            focus window or focused token
+\
+             --focus-next / --focus-prev    cycle focus
+\
+             --close-pane WINDOW            close pane; last pane returns empty
+\
+             --layout columns|rows          switch layout axis
+\
+             --move-pane WINDOW DIR         left/right/up/down/first/last
+\
+             --resize-pane WINDOW AMOUNT    grow/shrink/+N/-N pane weight
+\
+             --balance-panes                equalize weights
+\
+             --rename-pane WINDOW TITLE     set display title
+
+\
+             Socket equivalents include SPAWN_PTY, FOCUS_PANE, CLOSE_PANE,
+\
+             LAYOUT, MOVE_PANE, RESIZE_PANE, BALANCE_PANES, and RENAME_PANE.
+"),
         "input" => Ok("kittwm help input\n\
              =================\n\n\
              --send-text WINDOW TEXT        send text bytes\n\
@@ -892,6 +932,55 @@ fn default_window_payload_alias(verb: &str, label: &str, argv: &[String]) -> Res
         _ => return Err(anyhow!("usage: kittwm {label} [WINDOW] VALUE")),
     };
     automation_request(verb, window, payload)
+}
+
+fn parse_pane_control_alias(alias: &str, mut args: impl Iterator<Item = String>) -> Result<String> {
+    let mut next = || args.next();
+    let request = match alias {
+        "focus" => {
+            let window = next().ok_or_else(|| anyhow!("kittwm focus WINDOW"))?;
+            protocol_token_request("FOCUS_PANE", &window)?
+        }
+        "close" => {
+            let window = next().unwrap_or_else(|| "focused".to_string());
+            protocol_token_request("CLOSE_PANE", &window)?
+        }
+        "layout" => {
+            let axis = next().ok_or_else(|| anyhow!("kittwm layout columns|rows"))?;
+            layout_request(&axis)?
+        }
+        "move" => {
+            let first = next().ok_or_else(|| anyhow!("kittwm move [WINDOW] DIR"))?;
+            let second = next();
+            let (window, direction) = match second {
+                Some(direction) => (first, direction),
+                None => ("focused".to_string(), first),
+            };
+            move_pane_request(&window, &direction)?
+        }
+        "resize" => {
+            let first = next().ok_or_else(|| anyhow!("kittwm resize [WINDOW] AMOUNT"))?;
+            let second = next();
+            let (window, amount) = match second {
+                Some(amount) => (first, amount),
+                None => ("focused".to_string(), first),
+            };
+            resize_pane_request(&window, &amount)?
+        }
+        "balance" => "BALANCE_PANES".to_string(),
+        "rename" => {
+            let window = next().ok_or_else(|| anyhow!("kittwm rename WINDOW TITLE"))?;
+            let title = next().ok_or_else(|| anyhow!("kittwm rename WINDOW TITLE"))?;
+            rename_pane_request(&window, &title)?
+        }
+        _ => return Err(anyhow!("unknown pane control alias {alias:?}")),
+    };
+    if let Some(extra) = next() {
+        return Err(anyhow!(
+            "kittwm {alias} got unexpected extra argument {extra:?}"
+        ));
+    }
+    Ok(request)
 }
 
 fn parse_inspection_alias(
@@ -3162,6 +3251,45 @@ mod tests {
         assert!(err.to_string().contains("at most one"), "{err}");
         let err = parse_inspection_alias("panes", Some("extra".to_string()), None).unwrap_err();
         assert!(err.to_string().contains("does not accept"), "{err}");
+    }
+
+    #[test]
+    fn pane_control_aliases_map_to_socket_commands() {
+        assert_eq!(
+            parse_pane_control_alias("focus", args(&["native-2"]).into_iter()).unwrap(),
+            "FOCUS_PANE native-2"
+        );
+        assert_eq!(
+            parse_pane_control_alias("close", Vec::<String>::new().into_iter()).unwrap(),
+            "CLOSE_PANE focused"
+        );
+        assert_eq!(
+            parse_pane_control_alias("layout", args(&["rows"]).into_iter()).unwrap(),
+            "LAYOUT rows"
+        );
+        assert_eq!(
+            parse_pane_control_alias("move", args(&["last"]).into_iter()).unwrap(),
+            "MOVE_PANE focused last"
+        );
+        assert_eq!(
+            parse_pane_control_alias("resize", args(&["native-2", "+2"]).into_iter()).unwrap(),
+            "RESIZE_PANE native-2 +2"
+        );
+        assert_eq!(
+            parse_pane_control_alias("balance", Vec::<String>::new().into_iter()).unwrap(),
+            "BALANCE_PANES"
+        );
+        assert_eq!(
+            parse_pane_control_alias("rename", args(&["native-2", "Editor"]).into_iter()).unwrap(),
+            "RENAME_PANE native-2 Editor"
+        );
+    }
+
+    #[test]
+    fn pane_control_aliases_reject_bad_inputs() {
+        assert!(parse_pane_control_alias("focus", Vec::<String>::new().into_iter()).is_err());
+        assert!(parse_pane_control_alias("balance", args(&["extra"]).into_iter()).is_err());
+        assert!(parse_pane_control_alias("layout", args(&["diagonal"]).into_iter()).is_err());
     }
 
     #[test]
