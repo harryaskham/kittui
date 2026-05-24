@@ -585,143 +585,105 @@ fn apply_socket_target_flags(cli: &Cli) {
     }
 }
 
-fn print_help() {
-    println!(
-        "kittwm — kittui window manager\n\n\
-         Usage: kittwm [--serve | --attach | --kill | --status] [--backend fake|quartz|xvfb]\n\n\
-         Default: open a kittui-native PTY terminal in the current terminal.\n\
-         The child receives KITTWM_SOCKET, KITTWM_DISPLAY, and KITTWM_WINDOW.\n\
-         Use --backend fake|quartz|xvfb for capture-backed modes. Ctrl-] exits.\n\n\
-         --socket PATH target an explicit kittwm socket for this invocation.\n\
-         --display DISPLAY target a DISPLAY-like socket token such as :7.\n\
-         --serve   run as a Unix-socket daemon at $KITTWM_SOCK\n\
-                   (default /tmp/kittwm-$USER.sock). Blocks until QUIT or\n\
-                   SIGINT/SIGTERM. RAII socket cleanup.\n\
-         --attach  connect to a running daemon and open an interactive REPL.\n\
-                   Commands: PING STATUS WINDOWS DISPLAYS HELP QUIT.\n\
-                   Pass -c/--command CMD for one-shot scripting mode.\n\
-         --kill    send QUIT to the running daemon.\n\
-         --status  print pid/uptime/sock of the running daemon; exits 1 if\n\
-                   no daemon is reachable.\n\
-         --save-session PATH|-    write native SESSION_JSON from the running socket.\n\
-         --restore-session PATH|- read SESSION_JSON and queue RESTORE_SESSION_JSON.\n\
-         --shortcuts              print native C-a shortcut list and exit.\n\
-         --shortcuts-json         print native shortcut catalog JSON and exit.\n\
-         --send-text WINDOW TEXT  send text bytes to a native pane.\n\
-         --send-line WINDOW TEXT  send text plus newline to a native pane.\n\
-         --send-key WINDOW KEY    send a named key (ctrl-c, escape, arrows, ...).\n\
-         --send-mouse WINDOW EVENT COL ROW send an SGR mouse event if enabled.\n\
-         --send-bytes-b64 WINDOW BASE64 send arbitrary base64-decoded bytes.\n\
-         --send-file WINDOW PATH|- read bytes from file/stdin and send them.\n\
-         --paste-file WINDOW PATH|- paste bytes, respecting bracketed-paste mode.\n\
-         --read-text WINDOW       print a native pane text snapshot.\n\
-         --read-text-json WINDOW  print native pane text snapshot JSON.\n\
-         --read-scrollback WINDOW print native pane scrollback lines.\n\
-         --read-scrollback-json WINDOW print native pane scrollback JSON.\n\
-         --semantic-snapshot WINDOW print semantic component snapshot JSON.\n\
-         --semantic-publish WINDOW JSON_OR_PATH|- publish semantic snapshot JSON.\n\
-         --semantic-action WINDOW COMPONENT ACTION JSON invoke semantic action.\n\
-         --semantic-focus WINDOW COMPONENT request semantic component focus.\n\
-         --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
-         --wait-text-json WINDOW TEXT  wait for pane text and print JSON match.\n\
-         --wait-text-ms MS WINDOW TEXT  wait with explicit millisecond timeout.\n\
-         --wait-text-json-ms MS WINDOW TEXT  wait for pane text JSON with timeout.\n\
-         --wait-output WINDOW TEXT  wait until pane text or scrollback contains TEXT.\n\
-         --wait-output-json WINDOW TEXT  wait for output and print JSON match.\n\
-         --wait-output-ms MS WINDOW TEXT  wait for output with explicit timeout.\n\
-         --wait-output-json-ms MS WINDOW TEXT  wait for output JSON with timeout.\n\
-         --status-json            print native socket STATUS_JSON.\n\
-         --help-json              print native socket HELP_JSON command catalog.\n\
-         --chrome-json            print native top-bar/chrome reservation JSON.\n\
-         --clipboard-json         print policy-gated cached OSC52 clipboard JSON\n\
-                                  (default denied; set KITTWM_CLIPBOARD_READ=allow).\n\
-         --panes                  print native socket PANES listing.\n\
-         --panes-json             print native socket PANES_JSON.\n\
-         --session-json           print native socket SESSION_JSON.\n\
-         --spawn-pty CMD          spawn a native PTY pane.\n\
-         --focus-pane WINDOW      focus a pane by token.\n\
-         --focus-next / --focus-prev cycle native pane focus.\n\
-         --close-pane WINDOW      close a pane (or focused).\n\
-         --layout columns|rows    switch native pane layout axis.\n\
-         --move-pane WINDOW DIR   move pane left/right/up/down/first/last.\n\
-         --resize-pane WINDOW N   resize pane weight (grow/shrink/+N/-N).\n\
-         --balance-panes          equalize native pane weights.\n\
-         --rename-pane WINDOW TITLE set native pane display title.\n\
-         --apps-json              print native socket APPS_JSON.\n\
-         --apps-first QUERY       print first app candidate from socket discovery.\n\
-         --apps-launch-first QUERY launch first app candidate via socket discovery.\n\
-         --backend fake|quartz|xvfb force a specific backend.\n\
-         --pick-window   (macOS+quartz) live picker over CGWindowList; pick\n\
-                         one window, then run a kittwm session capturing only it.\n\
-         --list-windows  (macOS+quartz) print every titled CGWindow with id,\n\
-                         bounds, owner, title — useful for scripting kittwm.\n\
-         --list-displays (macOS+quartz) print every connected CGDirectDisplayID\n\
-                         with bounds + index.\n\
-         --capture SPEC  (macOS+quartz) capture a specific source non-interactively:\n\
-                         'main'                 = main display (default)\n\
-                         'display:<n>'          = nth connected display\n\
-                         'window:<substring>'   = first matching app window title/owner\n\
-                         'all'                  = all displays as a multi-window session\n\
-         --fps N         frame-rate cap for the main loop (1..=240, default 60).\n\
-                         Live fps + peak fps render in the chrome footer.\n\
-                         Note: on macOS std::thread::sleep granularity is\n\
-                         ~10ms so the actual ceiling is roughly half the\n\
-                         requested value; raise --fps to push it higher.\n\
-\n\
-SUBCOMMANDS\n\
-         doctor          print a diagnostics report (backends, displays,\n\
-                         terminal probe, log status, version). Pass --json\n\
-                         for machine-readable output. Never enters raw mode.\n\
-         --probe-kitty   with doctor, opt into a bounded interactive kitty a=q\n\
-                         response probe (also KITTUI_KITTY_PROBE=1).\n\
-         config          inspect resolved kittwm config env/paths and keymap\n\
-                         validation status.\n\
-         record          capture N frames from --capture/--backend target and\n\
-                         write them as PNG files to --out DIR (default\n\
-                         /tmp/kittwm-record-<unix-ts>). Defaults to 30 frames.\n\
-                         Pass --apng to emit a single animated PNG at\n\
-                         <out>/kittwm.apng (use --delay-ms N for cadence,\n\
-                         default 33ms). Never enters raw mode.\n\
-         bench           measure capture-pipeline throughput. Runs raw_frames\n\
-                         in a tight loop for --seconds N (default 3) against\n\
-                         --capture target and prints captures/s + p50/p95/p99\n\
-                         latency + MB/s. --json for machine-readable output.\n\
-         launch          spawn xterm by default, or run CMD ARGS after\n\
-                         'kittwm launch -- CMD ARGS'. Prints pid + argv.\n\
-         replace         when inside KITTWM_WINDOW, exec a command in-place.\n\
-                         'kittwm replace browser URL' execs kittwm-browser.\n\
-         launcher        render a boxed, numbered launcher preview using\n\
-                         the same --filter/--limit candidate source. Use\n\
-                         --select N to highlight a row and --launch-selection\n\
-                         to spawn that selected candidate.\n\
-         apps            list launch candidates from PATH and /Applications\n\
-                         (macOS). Shows default launcher resolution. Use\n\
-                         --limit N to bound output (default 50), --filter\n\
-                         QUERY to case-insensitively narrow candidates,\n\
-                         --first to print the first match, --launch-first\n\
-                         to spawn it (PATH command or macOS app).\n\
-         --launch-on-f12 intercept F12 in a running session and spawn\n\
-                         KITTWM_LAUNCH_CMD via /bin/sh -c (default: xterm).\n\
-                         Footer shows last_launch_pid and log records result.\n\
-         --launcher-query QUERY make runtime launch actions pick the first\n\
-                         matching PATH/macOS app candidate instead of the\n\
-                         fixed KITTWM_LAUNCH_CMD fallback.\n\
-         --launcher-overlay open an in-session boxed launcher overlay for\n\
-                         launch actions; type filters, Enter launches, Esc closes.\n\
-                         Enabled by default. Pass --no-launcher-overlay or\n\
-                         set KITTUI_WM_LAUNCHER_OVERLAY=0 to keep immediate-spawn.\n\
-         native-terminal run a backend-independent PTY proof: spawn `cat`,\n\
-                         type through the PTY, render an RGBA terminal frame.\n\
-         native-browser  run a backend-independent headless Chrome proof.\n\
-                         Pass --url URL (default: data: page) and --out PNG.\n\
-         keymap          print resolved keybinding config. Defaults to the\n\
-                         built-in tmux-like Ctrl-A prefix map; pass\n\
-                         --keymap PATH to parse and print a custom file.\n\
-                         Use --check to validate duplicates/custom actions.\n\
-                         Sessions also load --keymap PATH / KITTUI_WM_KEYMAP.\n"
-    );
+fn kittwm_help_text() -> &'static str {
+    r#"kittwm — terminal-native window manager
+
+USAGE
+  kittwm                         Start the WM in this terminal (empty workspace + top bar)
+  kittwm --socket PATH COMMAND   Target a running WM socket for one command
+  kittwm --display :N COMMAND    Target a DISPLAY-like kittwm socket token
+  kittwm --help                  Show this overview
+  kittwm help <topic>            Show focused help (when available)
+
+DAILY DRIVER BASICS
+  Start:           kittwm
+  New terminal:    press C-a Enter or C-a t inside kittwm
+  Help overlay:    press C-a ? inside kittwm
+  Exit:            press Ctrl-]
+  Shortcut list:   kittwm shortcuts        (JSON: kittwm --shortcuts-json)
+  Old startup:     KITTWM_STARTUP_TERMINAL=1 kittwm
+
+COMMON INSPECTION
+  --status-json       Current WM status JSON
+  --panes             Human-readable pane list
+  --panes-json        Pane list + geometry/cursor/mode metadata JSON
+  --chrome-json       Top-bar/workspace reservation JSON
+  --help-json         Machine-readable socket command catalog
+  --events-ms MS      Bounded JSON-lines event stream
+
+PANE CONTROL
+  --spawn-pty CMD             Spawn a terminal pane
+  --focus-pane WINDOW         Focus pane by id, or use focused
+  --focus-next | --focus-prev Cycle focus
+  --close-pane WINDOW         Close pane; last pane returns to empty workspace
+  --layout columns|rows       Change tiling axis
+  --move-pane WINDOW DIR      DIR: left/right/up/down/first/last
+  --resize-pane WINDOW N      N: grow/shrink/+N/-N
+  --balance-panes             Equalize pane weights
+  --rename-pane WINDOW TITLE  Set pane display title
+
+INPUT AND AUTOMATION
+  --send-text WINDOW TEXT          Send text bytes
+  --send-line WINDOW TEXT          Send text plus newline
+  --send-key WINDOW KEY            KEY: ctrl-c, escape, enter, arrows, ...
+  --send-mouse WINDOW EVENT C R    Send SGR mouse event
+  --send-bytes-b64 WINDOW BASE64   Send arbitrary bytes
+  --send-file WINDOW PATH|-        Read bytes from file/stdin and send
+  --paste-file WINDOW PATH|-       Paste bytes; respects bracketed paste
+  --read-text WINDOW               Text snapshot
+  --read-text-json WINDOW          Text snapshot JSON
+  --read-scrollback WINDOW         Scrollback text
+  --read-scrollback-json WINDOW    Scrollback JSON
+  --wait-text WINDOW TEXT          Wait for visible text
+  --wait-output WINDOW TEXT        Wait for visible text or scrollback
+  --wait-text-json WINDOW TEXT     JSON wait match
+  --wait-output-json WINDOW TEXT   JSON wait match over text+scrollback
+  Add -ms after wait verb for explicit timeout, e.g. --wait-output-json-ms 5000 focused Ready
+
+APPS AND LAUNCHING
+  apps [--filter QUERY] [--limit N] [--first] [--launch-first]
+  --apps-json              App discovery catalog JSON
+  --apps-first QUERY       Print first matching app candidate
+  --apps-launch-first Q    Launch first matching app candidate
+  launcher                 Render launcher preview; use --select N / --launch-selection
+  launch -- CMD ARGS       Spawn command through backend launcher
+  replace CMD ARGS         Exec command in current KITTWM_WINDOW
+
+SESSIONS AND SEMANTICS
+  --session-json                 Print persistence manifest
+  --save-session PATH|-          Save SESSION_JSON
+  --restore-session PATH|-       Restore panes from manifest
+  --semantic-snapshot WINDOW     Semantic component snapshot JSON
+  --semantic-publish WINDOW JSON_OR_PATH|-
+  --semantic-action WINDOW COMPONENT ACTION JSON
+  --semantic-focus WINDOW COMPONENT
+
+DIAGNOSTICS AND BACKENDS
+  doctor [--json] [--probe-kitty]   Diagnostics; kitty probing is opt-in
+  config [--keymap PATH] [--check]  Config/keymap inspection
+  keymap [--keymap PATH] [--check]  Print resolved keymap
+  record / bench                    Capture-pipeline tooling
+  native-terminal / native-browser  Backend-independent proofs
+  --backend fake|quartz|xvfb        Force capture backend
+  --pick-window / --list-windows / --list-displays / --capture SPEC
+
+EXAMPLES
+  kittwm
+  kittwm --panes
+  kittwm --spawn-pty 'htop'
+  kittwm --read-text-json focused
+  kittwm --wait-output-json-ms 10000 focused 'build finished'
+  kittwm --save-session session.json
+  kittwm --restore-session session.json
+
+For complete socket verbs: kittwm --help-json
+For interactive key chords: kittwm shortcuts
+"#
 }
 
+fn print_help() {
+    print!("{}", kittwm_help_text());
+}
 fn pick_backend(forced: Option<Backend>) -> Backend {
     if let Some(b) = forced {
         return b;
@@ -2600,6 +2562,25 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn kittwm_help_is_grouped_for_daily_driver_use() {
+        let text = kittwm_help_text();
+        for heading in [
+            "USAGE",
+            "DAILY DRIVER BASICS",
+            "COMMON INSPECTION",
+            "PANE CONTROL",
+            "INPUT AND AUTOMATION",
+            "EXAMPLES",
+        ] {
+            assert!(text.contains(heading), "missing {heading}: {text}");
+        }
+        assert!(text.contains("kittwm --panes"), "{text}");
+        assert!(text.contains("--spawn-pty CMD"), "{text}");
+        assert!(text.contains("--wait-output-json-ms"), "{text}");
+        assert!(text.contains("kittwm shortcuts"), "{text}");
     }
 
     #[test]
