@@ -70,6 +70,10 @@ Current semantic implementation status:
   wrappers, typed semantic events, and convenience action helpers.
 - Native kittwm socket exposes `SEMANTIC_SNAPSHOT`, `SEMANTIC_PUBLISH`,
   `SEMANTIC_ACTION`, and `SEMANTIC_FOCUS`.
+- Clean first-launch UX is landed (`bd-5c06ea`): native `kittwm` opens an empty
+  workspace with a top bar by default, can launch a terminal with `C-a Enter` /
+  `C-a t`, shows shortcuts with `C-a ?`, and keeps the old immediate terminal
+  start available via `KITTWM_STARTUP_TERMINAL=1`.
 - Terminal panes expose a fallback semantic text-area tree when no published
   snapshot exists.
 - Published semantic snapshots support in-memory focus, toggle, set/insert text,
@@ -84,9 +88,10 @@ Current semantic implementation status:
   `kittui-core` remains primitive-only.
 - `kittui-wm` can render both internal and public SDK semantic snapshots to
   primitive kittui scenes via shared affordance controls.
-- `NativeSurface` includes common pointer, focus-notification, and side-effect
-  event drain hooks, and `SurfaceCapabilities` now advertises text input
-  separately from exact-byte input, focus notifications, and surface event
+- `NativeSurface` includes common pointer, exact-byte input (`bd-58e0bd`),
+  focus-notification, and side-effect event drain hooks, and
+  `SurfaceCapabilities` now advertises text input separately from exact-byte
+  input, focus notifications, and surface event
   draining. `XWindowSurface` implements the pointer hook by translating
   move/press/release events to `XPointerEvent`; PTY-backed surfaces keep mouse
   routing on the separate socket/SGR path, advertise the extended terminal
