@@ -31,7 +31,7 @@ use kittui_wm::native::{
 use kittui_xvfb::XServer;
 
 use crate::keymap::{Action, KeyMods, KeySpec, Keymap};
-use crate::top_bar::BarModel;
+use crate::top_bar::{workspace_label, BarModel};
 
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
@@ -694,10 +694,10 @@ fn native_shell_view(
     }
 }
 
-fn native_top_bar_model(workspace_id: u16, panes: usize, sock: &str) -> BarModel {
+fn native_top_bar_model(_workspace_id: u16, panes: usize, sock: &str) -> BarModel {
     let focus = if panes == 0 { "-" } else { sock };
     BarModel::live(
-        workspace_id.to_string(),
+        workspace_label(),
         panes,
         focus,
         std::time::SystemTime::now(),
@@ -2286,6 +2286,15 @@ mod native_pane_tests {
             .as_deref()
             .unwrap_or_default()
             .contains("kittui-bar  ws:1  empty")));
+    }
+
+    #[test]
+    fn native_top_bar_uses_workspace_label_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_WORKSPACE", "dev");
+        let text = native_top_bar_text(1, 0, "/tmp/kittwm.sock");
+        assert!(text.contains("ws:dev"), "{text}");
+        std::env::remove_var("KITTWM_WORKSPACE");
     }
 
     #[test]

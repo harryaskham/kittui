@@ -1670,8 +1670,11 @@ fn native_chrome_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     format!("{}\n", native_chrome_status_value(&state))
 }
 
-fn native_workspace_id() -> &'static str {
-    "1"
+fn native_workspace_id() -> String {
+    std::env::var("KITTWM_WORKSPACE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "1".to_string())
 }
 
 fn native_chrome_status_value(state: &NativeSpawnQueueState) -> serde_json::Value {
@@ -1681,8 +1684,9 @@ fn native_chrome_status_value(state: &NativeSpawnQueueState) -> serde_json::Valu
         .filter_map(|pane| Some(u32::from(pane.y?) + u32::from(pane.rows?)))
         .max()
         .map(|bottom| bottom.saturating_sub(u32::from(NATIVE_CHROME_TOP_BAR_ROWS)));
+    let workspace = native_workspace_id();
     serde_json::json!({
-        "workspace": native_workspace_id(),
+        "workspace": workspace,
         "top_bar_rows": NATIVE_CHROME_TOP_BAR_ROWS,
         "tilable_rows": tilable_rows,
     })
@@ -2699,6 +2703,8 @@ pub fn client_request(path: &Path, cmd: &str) -> Result<String> {
 mod tests {
     use super::*;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn tmp_sock() -> PathBuf {
         std::env::temp_dir().join(format!("kittwm-test-{}.sock", std::process::id()))
     }
@@ -3676,6 +3682,23 @@ mod tests {
                 || first.starts_with("ERR no app match"),
             "{first}"
         );
+    }
+
+    #[test]
+    fn native_chrome_json_honors_workspace_env_label() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_WORKSPACE", "dev");
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let chrome: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("CHROME_JSON", &pending)).unwrap();
+        assert_eq!(chrome["workspace"], "dev");
+        assert_eq!(chrome["top_bar_rows"], 1);
+        assert!(chrome["tilable_rows"].is_null());
+        let status: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("STATUS_JSON", &pending)).unwrap();
+        assert_eq!(status["workspace"], "dev");
+        assert_eq!(status["chrome"]["workspace"], "dev");
+        std::env::remove_var("KITTWM_WORKSPACE");
     }
 
     #[test]
