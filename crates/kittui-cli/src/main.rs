@@ -25,7 +25,7 @@ use kittui::{
     TerminalInfo,
 };
 use kittui_affordances::{
-    chip_chrome, divider_chrome, panel_chrome, title_chrome, PanelOptions, Tone,
+    chip_chrome, divider_chrome, panel_chrome, title_chrome, Palette, PanelOptions, Tone,
 };
 use kittui_core::node::{Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
@@ -88,6 +88,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Render inline one-line components for prompts/statuslines.
+    #[command(subcommand)]
+    Inline(InlineCmd),
     /// Render a box (filled, stroked, rounded) at the given footprint.
     Box(BoxArgs),
     /// Render a linear gradient strip.
@@ -123,6 +126,35 @@ enum Cmd {
     Probe(ProbeArgs),
     /// Walk the full kitty graphics protocol surface and emit labelled output.
     Proof(ProofArgs),
+}
+
+#[derive(Subcommand)]
+enum InlineCmd {
+    /// Render a one-line text chip for shell prompts or tmux statuslines.
+    Chip(InlineChipArgs),
+}
+
+#[derive(clap::Args, Clone)]
+struct InlineChipArgs {
+    /// Text inside the chip.
+    #[arg(long)]
+    text: String,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = InlineFormatArg::Ansi)]
+    format: InlineFormatArg,
+    /// Tone palette.
+    #[arg(long, value_enum, default_value_t = ToneArg::Assistant)]
+    tone: ToneArg,
+    /// Spaces of horizontal padding around the text.
+    #[arg(long, default_value_t = 1)]
+    padding: usize,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
+enum InlineFormatArg {
+    Plain,
+    Ansi,
+    Tmux,
 }
 
 #[derive(Subcommand)]
@@ -490,6 +522,7 @@ fn main() -> Result<()> {
         dry_run: cli.dry_run,
     };
     match &cli.cmd {
+        Cmd::Inline(sub) => run_inline(sub),
         Cmd::Box(args) => {
             let config = layers.resolve_box(BoxFlagValues {
                 x: args.x,
@@ -542,6 +575,47 @@ fn main() -> Result<()> {
         Cmd::Probe(args) => run_probe(&global, args),
         Cmd::Proof(args) => run_proof(&global, args),
     }
+}
+
+fn run_inline(cmd: &InlineCmd) -> Result<()> {
+    match cmd {
+        InlineCmd::Chip(args) => {
+            print!("{}", render_inline_chip(args));
+            Ok(())
+        }
+    }
+}
+
+fn render_inline_chip(args: &InlineChipArgs) -> String {
+    let padding = " ".repeat(args.padding);
+    let label = format!("{padding}{}{padding}", args.text);
+    let palette = Palette::for_tone(args.tone.into());
+    match args.format {
+        InlineFormatArg::Plain => format!("[{label}]"),
+        InlineFormatArg::Ansi => format!(
+            "\x1b[1;38;2;{};{};{};48;2;{};{};{}m{label}\x1b[0m",
+            palette.rail.0,
+            palette.rail.1,
+            palette.rail.2,
+            palette.bg_top.0,
+            palette.bg_top.1,
+            palette.bg_top.2,
+        ),
+        InlineFormatArg::Tmux => format!(
+            "#[bold,fg={},bg={}]{}#[default]",
+            rgba_hex(palette.rail),
+            rgba_hex(palette.bg_top),
+            tmux_escape(&label),
+        ),
+    }
+}
+
+fn rgba_hex(color: Rgba) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.0, color.1, color.2)
+}
+
+fn tmux_escape(text: &str) -> String {
+    text.replace('#', "##")
 }
 
 fn run_box(
@@ -1777,6 +1851,29 @@ mod tests {
             )],
             animation: None,
         }
+    }
+
+    #[test]
+    fn inline_chip_renders_plain_ansi_and_tmux_formats() {
+        let mut args = InlineChipArgs {
+            text: "main#1".to_string(),
+            format: InlineFormatArg::Plain,
+            tone: ToneArg::Assistant,
+            padding: 1,
+        };
+        assert_eq!(render_inline_chip(&args), "[ main#1 ]");
+
+        args.format = InlineFormatArg::Ansi;
+        let ansi = render_inline_chip(&args);
+        assert!(ansi.starts_with("\x1b[1;38;2;"), "{ansi:?}");
+        assert!(ansi.contains(" main#1 "), "{ansi:?}");
+        assert!(ansi.ends_with("\x1b[0m"), "{ansi:?}");
+
+        args.format = InlineFormatArg::Tmux;
+        let tmux = render_inline_chip(&args);
+        assert!(tmux.starts_with("#[bold,fg=#"), "{tmux}");
+        assert!(tmux.contains(" main##1 "), "{tmux}");
+        assert!(tmux.ends_with("#[default]"), "{tmux}");
     }
 
     #[test]
