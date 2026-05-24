@@ -131,7 +131,8 @@ Current semantic implementation status:
   visible-text waits, screen-plus-scrollback output waits, CLI JSON text reads
   (`kittwm --read-text-json` / `--read-scrollback-json`), CLI JSON wait wrappers
   (`--wait-text-json`, `--wait-text-json-ms`, `--wait-output-json`,
-  `--wait-output-json-ms`), typed wait-match results, exact byte sends (`send_bytes` / `send_bytes_b64`), bracketed paste
+  `--wait-output-json-ms`), typed wait-match results including SDK JSON wait helpers
+  (`wait_text_match_json[_ms]` / `wait_output_match_json[_ms]`), exact byte sends (`send_bytes` / `send_bytes_b64`), bracketed paste
   byte payloads (`paste_bytes` / `paste_bytes_b64`), and typed `MouseEvent`
   injection through `SurfaceHandle` methods; these are `SendInput`-gated and map
   to the native `SEND_BYTES_B64`, `PASTE_BYTES_B64`, and `SEND_MOUSE` socket
