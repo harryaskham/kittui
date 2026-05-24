@@ -141,7 +141,8 @@ Current semantic implementation status:
   `ChromeReservationStatus` alongside the embedded status/panes chrome metadata;
   `Kittwm::shortcuts()` / `shortcuts_json()` read `SHORTCUTS_JSON` as a typed
   shortcut catalog; local capability presets cover none/restricted/inspection/automation scopes; SDK
-  introspection includes typed `HELP_JSON` catalog helpers. Remaining SDK/runtime
+  introspection includes the `kittwm --help-json` wrapper and typed `HELP_JSON`
+  catalog helpers. Remaining SDK/runtime
   gaps are mostly stable frame-capture/present surfaces, resize/input/frame
   event modeling, clipboard read policy, and runtime-issued credentials.
 - `kittwm-launch` — first-party SDK launcher with backend planning, typed app
