@@ -86,6 +86,7 @@ struct Cli {
     help_topic: Option<String>,
     info: bool,
     quickstart: bool,
+    examples: bool,
     keymap_path: Option<String>,
     keymap_check: bool,
     native_terminal: bool,
@@ -151,6 +152,7 @@ fn parse_args() -> Result<Cli> {
             }
             "info" => out.info = true,
             "quickstart" => out.quickstart = true,
+            "examples" => out.examples = true,
             "status" => {
                 out.automation_request =
                     parse_inspection_alias("status", args.next(), args.next())?;
@@ -673,9 +675,11 @@ USAGE
   kittwm help <topic>            Show focused help (when available)
   kittwm info                    Show friendly running-WM overview
   kittwm quickstart              Show first-run daily-driver checklist
+  kittwm examples                Show copy-paste daily-driver workflows
 
 DAILY DRIVER BASICS
   Quickstart:      kittwm quickstart
+  Examples:        kittwm examples
   Start:           kittwm
   New terminal:    press C-a Enter or C-a t inside kittwm
   Help overlay:    press C-a ? inside kittwm
@@ -1215,6 +1219,9 @@ fn real_main() -> Result<()> {
     }
     if cli.quickstart {
         return quickstart_cmd();
+    }
+    if cli.examples {
+        return examples_cmd();
     }
     if cli.shortcuts {
         return shortcuts_cmd();
@@ -2371,6 +2378,63 @@ fn quickstart_cmd() -> Result<()> {
     Ok(())
 }
 
+fn examples_text() -> &'static str {
+    r#"kittwm examples — copy/paste workflows
+
+START
+  kittwm
+  KITTWM_WORKSPACE=dev kittwm
+  KITTWM_STARTUP_TERMINAL=1 kittwm
+
+INSPECT
+  kittwm info
+  kittwm status
+  kittwm panes
+  kittwm panes-json
+  kittwm events 1000
+  kittwm --chrome-json
+
+SPAWN AND TYPE
+  kittwm spawn htop
+  kittwm spawn bash -lc 'cargo test'
+  kittwm type focused 'echo hello'
+  kittwm line focused 'cargo test -p kittui-cli'
+  kittwm key focused ctrl-c
+
+READ AND WAIT
+  kittwm read focused
+  kittwm read-json focused
+  kittwm --read-scrollback-json focused
+  kittwm wait focused 'Finished'
+  kittwm --wait-output-json-ms 10000 focused 'build finished'
+
+CONTROL PANES
+  kittwm focus native-2
+  kittwm close
+  kittwm layout rows
+  kittwm move last
+  kittwm resize focused +2
+  kittwm balance
+  kittwm rename focused editor
+
+SESSION
+  kittwm --save-session session.json
+  kittwm --restore-session session.json
+
+HELP
+  kittwm quickstart
+  kittwm help topics
+  kittwm help panes
+  kittwm shortcuts
+  kittwm --help-json
+"#
+}
+
+fn examples_cmd() -> Result<()> {
+    print!("{}", examples_text());
+    Ok(())
+}
+
 fn info_cmd() -> Result<()> {
     use kittui_cli::daemon::{client_request_multi, default_socket_path};
     let path = default_socket_path();
@@ -3203,6 +3267,22 @@ mod tests {
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("kittwm spawn htop"), "{text}");
         assert!(text.contains("kittwm help topics"), "{text}");
+    }
+
+    #[test]
+    fn examples_are_copy_paste_daily_driver_commands() {
+        let text = examples_text();
+        for line in [
+            "kittwm info",
+            "kittwm spawn htop",
+            "kittwm line focused 'cargo test -p kittui-cli'",
+            "kittwm --wait-output-json-ms 10000 focused 'build finished'",
+            "kittwm balance",
+            "kittwm --save-session session.json",
+            "kittwm help panes",
+        ] {
+            assert!(text.contains(line), "missing {line}: {text}");
+        }
     }
 
     #[test]
