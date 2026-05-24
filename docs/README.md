@@ -133,8 +133,10 @@ Current semantic implementation status:
   paths. Event helpers expose
   bounded iterators and common envelope/detail accessors; control helpers cover
   focus cycling, layout, balance, and pane movement; `NativePaneDetail` has
-  convenience accessors for bounds/cursor/modes/dirty/transport status; local
-  capability presets cover none/restricted/inspection/automation scopes; SDK
+  convenience accessors for bounds/cursor/modes/dirty/transport status;
+  `Kittwm::chrome()` / `chrome_json()` read `CHROME_JSON` as typed
+  `ChromeReservationStatus` alongside the embedded status/panes chrome metadata;
+  local capability presets cover none/restricted/inspection/automation scopes; SDK
   introspection includes typed `HELP_JSON` catalog helpers. Remaining SDK/runtime
   gaps are mostly stable frame-capture/present surfaces, resize/input/frame
   event modeling, clipboard read policy, and runtime-issued credentials.
