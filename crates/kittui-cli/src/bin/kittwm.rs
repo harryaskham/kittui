@@ -637,7 +637,7 @@ fn parse_args() -> Result<Cli> {
                 print_help();
                 std::process::exit(0);
             }
-            other => return Err(anyhow!("unknown arg {other}")),
+            other => return Err(friendly_unknown_command_error(other)),
         }
     }
     validate_socket_target_flags(&out)?;
@@ -899,11 +899,112 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              launcher [--filter Q] [--limit N]\n\
                                             boxed launcher preview\n\
              kittwm-launch                  first-party SDK launcher helper\n"),
-        other => Err(anyhow!(
-            "unknown kittwm help topic {other:?}; try `kittwm help` for topics"
-        )),
+        other => Err(friendly_unknown_help_topic_error(other)),
     }
 }
+
+fn known_help_topics() -> &'static [&'static str] {
+    &[
+        "topics", "start", "panes", "input", "inspect", "session", "events", "apps",
+    ]
+}
+
+fn known_kittwm_commands() -> &'static [&'static str] {
+    &[
+        "quickstart",
+        "info",
+        "help",
+        "status",
+        "panes",
+        "panes-json",
+        "events",
+        "spawn",
+        "read",
+        "read-json",
+        "type",
+        "line",
+        "key",
+        "wait",
+        "focus",
+        "close",
+        "layout",
+        "move",
+        "resize",
+        "balance",
+        "rename",
+        "apps",
+        "shortcuts",
+        "shortcuts-json",
+        "doctor",
+        "config",
+        "keymap",
+    ]
+}
+
+fn friendly_unknown_command_error(command: &str) -> anyhow::Error {
+    let suggestion = closest_command(command, known_kittwm_commands());
+    let mut msg = format!("unknown kittwm command or flag {command:?}.");
+    if let Some(suggestion) = suggestion {
+        msg.push_str(&format!("\n\nDid you mean?\n  kittwm {suggestion}"));
+    }
+    msg.push_str("\n\nStart here:\n  kittwm quickstart\n  kittwm --help\n  kittwm help topics\n");
+    anyhow!(msg)
+}
+
+fn friendly_unknown_help_topic_error(topic: &str) -> anyhow::Error {
+    let suggestion = closest_command(topic, known_help_topics());
+    let mut msg = format!("unknown kittwm help topic {topic:?}.");
+    if let Some(suggestion) = suggestion {
+        msg.push_str(&format!("\n\nDid you mean?\n  kittwm help {suggestion}"));
+    }
+    msg.push_str("\n\nAvailable topics:\n  kittwm help topics\n  kittwm quickstart\n");
+    anyhow!(msg)
+}
+
+fn closest_command<'a>(input: &str, commands: &'a [&'a str]) -> Option<&'a str> {
+    let normalized = input.trim_start_matches('-').to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+    if let Some(command) = commands
+        .iter()
+        .copied()
+        .find(|command| *command == normalized)
+    {
+        return Some(command);
+    }
+    if let Some(command) = commands
+        .iter()
+        .copied()
+        .find(|command| command.starts_with(&normalized) || normalized.starts_with(*command))
+    {
+        return Some(command);
+    }
+    commands
+        .iter()
+        .copied()
+        .filter_map(|command| {
+            let distance = levenshtein_distance(&normalized, command);
+            (distance <= 3).then_some((distance, command))
+        })
+        .min_by_key(|(distance, command)| (*distance, command.len()))
+        .map(|(_, command)| command)
+}
+
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0; b.len() + 1];
+    for (i, ac) in a.bytes().enumerate() {
+        curr[0] = i + 1;
+        for (j, bc) in b.bytes().enumerate() {
+            let cost = usize::from(ac != bc);
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
+
 fn spawn_alias_request(argv: &[String]) -> Result<String> {
     if argv.is_empty() {
         return Err(anyhow!("usage: kittwm spawn CMD [ARGS...]"));
@@ -3074,6 +3175,24 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn unknown_command_errors_point_to_useful_help() {
+        let err = friendly_unknown_command_error("pane").to_string();
+        assert!(err.contains("unknown kittwm command"), "{err}");
+        assert!(err.contains("Did you mean?"), "{err}");
+        assert!(err.contains("kittwm panes"), "{err}");
+        assert!(err.contains("kittwm quickstart"), "{err}");
+        assert!(err.contains("kittwm help topics"), "{err}");
+    }
+
+    #[test]
+    fn unknown_help_topic_errors_point_to_topics() {
+        let err = help_topic_text("panez").unwrap_err().to_string();
+        assert!(err.contains("unknown kittwm help topic"), "{err}");
+        assert!(err.contains("kittwm help panes"), "{err}");
+        assert!(err.contains("kittwm help topics"), "{err}");
     }
 
     #[test]
