@@ -90,6 +90,7 @@ struct Cli {
     cheat: bool,
     commands: bool,
     commands_json: bool,
+    completions: Option<String>,
     keymap_path: Option<String>,
     keymap_check: bool,
     native_terminal: bool,
@@ -161,6 +162,18 @@ fn parse_args() -> Result<Cli> {
             "cheat" | "cheatsheet" | "cheat-sheet" => out.cheat = true,
             "commands" => out.commands = true,
             "commands-json" => out.commands_json = true,
+            "completions" => {
+                out.completions = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("kittwm completions SHELL"))?,
+                );
+                if let Some(extra) = args.next() {
+                    return Err(anyhow!(
+                        "kittwm completions accepts one shell, got {extra:?}"
+                    ));
+                }
+                break;
+            }
             "status" => {
                 out.automation_request =
                     parse_inspection_alias("status", args.next(), args.next())?;
@@ -688,6 +701,7 @@ USAGE
   kittwm examples                Show copy-paste daily-driver workflows
   kittwm commands                Show grouped local CLI command catalog
   kittwm commands-json           Show local CLI command catalog JSON
+  kittwm completions SHELL       Print shell completions (bash|zsh|fish)
   kittwm cheat                   Show compact daily-driver cheat sheet
 
 DAILY DRIVER BASICS
@@ -957,6 +971,7 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "doctor",
         "config",
         "keymap",
+        "completions",
     ]
 }
 
@@ -1254,6 +1269,9 @@ fn real_main() -> Result<()> {
     }
     if cli.commands_json {
         return commands_json_cmd();
+    }
+    if let Some(shell) = &cli.completions {
+        return completions_cmd(shell);
     }
     if cli.shortcuts {
         return shortcuts_cmd();
@@ -2436,6 +2454,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "grouped local command catalog",
         },
         LocalCommandEntry {
+            command: "commands-json",
+            category: "help",
+            description: "machine-readable local command catalog",
+        },
+        LocalCommandEntry {
+            command: "completions SHELL",
+            category: "help",
+            description: "shell completions for bash, zsh, or fish",
+        },
+        LocalCommandEntry {
             command: "help <topic>",
             category: "help",
             description: "focused topic help",
@@ -2620,6 +2648,63 @@ fn commands_cmd() -> Result<()> {
 
 fn commands_json_cmd() -> Result<()> {
     print!("{}", commands_json_text());
+    Ok(())
+}
+
+fn completion_words() -> Vec<String> {
+    let mut words = local_command_entries()
+        .iter()
+        .filter_map(|entry| entry.command.split_whitespace().next())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    words.extend(
+        [
+            "--help",
+            "--socket",
+            "--display",
+            "--status-json",
+            "--help-json",
+            "--panes",
+            "--panes-json",
+            "--session-json",
+            "--events",
+            "--events-ms",
+            "--shortcuts",
+            "--shortcuts-json",
+            "--read-text-json",
+            "--wait-output-json-ms",
+        ]
+        .into_iter()
+        .map(str::to_string),
+    );
+    words.sort();
+    words.dedup();
+    words
+}
+
+fn completions_text(shell: &str) -> Result<String> {
+    let words = completion_words().join(" ");
+    match shell {
+        "bash" => Ok(format!(
+            "_kittwm() {{\n  local cur=\"${{COMP_WORDS[COMP_CWORD]}}\"\n  COMPREPLY=( $(compgen -W '{words}' -- \"$cur\") )\n}}\ncomplete -F _kittwm kittwm\n"
+        )),
+        "zsh" => Ok(format!(
+            "#compdef kittwm\n_arguments '1:command:({words})' '*::arg:->args'\n"
+        )),
+        "fish" => Ok(completion_words()
+            .into_iter()
+            .map(|word| format!("complete -c kittwm -f -a '{word}'"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"),
+        other => Err(anyhow!(
+            "unsupported completion shell {other:?}; expected bash, zsh, or fish"
+        )),
+    }
+}
+
+fn completions_cmd(shell: &str) -> Result<()> {
+    print!("{}", completions_text(shell)?);
     Ok(())
 }
 
@@ -3594,6 +3679,24 @@ mod tests {
         assert!(err.contains("unknown kittwm help topic"), "{err}");
         assert!(err.contains("kittwm help panes"), "{err}");
         assert!(err.contains("kittwm help topics"), "{err}");
+    }
+
+    #[test]
+    fn completions_include_daily_driver_aliases() {
+        let bash = completions_text("bash").unwrap();
+        assert!(bash.contains("complete -F _kittwm kittwm"), "{bash}");
+        assert!(bash.contains("quickstart"), "{bash}");
+        assert!(bash.contains("spawn"), "{bash}");
+        assert!(bash.contains("--panes-json"), "{bash}");
+
+        let zsh = completions_text("zsh").unwrap();
+        assert!(zsh.contains("#compdef kittwm"), "{zsh}");
+        assert!(zsh.contains("commands-json"), "{zsh}");
+
+        let fish = completions_text("fish").unwrap();
+        assert!(fish.contains("complete -c kittwm"), "{fish}");
+        assert!(fish.contains("cheat"), "{fish}");
+        assert!(completions_text("powershell").is_err());
     }
 
     #[test]
