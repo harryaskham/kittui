@@ -65,6 +65,12 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
     },
 ];
 
+/// External daily-driver command hints appended to the shortcut overlay.
+pub const NATIVE_SHORTCUT_COMMAND_HINTS: &[&str] = &[
+    "outside: kittwm info · kittwm quickstart · kittwm examples · kittwm cheat",
+    "outside: kittwm panes · events 1000 · help panes",
+];
+
 /// Native kittwm shortcut rows, shared by `C-a ?` and CLI inspection.
 pub const NATIVE_SHORTCUTS: &[&str] = &[
     "kittwm shortcuts",
@@ -78,6 +84,8 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a [ / C-a ]      move focused pane",
     "C-a b              balance panes",
     "Ctrl-]             exit kittwm",
+    NATIVE_SHORTCUT_COMMAND_HINTS[0],
+    NATIVE_SHORTCUT_COMMAND_HINTS[1],
 ];
 
 /// Render the shortcut list as newline-delimited text.
@@ -119,6 +127,8 @@ mod tests {
         assert!(text.contains("launch terminal"), "{text}");
         assert!(text.contains("toggle this help"), "{text}");
         assert!(text.contains("Ctrl-]"), "{text}");
+        assert!(text.contains("kittwm info"), "{text}");
+        assert!(text.contains("kittwm cheat"), "{text}");
     }
 
     #[test]
@@ -133,5 +143,8 @@ mod tests {
             .any(|entry| entry["id"] == "launch_terminal"));
         assert!(shortcuts.iter().any(|entry| entry["id"] == "toggle_help"));
         assert!(shortcuts.iter().any(|entry| entry["keys"] == "Ctrl-]"));
+        assert!(shortcuts
+            .iter()
+            .all(|entry| entry["id"] != "daily_driver_commands"));
     }
 }
