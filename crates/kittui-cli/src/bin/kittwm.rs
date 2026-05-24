@@ -364,6 +364,16 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--wait-text WINDOW NEEDLE"))?;
                 out.automation_request = Some(automation_request("WAIT_TEXT", &window, &needle)?);
             }
+            "--wait-text-json" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text-json WINDOW NEEDLE"))?;
+                let needle = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text-json WINDOW NEEDLE"))?;
+                out.automation_request =
+                    Some(automation_request("WAIT_TEXT_JSON", &window, &needle)?);
+            }
             "--wait-output" => {
                 let window = args
                     .next()
@@ -372,6 +382,16 @@ fn parse_args() -> Result<Cli> {
                     .next()
                     .ok_or_else(|| anyhow!("--wait-output WINDOW NEEDLE"))?;
                 out.automation_request = Some(automation_request("WAIT_OUTPUT", &window, &needle)?);
+            }
+            "--wait-output-json" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output-json WINDOW NEEDLE"))?;
+                let needle = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output-json WINDOW NEEDLE"))?;
+                out.automation_request =
+                    Some(automation_request("WAIT_OUTPUT_JSON", &window, &needle)?);
             }
             "--wait-text-ms" => {
                 let ms = args
@@ -386,6 +406,19 @@ fn parse_args() -> Result<Cli> {
                 out.automation_request =
                     Some(wait_ms_request("WAIT_TEXT_MS", &ms, &window, &needle)?);
             }
+            "--wait-text-json-ms" => {
+                let ms = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text-json-ms MS WINDOW NEEDLE"))?;
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text-json-ms MS WINDOW NEEDLE"))?;
+                let needle = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-text-json-ms MS WINDOW NEEDLE"))?;
+                out.automation_request =
+                    Some(wait_ms_request("WAIT_TEXT_JSON_MS", &ms, &window, &needle)?);
+            }
             "--wait-output-ms" => {
                 let ms = args
                     .next()
@@ -398,6 +431,23 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--wait-output-ms MS WINDOW NEEDLE"))?;
                 out.automation_request =
                     Some(wait_ms_request("WAIT_OUTPUT_MS", &ms, &window, &needle)?);
+            }
+            "--wait-output-json-ms" => {
+                let ms = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output-json-ms MS WINDOW NEEDLE"))?;
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output-json-ms MS WINDOW NEEDLE"))?;
+                let needle = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--wait-output-json-ms MS WINDOW NEEDLE"))?;
+                out.automation_request = Some(wait_ms_request(
+                    "WAIT_OUTPUT_JSON_MS",
+                    &ms,
+                    &window,
+                    &needle,
+                )?);
             }
             "--status-json" => out.automation_request = Some("STATUS_JSON".to_string()),
             "--help-json" => out.automation_request = Some("HELP_JSON".to_string()),
@@ -573,9 +623,13 @@ fn print_help() {
          --semantic-action WINDOW COMPONENT ACTION JSON invoke semantic action.\n\
          --semantic-focus WINDOW COMPONENT request semantic component focus.\n\
          --wait-text WINDOW TEXT  wait until pane text contains TEXT.\n\
+         --wait-text-json WINDOW TEXT  wait for pane text and print JSON match.\n\
          --wait-text-ms MS WINDOW TEXT  wait with explicit millisecond timeout.\n\
+         --wait-text-json-ms MS WINDOW TEXT  wait for pane text JSON with timeout.\n\
          --wait-output WINDOW TEXT  wait until pane text or scrollback contains TEXT.\n\
+         --wait-output-json WINDOW TEXT  wait for output and print JSON match.\n\
          --wait-output-ms MS WINDOW TEXT  wait for output with explicit timeout.\n\
+         --wait-output-json-ms MS WINDOW TEXT  wait for output JSON with timeout.\n\
          --status-json            print native socket STATUS_JSON.\n\
          --help-json              print native socket HELP_JSON command catalog.\n\
          --chrome-json            print native top-bar/chrome reservation JSON.\n\
@@ -2695,6 +2749,14 @@ mod tests {
             "WAIT_TEXT_MS focused 2500 Ready Now"
         );
         assert_eq!(
+            automation_request("WAIT_TEXT_JSON", "focused", "Ready Now").unwrap(),
+            "WAIT_TEXT_JSON focused Ready Now"
+        );
+        assert_eq!(
+            wait_ms_request("WAIT_TEXT_JSON_MS", "2500", "focused", "Ready Now").unwrap(),
+            "WAIT_TEXT_JSON_MS focused 2500 Ready Now"
+        );
+        assert_eq!(
             automation_request("send_bytes_b64", "focused", "aGkKAA==").unwrap(),
             "SEND_BYTES_B64 focused aGkKAA=="
         );
@@ -2717,6 +2779,14 @@ mod tests {
         assert_eq!(
             wait_ms_request("WAIT_OUTPUT_MS", "2500", "focused", "Ready Now").unwrap(),
             "WAIT_OUTPUT_MS focused 2500 Ready Now"
+        );
+        assert_eq!(
+            automation_request("WAIT_OUTPUT_JSON", "focused", "Ready Now").unwrap(),
+            "WAIT_OUTPUT_JSON focused Ready Now"
+        );
+        assert_eq!(
+            wait_ms_request("WAIT_OUTPUT_JSON_MS", "2500", "focused", "Ready Now").unwrap(),
+            "WAIT_OUTPUT_JSON_MS focused 2500 Ready Now"
         );
         assert_eq!(
             semantic_snapshot_request("focused").unwrap(),

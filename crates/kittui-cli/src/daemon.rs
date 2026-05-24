@@ -624,11 +624,23 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("PASTE_BYTES_B64 ") {
         return queue_native_paste_bytes_b64(pending, rest);
     }
+    if let Some(rest) = cmd.strip_prefix("WAIT_OUTPUT_JSON_MS ") {
+        return native_spawn_wait_output_json_ms_reply(pending, rest);
+    }
+    if let Some(rest) = cmd.strip_prefix("WAIT_OUTPUT_JSON ") {
+        return native_spawn_wait_output_json_reply(pending, rest, Duration::from_secs(5));
+    }
     if let Some(rest) = cmd.strip_prefix("WAIT_OUTPUT_MS ") {
         return native_spawn_wait_output_ms_reply(pending, rest);
     }
     if let Some(rest) = cmd.strip_prefix("WAIT_OUTPUT ") {
         return native_spawn_wait_output_reply(pending, rest, Duration::from_secs(5));
+    }
+    if let Some(rest) = cmd.strip_prefix("WAIT_TEXT_JSON_MS ") {
+        return native_spawn_wait_text_json_ms_reply(pending, rest);
+    }
+    if let Some(rest) = cmd.strip_prefix("WAIT_TEXT_JSON ") {
+        return native_spawn_wait_text_json_reply(pending, rest, Duration::from_secs(5));
     }
     if let Some(rest) = cmd.strip_prefix("WAIT_TEXT_MS ") {
         return native_spawn_wait_text_ms_reply(pending, rest);
@@ -674,7 +686,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -843,6 +855,16 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "wait until pane text contains text with explicit timeout",
         ),
         (
+            "WAIT_TEXT_JSON <window|focused> <needle>",
+            "automation",
+            "wait for pane text and return JSON match metadata",
+        ),
+        (
+            "WAIT_TEXT_JSON_MS <window|focused> <ms> <needle>",
+            "automation",
+            "wait for pane text with explicit timeout and return JSON match metadata",
+        ),
+        (
             "WAIT_OUTPUT <window|focused> <needle>",
             "automation",
             "wait until pane text or scrollback contains text",
@@ -851,6 +873,16 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "WAIT_OUTPUT_MS <window|focused> <ms> <needle>",
             "automation",
             "wait until pane text or scrollback contains text with explicit timeout",
+        ),
+        (
+            "WAIT_OUTPUT_JSON <window|focused> <needle>",
+            "automation",
+            "wait for pane text/scrollback and return JSON match metadata",
+        ),
+        (
+            "WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle>",
+            "automation",
+            "wait for pane text/scrollback with explicit timeout and return JSON match metadata",
         ),
         ("APPS", "apps", "text app discovery listing"),
         ("APPS_JSON", "apps", "JSON app discovery listing"),
@@ -1806,14 +1838,28 @@ fn native_spawn_wait_text_ms_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
 ) -> String {
-    native_spawn_wait_ms_reply(pending, rest, "WAIT_TEXT_MS", false)
+    native_spawn_wait_ms_reply(pending, rest, "WAIT_TEXT_MS", false, false)
+}
+
+fn native_spawn_wait_text_json_ms_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+) -> String {
+    native_spawn_wait_ms_reply(pending, rest, "WAIT_TEXT_JSON_MS", false, true)
 }
 
 fn native_spawn_wait_output_ms_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
 ) -> String {
-    native_spawn_wait_ms_reply(pending, rest, "WAIT_OUTPUT_MS", true)
+    native_spawn_wait_ms_reply(pending, rest, "WAIT_OUTPUT_MS", true, false)
+}
+
+fn native_spawn_wait_output_json_ms_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+) -> String {
+    native_spawn_wait_ms_reply(pending, rest, "WAIT_OUTPUT_JSON_MS", true, true)
 }
 
 fn native_spawn_wait_ms_reply(
@@ -1821,6 +1867,7 @@ fn native_spawn_wait_ms_reply(
     rest: &str,
     verb: &str,
     include_scrollback: bool,
+    json: bool,
 ) -> String {
     let Some((target, rest)) = rest.trim_start().split_once(' ') else {
         return format!("ERR {verb} requires window, milliseconds, and needle\n");
@@ -1838,12 +1885,9 @@ fn native_spawn_wait_ms_reply(
         pending,
         &format!("{} {}", target.trim(), needle.trim()),
         Duration::from_millis(ms),
-        if include_scrollback {
-            "WAIT_OUTPUT"
-        } else {
-            "WAIT_TEXT"
-        },
+        verb,
         include_scrollback,
+        json,
     )
 }
 
@@ -1852,7 +1896,15 @@ fn native_spawn_wait_text_reply(
     rest: &str,
     timeout: Duration,
 ) -> String {
-    native_spawn_wait_reply(pending, rest, timeout, "WAIT_TEXT", false)
+    native_spawn_wait_reply(pending, rest, timeout, "WAIT_TEXT", false, false)
+}
+
+fn native_spawn_wait_text_json_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+    timeout: Duration,
+) -> String {
+    native_spawn_wait_reply(pending, rest, timeout, "WAIT_TEXT_JSON", false, true)
 }
 
 fn native_spawn_wait_output_reply(
@@ -1860,7 +1912,15 @@ fn native_spawn_wait_output_reply(
     rest: &str,
     timeout: Duration,
 ) -> String {
-    native_spawn_wait_reply(pending, rest, timeout, "WAIT_OUTPUT", true)
+    native_spawn_wait_reply(pending, rest, timeout, "WAIT_OUTPUT", true, false)
+}
+
+fn native_spawn_wait_output_json_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+    timeout: Duration,
+) -> String {
+    native_spawn_wait_reply(pending, rest, timeout, "WAIT_OUTPUT_JSON", true, true)
 }
 
 fn native_spawn_wait_reply(
@@ -1869,6 +1929,7 @@ fn native_spawn_wait_reply(
     timeout: Duration,
     verb: &str,
     include_scrollback: bool,
+    json: bool,
 ) -> String {
     let Some((target, needle)) = rest.trim_start().split_once(' ') else {
         return format!("ERR {verb} requires window and needle\n");
@@ -1899,6 +1960,17 @@ fn native_spawn_wait_reply(
             } else {
                 "MATCH_TEXT"
             };
+            if json {
+                return format!(
+                    "{}\n",
+                    serde_json::json!({
+                        "kind": if include_scrollback { "output" } else { "text" },
+                        "match": match_tag,
+                        "window": window,
+                        "bytes": text.len(),
+                    })
+                );
+            }
             return format!("{match_tag} window={window} bytes={}\n", text.len());
         }
         if Instant::now() >= deadline {
@@ -2680,6 +2752,8 @@ fn client_read_timeout_for(cmd: &str) -> Duration {
     let Some(rest) = trimmed
         .strip_prefix("WAIT_TEXT_MS ")
         .or_else(|| trimmed.strip_prefix("WAIT_OUTPUT_MS "))
+        .or_else(|| trimmed.strip_prefix("WAIT_TEXT_JSON_MS "))
+        .or_else(|| trimmed.strip_prefix("WAIT_OUTPUT_JSON_MS "))
     else {
         return CLIENT_READ_TIMEOUT;
     };
@@ -3911,6 +3985,23 @@ mod tests {
             native_spawn_wait_text_ms_reply(&pending, "focused 10 second").trim(),
             "MATCH_TEXT window=native-2 bytes=17"
         );
+        let wait_text_json: serde_json::Value =
+            serde_json::from_str(&native_spawn_wait_text_json_reply(
+                &pending,
+                "focused second",
+                Duration::from_millis(1),
+            ))
+            .unwrap();
+        assert_eq!(wait_text_json["kind"], "text");
+        assert_eq!(wait_text_json["match"], "MATCH_TEXT");
+        assert_eq!(wait_text_json["window"], "native-2");
+        assert_eq!(wait_text_json["bytes"], 17);
+        let wait_text_json_ms: serde_json::Value = serde_json::from_str(&native_spawn_queue_reply(
+            "WAIT_TEXT_JSON_MS focused 10 second",
+            &pending,
+        ))
+        .unwrap();
+        assert_eq!(wait_text_json_ms["kind"], "text");
         assert_eq!(
             native_spawn_wait_output_reply(&pending, "focused history", Duration::from_millis(1))
                 .trim(),
@@ -3926,6 +4017,22 @@ mod tests {
             native_spawn_wait_output_ms_reply(&pending, "focused 10 history").trim(),
             "MATCH_OUTPUT window=native-2 bytes=30"
         );
+        let wait_output_json: serde_json::Value =
+            serde_json::from_str(&native_spawn_wait_output_json_reply(
+                &pending,
+                "focused history",
+                Duration::from_millis(1),
+            ))
+            .unwrap();
+        assert_eq!(wait_output_json["kind"], "output");
+        assert_eq!(wait_output_json["match"], "MATCH_OUTPUT");
+        assert_eq!(wait_output_json["window"], "native-2");
+        assert_eq!(wait_output_json["bytes"], 30);
+        let wait_output_json_ms: serde_json::Value = serde_json::from_str(
+            &native_spawn_queue_reply("WAIT_OUTPUT_JSON_MS focused 10 history", &pending),
+        )
+        .unwrap();
+        assert_eq!(wait_output_json_ms["kind"], "output");
         assert!(
             native_spawn_wait_text_ms_reply(&pending, "focused nope second")
                 .contains("ERR WAIT_TEXT_MS milliseconds")
