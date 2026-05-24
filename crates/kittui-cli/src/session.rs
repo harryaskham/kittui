@@ -1973,6 +1973,10 @@ mod native_pane_tests {
     }
 
     #[test]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "Nix Darwin sandbox lacks a stable PTY shell for dummy panes"
+    )]
     fn native_pane_statuses_include_dirty_frame_metrics() {
         let panes = vec![NativePane {
             window: "native-1".to_string(),
