@@ -1415,6 +1415,31 @@ impl ClipboardStatus {
     }
 }
 
+/// Machine-readable native shortcut catalog returned by `SHORTCUTS_JSON`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShortcutCatalog {
+    /// Schema version for the shortcut catalog shape.
+    #[serde(default)]
+    pub schema_version: Option<u32>,
+    /// Catalog kind marker, currently `kittwm-native-shortcuts`.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// Native shortcut entries.
+    #[serde(default)]
+    pub shortcuts: Vec<ShortcutEntry>,
+}
+
+/// One native shortcut entry in [`ShortcutCatalog`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShortcutEntry {
+    /// Stable machine-readable action id.
+    pub id: String,
+    /// Human-readable key chord(s).
+    pub keys: String,
+    /// Human-readable description.
+    pub description: String,
+}
+
 /// Machine-readable socket help catalog returned by `HELP_JSON`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelpCatalog {
@@ -1577,6 +1602,19 @@ impl Kittwm {
     /// Alias for [`Kittwm::clipboard`].
     pub fn clipboard_json(&self) -> Result<ClipboardStatus> {
         self.clipboard()
+    }
+
+    /// Fetch the native shortcut catalog from `SHORTCUTS_JSON`.
+    pub fn shortcuts(&self) -> Result<ShortcutCatalog> {
+        self.capabilities.ensure(Capability::ReadText)?;
+        Ok(serde_json::from_str(
+            &self.request_protocol("SHORTCUTS_JSON")?,
+        )?)
+    }
+
+    /// Alias for [`Kittwm::shortcuts`].
+    pub fn shortcuts_json(&self) -> Result<ShortcutCatalog> {
+        self.shortcuts()
     }
 
     /// Fetch the native socket command catalog from `HELP_JSON`.
@@ -2870,6 +2908,47 @@ mod tests {
         assert_eq!(seen, "CLIPBOARD_JSON");
         assert!(!status.allowed);
         assert!(!status.has_payload());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shortcuts_helper_sends_expected_socket_command() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwshortcuts-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            stream
+                .write_all(
+                    br#"{"schema_version":1,"kind":"kittwm-native-shortcuts","shortcuts":[{"id":"launch_terminal","keys":"C-a Enter / C-a t","description":"launch terminal"},{"id":"toggle_help","keys":"C-a ?","description":"toggle this help"},{"id":"exit_kittwm","keys":"Ctrl-]","description":"exit kittwm"}]}
+"#,
+                )
+                .unwrap();
+            request.trim().to_string()
+        });
+        let client = Kittwm::connect_path(&path);
+        let catalog = client.shortcuts_json().unwrap();
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen, "SHORTCUTS_JSON");
+        assert_eq!(catalog.kind.as_deref(), Some("kittwm-native-shortcuts"));
+        assert!(catalog
+            .shortcuts
+            .iter()
+            .any(|entry| entry.id == "launch_terminal"));
+        assert!(catalog
+            .shortcuts
+            .iter()
+            .any(|entry| entry.id == "toggle_help"));
+        assert!(catalog.shortcuts.iter().any(|entry| entry.keys == "Ctrl-]"));
     }
 
     #[cfg(unix)]
