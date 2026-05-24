@@ -83,6 +83,7 @@ struct Cli {
     keymap: bool,
     shortcuts: bool,
     shortcuts_json: bool,
+    help_topic: Option<String>,
     keymap_path: Option<String>,
     keymap_check: bool,
     native_terminal: bool,
@@ -137,6 +138,15 @@ fn parse_args() -> Result<Cli> {
             "keymap" => out.keymap = true,
             "shortcuts" => out.shortcuts = true,
             "shortcuts-json" => out.shortcuts_json = true,
+            "help" => {
+                out.help_topic = Some(args.next().unwrap_or_else(|| "topics".to_string()));
+                if let Some(extra) = args.next() {
+                    return Err(anyhow!(
+                        "kittwm help accepts at most one topic, got {extra:?}"
+                    ));
+                }
+                break;
+            }
             "apps" => out.apps = true,
             "native-terminal" => out.native_terminal = true,
             "native-browser" => out.native_browser = true,
@@ -684,6 +694,98 @@ For interactive key chords: kittwm shortcuts
 fn print_help() {
     print!("{}", kittwm_help_text());
 }
+
+fn help_topic_cmd(topic: &str) -> Result<()> {
+    print!("{}", help_topic_text(topic)?);
+    Ok(())
+}
+
+fn help_topic_text(topic: &str) -> Result<&'static str> {
+    match topic {
+        "topics" | "topic" | "list" => Ok("kittwm help topics\n\
+             ==================\n\n\
+             start    launch modes, startup environment, and first terminal\n\
+             panes    pane lifecycle, focus, layout, movement, and sessions\n\
+             input    text, key, mouse, bytes, paste, and semantic actions\n\
+             inspect  status, panes, chrome, shortcuts, help, and text reads\n\
+             session  save/restore session manifests\n\
+             events   bounded event streams and typed SDK event helpers\n\
+             apps     app discovery and launch helpers\n\n\
+             Usage: kittwm help <topic>\n"),
+        "start" | "startup" => Ok("kittwm help start\n\
+             =================\n\n\
+             kittwm                         start clean native workspace\n\
+             KITTWM_STARTUP_TERMINAL=1      start old immediate terminal\n\
+             KITTWM_WORKSPACE=<label>       override displayed/reported label\n\
+             KITTWM_NATIVE_RENDERER=terminal use ANSI renderer\n\
+             KITTWM_NATIVE_RENDERER=kitty    use kitty graphics renderer\n\
+             KITTWM_NATIVE_CHROME_RENDERER=affordance-scene\n\
+                                            opt into kittui scene chrome\n\
+             Ctrl-A Enter / Ctrl-A t        launch terminal from empty workspace\n\
+             Ctrl-]                         exit kittwm\n"),
+        "panes" | "pane" => Ok("kittwm help panes\n\
+             =================\n\n\
+             --spawn-pty CMD                spawn a native PTY pane\n\
+             --focus-pane WINDOW            focus window or focused token\n\
+             --focus-next / --focus-prev    cycle focus\n\
+             --close-pane WINDOW            close pane; last pane returns empty\n\
+             --layout columns|rows          switch layout axis\n\
+             --move-pane WINDOW DIR         left/right/up/down/first/last\n\
+             --resize-pane WINDOW AMOUNT    grow/shrink/+N/-N pane weight\n\
+             --balance-panes                equalize weights\n\
+             --rename-pane WINDOW TITLE     set display title\n\n\
+             Socket equivalents include SPAWN_PTY, FOCUS_PANE, CLOSE_PANE,\n\
+             LAYOUT, MOVE_PANE, RESIZE_PANE, BALANCE_PANES, and RENAME_PANE.\n"),
+        "input" => Ok("kittwm help input\n\
+             =================\n\n\
+             --send-text WINDOW TEXT        send text bytes\n\
+             --send-line WINDOW TEXT        send text plus newline\n\
+             --send-key WINDOW KEY          send named key (ctrl-c, escape, arrows)\n\
+             --send-mouse WINDOW EVENT C R  send SGR mouse event if app enabled it\n\
+             --send-bytes-b64 WINDOW B64    send exact bytes\n\
+             --send-file WINDOW PATH|-      send bytes from file/stdin\n\
+             --paste-file WINDOW PATH|-     paste bytes with bracketed-paste support\n\
+             --semantic-action WINDOW COMPONENT ACTION JSON\n\
+                                            invoke semantic action\n\
+             --semantic-focus WINDOW COMPONENT request semantic focus\n"),
+        "inspect" | "inspection" => Ok("kittwm help inspect\n\
+             ===================\n\n\
+             --status-json                  STATUS_JSON snapshot\n\
+             --panes / --panes-json         pane listing / structured panes\n\
+             --chrome-json                  CHROME_JSON workspace/chrome metadata\n\
+             --shortcuts / --shortcuts-json shortcut catalog\n\
+             --help-json                    HELP_JSON command catalog\n\
+             --read-text[-json] WINDOW      text snapshot\n\
+             --read-scrollback[-json] WINDOW scrollback snapshot\n\
+             --semantic-snapshot WINDOW     semantic component snapshot\n\
+             --apps-json                    app discovery catalog\n"),
+        "session" | "sessions" => Ok("kittwm help session\n\
+             ===================\n\n\
+             --save-session PATH|-          write SESSION_JSON manifest\n\
+             --restore-session PATH|-       queue RESTORE_SESSION_JSON\n\
+             --session-json                 print current SESSION_JSON\n\n\
+             Session manifests store layout axis, focus, pane order, titles,\n\
+             commands, and weights. Restore replaces the native pane set.\n"),
+        "events" | "event" => Ok("kittwm help events\n\
+             ==================\n\n\
+             --events                       stream bounded EVENTS output\n\
+             --events-ms MS                 stream EVENTS for explicit timeout\n\n\
+             EVENTS starts with status, then pane/focus/layout/input/frame,\n\
+             semantic, and surface side-effect event envelopes, ending with END.\n"),
+        "apps" | "app" => Ok("kittwm help apps\n\
+             ================\n\n\
+             apps                           list launch candidates\n\
+             --apps-json                    APPS_JSON catalog\n\
+             --apps-first QUERY             first matching app candidate\n\
+             --apps-launch-first QUERY      launch first matching candidate\n\
+             launcher [--filter Q] [--limit N]\n\
+                                            boxed launcher preview\n\
+             kittwm-launch                  first-party SDK launcher helper\n"),
+        other => Err(anyhow!(
+            "unknown kittwm help topic {other:?}; try `kittwm help` for topics"
+        )),
+    }
+}
 fn pick_backend(forced: Option<Backend>) -> Backend {
     if let Some(b) = forced {
         return b;
@@ -761,6 +863,9 @@ fn real_main() -> Result<()> {
     }
     if cli.keymap {
         return keymap_cmd(&cli);
+    }
+    if let Some(topic) = &cli.help_topic {
+        return help_topic_cmd(topic);
     }
     if cli.shortcuts {
         return shortcuts_cmd();
@@ -2601,6 +2706,31 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry["id"] == "launch_terminal"));
+    }
+
+    #[test]
+    fn help_topic_panes_is_focused() {
+        let text = help_topic_text("panes").unwrap();
+        assert!(text.contains("--spawn-pty CMD"), "{text}");
+        assert!(text.contains("--balance-panes"), "{text}");
+        assert!(!text.contains("--probe-kitty"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_input_is_focused() {
+        let text = help_topic_text("input").unwrap();
+        assert!(text.contains("--send-text WINDOW TEXT"), "{text}");
+        assert!(text.contains("--semantic-action"), "{text}");
+        assert!(!text.contains("--save-session"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_rejects_unknown_topic() {
+        let err = help_topic_text("bogus").unwrap_err();
+        assert!(
+            err.to_string().contains("unknown kittwm help topic"),
+            "{err}"
+        );
     }
 
     #[test]
