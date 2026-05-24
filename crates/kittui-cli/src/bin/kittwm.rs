@@ -149,6 +149,26 @@ fn parse_args() -> Result<Cli> {
                 break;
             }
             "info" => out.info = true,
+            "status" => {
+                out.automation_request =
+                    parse_inspection_alias("status", args.next(), args.next())?;
+                out.mode = Mode::Status;
+                break;
+            }
+            "panes" => {
+                out.automation_request = parse_inspection_alias("panes", args.next(), args.next())?;
+                break;
+            }
+            "panes-json" => {
+                out.automation_request =
+                    parse_inspection_alias("panes-json", args.next(), args.next())?;
+                break;
+            }
+            "events" => {
+                out.automation_request =
+                    parse_inspection_alias("events", args.next(), args.next())?;
+                break;
+            }
             "apps" => out.apps = true,
             "native-terminal" => out.native_terminal = true,
             "native-browser" => out.native_browser = true,
@@ -755,8 +775,10 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --semantic-focus WINDOW COMPONENT request semantic focus\n"),
         "inspect" | "inspection" => Ok("kittwm help inspect\n\
              ===================\n\n\
+             status                         daemon STATUS (alias for --status)\n\
+             panes / panes-json             pane listing / structured panes\n\
+             events [ms]                    bounded event stream\n\
              --status-json                  STATUS_JSON snapshot\n\
-             --panes / --panes-json         pane listing / structured panes\n\
              --chrome-json                  CHROME_JSON workspace/chrome metadata\n\
              --shortcuts / --shortcuts-json shortcut catalog\n\
              --help-json                    HELP_JSON command catalog\n\
@@ -791,6 +813,51 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
         )),
     }
 }
+fn parse_inspection_alias(
+    alias: &str,
+    arg: Option<String>,
+    extra: Option<String>,
+) -> Result<Option<String>> {
+    match alias {
+        "status" => {
+            if let Some(arg) = arg {
+                return Err(anyhow!(
+                    "kittwm status does not accept an argument, got {arg:?}"
+                ));
+            }
+            Ok(None)
+        }
+        "panes" => {
+            if let Some(arg) = arg {
+                return Err(anyhow!(
+                    "kittwm panes does not accept an argument, got {arg:?}"
+                ));
+            }
+            Ok(Some("PANES".to_string()))
+        }
+        "panes-json" => {
+            if let Some(arg) = arg {
+                return Err(anyhow!(
+                    "kittwm panes-json does not accept an argument, got {arg:?}"
+                ));
+            }
+            Ok(Some("PANES_JSON".to_string()))
+        }
+        "events" => {
+            if let Some(extra) = extra {
+                return Err(anyhow!(
+                    "kittwm events accepts at most one millisecond timeout, got {extra:?}"
+                ));
+            }
+            Ok(Some(match arg {
+                Some(ms) => events_request(&ms)?,
+                None => "EVENTS".to_string(),
+            }))
+        }
+        _ => Err(anyhow!("unknown inspection alias {alias:?}")),
+    }
+}
+
 fn pick_backend(forced: Option<Backend>) -> Backend {
     if let Some(b) = forced {
         return b;
@@ -2883,6 +2950,41 @@ mod tests {
             err.to_string().contains("unknown kittwm help topic"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn inspection_aliases_map_to_socket_commands() {
+        assert_eq!(
+            parse_inspection_alias("panes", None, None)
+                .unwrap()
+                .as_deref(),
+            Some("PANES")
+        );
+        assert_eq!(
+            parse_inspection_alias("panes-json", None, None)
+                .unwrap()
+                .as_deref(),
+            Some("PANES_JSON")
+        );
+        assert_eq!(
+            parse_inspection_alias("events", Some("2500".to_string()), None)
+                .unwrap()
+                .as_deref(),
+            Some("EVENTS 2500")
+        );
+        assert!(parse_inspection_alias("status", None, None)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn inspection_aliases_reject_extra_args() {
+        let err =
+            parse_inspection_alias("events", Some("10".to_string()), Some("extra".to_string()))
+                .unwrap_err();
+        assert!(err.to_string().contains("at most one"), "{err}");
+        let err = parse_inspection_alias("panes", Some("extra".to_string()), None).unwrap_err();
+        assert!(err.to_string().contains("does not accept"), "{err}");
     }
 
     #[test]
