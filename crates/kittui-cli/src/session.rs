@@ -720,6 +720,14 @@ fn native_help_overlay_lines() -> &'static [&'static str] {
     crate::shortcuts::NATIVE_SHORTCUTS
 }
 
+fn native_empty_workspace_hint_lines() -> &'static [&'static str] {
+    &[
+        "Empty kittwm workspace",
+        "C-a Enter / C-a t opens a terminal · C-a ? shows shortcuts · Ctrl-] exits",
+        "From another shell: kittwm quickstart · kittwm info · kittwm examples",
+    ]
+}
+
 fn native_startup_terminal_enabled() -> bool {
     matches!(
         std::env::var("KITTWM_STARTUP_TERMINAL")
@@ -1662,6 +1670,22 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
         view.top_bar.row + 1,
         clip_and_pad(&view.top_bar.text, cols as usize)
     ));
+    if view.panes.is_empty() && !view.help_overlay {
+        for (idx, line) in native_empty_workspace_hint_lines().iter().enumerate() {
+            let row = 2 + idx as u16;
+            if row >= rows {
+                break;
+            }
+            let line_width = line.chars().count() as u16;
+            let col = cols.saturating_sub(line_width).saturating_div(2).max(1);
+            out.push_str(&format!(
+                "\x1b[{};{}H{}",
+                row + 1,
+                col + 1,
+                clip_and_pad(line, cols.saturating_sub(col) as usize)
+            ));
+        }
+    }
     for pane in &view.panes {
         let title_style = if pane.focused { "\x1b[7m" } else { "\x1b[2m" };
         out.push_str(&format!(
@@ -2199,6 +2223,30 @@ mod native_pane_tests {
         assert!(rendered.contains("empty"), "{rendered:?}");
         assert!(rendered.contains("kittwm shortcuts"), "{rendered:?}");
         assert!(!rendered.contains("footer"), "{rendered:?}");
+    }
+
+    #[test]
+    fn native_shell_terminal_renderer_teaches_empty_workspace_without_help_overlay() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: " kittui-bar  ws:1  empty  12:00 UTC ".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 4,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let rendered = render_native_shell_view_terminal(&view, 96, 8);
+        assert!(rendered.contains("Empty kittwm workspace"), "{rendered:?}");
+        assert!(
+            rendered.contains("C-a Enter / C-a t opens a terminal"),
+            "{rendered:?}"
+        );
+        assert!(rendered.contains("kittwm quickstart"), "{rendered:?}");
+        assert!(rendered.contains("kittwm info"), "{rendered:?}");
     }
 
     #[test]
