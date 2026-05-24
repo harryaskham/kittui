@@ -101,7 +101,7 @@ struct Cli {
     display: Option<String>,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum Mode {
     #[default]
     Session,
@@ -138,6 +138,8 @@ fn parse_args() -> Result<Cli> {
                 break;
             }
             "launcher" => out.launcher_preview = true,
+            "start" => out.mode = lifecycle_alias_mode("start")?,
+            "stop" => out.mode = lifecycle_alias_mode("stop")?,
             "keymap" => out.keymap = true,
             "shortcuts" => out.shortcuts = true,
             "shortcuts-json" => out.shortcuts_json = true,
@@ -669,6 +671,8 @@ fn kittwm_help_text() -> &'static str {
 
 USAGE
   kittwm                         Start the WM in this terminal (empty workspace + top bar)
+  kittwm start                   Explicit start alias for the same default session
+  kittwm stop                    Stop a socket daemon (alias for --kill)
   kittwm --socket PATH COMMAND   Target a running WM socket for one command
   kittwm --display :N COMMAND    Target a DISPLAY-like kittwm socket token
   kittwm --help                  Show this overview
@@ -680,7 +684,7 @@ USAGE
 DAILY DRIVER BASICS
   Quickstart:      kittwm quickstart
   Examples:        kittwm examples
-  Start:           kittwm
+  Start:           kittwm        (or: kittwm start)
   New terminal:    press C-a Enter or C-a t inside kittwm
   Help overlay:    press C-a ? inside kittwm
   Exit:            press Ctrl-]
@@ -1007,6 +1011,14 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
         std::mem::swap(&mut prev, &mut curr);
     }
     prev[b.len()]
+}
+
+fn lifecycle_alias_mode(alias: &str) -> Result<Mode> {
+    match alias {
+        "start" => Ok(Mode::Session),
+        "stop" => Ok(Mode::Kill),
+        other => Err(anyhow!("unknown lifecycle alias {other:?}")),
+    }
 }
 
 fn spawn_alias_request(argv: &[String]) -> Result<String> {
@@ -2333,6 +2345,7 @@ fn quickstart_text() -> &'static str {
 
 1. Start the WM
    kittwm
+   # equivalent: kittwm start
 
 2. Inside kittwm
    C-a Enter / C-a t   open a terminal pane
@@ -3239,6 +3252,13 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn lifecycle_aliases_map_to_modes() {
+        assert_eq!(lifecycle_alias_mode("start").unwrap(), Mode::Session);
+        assert_eq!(lifecycle_alias_mode("stop").unwrap(), Mode::Kill);
+        assert!(lifecycle_alias_mode("restart").is_err());
     }
 
     #[test]
