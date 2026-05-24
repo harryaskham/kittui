@@ -31,7 +31,8 @@ Current implementation status:
   bar and shortcut hint instead of auto-spawning a shell; `Ctrl-A Enter` /
   `Ctrl-A t` launches the default terminal, `Ctrl-A ?` toggles shortcut help,
   `kittwm shortcuts-json` / `kittwm --shortcuts-json` / socket `SHORTCUTS_JSON`
-  expose the same shortcut catalog as machine-readable JSON,
+  / SDK `Kittwm::shortcuts()` expose the same shortcut catalog as
+  machine-readable JSON/typed data,
   `KITTWM_WORKSPACE=<label>` overrides the displayed/reported label for the
   current single-workspace runtime, and `KITTWM_STARTUP_TERMINAL=1` restores the
   old startup-terminal behavior. The opt-in live kittui scene chrome path
@@ -138,7 +139,8 @@ Current semantic implementation status:
   convenience accessors for bounds/cursor/modes/dirty/transport status;
   `Kittwm::chrome()` / `chrome_json()` read `CHROME_JSON` as typed
   `ChromeReservationStatus` alongside the embedded status/panes chrome metadata;
-  local capability presets cover none/restricted/inspection/automation scopes; SDK
+  `Kittwm::shortcuts()` / `shortcuts_json()` read `SHORTCUTS_JSON` as a typed
+  shortcut catalog; local capability presets cover none/restricted/inspection/automation scopes; SDK
   introspection includes typed `HELP_JSON` catalog helpers. Remaining SDK/runtime
   gaps are mostly stable frame-capture/present surfaces, resize/input/frame
   event modeling, clipboard read policy, and runtime-issued credentials.
