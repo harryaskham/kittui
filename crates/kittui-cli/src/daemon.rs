@@ -230,6 +230,42 @@ pub enum NativePaneCommand {
     RestoreSession(NativeSessionRestore),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct NativeChromeReservationConfig {
+    #[serde(default = "default_native_top_bar_rows")]
+    pub top_bar_rows: u16,
+    #[serde(default)]
+    pub bottom_bar_rows: u16,
+    #[serde(default)]
+    pub left_cols: u16,
+    #[serde(default)]
+    pub right_cols: u16,
+    #[serde(default)]
+    pub gap_cols: u16,
+    #[serde(default)]
+    pub gap_rows: u16,
+    #[serde(default)]
+    pub owner: Option<String>,
+}
+
+impl Default for NativeChromeReservationConfig {
+    fn default() -> Self {
+        Self {
+            top_bar_rows: default_native_top_bar_rows(),
+            bottom_bar_rows: 0,
+            left_cols: 0,
+            right_cols: 0,
+            gap_cols: 0,
+            gap_rows: 0,
+            owner: None,
+        }
+    }
+}
+
+fn default_native_top_bar_rows() -> u16 {
+    NATIVE_CHROME_TOP_BAR_ROWS
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativeSessionRestore {
     pub layout: Option<String>,
@@ -264,6 +300,7 @@ struct NativeSpawnQueueState {
     next_event_seq: u64,
     semantic_snapshots: HashMap<String, SemanticSurfaceSnapshot>,
     clipboard: Option<NativeClipboardCache>,
+    chrome_reservation: NativeChromeReservationConfig,
 }
 
 /// In-process socket queue used by the live native PTY session.
@@ -466,6 +503,7 @@ fn parse_events_timeout(cmd: &str) -> Duration {
 }
 
 fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
+    let cmd = cmd.trim();
     if let Some(query) = cmd.strip_prefix("APPS_FIRST ") {
         return apps_first_reply(query, false);
     }
@@ -684,6 +722,9 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     if let Some(rest) = cmd.strip_prefix("SEMANTIC_FOCUS ") {
         return native_spawn_semantic_focus_reply(pending, rest);
     }
+    if let Some(rest) = cmd.strip_prefix("RESERVE_CHROME_JSON ") {
+        return native_reserve_chrome_json_reply(pending, rest);
+    }
     match cmd {
         "PING" => "PONG\n".to_string(),
         "STATUS" => native_spawn_status_reply(pending),
@@ -698,7 +739,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | RESERVE_CHROME_JSON <json> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -1662,6 +1703,39 @@ fn native_ctrl_key_bytes(normalized: &str) -> Option<Vec<u8>> {
     Some(vec![(ch.to_ascii_lowercase() as u8) & 0x1f])
 }
 
+fn native_reserve_chrome_json_reply(
+    pending: &Arc<Mutex<NativeSpawnQueueState>>,
+    rest: &str,
+) -> String {
+    let mut reservation: NativeChromeReservationConfig = match serde_json::from_str(rest.trim()) {
+        Ok(value) => value,
+        Err(err) => return format!("ERR RESERVE_CHROME_JSON invalid json: {err}\n"),
+    };
+    reservation.top_bar_rows = reservation.top_bar_rows.min(20);
+    reservation.bottom_bar_rows = reservation.bottom_bar_rows.min(20);
+    reservation.left_cols = reservation.left_cols.min(80);
+    reservation.right_cols = reservation.right_cols.min(80);
+    reservation.gap_cols = reservation.gap_cols.min(20);
+    reservation.gap_rows = reservation.gap_rows.min(20);
+    match pending.lock() {
+        Ok(mut state) => {
+            state.chrome_reservation = reservation.clone();
+            let chrome = native_chrome_status_value(&state);
+            push_native_event(
+                &mut state,
+                "chrome_reservation_changed",
+                None,
+                serde_json::json!({ "chrome": chrome }),
+            );
+            format!(
+                "CHROME_RESERVED {}\n",
+                serde_json::to_string(&reservation).unwrap()
+            )
+        }
+        Err(_) => "ERR registry poisoned\n".to_string(),
+    }
+}
+
 fn native_spawn_status_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
     pending
         .lock()
@@ -1728,16 +1802,27 @@ fn native_workspace_id() -> String {
 }
 
 fn native_chrome_status_value(state: &NativeSpawnQueueState) -> serde_json::Value {
+    let reservation = &state.chrome_reservation;
     let tilable_rows = state
         .panes
         .iter()
         .filter_map(|pane| Some(u32::from(pane.y?) + u32::from(pane.rows?)))
         .max()
-        .map(|bottom| bottom.saturating_sub(u32::from(NATIVE_CHROME_TOP_BAR_ROWS)));
+        .map(|bottom| {
+            bottom
+                .saturating_sub(u32::from(reservation.top_bar_rows))
+                .saturating_sub(u32::from(reservation.bottom_bar_rows))
+        });
     let workspace = native_workspace_id();
     serde_json::json!({
         "workspace": workspace,
-        "top_bar_rows": NATIVE_CHROME_TOP_BAR_ROWS,
+        "top_bar_rows": reservation.top_bar_rows,
+        "bottom_bar_rows": reservation.bottom_bar_rows,
+        "left_cols": reservation.left_cols,
+        "right_cols": reservation.right_cols,
+        "gap_cols": reservation.gap_cols,
+        "gap_rows": reservation.gap_rows,
+        "owner": reservation.owner,
         "tilable_rows": tilable_rows,
     })
 }
@@ -3855,6 +3940,38 @@ mod tests {
         assert_eq!(status["workspace"], "dev");
         assert_eq!(status["chrome"]["workspace"], "dev");
         std::env::remove_var("KITTWM_WORKSPACE");
+    }
+
+    #[test]
+    fn native_chrome_reservation_json_updates_drawable_contract() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let reply = native_spawn_queue_reply(
+            r#"RESERVE_CHROME_JSON {"top_bar_rows":2,"bottom_bar_rows":1,"left_cols":4,"right_cols":3,"gap_cols":1,"gap_rows":2,"owner":"bar"}"#,
+            &pending,
+        );
+        assert!(reply.starts_with("CHROME_RESERVED "), "{reply}");
+        let chrome: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("CHROME_JSON", &pending)).unwrap();
+        assert_eq!(chrome["top_bar_rows"], 2);
+        assert_eq!(chrome["bottom_bar_rows"], 1);
+        assert_eq!(chrome["left_cols"], 4);
+        assert_eq!(chrome["right_cols"], 3);
+        assert_eq!(chrome["gap_cols"], 1);
+        assert_eq!(chrome["gap_rows"], 2);
+        assert_eq!(chrome["owner"], "bar");
+        let events = pending
+            .lock()
+            .unwrap()
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(
+            events
+                .iter()
+                .any(|event| event["kind"] == "chrome_reservation_changed"),
+            "{events:?}"
+        );
     }
 
     #[test]

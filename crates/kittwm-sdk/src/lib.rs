@@ -1224,15 +1224,68 @@ pub struct ChromeReservationStatus {
     /// Rows reserved for top-bar chrome.
     #[serde(default)]
     pub top_bar_rows: Option<u16>,
+    /// Rows reserved for bottom/status-bar chrome.
+    #[serde(default)]
+    pub bottom_bar_rows: Option<u16>,
+    /// Columns reserved on the left edge for dock/sidebar chrome.
+    #[serde(default)]
+    pub left_cols: Option<u16>,
+    /// Columns reserved on the right edge for dock/sidebar chrome.
+    #[serde(default)]
+    pub right_cols: Option<u16>,
+    /// Horizontal gap between tiled app surfaces.
+    #[serde(default)]
+    pub gap_cols: Option<u16>,
+    /// Vertical gap between tiled app surfaces.
+    #[serde(default)]
+    pub gap_rows: Option<u16>,
+    /// Optional window/app token that currently owns the reservation request.
+    #[serde(default)]
+    pub owner: Option<String>,
     /// Rows available for tiled pane content after chrome reservation.
     #[serde(default)]
     pub tilable_rows: Option<u16>,
 }
 
+/// Request body for `RESERVE_CHROME_JSON`, used by bar/dock-style apps that
+/// need kittwm to keep normal tiled applications out of their drawable area.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChromeReservationRequest {
+    /// Rows reserved for top-bar chrome.
+    #[serde(default)]
+    pub top_bar_rows: u16,
+    /// Rows reserved for bottom/status-bar chrome.
+    #[serde(default)]
+    pub bottom_bar_rows: u16,
+    /// Columns reserved on the left edge.
+    #[serde(default)]
+    pub left_cols: u16,
+    /// Columns reserved on the right edge.
+    #[serde(default)]
+    pub right_cols: u16,
+    /// Horizontal gap between tiled app surfaces.
+    #[serde(default)]
+    pub gap_cols: u16,
+    /// Vertical gap between tiled app surfaces.
+    #[serde(default)]
+    pub gap_rows: u16,
+    /// Optional owner/window token.
+    #[serde(default)]
+    pub owner: Option<String>,
+}
+
 impl ChromeReservationStatus {
     /// Whether any chrome reservation field was reported.
     pub fn is_reported(&self) -> bool {
-        self.workspace.is_some() || self.top_bar_rows.is_some() || self.tilable_rows.is_some()
+        self.workspace.is_some()
+            || self.top_bar_rows.is_some()
+            || self.bottom_bar_rows.is_some()
+            || self.left_cols.is_some()
+            || self.right_cols.is_some()
+            || self.gap_cols.is_some()
+            || self.gap_rows.is_some()
+            || self.owner.is_some()
+            || self.tilable_rows.is_some()
     }
 
     /// Top-bar rows, defaulting to zero when older daemons omit the field.
@@ -1243,6 +1296,44 @@ impl ChromeReservationStatus {
     /// Tilable rows, if reported by the daemon.
     pub fn tilable_rows(&self) -> Option<u16> {
         self.tilable_rows
+    }
+
+    /// Bottom/status rows, defaulting to zero when older daemons omit the field.
+    pub fn bottom_bar_rows_or_zero(&self) -> u16 {
+        self.bottom_bar_rows.unwrap_or(0)
+    }
+
+    /// Horizontal tile gap columns, defaulting to zero for older daemons.
+    pub fn gap_cols_or_zero(&self) -> u16 {
+        self.gap_cols.unwrap_or(0)
+    }
+
+    /// Vertical tile gap rows, defaulting to zero for older daemons.
+    pub fn gap_rows_or_zero(&self) -> u16 {
+        self.gap_rows.unwrap_or(0)
+    }
+}
+
+impl ChromeReservationRequest {
+    /// Reserve only a top bar with the given row count.
+    pub fn top_bar(rows: u16) -> Self {
+        Self {
+            top_bar_rows: rows,
+            ..Self::default()
+        }
+    }
+
+    /// Attach an owner/window token to the request.
+    pub fn owner(mut self, owner: impl Into<String>) -> Self {
+        self.owner = Some(owner.into());
+        self
+    }
+
+    /// Set inter-tile gaps.
+    pub fn gaps(mut self, cols: u16, rows: u16) -> Self {
+        self.gap_cols = cols;
+        self.gap_rows = rows;
+        self
     }
 }
 
@@ -1567,6 +1658,21 @@ impl Kittwm {
     /// Alias for [`Kittwm::chrome`].
     pub fn chrome_json(&self) -> Result<ChromeReservationStatus> {
         self.chrome()
+    }
+
+    /// Request drawable screen reservations for bar/dock-style apps via
+    /// `RESERVE_CHROME_JSON`. Normal tiled applications should stay inside the
+    /// remaining drawable area; specialized chrome apps may use the reserved
+    /// bands intentionally.
+    pub fn reserve_chrome(&self, request: &ChromeReservationRequest) -> Result<String> {
+        self.capabilities.ensure(Capability::ControlWindow)?;
+        let payload = serde_json::to_string(request)?;
+        self.request_protocol(format!("RESERVE_CHROME_JSON {payload}"))
+    }
+
+    /// Clear custom chrome reservation back to the daemon default.
+    pub fn clear_chrome_reservation(&self) -> Result<String> {
+        self.reserve_chrome(&ChromeReservationRequest::top_bar(1))
     }
 
     /// Fetch the current native session manifest via `SESSION_JSON`.
@@ -2920,6 +3026,36 @@ mod tests {
         assert_eq!(chrome.workspace.as_deref(), Some("dev"));
         assert_eq!(chrome.top_bar_rows_or_zero(), 1);
         assert_eq!(chrome.tilable_rows(), Some(23));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reserve_chrome_sends_typed_drawable_reservation_request() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwreserve-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            stream.write_all(b"CHROME_RESERVED {}\n").unwrap();
+            request.trim().to_string()
+        });
+        let client = Kittwm::connect_path(&path);
+        let request = ChromeReservationRequest::top_bar(2).gaps(1, 1).owner("bar");
+        client.reserve_chrome(&request).unwrap();
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(seen.starts_with("RESERVE_CHROME_JSON "), "{seen}");
+        assert!(seen.contains("\"top_bar_rows\":2"), "{seen}");
+        assert!(seen.contains("\"gap_cols\":1"), "{seen}");
+        assert!(seen.contains("\"owner\":\"bar\""), "{seen}");
     }
 
     #[cfg(unix)]
