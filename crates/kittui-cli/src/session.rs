@@ -3849,10 +3849,17 @@ mod native_pane_tests {
         assert_eq!(statuses[1].weight, 3);
         assert_eq!(statuses[1].pid, Some(202));
         assert_eq!(statuses[1].command.as_deref(), Some("editor-cmd"));
-        assert_eq!(statuses[1].x, Some(20));
-        assert_eq!(statuses[1].cols, Some(60));
-        assert_eq!(statuses[1].app_y, Some(1));
-        assert_eq!(statuses[1].app_rows, Some(23));
+        let layout = layouts[1];
+        assert_eq!(statuses[1].x, Some(layout.x));
+        assert_eq!(statuses[1].y, Some(layout.y));
+        assert_eq!(statuses[1].cols, Some(layout.cols));
+        assert_eq!(statuses[1].rows, Some(layout.app_rows.saturating_add(1)));
+        assert_eq!(statuses[1].app_x, Some(layout.app_x));
+        assert_eq!(statuses[1].app_y, Some(layout.app_y));
+        assert_eq!(statuses[1].app_cols, Some(layout.app_cols));
+        assert_eq!(statuses[1].app_rows, Some(layout.app_rows));
+        assert!(statuses[1].app_x.unwrap() > statuses[1].x.unwrap());
+        assert!(statuses[1].app_cols.unwrap() < statuses[1].cols.unwrap());
     }
 
     fn dummy_native_pane_app() -> PtyTerminalApp {
