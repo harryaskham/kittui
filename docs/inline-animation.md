@@ -111,3 +111,28 @@ The payload contains:
 - `inline_animation.frames`
 - `inline_animation.cycle_ms`
 - `inline_animation.loops` (`0` means loop forever)
+
+## Offline frame export
+
+`kittui render` can turn an animated scene JSON artifact into one PNG per
+animation frame. This is useful for visual QA, golden fixtures, and checking a
+loop without relying on live terminal playback.
+
+```sh
+# Build an animated scene artifact.
+kittui inline chip --text main --style glass --animated --scene-json > /tmp/main-chip.scene.json
+
+# Export every frame to PNG files.
+kittui render /tmp/main-chip.scene.json --out-dir /tmp/main-chip-frames \
+  --manifest /tmp/main-chip-frames/manifest.json
+```
+
+A single animated scene writes files named `frame-00000.png`, `frame-00001.png`,
+and so on. The manifest includes frame count, pixel dimensions, loop count,
+per-frame byte sizes, per-frame `delay_ms`, and output paths. Add `--json` to
+print that metadata to stdout as well, or `--json-bytes` to include base64 PNG
+bytes in JSON dry-runs.
+
+Static single-scene rendering remains unchanged: use `--out FILE` to write a
+single PNG. Passing `--out-dir` for a non-animated single scene returns a clear
+error because there are no animation frames to enumerate.
