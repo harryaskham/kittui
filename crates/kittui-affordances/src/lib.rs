@@ -27,6 +27,7 @@ pub mod markdown;
 pub mod palette;
 pub mod panel;
 pub mod table;
+pub mod theme;
 
 pub use components::{
     banner, footer, h1, h2, h3, header, textbox, textchip, title, ComponentKind, UiComponent,
@@ -51,6 +52,7 @@ pub use table::{
     box_glyph_scene, relative_cell_options, BoxGlyphCell, MarkdownTable, MarkdownTableAlignment,
     TableGlyphLayout,
 };
+pub use theme::{AffordanceTheme, ThemeRole};
 
 #[cfg(test)]
 mod tests {

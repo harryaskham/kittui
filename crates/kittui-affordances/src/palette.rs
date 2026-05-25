@@ -16,7 +16,7 @@ pub enum Tone {
 }
 
 /// Resolved palette colors for a tone.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Palette {
     /// Top color of the vertical background gradient.
     pub bg_top: Rgba,
