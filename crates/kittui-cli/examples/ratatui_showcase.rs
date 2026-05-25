@@ -23,19 +23,19 @@ use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction as LayoutDir, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::canvas::{Canvas, Line as CanvasLine, Rectangle};
 use ratatui::widgets::{
-    BarChart, Block, Borders, Cell as TableCell, Chart, Dataset, Gauge, GraphType, LineGauge,
-    List, ListItem, Paragraph, Row, Sparkline, Table, Tabs,
+    BarChart, Block, Borders, Cell as TableCell, Chart, Dataset, Gauge, GraphType, LineGauge, List,
+    ListItem, Paragraph, Row, Sparkline, Table, Tabs,
 };
 use ratatui::{Frame, Terminal};
 
@@ -49,6 +49,10 @@ use ratakittui::{
 };
 
 const TOTAL_PERF_SAMPLES: usize = 240;
+const SHOWCASE_ANIMATION_FPS: u32 = 60;
+const SHOWCASE_ANIMATION_FRAMES: u16 = 180;
+const SHOWCASE_ANIMATION_CYCLE_MS: u32 =
+    (SHOWCASE_ANIMATION_FRAMES as u32 * 1000) / SHOWCASE_ANIMATION_FPS;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum Tone {
@@ -198,8 +202,8 @@ impl Controls {
             border_width: 1.5,
             border_radius: 8.0,
             glow_intensity: 0.55,
-            pulse_frames: 8,
-            pulse_cycle_ms: 800,
+            pulse_frames: SHOWCASE_ANIMATION_FRAMES,
+            pulse_cycle_ms: SHOWCASE_ANIMATION_CYCLE_MS,
             scanline_alpha: 0x22,
             scanline_period: 3,
             padding_top: 1,
@@ -221,7 +225,7 @@ impl Controls {
                 self.glow_intensity = (self.glow_intensity + 0.05 * d).clamp(0.0, 1.0)
             }
             Control::PulseFramesPer => {
-                let next = (self.pulse_frames as i32 + dir * 2).clamp(2, 32);
+                let next = (self.pulse_frames as i32 + dir * 10).clamp(2, 360);
                 self.pulse_frames = next as u16;
             }
             Control::PulseCycleMs => {
@@ -267,9 +271,9 @@ impl Controls {
 }
 
 struct Perf {
-    samples: Vec<u64>,        // frame microseconds
-    upload_bytes: Vec<u64>,   // per-frame upload bytes
-    placement_bytes: Vec<u64>,// per-frame placement bytes
+    samples: Vec<u64>,         // frame microseconds
+    upload_bytes: Vec<u64>,    // per-frame upload bytes
+    placement_bytes: Vec<u64>, // per-frame placement bytes
     frame_count: u64,
     last_frame_at: Instant,
 }
@@ -352,19 +356,13 @@ impl App {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => return false,
             KeyCode::Char(' ') => self.paused = !self.paused,
-            KeyCode::Tab => {
-                self.active_control = (self.active_control + 1) % Control::ALL.len()
-            }
+            KeyCode::Tab => self.active_control = (self.active_control + 1) % Control::ALL.len(),
             KeyCode::BackTab => {
                 self.active_control =
                     (self.active_control + Control::ALL.len() - 1) % Control::ALL.len()
             }
-            KeyCode::Left => self
-                .controls
-                .bump(Control::ALL[self.active_control], -1),
-            KeyCode::Right => self
-                .controls
-                .bump(Control::ALL[self.active_control], 1),
+            KeyCode::Left => self.controls.bump(Control::ALL[self.active_control], -1),
+            KeyCode::Right => self.controls.bump(Control::ALL[self.active_control], 1),
             KeyCode::Char('r') => self.controls = Controls::defaults(),
             KeyCode::Char('g') => self.show_perf = !self.show_perf,
             KeyCode::Char('t') => self.tone = self.tone.cycle(),
@@ -417,8 +415,11 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
         })?;
 
         let elapsed = frame_start.elapsed();
-        app.perf
-            .record(elapsed.as_micros() as u64, last_flush_upload, last_flush_placement);
+        app.perf.record(
+            elapsed.as_micros() as u64,
+            last_flush_upload,
+            last_flush_placement,
+        );
 
         let remaining = target_frame.checked_sub(elapsed).unwrap_or_default();
         if event::poll(remaining)? {
@@ -445,8 +446,8 @@ fn render_frame(
     let chunks = Layout::default()
         .direction(LayoutDir::Vertical)
         .constraints([
-            Constraint::Length(3),                                // header
-            Constraint::Min(10),                                  // body
+            Constraint::Length(3),                                  // header
+            Constraint::Min(10),                                    // body
             Constraint::Length(if app.show_perf { 10 } else { 6 }), // footer (perf/help)
         ])
         .split(area);
@@ -468,13 +469,7 @@ fn render_frame(
     (flush.upload.len(), flush.placement.len())
 }
 
-fn render_header(
-    f: &mut Frame<'_>,
-    sink: &EffectsSink,
-    runtime: &Runtime,
-    app: &App,
-    area: Rect,
-) {
+fn render_header(f: &mut Frame<'_>, sink: &EffectsSink, runtime: &Runtime, app: &App, area: Rect) {
     let palette = app.tone.palette();
     let title_chrome = Chrome::default()
         .background(Background::Linear {
@@ -496,13 +491,11 @@ fn render_header(
         start: palette.rail,
         end: palette.glow,
     });
-    sink.push(
-        KittuiDivider::new(div_chrome).render_with(
-            Rect::new(area.x, area.y + 1, area.width, 1),
-            f.buffer_mut(),
-            runtime,
-        ),
-    );
+    sink.push(KittuiDivider::new(div_chrome).render_with(
+        Rect::new(area.x, area.y + 1, area.width, 1),
+        f.buffer_mut(),
+        runtime,
+    ));
 
     let tabs = Tabs::new(vec![
         Line::raw("widgets"),
@@ -511,15 +504,17 @@ fn render_header(
         Line::raw("canvas"),
     ])
     .select(app.tab_index)
-    .highlight_style(Style::default().fg(palette.ratatui_fg).add_modifier(Modifier::BOLD));
-    let tabs_chrome = panel_chrome(&palette, app, false);
-    sink.push(
-        KittuiTabs::new(tabs, tabs_chrome).render_with(
-            Rect::new(area.x, area.y + 2, area.width, 1),
-            f.buffer_mut(),
-            runtime,
-        ),
+    .highlight_style(
+        Style::default()
+            .fg(palette.ratatui_fg)
+            .add_modifier(Modifier::BOLD),
     );
+    let tabs_chrome = panel_chrome(&palette, app, false);
+    sink.push(KittuiTabs::new(tabs, tabs_chrome).render_with(
+        Rect::new(area.x, area.y + 2, area.width, 1),
+        f.buffer_mut(),
+        runtime,
+    ));
 }
 
 fn panel_chrome(palette: &Palette, app: &App, animated: bool) -> Chrome {
@@ -567,13 +562,7 @@ fn panel_chrome(palette: &Palette, app: &App, animated: bool) -> Chrome {
     chrome
 }
 
-fn render_body(
-    f: &mut Frame<'_>,
-    sink: &EffectsSink,
-    runtime: &Runtime,
-    app: &App,
-    area: Rect,
-) {
+fn render_body(f: &mut Frame<'_>, sink: &EffectsSink, runtime: &Runtime, app: &App, area: Rect) {
     match app.tab_index {
         0 => render_widgets_tab(f, sink, runtime, app, area),
         1 => render_charts_tab(f, sink, runtime, app, area),
@@ -642,13 +631,18 @@ fn render_widgets_tab(
                 let para = Paragraph::new(vec![
                     Line::from(Span::styled(
                         label,
-                        Style::default().fg(palette.ratatui_fg).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(palette.ratatui_fg)
+                            .add_modifier(Modifier::BOLD),
                     )),
                     Line::raw(""),
                     Line::raw("joined-border panels: inner edge masked so the"),
                     Line::raw("border draws exactly once across the seam."),
                     Line::raw(""),
-                    Line::raw(format!("border={:.1}px  radius={:.1}px", app.controls.border_width, app.controls.border_radius)),
+                    Line::raw(format!(
+                        "border={:.1}px  radius={:.1}px",
+                        app.controls.border_width, app.controls.border_radius
+                    )),
                     Line::raw(format!("glow={:.2}", app.controls.glow_intensity)),
                 ]);
                 use ratatui::widgets::Widget;
@@ -665,13 +659,18 @@ fn render_widgets_tab(
     let items: Vec<ListItem> = (0..10)
         .map(|i| ListItem::new(format!("item {i:02} — kittui scene")))
         .collect();
-    let list = List::new(items)
-        .highlight_style(Style::default().fg(palette.ratatui_fg).add_modifier(Modifier::REVERSED));
-    sink.push(KittuiList::new(list, panel_chrome(&palette, app, false)).render_with(
-        mid[0],
-        f.buffer_mut(),
-        runtime,
-    ));
+    let list = List::new(items).highlight_style(
+        Style::default()
+            .fg(palette.ratatui_fg)
+            .add_modifier(Modifier::REVERSED),
+    );
+    sink.push(
+        KittuiList::new(list, panel_chrome(&palette, app, false)).render_with(
+            mid[0],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     let rows: Vec<Row> = (0..6)
         .map(|i| {
@@ -684,14 +683,23 @@ fn render_widgets_tab(
         .collect();
     let table = Table::new(
         rows,
-        [Constraint::Length(12), Constraint::Length(10), Constraint::Length(10)],
+        [
+            Constraint::Length(12),
+            Constraint::Length(10),
+            Constraint::Length(10),
+        ],
     )
-    .header(Row::new(vec!["scene", "cells", "render"]).style(Style::default().add_modifier(Modifier::BOLD)));
-    sink.push(KittuiTable::new(table, panel_chrome(&palette, app, false)).render_with(
-        mid[1],
-        f.buffer_mut(),
-        runtime,
-    ));
+    .header(
+        Row::new(vec!["scene", "cells", "render"])
+            .style(Style::default().add_modifier(Modifier::BOLD)),
+    );
+    sink.push(
+        KittuiTable::new(table, panel_chrome(&palette, app, false)).render_with(
+            mid[1],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     // Right column: chips + gauge + line gauge stack.
     let right = Layout::default()
@@ -704,56 +712,72 @@ fn render_widgets_tab(
             Constraint::Min(1),
         ])
         .split(chunks[2]);
-    sink.push(KittuiChip::new(" READY ", chip_chrome(&palette, "#00d8ffcc")).render_with(
-        Rect::new(right[0].x, right[0].y, 9, 1),
-        f.buffer_mut(),
-        runtime,
-    ));
-    sink.push(KittuiChip::new(" BUSY ", chip_chrome(&palette, "#ff8c5acc")).render_with(
-        Rect::new(right[0].x + 10, right[0].y, 8, 1),
-        f.buffer_mut(),
-        runtime,
-    ));
-    sink.push(KittuiChip::new(" OK ", chip_chrome(&palette, "#72fbd6cc")).render_with(
-        Rect::new(right[0].x + 19, right[0].y, 6, 1),
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiChip::new(" READY ", chip_chrome(&palette, "#00d8ffcc")).render_with(
+            Rect::new(right[0].x, right[0].y, 9, 1),
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
+    sink.push(
+        KittuiChip::new(" BUSY ", chip_chrome(&palette, "#ff8c5acc")).render_with(
+            Rect::new(right[0].x + 10, right[0].y, 8, 1),
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
+    sink.push(
+        KittuiChip::new(" OK ", chip_chrome(&palette, "#72fbd6cc")).render_with(
+            Rect::new(right[0].x + 19, right[0].y, 6, 1),
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     let ratio = ((app.started_at.elapsed().as_millis() % 4000) as f64 / 4000.0) * 0.7 + 0.15;
     let gauge = Gauge::default()
         .gauge_style(Style::default().fg(palette.ratatui_fg))
         .ratio(if app.paused { 0.42 } else { ratio });
-    sink.push(KittuiGauge::new(gauge, panel_chrome(&palette, app, false)).render_with(
-        right[1],
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiGauge::new(gauge, panel_chrome(&palette, app, false)).render_with(
+            right[1],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     let lg = LineGauge::default()
         .filled_style(Style::default().fg(palette.ratatui_fg))
         .ratio((ratio * 1.3).min(0.99));
-    sink.push(KittuiLineGauge::new(lg, panel_chrome(&palette, app, false)).render_with(
-        right[2],
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiLineGauge::new(lg, panel_chrome(&palette, app, false)).render_with(
+            right[2],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
-    sink.push(KittuiLine::new("─ live ─".into(), line_chrome(&palette)).render_with(
-        Rect::new(right[3].x, right[3].y, right[3].width, 1),
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiLine::new("─ live ─".into(), line_chrome(&palette)).render_with(
+            Rect::new(right[3].x, right[3].y, right[3].width, 1),
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     // Bottom of right column: sparkline.
     let spark_data: Vec<u64> = app.perf.samples.iter().copied().collect();
     if !spark_data.is_empty() {
-        let s = Sparkline::default().data(&spark_data).style(Style::default().fg(palette.ratatui_fg));
-        sink.push(KittuiSparkline::new(s, panel_chrome(&palette, app, false)).render_with(
-            right[4],
-            f.buffer_mut(),
-            runtime,
-        ));
+        let s = Sparkline::default()
+            .data(&spark_data)
+            .style(Style::default().fg(palette.ratatui_fg));
+        sink.push(
+            KittuiSparkline::new(s, panel_chrome(&palette, app, false)).render_with(
+                right[4],
+                f.buffer_mut(),
+                runtime,
+            ),
+        );
     }
 }
 
@@ -784,15 +808,21 @@ fn render_charts_tab(
         .bar_width(8)
         .bar_gap(1)
         .bar_style(Style::default().fg(palette.ratatui_fg));
-    sink.push(KittuiBarChart::new(bc, panel_chrome(&palette, app, false)).render_with(
-        cols[0],
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiBarChart::new(bc, panel_chrome(&palette, app, false)).render_with(
+            cols[0],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     // Chart on the right (two datasets).
-    let data1: Vec<(f64, f64)> = (0..50).map(|i| (i as f64, (i as f64 * 0.2).sin())).collect();
-    let data2: Vec<(f64, f64)> = (0..50).map(|i| (i as f64, (i as f64 * 0.2).cos() * 0.8)).collect();
+    let data1: Vec<(f64, f64)> = (0..50)
+        .map(|i| (i as f64, (i as f64 * 0.2).sin()))
+        .collect();
+    let data2: Vec<(f64, f64)> = (0..50)
+        .map(|i| (i as f64, (i as f64 * 0.2).cos() * 0.8))
+        .collect();
     let datasets = vec![
         Dataset::default()
             .name("sin")
@@ -818,11 +848,13 @@ fn render_charts_tab(
                 .bounds([-1.2, 1.2])
                 .labels(vec![Span::raw("-1"), Span::raw("0"), Span::raw("1")]),
         );
-    sink.push(KittuiChart::new(chart, panel_chrome(&palette, app, true)).render_with(
-        cols[1],
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiChart::new(chart, panel_chrome(&palette, app, true)).render_with(
+            cols[1],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 }
 
 fn render_forms_tab(
@@ -835,13 +867,19 @@ fn render_forms_tab(
     let palette = app.tone.palette();
     let chunks = Layout::default()
         .direction(LayoutDir::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Min(3), Constraint::Length(3)])
+        .constraints([
+            Constraint::Length(7),
+            Constraint::Min(3),
+            Constraint::Length(3),
+        ])
         .split(area);
 
     let header = Paragraph::new(vec![
         Line::from(Span::styled(
             "kittui composer",
-            Style::default().fg(palette.ratatui_fg).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(palette.ratatui_fg)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::raw(""),
         Line::raw("Compose scenes from JSON. The right panel shows the last"),
@@ -849,34 +887,42 @@ fn render_forms_tab(
         Line::raw(""),
         Line::raw("Press [t] to cycle theme, [r] to reset controls."),
     ]);
-    sink.push(KittuiParagraph::new(header, panel_chrome(&palette, app, false)).render_with(
-        chunks[0],
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiParagraph::new(header, panel_chrome(&palette, app, false)).render_with(
+            chunks[0],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     // A KittuiBlock containing free text.
     let body = Block::default().borders(Borders::NONE);
-    sink.push(KittuiBlock::new(body, panel_chrome(&palette, app, true)).render_with(
-        chunks[1],
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiBlock::new(body, panel_chrome(&palette, app, true)).render_with(
+            chunks[1],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     let footer = Paragraph::new(vec![Line::from(vec![
         Span::raw("tone "),
         Span::styled(
             format!("{:?}", app.tone),
-            Style::default().fg(palette.ratatui_fg).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(palette.ratatui_fg)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw("    frames "),
         Span::raw(format!("{}", app.perf.frame_count)),
     ])]);
-    sink.push(KittuiParagraph::new(footer, panel_chrome(&palette, app, false)).render_with(
-        chunks[2],
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiParagraph::new(footer, panel_chrome(&palette, app, false)).render_with(
+            chunks[2],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 }
 
 fn render_canvas_tab(
@@ -911,29 +957,27 @@ fn render_canvas_tab(
                 color: Color::DarkGray,
             });
         });
-    sink.push(KittuiCanvas::new(canvas, panel_chrome(&palette, app, true)).render_with(
-        area,
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiCanvas::new(canvas, panel_chrome(&palette, app, true)).render_with(
+            area,
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     // A KittuiClear in the corner to demonstrate the wrapper compiles.
     let corner = Rect::new(area.x + area.width.saturating_sub(8), area.y + 1, 8, 1);
-    sink.push(KittuiClear::new(chip_chrome(&palette, "#08111fcc")).render_with(
-        corner,
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiClear::new(chip_chrome(&palette, "#08111fcc")).render_with(
+            corner,
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
     let _ = palette.ratatui_fg;
 }
 
-fn render_footer(
-    f: &mut Frame<'_>,
-    sink: &EffectsSink,
-    runtime: &Runtime,
-    app: &App,
-    area: Rect,
-) {
+fn render_footer(f: &mut Frame<'_>, sink: &EffectsSink, runtime: &Runtime, app: &App, area: Rect) {
     let palette = app.tone.palette();
     if app.show_perf {
         render_perf(f, sink, runtime, app, area, &palette);
@@ -968,7 +1012,9 @@ fn render_perf(
     let summary = Paragraph::new(vec![
         Line::from(Span::styled(
             "perf",
-            Style::default().fg(palette.ratatui_fg).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(palette.ratatui_fg)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::raw(format!("avg frame   {:>6} µs", avg)),
         Line::raw(format!("max frame   {:>6} µs", max)),
@@ -977,11 +1023,13 @@ fn render_perf(
         Line::raw(format!("placement Σ {:>6} B", place_sum)),
         Line::raw(format!("frames      {:>6}", app.perf.frame_count)),
     ]);
-    sink.push(KittuiParagraph::new(summary, panel_chrome(palette, app, false)).render_with(
-        cols[0],
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiParagraph::new(summary, panel_chrome(palette, app, false)).render_with(
+            cols[0],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 
     // Sparkline of frame microseconds.
     let data: Vec<u64> = app.perf.samples.clone();
@@ -989,21 +1037,27 @@ fn render_perf(
         let sp = Sparkline::default()
             .data(&data)
             .style(Style::default().fg(palette.ratatui_fg));
-        sink.push(KittuiSparkline::new(sp, panel_chrome(palette, app, false)).render_with(
-            cols[1],
-            f.buffer_mut(),
-            runtime,
-        ));
+        sink.push(
+            KittuiSparkline::new(sp, panel_chrome(palette, app, false)).render_with(
+                cols[1],
+                f.buffer_mut(),
+                runtime,
+            ),
+        );
     }
 
     // Active control panel.
     let mut lines = vec![Line::from(Span::styled(
         "controls (Tab/Shift-Tab, ←/→)",
-        Style::default().fg(palette.ratatui_fg).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(palette.ratatui_fg)
+            .add_modifier(Modifier::BOLD),
     ))];
     for (i, c) in Control::ALL.iter().enumerate() {
         let style = if i == app.active_control {
-            Style::default().fg(palette.ratatui_fg).add_modifier(Modifier::REVERSED)
+            Style::default()
+                .fg(palette.ratatui_fg)
+                .add_modifier(Modifier::REVERSED)
         } else {
             Style::default()
         };
@@ -1013,11 +1067,13 @@ fn render_perf(
         )));
     }
     let controls = Paragraph::new(lines);
-    sink.push(KittuiParagraph::new(controls, panel_chrome(palette, app, false)).render_with(
-        cols[2],
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiParagraph::new(controls, panel_chrome(palette, app, false)).render_with(
+            cols[2],
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 }
 
 fn render_help(
@@ -1031,17 +1087,21 @@ fn render_help(
     let p = Paragraph::new(vec![
         Line::from(Span::styled(
             "help (press g for perf)",
-            Style::default().fg(palette.ratatui_fg).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(palette.ratatui_fg)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::raw("q/Esc quit   space pause   Tab cycle control   ←/→ adjust"),
         Line::raw("r reset      g toggle perf  t cycle tone   1-6 themes"),
         Line::raw("[ / ] cycle tabs"),
     ]);
-    sink.push(KittuiParagraph::new(p, panel_chrome(palette, app, false)).render_with(
-        area,
-        f.buffer_mut(),
-        runtime,
-    ));
+    sink.push(
+        KittuiParagraph::new(p, panel_chrome(palette, app, false)).render_with(
+            area,
+            f.buffer_mut(),
+            runtime,
+        ),
+    );
 }
 
 fn chip_chrome(palette: &Palette, bg: &str) -> Chrome {
