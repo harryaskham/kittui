@@ -133,6 +133,8 @@ enum Cmd {
 enum InlineCmd {
     /// Render a one-line text chip for shell prompts or tmux statuslines.
     Chip(InlineChipArgs),
+    /// Print copy/paste prompt, statusline, and fallback examples.
+    Examples,
 }
 
 #[derive(clap::Args, Clone)]
@@ -683,6 +685,10 @@ fn run_inline(
             print!("{}", render_inline_chip(args));
             Ok(())
         }
+        InlineCmd::Examples => {
+            print!("{}", inline_examples_text());
+            Ok(())
+        }
     }
 }
 
@@ -854,6 +860,36 @@ fn wrap_prompt_nonprinting(text: &str, wrapper: PromptWrapper) -> String {
         PromptWrapper::Zsh => format!("%{{{text}%}}"),
         PromptWrapper::Bash => format!("\\[{text}\\]"),
     }
+}
+
+fn inline_examples_text() -> &'static str {
+    r##"kittui inline examples — prompt/statusline building blocks
+
+Default kitty graphics chip:
+  kittui inline chip --text "main"
+
+zsh prompt-safe graphics chip:
+  PROMPT='$(kittui inline chip --format prompt-zsh --text "dev") %~ %# '
+
+bash prompt-safe graphics chip:
+  PS1='$(kittui inline chip --format prompt-bash --text "dev") \w \$ '
+
+tmux statusline fallback:
+  tmux set -g status-left "$(kittui inline chip --format tmux --text '#S')"
+
+Explicit text fallbacks:
+  kittui inline chip --format plain --text "offline"
+  kittui inline chip --format ansi --text "ready"
+
+Theme/style knobs:
+  kittui inline chip --text "deploy" --style neon
+  kittui inline chip --text "warn" --style chrome --border-color orange
+
+Notes:
+  - default `kitty` mode emits kitty graphics plus visible terminal text.
+  - prompt modes wrap only nonprinting bytes; visible text remains width-bearing.
+  - use explicit `tmux`, `plain`, or `ansi` fallback formats when graphics are not appropriate.
+"##
 }
 
 fn render_inline_chip(args: &InlineChipArgs) -> String {
@@ -2124,6 +2160,22 @@ mod tests {
             )],
             animation: None,
         }
+    }
+
+    #[test]
+    fn inline_examples_cover_prompt_status_and_fallback_modes() {
+        let text = inline_examples_text();
+        assert!(text.contains("kittui inline examples"), "{text}");
+        assert!(text.contains("--format prompt-zsh"), "{text}");
+        assert!(text.contains("--format prompt-bash"), "{text}");
+        assert!(text.contains("--format tmux"), "{text}");
+        assert!(text.contains("--format plain"), "{text}");
+        assert!(text.contains("--format ansi"), "{text}");
+        assert!(text.contains("--style neon"), "{text}");
+        assert!(
+            text.contains("prompt modes wrap only nonprinting bytes"),
+            "{text}"
+        );
     }
 
     #[test]
