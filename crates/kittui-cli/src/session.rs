@@ -879,6 +879,9 @@ impl NativeDirtyFrameMetrics {
 }
 
 const NATIVE_TOP_BAR_ROWS: u16 = 1;
+const NATIVE_PANE_TITLE_ROWS: u16 = 1;
+const NATIVE_PANE_BORDER_COLS: u16 = 1;
+const NATIVE_PANE_BOTTOM_BORDER_ROWS: u16 = 1;
 const NATIVE_CELL_WIDTH_PX: u32 = 8;
 const NATIVE_CELL_HEIGHT_PX: u32 = 16;
 const NATIVE_FRAME_BG_RGBA: [u8; 4] = [0x08, 0x0d, 0x14, 0xff];
@@ -1337,10 +1340,9 @@ fn native_pane_layouts_weighted(
         .map(|w| (*w).max(1) as u32)
         .sum::<u32>()
         .max(1);
-    let title_rows = 1;
     match axis {
         NativePaneLayoutAxis::Columns => {
-            let pane_rows = rows.max(title_rows + 1);
+            let pane_rows = rows.max(NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1);
             let mut x = 0u16;
             let mut layouts = Vec::with_capacity(count);
             for idx in 0..count {
@@ -1355,10 +1357,13 @@ fn native_pane_layouts_weighted(
                     x,
                     y: 0,
                     cols: pane_cols,
-                    app_x: x,
-                    app_y: title_rows,
-                    app_cols: pane_cols,
-                    app_rows: pane_rows.saturating_sub(title_rows).max(1),
+                    app_x: x.saturating_add(NATIVE_PANE_BORDER_COLS).min(x.saturating_add(pane_cols.saturating_sub(1))),
+                    app_y: NATIVE_PANE_TITLE_ROWS,
+                    app_cols: pane_cols.saturating_sub(NATIVE_PANE_BORDER_COLS * 2).max(1),
+                    app_rows: pane_rows
+                        .saturating_sub(NATIVE_PANE_TITLE_ROWS)
+                        .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS)
+                        .max(1),
                 });
                 x = x.saturating_add(pane_cols);
             }
@@ -1368,21 +1373,28 @@ fn native_pane_layouts_weighted(
             let mut y = 0u16;
             let mut layouts = Vec::with_capacity(count);
             for idx in 0..count {
-                let remaining = rows.saturating_sub(y).max(2);
+                let remaining = rows
+                    .saturating_sub(y)
+                    .max(NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1);
                 let pane_rows = if idx + 1 == count {
                     remaining
                 } else {
                     let share = ((rows as u32 * weights[idx].max(1) as u32) / total_weight) as u16;
-                    share.max(2).min(remaining)
+                    share
+                        .max(NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1)
+                        .min(remaining)
                 };
                 layouts.push(NativePaneLayout {
                     x: 0,
                     y,
                     cols,
-                    app_x: 0,
-                    app_y: y.saturating_add(title_rows),
-                    app_cols: cols,
-                    app_rows: pane_rows.saturating_sub(title_rows).max(1),
+                    app_x: NATIVE_PANE_BORDER_COLS.min(cols.saturating_sub(1)),
+                    app_y: y.saturating_add(NATIVE_PANE_TITLE_ROWS),
+                    app_cols: cols.saturating_sub(NATIVE_PANE_BORDER_COLS * 2).max(1),
+                    app_rows: pane_rows
+                        .saturating_sub(NATIVE_PANE_TITLE_ROWS)
+                        .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS)
+                        .max(1),
                 });
                 y = y.saturating_add(pane_rows);
             }
@@ -3362,9 +3374,12 @@ mod native_pane_tests {
         assert_eq!(layouts.len(), 1);
         assert_eq!(layouts[0].y, NATIVE_TOP_BAR_ROWS);
         assert_eq!(layouts[0].app_y, NATIVE_TOP_BAR_ROWS + 1);
+        assert_eq!(layouts[0].app_x, NATIVE_PANE_BORDER_COLS);
         assert_eq!(
             layouts[0].app_rows,
-            native_tilable_rows(24).saturating_sub(1)
+            native_tilable_rows(24)
+                .saturating_sub(NATIVE_PANE_TITLE_ROWS)
+                .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS)
         );
         assert_eq!(native_tilable_rows(1), 1);
     }
@@ -3390,11 +3405,15 @@ mod native_pane_tests {
         assert_eq!(layouts.len(), 2);
         assert_eq!(layouts[0].x, 0);
         assert_eq!(layouts[0].cols, 40);
+        assert_eq!(layouts[0].app_x, 1);
         assert_eq!(layouts[0].app_y, 1);
-        assert_eq!(layouts[0].app_rows, 23);
+        assert_eq!(layouts[0].app_cols, 38);
+        assert_eq!(layouts[0].app_rows, 22);
         assert_eq!(layouts[1].x, 40);
         assert_eq!(layouts[1].cols, 41);
-        assert_eq!(layouts[1].app_cols, 41);
+        assert_eq!(layouts[1].app_x, 41);
+        assert_eq!(layouts[1].app_cols, 39);
+        assert!(layouts[0].app_x + layouts[0].app_cols <= layouts[1].app_x);
     }
 
     #[test]
@@ -3404,11 +3423,14 @@ mod native_pane_tests {
         assert_eq!(layouts[0].x, 0);
         assert_eq!(layouts[0].y, 0);
         assert_eq!(layouts[0].cols, 80);
+        assert_eq!(layouts[0].app_x, 1);
         assert_eq!(layouts[0].app_y, 1);
-        assert_eq!(layouts[0].app_rows, 11);
+        assert_eq!(layouts[0].app_cols, 78);
+        assert_eq!(layouts[0].app_rows, 10);
         assert_eq!(layouts[1].y, 12);
         assert_eq!(layouts[1].app_y, 13);
-        assert_eq!(layouts[1].app_rows, 12);
+        assert_eq!(layouts[1].app_rows, 11);
+        assert!(layouts[0].app_y + layouts[0].app_rows <= layouts[1].y);
     }
 
     #[test]
@@ -3418,8 +3440,8 @@ mod native_pane_tests {
         assert_eq!(columns[1].cols, 60);
         assert_eq!(columns[1].x, 30);
         let rows = native_pane_layouts_weighted(80, 30, &[1, 2], NativePaneLayoutAxis::Rows);
-        assert_eq!(rows[0].app_rows, 9);
-        assert_eq!(rows[1].app_rows, 19);
+        assert_eq!(rows[0].app_rows, 8);
+        assert_eq!(rows[1].app_rows, 18);
         assert_eq!(rows[1].y, 10);
     }
 
