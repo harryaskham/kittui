@@ -174,6 +174,48 @@ struct InlineChipArgs {
     /// Spaces of horizontal padding around the text.
     #[arg(long, default_value_t = 1)]
     padding: usize,
+    /// Inline kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
+}
+
+#[derive(clap::Args, Clone, Copy, Debug, PartialEq, Eq)]
+struct InlineAnimationArgs {
+    /// Render all kitty animation frames up-front and let the terminal loop them.
+    #[arg(long)]
+    animated: bool,
+    /// Animation frames per second when --animated is set.
+    #[arg(long, default_value_t = 60)]
+    fps: u16,
+    /// Frames in one perfectly looping animation period when --animated is set.
+    #[arg(long, default_value_t = 180)]
+    frames: u16,
+}
+
+impl Default for InlineAnimationArgs {
+    fn default() -> Self {
+        Self {
+            animated: false,
+            fps: 60,
+            frames: 180,
+        }
+    }
+}
+
+impl InlineAnimationArgs {
+    fn scene_animation(self) -> Option<Animation> {
+        if !self.animated {
+            return None;
+        }
+        let fps = self.fps.max(1) as u32;
+        let frames = self.frames.max(2);
+        Some(Animation {
+            frames,
+            cycle_ms: (((frames as u32) * 1000) / fps).max(1),
+            curve: PhaseCurve::Pulse { harmonics: 0 },
+            loops: 0,
+        })
+    }
 }
 
 #[derive(clap::Args, Clone)]
@@ -199,6 +241,9 @@ struct InlineDividerArgs {
     /// Rule color override as hex or theme index/name.
     #[arg(long)]
     color: Option<String>,
+    /// Inline kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args, Clone)]
@@ -224,6 +269,9 @@ struct InlineRowArgs {
     /// Visible spaces between row items.
     #[arg(long, default_value_t = 0)]
     gap: usize,
+    /// Inline kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -802,7 +850,7 @@ fn run_inline_chip_kitty(
 ) -> Result<()> {
     let colors = inline_chip_colors(args)?;
     let cols = inline_chip_cols(args);
-    let scene = inline_chip_scene(cols, colors, component);
+    let scene = inline_chip_scene(cols, colors, component, args.animation.scene_animation());
     if mode.scene_json {
         println!("{}", serialize_scene_json(&scene)?);
         return Ok(());
@@ -824,6 +872,7 @@ fn run_inline_chip_kitty(
         payload["upload_bytes"] = serde_json::json!(upload.len());
         payload["placement_bytes"] = serde_json::json!(inline_placement.len());
         payload["embed_bytes"] = serde_json::json!(embed.len());
+        add_inline_animation_json(&mut payload, args.animation);
         if mode.json_bytes || mode.dry_run {
             payload["upload"] = serde_json::json!(upload);
             payload["placement"] = serde_json::json!(inline_placement);
@@ -869,7 +918,12 @@ fn inline_chip_colors(args: &InlineChipArgs) -> Result<InlineChipColors> {
     )
 }
 
-fn inline_chip_scene(cols: u16, colors: InlineChipColors, component: InlineTextComponent) -> Scene {
+fn inline_chip_scene(
+    cols: u16,
+    colors: InlineChipColors,
+    component: InlineTextComponent,
+    animation: Option<Animation>,
+) -> Scene {
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, cols, 1);
     let rect = footprint.to_pixels(cell);
@@ -905,7 +959,19 @@ fn inline_chip_scene(cols: u16, colors: InlineChipColors, component: InlineTextC
                 corners: Corners::uniform(radius),
             }),
         ],
-        animation: None,
+        animation,
+    }
+}
+
+fn add_inline_animation_json(payload: &mut serde_json::Value, animation: InlineAnimationArgs) {
+    payload["inline_animated"] = serde_json::json!(animation.animated);
+    if let Some(scene_animation) = animation.scene_animation() {
+        payload["inline_animation"] = serde_json::json!({
+            "fps": animation.fps.max(1),
+            "frames": scene_animation.frames,
+            "cycle_ms": scene_animation.cycle_ms,
+            "loops": scene_animation.loops,
+        });
     }
 }
 
@@ -993,8 +1059,13 @@ Theme/style knobs:
   kittui inline chip --text "deploy" --style neon
   kittui inline chip --text "warn" --style chrome --border-color orange
 
+Native kitty animation:
+  kittui inline chip --text "main" --animated
+  kittui inline row --item chip:main --item divider:4 --animated --fps 60 --frames 180
+
 Notes:
   - default `kitty` mode emits kitty graphics plus visible terminal text.
+  - --animated uploads all frames once; default period is 180 frames at 60fps (3 seconds).
   - prompt modes wrap only nonprinting bytes; visible text remains width-bearing.
   - use explicit `tmux`, `plain`, or `ansi` fallback formats when graphics are not appropriate.
 "##
@@ -1078,6 +1149,7 @@ fn run_inline_row(
         payload["upload_bytes"] = serde_json::json!(output.upload.len());
         payload["placement_bytes"] = serde_json::json!(output.inline_placement.len());
         payload["embed_bytes"] = serde_json::json!(output.embed.len());
+        add_inline_animation_json(&mut payload, args.animation);
         if mode.json_bytes || mode.dry_run {
             payload["upload"] = serde_json::json!(output.upload);
             payload["placement"] = serde_json::json!(output.inline_placement);
@@ -1115,7 +1187,7 @@ fn render_inline_row_output(
     items: &[InlineRowItem],
 ) -> Result<InlineRowOutput> {
     let colors = InlineChipColors::resolve(args.theme.into(), args.style.into());
-    let scene = inline_row_scene(items, args, colors)?;
+    let scene = inline_row_scene(items, args, colors, args.animation.scene_animation())?;
     let placement = runtime.place(&scene)?;
     let wrapper = args.format.prompt_wrapper();
     let upload = wrap_prompt_nonprinting(&placement.upload, wrapper);
@@ -1174,6 +1246,7 @@ fn inline_row_scene(
     items: &[InlineRowItem],
     args: &InlineRowArgs,
     colors: InlineChipColors,
+    animation: Option<Animation>,
 ) -> Result<Scene> {
     let cell = CellSize::default();
     let gap = args.gap as u16;
@@ -1187,7 +1260,7 @@ fn inline_row_scene(
         match item {
             InlineRowItem::Text { component, text } => {
                 let item_cols = inline_text_cols(text, args.padding);
-                let mut scene = inline_chip_scene(item_cols, colors, *component);
+                let mut scene = inline_chip_scene(item_cols, colors, *component, None);
                 for layer in &mut scene.layers {
                     offset_layer_x(layer, cursor, cell);
                 }
@@ -1195,7 +1268,7 @@ fn inline_row_scene(
                 cursor = cursor.saturating_add(item_cols);
             }
             InlineRowItem::Divider { width, .. } => {
-                let mut scene = inline_divider_scene(*width, colors.border);
+                let mut scene = inline_divider_scene(*width, colors.border, None);
                 for layer in &mut scene.layers {
                     offset_layer_x(layer, cursor, cell);
                 }
@@ -1208,7 +1281,7 @@ fn inline_row_scene(
         footprint: CellRect::new(0, 0, cols.max(1), 1),
         cell_size: cell,
         layers,
-        animation: None,
+        animation,
     })
 }
 
@@ -1255,6 +1328,7 @@ fn inline_row_embed(
                     theme: args.theme,
                     style: args.style,
                     color: None,
+                    animation: InlineAnimationArgs::default(),
                 };
                 out.push_str(&inline_chip_text_embed(
                     &inline_divider_visible_text(&divider),
@@ -1286,6 +1360,7 @@ fn render_inline_row_fallback(items: &[InlineRowItem], args: &InlineRowArgs) -> 
                     border_color: None,
                     fg_color: None,
                     padding: args.padding,
+                    animation: InlineAnimationArgs::default(),
                 };
                 out.push_str(&render_inline_text_component(&item_args, *component));
             }
@@ -1298,6 +1373,7 @@ fn render_inline_row_fallback(items: &[InlineRowItem], args: &InlineRowArgs) -> 
                     theme: args.theme,
                     style: args.style,
                     color: None,
+                    animation: InlineAnimationArgs::default(),
                 };
                 out.push_str(&render_inline_divider(&item_args)?);
             }
@@ -1346,7 +1422,7 @@ fn run_inline_divider(
         return Ok(());
     }
     let color = inline_divider_color(args)?;
-    let scene = inline_divider_scene(args.width, color);
+    let scene = inline_divider_scene(args.width, color, args.animation.scene_animation());
     if mode.scene_json {
         println!("{}", serialize_scene_json(&scene)?);
         return Ok(());
@@ -1367,6 +1443,7 @@ fn run_inline_divider(
         payload["upload_bytes"] = serde_json::json!(upload.len());
         payload["placement_bytes"] = serde_json::json!(inline_placement.len());
         payload["embed_bytes"] = serde_json::json!(embed.len());
+        add_inline_animation_json(&mut payload, args.animation);
         if mode.json_bytes || mode.dry_run {
             payload["upload"] = serde_json::json!(upload);
             payload["placement"] = serde_json::json!(inline_placement);
@@ -1398,7 +1475,7 @@ fn inline_divider_color(args: &InlineDividerArgs) -> Result<Rgba> {
     })
 }
 
-fn inline_divider_scene(cols: u16, color: Rgba) -> Scene {
+fn inline_divider_scene(cols: u16, color: Rgba, animation: Option<Animation>) -> Scene {
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, cols.max(1), 1);
     let rect = footprint.to_pixels(cell);
@@ -1417,7 +1494,7 @@ fn inline_divider_scene(cols: u16, color: Rgba) -> Scene {
             stroke: None,
             corners: Corners::uniform(rule_height / 2.0),
         })],
-        animation: None,
+        animation,
     }
 }
 
@@ -2707,10 +2784,75 @@ mod tests {
         assert!(text.contains("--format plain"), "{text}");
         assert!(text.contains("--format ansi"), "{text}");
         assert!(text.contains("--style neon"), "{text}");
+        assert!(text.contains("--animated"), "{text}");
+        assert!(text.contains("60fps"), "{text}");
         assert!(
             text.contains("prompt modes wrap only nonprinting bytes"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn inline_animation_defaults_to_three_second_looping_period() {
+        let args = InlineAnimationArgs {
+            animated: true,
+            ..InlineAnimationArgs::default()
+        };
+        let animation = args.scene_animation().unwrap();
+        assert_eq!(animation.frames, 180);
+        assert_eq!(animation.cycle_ms, 3000);
+        assert_eq!(animation.loops, 0);
+        assert!(animation.curve.closes_loop());
+
+        let colors = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass);
+        let chip = inline_chip_scene(
+            8,
+            colors,
+            InlineTextComponent::Chip,
+            Some(animation.clone()),
+        );
+        assert_eq!(chip.animation, Some(animation.clone()));
+        let divider = inline_divider_scene(8, colors.border, Some(animation.clone()));
+        assert_eq!(divider.animation, Some(animation.clone()));
+        let row_args = InlineRowArgs {
+            items: vec!["chip:main".to_string(), "divider:4".to_string()],
+            format: InlineFormatArg::Kitty,
+            tone: ToneArg::Assistant,
+            theme: InlineThemeArg::Nord,
+            style: InlineStyleArg::Glass,
+            padding: 1,
+            gap: 0,
+            animation: args,
+        };
+        let items = parse_inline_row_items(&row_args.items).unwrap();
+        let row = inline_row_scene(
+            &items,
+            &row_args,
+            colors,
+            row_args.animation.scene_animation(),
+        )
+        .unwrap();
+        assert_eq!(row.animation, Some(animation));
+    }
+
+    #[test]
+    fn inline_animation_flags_clamp_to_safe_kitty_frame_contract() {
+        let args = InlineAnimationArgs {
+            animated: true,
+            fps: 0,
+            frames: 1,
+        };
+        let animation = args.scene_animation().unwrap();
+        assert_eq!(animation.frames, 2);
+        assert_eq!(animation.cycle_ms, 2000);
+        assert!(animation.curve.closes_loop());
+
+        let mut payload = serde_json::json!({});
+        add_inline_animation_json(&mut payload, args);
+        assert_eq!(payload["inline_animated"], true);
+        assert_eq!(payload["inline_animation"]["fps"], 1);
+        assert_eq!(payload["inline_animation"]["frames"], 2);
+        assert_eq!(payload["inline_animation"]["cycle_ms"], 2000);
     }
 
     #[test]
@@ -2725,6 +2867,7 @@ mod tests {
             border_color: None,
             fg_color: None,
             padding: 1,
+            animation: InlineAnimationArgs::default(),
         };
         assert_eq!(render_inline_chip(&args), "[ main#1 ]");
 
@@ -2744,7 +2887,12 @@ mod tests {
         let colors = inline_chip_colors(&args).unwrap();
         assert_eq!(colors.fill.3, 175);
         assert_eq!(inline_chip_cols(&args), 8);
-        let scene = inline_chip_scene(inline_chip_cols(&args), colors, InlineTextComponent::Chip);
+        let scene = inline_chip_scene(
+            inline_chip_cols(&args),
+            colors,
+            InlineTextComponent::Chip,
+            None,
+        );
         assert_eq!(scene.footprint.cols, 8);
         assert_eq!(scene.footprint.rows, 1);
         let embed =
@@ -2788,6 +2936,7 @@ mod tests {
             border_color: None,
             fg_color: None,
             padding: 1,
+            animation: InlineAnimationArgs::default(),
         };
         assert_eq!(
             render_inline_text_component(&args, InlineTextComponent::Badge),
@@ -2803,7 +2952,7 @@ mod tests {
         assert!(badge.contains(" ok "), "{badge}");
 
         let colors = inline_chip_colors(&args).unwrap();
-        let segment_scene = inline_chip_scene(4, colors, InlineTextComponent::Segment);
+        let segment_scene = inline_chip_scene(4, colors, InlineTextComponent::Segment, None);
         assert_eq!(segment_scene.footprint.rows, 1);
         assert_eq!(segment_scene.footprint.cols, 4);
 
@@ -2815,9 +2964,10 @@ mod tests {
             theme: InlineThemeArg::Nord,
             style: InlineStyleArg::Glass,
             color: None,
+            animation: InlineAnimationArgs::default(),
         };
         assert_eq!(render_inline_divider(&divider).unwrap(), "=====");
-        let scene = inline_divider_scene(5, inline_divider_color(&divider).unwrap());
+        let scene = inline_divider_scene(5, inline_divider_color(&divider).unwrap(), None);
         assert_eq!(scene.footprint.cols, 5);
         assert_eq!(scene.footprint.rows, 1);
     }
@@ -2840,6 +2990,7 @@ mod tests {
             style: InlineStyleArg::Glass,
             padding: 1,
             gap: 1,
+            animation: InlineAnimationArgs::default(),
         };
         assert_eq!(
             render_inline_row_fallback(&items, &args).unwrap(),
@@ -2847,7 +2998,7 @@ mod tests {
         );
         assert_eq!(inline_row_cols(&items, args.padding, args.gap as u16), 21);
         let colors = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass);
-        let scene = inline_row_scene(&items, &args, colors).unwrap();
+        let scene = inline_row_scene(&items, &args, colors, None).unwrap();
         assert_eq!(scene.footprint.cols, 21);
         assert_eq!(scene.footprint.rows, 1);
         assert!(!scene.layers.is_empty());
@@ -2865,6 +3016,7 @@ mod tests {
             border_color: None,
             fg_color: None,
             padding: 1,
+            animation: InlineAnimationArgs::default(),
         };
         assert!(args.format.uses_kitty_graphics());
         assert_eq!(args.format.label(), "prompt-zsh");
