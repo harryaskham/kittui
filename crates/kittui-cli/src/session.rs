@@ -2667,6 +2667,16 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_paste_payload_preserves_exact_bytes_and_wraps_only_when_enabled() {
+        let bytes = b"\0\x1b[31mraw\xff\n";
+        assert_eq!(native_paste_payload(bytes, false), bytes.to_vec());
+        let wrapped = native_paste_payload(bytes, true);
+        assert!(wrapped.starts_with(b"\x1b[200~"));
+        assert!(wrapped.ends_with(b"\x1b[201~"));
+        assert_eq!(&wrapped[6..wrapped.len() - 6], bytes);
+    }
+
+    #[test]
     fn native_pane_at_host_cell_translates_to_local_coordinates() {
         let layouts = vec![
             NativePaneLayout {

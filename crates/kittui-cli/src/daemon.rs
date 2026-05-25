@@ -3120,6 +3120,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn native_spawn_queue_preserves_exact_decoded_bytes_for_send_and_paste() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        assert!(
+            native_spawn_queue_reply("SEND_BYTES_B64 focused AP8bWzMxbQ==", &pending)
+                .starts_with("SEND_BYTES_B64_QUEUED")
+        );
+        assert!(
+            native_spawn_queue_reply("PASTE_BYTES_B64 native-2 AP8bWzMxbQ==", &pending)
+                .starts_with("PASTE_BYTES_B64_QUEUED")
+        );
+        let state = pending.lock().unwrap();
+        assert_eq!(state.pending.len(), 2);
+        assert_eq!(
+            state.pending[0],
+            NativePaneCommand::SendBytes {
+                window: "focused".to_string(),
+                bytes: b"\0\xff\x1b[31m".to_vec(),
+                label: "base64".to_string(),
+            }
+        );
+        assert_eq!(
+            state.pending[1],
+            NativePaneCommand::PasteBytes {
+                window: "native-2".to_string(),
+                bytes: b"\0\xff\x1b[31m".to_vec(),
+            }
+        );
+    }
+
     fn native_status(window: &str, focused: bool, weight: u16) -> NativePaneStatus {
         NativePaneStatus {
             window: window.to_string(),

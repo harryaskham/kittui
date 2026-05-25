@@ -3411,7 +3411,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..4 {
+            for _ in 0..5 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -3428,6 +3428,7 @@ mod tests {
         assert_eq!(surface.send_bytes(b"hi\n\0").unwrap().trim(), "OK");
         assert_eq!(surface.send_bytes_b64("AQID").unwrap().trim(), "OK");
         assert_eq!(surface.paste_bytes(b"paste me").unwrap().trim(), "OK");
+        assert_eq!(surface.paste_bytes(b"\0\xff\x1b[31m").unwrap().trim(), "OK");
         assert_eq!(
             surface
                 .send_mouse(MouseEvent::PressLeft, 7, 9)
@@ -3443,6 +3444,7 @@ mod tests {
                 "SEND_BYTES_B64 native-1 aGkKAA==",
                 "SEND_BYTES_B64 native-1 AQID",
                 "PASTE_BYTES_B64 native-1 cGFzdGUgbWU=",
+                "PASTE_BYTES_B64 native-1 AP8bWzMxbQ==",
                 "SEND_MOUSE native-1 press-left 7 9"
             ]
         );

@@ -4155,6 +4155,14 @@ mod tests {
             "PASTE_BYTES_B64 focused aGkKAA=="
         );
         assert_eq!(
+            send_bytes_request("focused", b"\0\xff\x1b[31m").unwrap(),
+            "SEND_BYTES_B64 focused AP8bWzMxbQ=="
+        );
+        assert_eq!(
+            paste_bytes_request("focused", b"\0\xff\x1b[31m").unwrap(),
+            "PASTE_BYTES_B64 focused AP8bWzMxbQ=="
+        );
+        assert_eq!(
             wait_ms_request("WAIT_OUTPUT_MS", "2500", "focused", "Ready Now").unwrap(),
             "WAIT_OUTPUT_MS focused 2500 Ready Now"
         );
