@@ -3629,6 +3629,14 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_dummy_pane_helper_resolves_true_from_path() {
+        let resolved =
+            resolve_test_program("true").expect("test environment should provide true on PATH");
+        assert_ne!(resolved, "true");
+        assert!(std::path::Path::new(&resolved).is_file(), "{resolved}");
+    }
+
+    #[test]
     #[cfg_attr(
         target_os = "macos",
         ignore = "Nix Darwin sandbox lacks a stable PTY shell for dummy panes"
@@ -3863,7 +3871,21 @@ mod native_pane_tests {
     }
 
     fn dummy_native_pane_app() -> PtyTerminalApp {
-        PtyTerminalApp::spawn_program("true", &[], 1, 1).unwrap()
+        let program = resolve_test_program("true").unwrap_or_else(|| "true".to_string());
+        PtyTerminalApp::spawn_program(&program, &[], 1, 1).unwrap()
+    }
+
+    fn resolve_test_program(name: &str) -> Option<String> {
+        let candidate = std::path::Path::new(name);
+        if candidate.components().count() > 1 && candidate.exists() {
+            return Some(name.to_string());
+        }
+        std::env::var_os("PATH").and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join(name))
+                .find(|candidate| candidate.is_file())
+                .map(|candidate| candidate.to_string_lossy().into_owned())
+        })
     }
 }
 
