@@ -2030,6 +2030,16 @@ fn render_native_shell_view_affordance_scenes(
             y: view.footer.row,
             scene: native_footer_status_scene(cell_size, cols, &view.footer.text),
         });
+        if let Some((x, y, scene)) =
+            native_toast_scene(cell_size, cols, view.footer.row, &view.footer.text)
+        {
+            scenes.push(NativeShellChromeScene {
+                id: "toast".to_string(),
+                x,
+                y,
+                scene,
+            });
+        }
     }
     if view.help_overlay {
         let (x, y, scene) = native_help_overlay_scene(cell_size, cols, native_help_overlay_lines());
@@ -2121,6 +2131,102 @@ fn native_pane_title_status_scene(
         layers,
         animation: None,
     }
+}
+
+fn native_toast_scene(
+    cell_size: CellSize,
+    cols: u16,
+    footer_row: u16,
+    message: &str,
+) -> Option<(u16, u16, Scene)> {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let colors =
+        if trimmed.contains("error") || trimmed.contains("ERR") || trimmed.contains("failed") {
+            InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Chrome)
+        } else {
+            InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Neon)
+        };
+    let msg_cols = trimmed.chars().count() as u16;
+    let toast_cols = msg_cols
+        .saturating_add(4)
+        .clamp(20, cols.saturating_sub(4).max(20));
+    let toast_rows = 3u16;
+    let x = cols.saturating_sub(toast_cols).saturating_div(2);
+    let y = footer_row
+        .saturating_sub(toast_rows.saturating_add(1))
+        .max(1);
+    let rect = CellRect::new(0, 0, toast_cols, toast_rows).to_pixels(cell_size);
+    let rail =
+        kittui_core::geom::PxRect::new(0.0, 0.0, cell_size.width_px.max(1) as f32, rect.height);
+    let layers = vec![
+        Layer::new(
+            format!(
+                "toast-backdrop:{}",
+                clip_and_pad(trimmed, toast_cols as usize).trim()
+            ),
+            Node::Rect {
+                rect,
+                fill: Paint::Solid { color: colors.fill },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: colors.border,
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        ),
+        Layer::new(
+            "toast-accent-rail",
+            Node::Rect {
+                rect: rail,
+                fill: Paint::Solid {
+                    color: colors.border,
+                },
+                stroke: None,
+                corners: Corners::uniform(8.0),
+            },
+        ),
+        Layer::new(
+            "toast-highlight",
+            Node::Rect {
+                rect: kittui_core::geom::PxRect::new(
+                    0.0,
+                    0.0,
+                    rect.width,
+                    (rect.height / 2.0).max(1.0),
+                ),
+                fill: Paint::Solid {
+                    color: colors.highlight,
+                },
+                stroke: None,
+                corners: Corners::uniform(8.0),
+            },
+        ),
+        Layer::new(
+            format!(
+                "toast-text:{}",
+                clip_and_pad(trimmed, toast_cols.saturating_sub(4) as usize).trim()
+            ),
+            Node::Group {
+                opacity: 1.0,
+                children: Vec::new(),
+            },
+        ),
+    ];
+    Some((
+        x,
+        y,
+        Scene {
+            footprint: CellRect::new(0, 0, toast_cols, toast_rows),
+            cell_size,
+            layers,
+            animation: None,
+        },
+    ))
 }
 
 fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str) -> Scene {
@@ -3112,7 +3218,7 @@ mod native_pane_tests {
             help_overlay: false,
         };
         let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 18);
-        assert_eq!(scenes.len(), 6);
+        assert_eq!(scenes.len(), 7);
         assert_eq!(scenes[0].id, "top-bar");
         assert_eq!((scenes[0].x, scenes[0].y), (0, 0));
         assert!(scenes[0]
@@ -3124,6 +3230,7 @@ mod native_pane_tests {
         assert_eq!(scenes[2].id, "pane-0-border");
         assert_eq!((scenes[3].x, scenes[3].y), (8, 1));
         assert_eq!(scenes[5].id, "footer");
+        assert_eq!(scenes[6].id, "toast");
         assert!(scenes[5].scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
@@ -3134,6 +3241,16 @@ mod native_pane_tests {
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("status-chip-help")));
+        assert!(scenes[6].scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("toast-backdrop:footer")));
+        assert!(scenes[6]
+            .scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("toast-accent-rail")));
         assert!(scenes[1].scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
