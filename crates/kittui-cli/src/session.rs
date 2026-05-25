@@ -2796,6 +2796,27 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_mode_sequences_restore_alt_cursor_mouse_and_focus_modes() {
+        let enter = std::str::from_utf8(raw_mode_enter_sequence()).unwrap();
+        let restore = std::str::from_utf8(raw_mode_restore_sequence()).unwrap();
+        for enabled in [
+            "?1049h", "?25l", "?1000h", "?1002h", "?1003h", "?1004h", "?1006h",
+        ] {
+            assert!(enter.contains(enabled), "missing {enabled}: {enter:?}");
+        }
+        for disabled in [
+            "?1006l", "?1004l", "?1003l", "?1002l", "?1000l", "?25h", "?1049l",
+        ] {
+            assert!(
+                restore.contains(disabled),
+                "missing {disabled}: {restore:?}"
+            );
+        }
+        assert!(restore.find("?25h").unwrap() < restore.find("?1049l").unwrap());
+        assert!(restore.find("?1006l").unwrap() < restore.find("?1000l").unwrap());
+    }
+
+    #[test]
     fn native_ctrl_c_exit_guard_requires_three_presses_in_window() {
         let start = Instant::now();
         let mut guard = NativeCtrlCExitGuard::default();
@@ -4557,13 +4578,20 @@ fn clock() -> String {
 
 struct RawMode;
 
+fn raw_mode_enter_sequence() -> &'static [u8] {
+    // Alt screen + hide cursor, then SGR mouse + motion + focus reporting.
+    b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1004h\x1b[?1006h"
+}
+
+fn raw_mode_restore_sequence() -> &'static [u8] {
+    // Disable in reverse-ish dependency order, restore cursor, then leave alt screen.
+    b"\x1b[?1006l\x1b[?1004l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l"
+}
+
 impl RawMode {
     fn enter() -> Result<Self> {
         let mut out = io::stdout();
-        // Alt screen + hide cursor, then SGR mouse + motion + focus reporting.
-        out.write_all(
-            b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1004h\x1b[?1006h",
-        )?;
+        out.write_all(raw_mode_enter_sequence())?;
         out.flush()?;
         #[cfg(unix)]
         unsafe {
@@ -4597,8 +4625,7 @@ fn restore_terminal() {
         }
     }
     let mut out = io::stdout();
-    let _ = out
-        .write_all(b"\x1b[?1006l\x1b[?1004l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l");
+    let _ = out.write_all(raw_mode_restore_sequence());
     let _ = out.flush();
     #[cfg(unix)]
     unsafe {
