@@ -91,6 +91,7 @@ struct Cli {
     commands: bool,
     commands_json: bool,
     showcase_scene_json: bool,
+    showcase_metrics_json: bool,
     completions: Option<String>,
     keymap_path: Option<String>,
     keymap_check: bool,
@@ -164,6 +165,7 @@ fn parse_args() -> Result<Cli> {
             "commands" => out.commands = true,
             "commands-json" => out.commands_json = true,
             "showcase-scene-json" | "shell-scene-json" => out.showcase_scene_json = true,
+            "showcase-metrics-json" | "shell-metrics-json" => out.showcase_metrics_json = true,
             "completions" => {
                 out.completions = Some(
                     args.next()
@@ -297,6 +299,7 @@ fn parse_args() -> Result<Cli> {
             "--shortcuts" => out.shortcuts = true,
             "--shortcuts-json" => out.shortcuts_json = true,
             "--showcase-scene-json" | "--shell-scene-json" => out.showcase_scene_json = true,
+            "--showcase-metrics-json" | "--shell-metrics-json" => out.showcase_metrics_json = true,
             "-c" | "--command" => {
                 out.attach_command = Some(args.next().ok_or_else(|| anyhow!("--command CMD"))?);
             }
@@ -705,6 +708,7 @@ USAGE
   kittwm commands                Show grouped local CLI command catalog
   kittwm commands-json           Show local CLI command catalog JSON
   kittwm showcase-scene-json     Emit a representative graphical WM scene artifact
+  kittwm showcase-metrics-json   Emit scene/layer/pixel metrics for that artifact
   kittwm completions SHELL       Print shell completions (bash|zsh|fish)
   kittwm cheat                   Show compact daily-driver cheat sheet
 
@@ -718,6 +722,7 @@ DAILY DRIVER BASICS
   Exit:            press Ctrl-]
   Shortcut list:   kittwm shortcuts        (JSON: kittwm --shortcuts-json)
   Scene artifact:  kittwm showcase-scene-json
+  Perf metrics:    kittwm showcase-metrics-json
   Old startup:     KITTWM_STARTUP_TERMINAL=1 kittwm
 
 COMMON INSPECTION
@@ -1277,6 +1282,9 @@ fn real_main() -> Result<()> {
     }
     if cli.showcase_scene_json {
         return showcase_scene_json_cmd();
+    }
+    if cli.showcase_metrics_json {
+        return showcase_metrics_json_cmd();
     }
     if let Some(shell) = &cli.completions {
         return completions_cmd(shell);
@@ -3098,6 +3106,14 @@ fn showcase_scene_json_cmd() -> Result<()> {
     Ok(())
 }
 
+fn showcase_metrics_json_cmd() -> Result<()> {
+    println!(
+        "{}",
+        kittui_cli::session::native_showcase_metrics_json(96, 24, true)?
+    );
+    Ok(())
+}
+
 fn shortcuts_json_cmd() -> Result<()> {
     print!("{}", kittui_cli::shortcuts::render_native_shortcuts_json());
     Ok(())
@@ -3846,6 +3862,7 @@ mod tests {
         assert!(text.contains("--wait-output-json-ms"), "{text}");
         assert!(text.contains("kittwm shortcuts"), "{text}");
         assert!(text.contains("kittwm showcase-scene-json"), "{text}");
+        assert!(text.contains("kittwm showcase-metrics-json"), "{text}");
     }
 
     #[test]

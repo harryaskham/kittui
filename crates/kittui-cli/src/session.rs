@@ -1903,6 +1903,38 @@ fn native_top_bar_model_from_view(view: &NativeShellView) -> BarModel {
 }
 
 pub fn native_showcase_scene_json(cols: u16, rows: u16, help_overlay: bool) -> Result<String> {
+    let scenes = native_showcase_scenes(cols, rows, help_overlay);
+    serde_json::to_string_pretty(&scenes).map_err(Into::into)
+}
+
+pub fn native_showcase_metrics_json(cols: u16, rows: u16, help_overlay: bool) -> Result<String> {
+    let cols = cols.max(40);
+    let rows = rows.max(12);
+    let scenes = native_showcase_scenes(cols, rows, help_overlay);
+    let scene_count = scenes.len();
+    let layer_count = scenes
+        .iter()
+        .map(|scene| scene.scene.layers.len())
+        .sum::<usize>();
+    let total_pixels = scenes
+        .iter()
+        .map(|scene| scene.scene.pixel_width() as u64 * scene.scene.pixel_height() as u64)
+        .sum::<u64>();
+    serde_json::to_string_pretty(&serde_json::json!({
+        "kind": "kittwm-showcase-metrics",
+        "cols": cols,
+        "rows": rows,
+        "help_overlay": help_overlay,
+        "scene_count": scene_count,
+        "layer_count": layer_count,
+        "total_pixels": total_pixels,
+        "cell_width_px": NATIVE_CELL_WIDTH_PX,
+        "cell_height_px": NATIVE_CELL_HEIGHT_PX,
+    }))
+    .map_err(Into::into)
+}
+
+fn native_showcase_scenes(cols: u16, rows: u16, help_overlay: bool) -> Vec<NativeShellChromeScene> {
     let cols = cols.max(40);
     let rows = rows.max(12);
     let app_rows = rows.saturating_sub(4).max(3);
@@ -1951,8 +1983,7 @@ pub fn native_showcase_scene_json(cols: u16, rows: u16, help_overlay: bool) -> R
         },
         help_overlay,
     };
-    let scenes = render_native_shell_view_affordance_scenes(&view, native_cell_size(), cols);
-    serde_json::to_string_pretty(&scenes).map_err(Into::into)
+    render_native_shell_view_affordance_scenes(&view, native_cell_size(), cols)
 }
 
 fn render_native_shell_view_affordance_scenes(
@@ -3345,6 +3376,21 @@ mod native_pane_tests {
         let fallback = render_native_shell_view_terminal(&view, 80, 12);
         assert!(fallback.contains("kittui-bar"), "{fallback:?}");
         assert!(fallback.contains("kittwm shortcuts"), "{fallback:?}");
+    }
+
+    #[test]
+    fn native_showcase_metrics_json_reports_scene_layer_and_pixel_budget() {
+        let metrics: serde_json::Value =
+            serde_json::from_str(&native_showcase_metrics_json(96, 24, true).unwrap()).unwrap();
+        assert_eq!(metrics["kind"], "kittwm-showcase-metrics");
+        assert_eq!(metrics["cols"], 96);
+        assert_eq!(metrics["rows"], 24);
+        assert_eq!(metrics["help_overlay"], true);
+        assert_eq!(metrics["scene_count"], 7);
+        assert!(metrics["layer_count"].as_u64().unwrap() >= 40, "{metrics}");
+        assert!(metrics["total_pixels"].as_u64().unwrap() > 0, "{metrics}");
+        assert_eq!(metrics["cell_width_px"], NATIVE_CELL_WIDTH_PX);
+        assert_eq!(metrics["cell_height_px"], NATIVE_CELL_HEIGHT_PX);
     }
 
     #[test]
