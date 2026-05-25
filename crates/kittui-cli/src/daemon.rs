@@ -274,12 +274,24 @@ pub struct NativeSpawnQueue {
     accept_thread: Option<JoinHandle<()>>,
 }
 
+fn cleanup_stale_socket_for_bind(path: &Path, owner: &str) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    match client_request(path, "PING") {
+        Ok(reply) if reply.trim() == "PONG" => Err(anyhow!(
+            "another {owner} is already listening on {}",
+            path.display()
+        )),
+        _ => std::fs::remove_file(path)
+            .map_err(|e| anyhow!("remove stale {owner} socket {}: {e}", path.display())),
+    }
+}
+
 impl NativeSpawnQueue {
     /// Bind a socket that accepts `SPAWN_PTY <cmd>` requests.
     pub fn bind(path: PathBuf) -> Result<Self> {
-        if path.exists() {
-            let _ = std::fs::remove_file(&path);
-        }
+        cleanup_stale_socket_for_bind(&path, "native spawn queue")?;
         let listener = UnixListener::bind(&path)
             .map_err(|e| anyhow!("bind native spawn queue {}: {e}", path.display()))?;
         let quit = Arc::new(AtomicBool::new(false));
@@ -2562,21 +2574,7 @@ impl std::fmt::Debug for DaemonServer {
 
 impl DaemonServer {
     pub fn bind(path: PathBuf) -> Result<Self> {
-        // If a stale socket exists, try to ping it. If a real server is
-        // there we fail loudly; otherwise we unlink and rebind.
-        if path.exists() {
-            match client_request(&path, "PING") {
-                Ok(reply) if reply.trim() == "PONG" => {
-                    return Err(anyhow!(
-                        "another kittwm daemon is already listening on {}",
-                        path.display()
-                    ));
-                }
-                _ => {
-                    let _ = std::fs::remove_file(&path);
-                }
-            }
-        }
+        cleanup_stale_socket_for_bind(&path, "kittwm daemon")?;
         let listener =
             UnixListener::bind(&path).map_err(|e| anyhow!("bind {}: {e}", path.display()))?;
         listener
@@ -4129,6 +4127,30 @@ mod tests {
                 .contains("ERR WAIT_TEXT timeout")
         );
         assert!(native_spawn_queue_reply("READ_TEXT missing", &pending).contains("ERR"));
+    }
+
+    #[test]
+    fn daemon_bind_removes_stale_socket_file() {
+        let p = std::env::temp_dir().join(format!("kittwm-test-stale-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        std::fs::write(&p, b"not a socket").unwrap();
+        let server = DaemonServer::bind(p.clone()).unwrap();
+        assert!(p.exists());
+        assert_eq!(
+            client_request(server.path(), "PING").unwrap().trim(),
+            "PONG"
+        );
+    }
+
+    #[test]
+    fn native_spawn_queue_bind_removes_stale_socket_file() {
+        let p =
+            std::env::temp_dir().join(format!("kittwm-native-stale-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        std::fs::write(&p, b"not a socket").unwrap();
+        let queue = NativeSpawnQueue::bind(p.clone()).unwrap();
+        assert!(p.exists());
+        assert_eq!(client_request(queue.path(), "PING").unwrap().trim(), "PONG");
     }
 
     #[test]
