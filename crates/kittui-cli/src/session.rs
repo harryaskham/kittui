@@ -2943,6 +2943,41 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_showcase_scene_signature_matches_visual_golden() {
+        let json = native_showcase_scene_json(96, 24, true).unwrap();
+        let actual = native_showcase_scene_signature(&json);
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/kittwm_showcase_scene_signature.json"
+        ))
+        .unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    fn native_showcase_scene_signature(json: &str) -> serde_json::Value {
+        let value: serde_json::Value = serde_json::from_str(json).unwrap();
+        serde_json::Value::Array(
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| {
+                    serde_json::json!({
+                        "id": entry["id"],
+                        "x": entry["x"],
+                        "y": entry["y"],
+                        "layers": entry["scene"]["layers"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|layer| layer["label"].clone())
+                            .collect::<Vec<_>>(),
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    #[test]
     fn native_empty_workspace_builds_graphical_landing_surface() {
         let (_x, y, scene) = native_empty_workspace_scene(CellSize::new(8, 16), 96, 20);
         assert_eq!(y, 2);

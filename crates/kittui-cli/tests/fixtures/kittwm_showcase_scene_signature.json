@@ -1,0 +1,94 @@
+[
+  {
+    "id": "top-bar",
+    "x": 0,
+    "y": 0,
+    "layers": [
+      "kittwm-live-top-bar:active:1",
+      "kittwm-live-top-bar-text:kittui-bar  ws:1  active  panes:2  focus:-  12:00 UTC"
+    ]
+  },
+  {
+    "id": "pane-0-title",
+    "x": 0,
+    "y": 1,
+    "layers": [
+      "pane-0-title-strip:* native-1 shell",
+      "pane-0-title-focus-marker",
+      "pane-0-status-chip:shell · pid:101 · frame:clean"
+    ]
+  },
+  {
+    "id": "pane-0-border",
+    "x": 0,
+    "y": 1,
+    "layers": [
+      "pane-0-focus-glow",
+      "pane-0-title-gutter",
+      "pane-0-focus-accent-rail",
+      "pane-0-kittui-border",
+      "pane-0-focus-ring"
+    ]
+  },
+  {
+    "id": "pane-1-title",
+    "x": 48,
+    "y": 1,
+    "layers": [
+      "pane-1-title-strip:  native-2 logs",
+      "pane-1-title-focus-marker",
+      "pane-1-status-chip:logs · pid:102 · frame:4"
+    ]
+  },
+  {
+    "id": "pane-1-border",
+    "x": 48,
+    "y": 1,
+    "layers": [
+      "pane-1-title-gutter",
+      "pane-1-kittui-border"
+    ]
+  },
+  {
+    "id": "footer",
+    "x": 0,
+    "y": 23,
+    "layers": [
+      "status-bar-backdrop: C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase",
+      "status-chip-help",
+      "status-chip-terminal",
+      "status-chip-close"
+    ]
+  },
+  {
+    "id": "help-overlay",
+    "x": 9,
+    "y": 2,
+    "layers": [
+      "help-overlay-backdrop",
+      "help-overlay-heading-band",
+      "help-overlay-key-chip-1",
+      "help-overlay-row-1",
+      "help-overlay-key-chip-2",
+      "help-overlay-row-2",
+      "help-overlay-key-chip-3",
+      "help-overlay-row-3",
+      "help-overlay-key-chip-4",
+      "help-overlay-row-4",
+      "help-overlay-key-chip-5",
+      "help-overlay-row-5",
+      "help-overlay-key-chip-6",
+      "help-overlay-row-6",
+      "help-overlay-key-chip-7",
+      "help-overlay-row-7",
+      "help-overlay-key-chip-8",
+      "help-overlay-row-8",
+      "help-overlay-key-chip-9",
+      "help-overlay-row-9",
+      "help-overlay-key-chip-10",
+      "help-overlay-row-10",
+      "help-overlay-row-11",
+      "help-overlay-row-12"
+    ]
+  }
+]
