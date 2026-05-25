@@ -1864,6 +1864,18 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
+struct NativeShellCompositionEntry {
+    id: String,
+    kind: String,
+    z: u16,
+    x: u16,
+    y: u16,
+    cols: u16,
+    rows: u16,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 struct NativeShellChromeScene {
     id: String,
     x: u16,
@@ -1902,6 +1914,72 @@ fn native_top_bar_model_from_view(view: &NativeShellView) -> BarModel {
         time,
         connected: true,
     }
+}
+
+pub fn native_showcase_composition_json(
+    cols: u16,
+    rows: u16,
+    help_overlay: bool,
+) -> Result<String> {
+    let scenes = native_showcase_scenes(cols, rows, help_overlay);
+    let mut entries = Vec::new();
+    entries.push(NativeShellCompositionEntry {
+        id: "background".to_string(),
+        kind: "background".to_string(),
+        z: 0,
+        x: 0,
+        y: 0,
+        cols: cols.max(40),
+        rows: rows.max(12),
+    });
+    for scene in &scenes {
+        let kind = if scene.id.contains("title")
+            || scene.id.contains("border")
+            || scene.id == "footer"
+            || scene.id == "top-bar"
+        {
+            "chrome"
+        } else {
+            "overlay"
+        };
+        if scene.id.ends_with("-border") {
+            entries.push(NativeShellCompositionEntry {
+                id: scene.id.replace("-border", "-app-frame"),
+                kind: "app-frame".to_string(),
+                z: 10,
+                x: scene.x.saturating_add(NATIVE_PANE_BORDER_COLS),
+                y: scene.y.saturating_add(NATIVE_PANE_TITLE_ROWS),
+                cols: scene
+                    .scene
+                    .footprint
+                    .cols
+                    .saturating_sub(NATIVE_PANE_BORDER_COLS * 2)
+                    .max(1),
+                rows: scene
+                    .scene
+                    .footprint
+                    .rows
+                    .saturating_sub(NATIVE_PANE_TITLE_ROWS)
+                    .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS)
+                    .max(1),
+            });
+        }
+        entries.push(NativeShellCompositionEntry {
+            id: scene.id.clone(),
+            kind: kind.to_string(),
+            z: if kind == "overlay" { 30 } else { 20 },
+            x: scene.x,
+            y: scene.y,
+            cols: scene.scene.footprint.cols,
+            rows: scene.scene.footprint.rows,
+        });
+    }
+    entries.sort_by_key(|entry| entry.z);
+    serde_json::to_string_pretty(&serde_json::json!({
+        "kind": "kittwm-shell-composition",
+        "entries": entries,
+    }))
+    .map_err(Into::into)
 }
 
 pub fn native_showcase_scene_json(cols: u16, rows: u16, help_overlay: bool) -> Result<String> {
@@ -3696,6 +3774,33 @@ mod native_pane_tests {
         assert!(cases
             .iter()
             .any(|case| case["id"] == "real-fonts" && case["status"] == "follow-up"));
+    }
+
+    #[test]
+    fn native_showcase_composition_json_orders_app_frames_below_chrome_and_overlays() {
+        let value: serde_json::Value =
+            serde_json::from_str(&native_showcase_composition_json(96, 24, true).unwrap()).unwrap();
+        assert_eq!(value["kind"], "kittwm-shell-composition");
+        let entries = value["entries"].as_array().unwrap();
+        let app = entries
+            .iter()
+            .find(|entry| entry["id"] == "pane-0-app-frame")
+            .unwrap();
+        let chrome = entries
+            .iter()
+            .find(|entry| entry["id"] == "pane-0-border")
+            .unwrap();
+        let overlay = entries
+            .iter()
+            .find(|entry| entry["id"] == "help-overlay")
+            .unwrap();
+        assert_eq!(app["kind"], "app-frame");
+        assert_eq!(chrome["kind"], "chrome");
+        assert_eq!(overlay["kind"], "overlay");
+        assert!(app["z"].as_u64().unwrap() < chrome["z"].as_u64().unwrap());
+        assert!(chrome["z"].as_u64().unwrap() < overlay["z"].as_u64().unwrap());
+        assert!(app["x"].as_u64().unwrap() > chrome["x"].as_u64().unwrap());
+        assert!(app["cols"].as_u64().unwrap() < chrome["cols"].as_u64().unwrap());
     }
 
     #[test]
