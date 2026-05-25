@@ -23,7 +23,7 @@ use anyhow::{anyhow, Result};
 use kittui::{
     CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Runtime, Scene, Stroke,
 };
-use kittui_affordances::{button, ControlState, InlineChipColors, InlineStyle, InlineTheme};
+use kittui_affordances::{InlineChipColors, InlineStyle, InlineTheme};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
@@ -643,6 +643,7 @@ struct NativePaneChrome {
     focused: bool,
     text: String,
     cache_key: String,
+    status: String,
     app_x: u16,
     app_y: u16,
     app_cols: u16,
@@ -681,6 +682,7 @@ fn native_shell_view(
                 focused: is_focused,
                 text,
                 cache_key,
+                status: native_pane_status_chip_text(pane),
                 app_x: layout.app_x,
                 app_y: layout.app_y,
                 app_cols: layout.app_cols,
@@ -720,6 +722,25 @@ fn native_top_bar_model(_workspace_id: u16, panes: usize, sock: &str) -> BarMode
 
 fn native_top_bar_text(workspace_id: u16, panes: usize, sock: &str) -> String {
     native_top_bar_model(workspace_id, panes, sock).render()
+}
+
+fn native_pane_status_chip_text(pane: &NativePane) -> String {
+    let pid = pane
+        .pid
+        .map(|pid| format!("pid:{pid}"))
+        .unwrap_or_else(|| "pid:-".to_string());
+    let dirty = pane
+        .dirty_frame
+        .as_ref()
+        .map(|metrics| {
+            if metrics.skipped_upload {
+                "frame:clean".to_string()
+            } else {
+                format!("frame:{}", metrics.changed_tiles)
+            }
+        })
+        .unwrap_or_else(|| "frame:new".to_string());
+    format!("{} · {pid} · {dirty}", pane.command)
 }
 
 fn native_status_line_text(panes: usize, log_path: &str) -> String {
@@ -1812,15 +1833,11 @@ fn render_native_shell_view_affordance_scenes(
         });
     }
     for (idx, pane) in view.panes.iter().enumerate() {
-        let state = ControlState::default().focused(pane.focused);
-        let mut control =
-            button(format!("pane-{idx}"), pane.text.clone(), pane.cols.max(6)).state(state);
-        control.height_cells = 1;
         scenes.push(NativeShellChromeScene {
             id: format!("pane-{idx}-title"),
             x: pane.x,
             y: pane.y,
-            scene: control.to_scene(cell_size),
+            scene: native_pane_title_status_scene(idx, pane, cell_size),
         });
         scenes.push(NativeShellChromeScene {
             id: format!("pane-{idx}-border"),
@@ -1851,6 +1868,82 @@ fn render_native_shell_view_affordance_scenes(
 
 fn native_glass_chrome_colors() -> InlineChipColors {
     InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass)
+}
+
+fn native_pane_title_status_scene(
+    idx: usize,
+    pane: &NativePaneChrome,
+    cell_size: CellSize,
+) -> Scene {
+    let colors = native_glass_chrome_colors();
+    let cols = pane.cols.max(6);
+    let rect = CellRect::new(0, 0, cols, 1).to_pixels(cell_size);
+    let cell_w = cell_size.width_px.max(1) as f32;
+    let chip_h = (cell_size.height_px.max(1) as f32 - 4.0).max(6.0);
+    let mut layers = vec![Layer::new(
+        format!("pane-{idx}-title-strip:{}", pane.text),
+        Node::Rect {
+            rect,
+            fill: Paint::Solid {
+                color: if pane.focused {
+                    colors.fill
+                } else {
+                    rgba_with_alpha(colors.fill, 115)
+                },
+            },
+            stroke: Some(Stroke::inside(
+                1.0,
+                Paint::Solid {
+                    color: if pane.focused {
+                        colors.border
+                    } else {
+                        rgba_with_alpha(colors.border, 145)
+                    },
+                },
+            )),
+            corners: Corners::uniform(5.0),
+        },
+    )];
+    let focus_width = if pane.focused { 4.0 } else { 2.0 };
+    layers.push(Layer::new(
+        format!("pane-{idx}-title-focus-marker"),
+        Node::Rect {
+            rect: PxRect::new(0.0, 0.0, focus_width, rect.height),
+            fill: Paint::Solid {
+                color: if pane.focused {
+                    colors.border
+                } else {
+                    rgba_with_alpha(colors.border, 90)
+                },
+            },
+            stroke: None,
+            corners: Corners::uniform(4.0),
+        },
+    ));
+    let status_x = (cols.saturating_sub(12).max(4) as f32) * cell_w;
+    let status_w = (rect.width - status_x - 4.0).max(cell_w);
+    layers.push(Layer::new(
+        format!("pane-{idx}-status-chip:{}", pane.status),
+        Node::Rect {
+            rect: PxRect::new(status_x, 2.0, status_w, chip_h),
+            fill: Paint::Solid {
+                color: rgba_with_alpha(colors.border, if pane.focused { 70 } else { 42 }),
+            },
+            stroke: Some(Stroke::inside(
+                1.0,
+                Paint::Solid {
+                    color: rgba_with_alpha(colors.border, if pane.focused { 220 } else { 120 }),
+                },
+            )),
+            corners: Corners::uniform(5.0),
+        },
+    ));
+    Scene {
+        footprint: CellRect::new(0, 0, cols, 1),
+        cell_size,
+        layers,
+        animation: None,
+    }
 }
 
 fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str) -> Scene {
@@ -2563,6 +2656,7 @@ mod native_pane_tests {
                 focused: true,
                 text: "* native-1 shell".to_string(),
                 cache_key: "key".to_string(),
+                status: "shell · pid:101 · frame:new".to_string(),
                 app_x: 0,
                 app_y: 2,
                 app_cols: 8,
@@ -2649,6 +2743,7 @@ mod native_pane_tests {
                     focused: true,
                     text: "* native-1 shell".to_string(),
                     cache_key: "key1".to_string(),
+                    status: "shell · pid:101 · frame:new".to_string(),
                     app_x: 0,
                     app_y: 2,
                     app_cols: 8,
@@ -2663,6 +2758,7 @@ mod native_pane_tests {
                     focused: false,
                     text: "  native-2 logs".to_string(),
                     cache_key: "key2".to_string(),
+                    status: "logs · pid:102 · frame:clean".to_string(),
                     app_x: 8,
                     app_y: 2,
                     app_cols: 10,
@@ -2701,11 +2797,16 @@ mod native_pane_tests {
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("status-chip-help")));
-        assert!(scenes[1]
-            .scene
-            .layers
-            .iter()
-            .any(|layer| layer.label.as_deref() == Some("control_background")));
+        assert!(scenes[1].scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("pane-0-title-strip:* native-1 shell")));
+        assert!(scenes[1].scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("pane-0-status-chip:shell · pid:101")));
         let focused_border_labels = scenes[2]
             .scene
             .layers
