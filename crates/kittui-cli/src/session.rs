@@ -2063,31 +2063,75 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
         rgba_with_alpha(colors.fill, 110)
     };
     let title_rect = PxRect::new(0.0, 0.0, rect.width, cell_size.height_px.max(1) as f32);
+    let mut layers = Vec::new();
+    if pane.focused {
+        layers.push(Layer::new(
+            format!("pane-{idx}-focus-glow"),
+            Node::Rect {
+                rect,
+                fill: Paint::Solid {
+                    color: rgba_with_alpha(colors.border, 26),
+                },
+                stroke: None,
+                corners: Corners::uniform(7.0),
+            },
+        ));
+    }
+    layers.push(Layer::new(
+        format!("pane-{idx}-title-gutter"),
+        Node::Rect {
+            rect: title_rect,
+            fill: Paint::Solid { color: title_fill },
+            stroke: None,
+            corners: Corners::default(),
+        },
+    ));
+    if pane.focused {
+        layers.push(Layer::new(
+            format!("pane-{idx}-focus-accent-rail"),
+            Node::Rect {
+                rect: PxRect::new(0.0, 0.0, 4.0, rect.height),
+                fill: Paint::Solid {
+                    color: colors.border,
+                },
+                stroke: None,
+                corners: Corners::uniform(4.0),
+            },
+        ));
+    }
+    layers.push(Layer::new(
+        format!("pane-{idx}-kittui-border"),
+        Node::Rect {
+            rect,
+            fill: Paint::Solid {
+                color: Rgba::rgba(0, 0, 0, 0),
+            },
+            stroke: Some(Stroke::inside(2.0, Paint::Solid { color: border })),
+            corners: Corners::uniform(5.0),
+        },
+    ));
+    if pane.focused {
+        layers.push(Layer::new(
+            format!("pane-{idx}-focus-ring"),
+            Node::Rect {
+                rect,
+                fill: Paint::Solid {
+                    color: Rgba::rgba(0, 0, 0, 0),
+                },
+                stroke: Some(Stroke::inside(
+                    4.0,
+                    Paint::Solid {
+                        color: colors.border,
+                    },
+                )),
+                corners: Corners::uniform(7.0),
+            },
+        ));
+    }
     Scene {
         footprint: CellRect::new(0, 0, cols, rows),
         cell_size,
-        layers: vec![
-            Layer::new(
-                format!("pane-{idx}-title-gutter"),
-                Node::Rect {
-                    rect: title_rect,
-                    fill: Paint::Solid { color: title_fill },
-                    stroke: None,
-                    corners: Corners::default(),
-                },
-            ),
-            Layer::new(
-                format!("pane-{idx}-kittui-border"),
-                Node::Rect {
-                    rect,
-                    fill: Paint::Solid {
-                        color: Rgba::rgba(0, 0, 0, 0),
-                    },
-                    stroke: Some(Stroke::inside(2.0, Paint::Solid { color: border })),
-                    corners: Corners::uniform(5.0),
-                },
-            ),
-        ],
+        layers,
         animation: None,
     }
 }
@@ -2607,13 +2651,48 @@ mod native_pane_tests {
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("control_background")));
-        assert!(scenes[2]
+        let focused_border_labels = scenes[2]
             .scene
             .layers
             .iter()
-            .any(|layer| layer.label.as_deref() == Some("pane-0-kittui-border")));
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            focused_border_labels.contains(&"pane-0-kittui-border"),
+            "{focused_border_labels:?}"
+        );
+        assert!(
+            focused_border_labels.contains(&"pane-0-focus-glow"),
+            "{focused_border_labels:?}"
+        );
+        assert!(
+            focused_border_labels.contains(&"pane-0-focus-accent-rail"),
+            "{focused_border_labels:?}"
+        );
+        assert!(
+            focused_border_labels.contains(&"pane-0-focus-ring"),
+            "{focused_border_labels:?}"
+        );
+        let unfocused_border_labels = scenes[4]
+            .scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            !unfocused_border_labels
+                .iter()
+                .any(|label| label.contains("focus-")),
+            "{unfocused_border_labels:?}"
+        );
         let colors = native_glass_chrome_colors();
-        match &scenes[2].scene.layers[0].root {
+        let title_gutter = scenes[2]
+            .scene
+            .layers
+            .iter()
+            .find(|layer| layer.label.as_deref() == Some("pane-0-title-gutter"))
+            .expect("focused border scene has title gutter");
+        match &title_gutter.root {
             Node::Rect {
                 fill: Paint::Solid { color },
                 ..
