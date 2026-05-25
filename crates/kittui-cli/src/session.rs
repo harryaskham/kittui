@@ -23,7 +23,9 @@ use anyhow::{anyhow, Result};
 use kittui::{
     CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Runtime, Scene, Stroke,
 };
-use kittui_affordances::{InlineChipColors, InlineStyle, InlineTheme};
+use kittui_affordances::{
+    button, text_input, ControlState, InlineChipColors, InlineStyle, InlineTheme,
+};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
@@ -2348,6 +2350,7 @@ fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> 
             },
         ));
     }
+    native_help_overlay_control_layers(cell_size, panel_cols, panel_rows, &mut layers);
     (
         x,
         y,
@@ -2358,6 +2361,94 @@ fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> 
             animation: None,
         },
     )
+}
+
+fn native_help_overlay_control_layers(
+    cell_size: CellSize,
+    panel_cols: u16,
+    panel_rows: u16,
+    layers: &mut Vec<Layer>,
+) {
+    if panel_rows < 4 || panel_cols < 24 {
+        return;
+    }
+    let row = panel_rows.saturating_sub(2);
+    let mut close = button("help.close", "Close", 9)
+        .state(ControlState::default().focused(true).selected(true))
+        .to_scene(cell_size);
+    native_prefix_and_offset_control_layers(
+        &mut close,
+        "help-overlay-control-button:toggle-help",
+        2,
+        row,
+        cell_size,
+    );
+    layers.extend(close.layers);
+
+    let mut filter = text_input(
+        "help.filter",
+        "Filter",
+        "shortcuts",
+        panel_cols.saturating_sub(14),
+    )
+    .state(ControlState::default().focused(false))
+    .to_scene(cell_size);
+    native_prefix_and_offset_control_layers(
+        &mut filter,
+        "help-overlay-control-text-input:filter-placeholder",
+        12,
+        row,
+        cell_size,
+    );
+    layers.extend(filter.layers);
+
+    layers.push(Layer::new(
+        "help-overlay-control-action:toggle-help:C-a ?",
+        Node::Group {
+            opacity: 1.0,
+            children: Vec::new(),
+        },
+    ));
+}
+
+fn native_prefix_and_offset_control_layers(
+    scene: &mut Scene,
+    prefix: &str,
+    x_cells: u16,
+    y_cells: u16,
+    cell_size: CellSize,
+) {
+    let dx = x_cells as f32 * cell_size.width_px as f32;
+    let dy = y_cells as f32 * cell_size.height_px as f32;
+    for (idx, layer) in scene.layers.iter_mut().enumerate() {
+        let suffix = layer.label.as_deref().unwrap_or("layer");
+        layer.label = Some(format!("{prefix}:{idx}:{suffix}"));
+        native_offset_node(&mut layer.root, dx, dy);
+    }
+}
+
+fn native_offset_node(node: &mut Node, dx: f32, dy: f32) {
+    match node {
+        Node::Rect { rect, .. }
+        | Node::Gradient { rect, .. }
+        | Node::Glow { rect, .. }
+        | Node::Scanlines { rect, .. }
+        | Node::Image { rect, .. }
+        | Node::Shader { rect, .. }
+        | Node::Clip { rect, .. } => {
+            rect.origin.0 += dx;
+            rect.origin.1 += dy;
+        }
+        Node::Group { children, .. } | Node::Composite { children, .. } => {
+            for child in children {
+                native_offset_node(child, dx, dy);
+            }
+        }
+        Node::Mask { mask, child } => {
+            native_offset_node(mask, dx, dy);
+            native_offset_node(child, dx, dy);
+        }
+    }
 }
 
 fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: CellSize) -> Scene {
@@ -3537,6 +3628,22 @@ mod native_pane_tests {
             labels
                 .iter()
                 .any(|label| label.starts_with("help-overlay-row-")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("help-overlay-control-button:toggle-help")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(
+                |label| label.starts_with("help-overlay-control-text-input:filter-placeholder")
+            ),
+            "{labels:?}"
+        );
+        assert!(
+            labels.contains(&"help-overlay-control-action:toggle-help:C-a ?"),
             "{labels:?}"
         );
     }
