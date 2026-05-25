@@ -1,7 +1,9 @@
 //! Markdown table helpers using kittui component metadata and kitty placement anchors.
 
 use kittui::scene::scene;
-use kittui::{CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Scene};
+use kittui::{
+    Animation, CellRect, CellSize, Corners, Layer, Node, Paint, PhaseCurve, PxRect, Rgba, Scene,
+};
 use kittui_kitty::{PlacementOptions, Quiet, RelativePlacement, SubcellOffset};
 
 /// Markdown table column alignment.
@@ -226,8 +228,50 @@ pub fn relative_cell_options(
     }
 }
 
+/// Kitty-native animation options for one-cell box glyph scenes.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct BoxGlyphAnimation {
+    /// Frames per second.
+    pub fps: u16,
+    /// Frames in one seamless loop.
+    pub frames: u16,
+}
+
+impl Default for BoxGlyphAnimation {
+    fn default() -> Self {
+        Self {
+            fps: 60,
+            frames: 180,
+        }
+    }
+}
+
+impl BoxGlyphAnimation {
+    /// Convert to the kittui core animation descriptor.
+    pub fn to_animation(self) -> Animation {
+        let fps = self.fps.max(1) as u32;
+        let frames = self.frames.max(2);
+        Animation {
+            frames,
+            cycle_ms: (((frames as u32) * 1000) / fps).max(1),
+            curve: PhaseCurve::Pulse { harmonics: 0 },
+            loops: 0,
+        }
+    }
+}
+
 /// Render one box-drawing glyph as a one-cell kittui scene.
 pub fn box_glyph_scene(glyph: char, fg: Rgba, cell: CellSize) -> Scene {
+    box_glyph_scene_with_animation(glyph, fg, cell, None)
+}
+
+/// Render one box-drawing glyph as a one-cell kittui scene with optional native animation.
+pub fn box_glyph_scene_with_animation(
+    glyph: char,
+    fg: Rgba,
+    cell: CellSize,
+    animation: Option<BoxGlyphAnimation>,
+) -> Scene {
     let footprint = CellRect::new(0, 0, 1, 1);
     let mut layers = Vec::new();
     let w = f32::from(cell.width_px);
@@ -265,7 +309,24 @@ pub fn box_glyph_scene(glyph: char, fg: Rgba, cell: CellSize) -> Scene {
             paint,
         ));
     }
-    scene(footprint, cell, layers)
+    if let Some(animation) = animation {
+        layers.push(Layer::new(
+            "box_glyph_animation",
+            Node::Glow {
+                rect: footprint.to_pixels(cell),
+                center_x_frac: 0.5,
+                center_y_frac: 0.5,
+                radius_frac: 1.4,
+                color: fg,
+                intensity: 0.5,
+            },
+        ));
+        let mut scene = scene(footprint, cell, layers);
+        scene.animation = Some(animation.to_animation());
+        scene
+    } else {
+        scene(footprint, cell, layers)
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -392,6 +453,24 @@ mod tests {
         assert!(layout.cells.iter().any(|c| c.glyph == '┬'));
         assert!(layout.cells.iter().any(|c| c.glyph == '┼'));
         assert!(layout.footprint.cols >= 9);
+    }
+
+    #[test]
+    fn animated_glyph_scene_uses_default_loop_contract() {
+        let scene = box_glyph_scene_with_animation(
+            '┼',
+            Rgba::rgba(255, 255, 255, 255),
+            CellSize::default(),
+            Some(BoxGlyphAnimation::default()),
+        );
+        let animation = scene.animation.as_ref().unwrap();
+        assert_eq!(animation.frames, 180);
+        assert_eq!(animation.cycle_ms, 3000);
+        assert!(animation.curve.closes_loop());
+        assert!(scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("box_glyph_animation")));
     }
 
     #[test]
