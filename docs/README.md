@@ -24,6 +24,8 @@ plans for kittui and kittwm.
 - [`kittwm-dirty-frame-updates.md`](kittwm-dirty-frame-updates.md) — dirty-grid
   frame diff model, safe unchanged-frame skipping, and why partial/overlay kitty
   updates remain experimental.
+- [`inline-animation.md`](inline-animation.md) — animated inline
+  chip/badge/segment/divider/row prompt and statusline affordances.
 
 Current implementation status:
 
@@ -42,7 +44,9 @@ Current implementation status:
 - direct raw RGBA uploads support zlib and threshold-based `auto` compression;
 - file/tempfile and shared-memory raw-frame grammar/path exist with safe fallback;
 - dirty-grid unchanged-frame skipping and dirty-frame status metrics exist;
-- typed kitty animation/frame control helpers exist for future experiments;
+- typed kitty animation/frame control helpers exist; inline chip/badge/segment,
+  divider, and row affordances can opt into all-frames-up-front kitty-native
+  animation with `--animated`, `--fps`, and `--frames`;
 - pure `a=q` query encoder/parser helpers, a bounded response reader, and
   opt-in `kittwm doctor --probe-kitty` / `KITTUI_KITTY_PROBE=1` diagnostics
   exist, while normal rendering remains non-probing by default.
