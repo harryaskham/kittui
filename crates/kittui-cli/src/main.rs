@@ -25,7 +25,8 @@ use kittui::{
     TerminalInfo,
 };
 use kittui_affordances::{
-    chip_chrome, divider_chrome, panel_chrome, title_chrome, Palette, PanelOptions, Tone,
+    chip_chrome, divider_chrome, panel_chrome, parse_nord_inline_color, title_chrome,
+    InlineChipColors, InlineStyle, InlineTheme, Palette, PanelOptions, Tone,
 };
 use kittui_core::node::{Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
@@ -170,12 +171,31 @@ enum InlineThemeArg {
     Nord,
 }
 
+impl From<InlineThemeArg> for InlineTheme {
+    fn from(value: InlineThemeArg) -> Self {
+        match value {
+            InlineThemeArg::Nord => InlineTheme::Nord,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
 enum InlineStyleArg {
     Glass,
     Chrome,
     Metal,
     Neon,
+}
+
+impl From<InlineStyleArg> for InlineStyle {
+    fn from(value: InlineStyleArg) -> Self {
+        match value {
+            InlineStyleArg::Glass => InlineStyle::Glass,
+            InlineStyleArg::Chrome => InlineStyle::Chrome,
+            InlineStyleArg::Metal => InlineStyle::Metal,
+            InlineStyleArg::Neon => InlineStyle::Neon,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -672,90 +692,26 @@ fn run_inline_chip_kitty(
     Ok(())
 }
 
-#[derive(Copy, Clone, Debug)]
-struct InlineChipColors {
-    fill: Rgba,
-    border: Rgba,
-    highlight: Rgba,
-    fg: Rgba,
-}
-
 fn inline_chip_colors(args: &InlineChipArgs) -> Result<InlineChipColors> {
-    let mut colors = match (args.theme, args.style) {
-        (InlineThemeArg::Nord, InlineStyleArg::Glass) => InlineChipColors {
-            fill: Rgba::rgba(46, 52, 64, 175),
-            border: Rgba::rgba(136, 192, 208, 230),
-            highlight: Rgba::rgba(236, 239, 244, 70),
-            fg: Rgba::rgb(236, 239, 244),
-        },
-        (InlineThemeArg::Nord, InlineStyleArg::Chrome) => InlineChipColors {
-            fill: Rgba::rgba(59, 66, 82, 230),
-            border: Rgba::rgba(129, 161, 193, 255),
-            highlight: Rgba::rgba(216, 222, 233, 95),
-            fg: Rgba::rgb(236, 239, 244),
-        },
-        (InlineThemeArg::Nord, InlineStyleArg::Metal) => InlineChipColors {
-            fill: Rgba::rgba(67, 76, 94, 235),
-            border: Rgba::rgba(216, 222, 233, 240),
-            highlight: Rgba::rgba(236, 239, 244, 80),
-            fg: Rgba::rgb(236, 239, 244),
-        },
-        (InlineThemeArg::Nord, InlineStyleArg::Neon) => InlineChipColors {
-            fill: Rgba::rgba(46, 52, 64, 205),
-            border: Rgba::rgba(136, 192, 208, 255),
-            highlight: Rgba::rgba(180, 142, 173, 90),
-            fg: Rgba::rgb(236, 239, 244),
-        },
-    };
-    if let Some(value) = &args.bg_color {
-        colors.fill = parse_inline_color(value)?;
-    }
-    if let Some(value) = &args.border_color {
-        colors.border = parse_inline_color(value)?;
-    }
-    if let Some(value) = &args.fg_color {
-        colors.fg = parse_inline_color(value)?;
-    }
-    Ok(colors)
-}
-
-fn parse_inline_color(value: &str) -> Result<Rgba> {
-    let nord = [
-        "#2e3440cc",
-        "#3b4252",
-        "#434c5e",
-        "#4c566a",
-        "#d8dee9",
-        "#e5e9f0",
-        "#eceff4",
-        "#8fbcbb",
-        "#88c0d0",
-        "#81a1c1",
-        "#5e81ac",
-        "#bf616a",
-        "#d08770",
-        "#ebcb8b",
-        "#a3be8c",
-        "#b48ead",
-    ];
-    if let Ok(index) = value.parse::<usize>() {
-        if let Some(color) = nord.get(index) {
-            return Ok(Rgba::parse(color)?);
-        }
-    }
-    let named = match value.to_ascii_lowercase().as_str() {
-        "bg" | "polar-night" => Some(nord[0]),
-        "fg" | "snow" => Some(nord[6]),
-        "frost" | "cyan" => Some(nord[8]),
-        "blue" => Some(nord[10]),
-        "red" => Some(nord[11]),
-        "orange" => Some(nord[12]),
-        "yellow" => Some(nord[13]),
-        "green" => Some(nord[14]),
-        "purple" => Some(nord[15]),
-        _ => None,
-    };
-    Ok(Rgba::parse(named.unwrap_or(value))?)
+    let fill = args
+        .bg_color
+        .as_deref()
+        .map(parse_nord_inline_color)
+        .transpose()?;
+    let border = args
+        .border_color
+        .as_deref()
+        .map(parse_nord_inline_color)
+        .transpose()?;
+    let fg = args
+        .fg_color
+        .as_deref()
+        .map(parse_nord_inline_color)
+        .transpose()?;
+    Ok(
+        InlineChipColors::resolve(args.theme.into(), args.style.into())
+            .with_overrides(fill, border, fg),
+    )
 }
 
 fn inline_chip_scene(cols: u16, colors: InlineChipColors) -> Scene {
@@ -2137,11 +2093,11 @@ mod tests {
         assert!(!embed.contains(kittui_kitty::PLACEHOLDER_CHAR), "{embed:?}");
         assert!(embed.contains(" main#1 \x1b[39m"), "{embed:?}");
         assert_eq!(
-            parse_inline_color("8").unwrap(),
+            parse_nord_inline_color("8").unwrap(),
             Rgba::parse("#88c0d0").unwrap()
         );
         assert_eq!(
-            parse_inline_color("purple").unwrap(),
+            parse_nord_inline_color("purple").unwrap(),
             Rgba::parse("#b48ead").unwrap()
         );
         let placement = kittui::Placement {

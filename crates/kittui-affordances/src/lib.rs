@@ -22,6 +22,7 @@ pub mod components;
 pub mod controls;
 pub mod gallery;
 pub mod inline;
+pub mod inline_theme;
 pub mod markdown;
 pub mod palette;
 pub mod panel;
@@ -36,6 +37,7 @@ pub use controls::{
 };
 pub use gallery::{control_gallery, control_gallery_scenes};
 pub use inline::{chip_chrome, divider_chrome, title_chrome};
+pub use inline_theme::{parse_nord_inline_color, InlineChipColors, InlineStyle, InlineTheme};
 pub use markdown::{
     render_markdown, HeadingOutline, LinkChip, MarkdownCodeBlock, MarkdownDefinition,
     MarkdownDocument, MarkdownFootnote, MarkdownHtml, MarkdownHtmlKind, MarkdownImage,

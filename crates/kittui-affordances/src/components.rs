@@ -203,7 +203,11 @@ fn card_chrome(tone: Tone) -> Chrome {
             end: p.bg_bottom,
         })
         .border(Border::rounded(p.rail, 1.0, 6.0))
-        .shadow(Shadow { dx_px: 2.0, dy_px: 2.0, color: Rgba::rgba(0, 0, 0, 90) })
+        .shadow(Shadow {
+            dx_px: 2.0,
+            dy_px: 2.0,
+            color: Rgba::rgba(0, 0, 0, 90),
+        })
 }
 
 fn bar_chrome(tone: Tone) -> Chrome {
