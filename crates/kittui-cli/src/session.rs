@@ -1494,6 +1494,12 @@ fn native_route_mouse_event(
     };
     let layouts = native_layouts_for_panes(cols, rows, panes, axis);
     let Some((idx, local_col, local_row)) = native_pane_at_host_cell(&layouts, col, row) else {
+        if should_focus {
+            if let Some(idx) = native_pane_chrome_at_host_cell(&layouts, col, row) {
+                native_set_focus(panes, focused, idx)?;
+                *clear = true;
+            }
+        }
         return Ok(true);
     };
     if should_focus {
@@ -1533,6 +1539,24 @@ fn native_mouse_event_name_and_position(
         },
         _ => None,
     }
+}
+
+fn native_pane_chrome_at_host_cell(
+    layouts: &[NativePaneLayout],
+    host_col: u16,
+    host_row: u16,
+) -> Option<usize> {
+    let col0 = host_col.checked_sub(1)?;
+    let row0 = host_row.checked_sub(1)?;
+    layouts.iter().enumerate().find_map(|(idx, layout)| {
+        let pane_rows = NATIVE_PANE_TITLE_ROWS
+            .saturating_add(layout.app_rows)
+            .saturating_add(NATIVE_PANE_BOTTOM_BORDER_ROWS)
+            .max(1);
+        let within_cols = col0 >= layout.x && col0 < layout.x.saturating_add(layout.cols);
+        let within_rows = row0 >= layout.y && row0 < layout.y.saturating_add(pane_rows);
+        (within_cols && within_rows).then_some(idx)
+    })
 }
 
 fn native_pane_at_host_cell(
@@ -2665,6 +2689,28 @@ mod native_pane_tests {
         assert_eq!(native_pane_at_host_cell(&layouts, 21, 2), Some((1, 1, 1)));
         assert_eq!(native_pane_at_host_cell(&layouts, 40, 10), Some((1, 20, 9)));
         assert_eq!(native_pane_at_host_cell(&layouts, 41, 10), None);
+    }
+
+    #[test]
+    fn native_mouse_hit_testing_separates_top_bar_chrome_and_app_area() {
+        let layouts = reserve_native_top_bar(native_pane_layouts_weighted(
+            80,
+            native_tilable_rows(24),
+            &[1, 1],
+            NativePaneLayoutAxis::Columns,
+        ));
+        assert_eq!(native_pane_at_host_cell(&layouts, 1, 1), None);
+        assert_eq!(native_pane_chrome_at_host_cell(&layouts, 1, 1), None);
+
+        assert_eq!(native_pane_at_host_cell(&layouts, 1, 2), None);
+        assert_eq!(native_pane_chrome_at_host_cell(&layouts, 1, 2), Some(0));
+
+        assert_eq!(native_pane_at_host_cell(&layouts, 1, 3), None);
+        assert_eq!(native_pane_chrome_at_host_cell(&layouts, 1, 3), Some(0));
+
+        assert_eq!(native_pane_at_host_cell(&layouts, 2, 3), Some((0, 1, 1)));
+        assert_eq!(native_pane_at_host_cell(&layouts, 42, 3), Some((1, 1, 1)));
+        assert_eq!(native_pane_chrome_at_host_cell(&layouts, 42, 3), Some(1));
     }
 
     #[test]
