@@ -502,8 +502,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     height,
                     rgba,
                 } => {
-                    let footprint =
-                        CellRect::new(layout.app_x, layout.app_y, layout.app_cols, layout.app_rows);
+                    let footprint = native_app_frame_footprint(layout);
                     let (rgba, width, height) = fit_rgba_frame_to_cells(
                         rgba,
                         width,
@@ -1357,7 +1356,9 @@ fn native_pane_layouts_weighted(
                     x,
                     y: 0,
                     cols: pane_cols,
-                    app_x: x.saturating_add(NATIVE_PANE_BORDER_COLS).min(x.saturating_add(pane_cols.saturating_sub(1))),
+                    app_x: x
+                        .saturating_add(NATIVE_PANE_BORDER_COLS)
+                        .min(x.saturating_add(pane_cols.saturating_sub(1))),
                     app_y: NATIVE_PANE_TITLE_ROWS,
                     app_cols: pane_cols.saturating_sub(NATIVE_PANE_BORDER_COLS * 2).max(1),
                     app_rows: pane_rows
@@ -1401,6 +1402,10 @@ fn native_pane_layouts_weighted(
             layouts
         }
     }
+}
+
+fn native_app_frame_footprint(layout: NativePaneLayout) -> CellRect {
+    CellRect::new(layout.app_x, layout.app_y, layout.app_cols, layout.app_rows)
 }
 
 fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>) -> Result<()> {
@@ -3431,6 +3436,29 @@ mod native_pane_tests {
         assert_eq!(layouts[1].app_y, 13);
         assert_eq!(layouts[1].app_rows, 11);
         assert!(layouts[0].app_y + layouts[0].app_rows <= layouts[1].y);
+    }
+
+    #[test]
+    fn native_app_frame_footprint_matches_split_app_bounds() {
+        let layouts = reserve_native_top_bar(native_pane_layouts_weighted(
+            100,
+            native_tilable_rows(30),
+            &[1, 1],
+            NativePaneLayoutAxis::Columns,
+        ));
+        let left = layouts[0];
+        let right = layouts[1];
+        let left_frame = native_app_frame_footprint(left);
+        let right_frame = native_app_frame_footprint(right);
+        assert_eq!(left_frame.x, left.app_x);
+        assert_eq!(left_frame.y, left.app_y);
+        assert_eq!(left_frame.cols, left.app_cols);
+        assert_eq!(left_frame.rows, left.app_rows);
+        assert!(left_frame.x > left.x);
+        assert!(left_frame.y > left.y);
+        assert!(left_frame.cols < left.cols);
+        assert!(left_frame.x + left_frame.cols <= right_frame.x);
+        assert!(right_frame.cols < right.cols);
     }
 
     #[test]
