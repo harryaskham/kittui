@@ -139,6 +139,8 @@ enum InlineCmd {
     Segment(InlineChipArgs),
     /// Render a one-line divider/rule.
     Divider(InlineDividerArgs),
+    /// Render several inline components in one process invocation.
+    Row(InlineRowArgs),
     /// Print copy/paste prompt, statusline, and fallback examples.
     Examples,
 }
@@ -197,6 +199,31 @@ struct InlineDividerArgs {
     /// Rule color override as hex or theme index/name.
     #[arg(long)]
     color: Option<String>,
+}
+
+#[derive(clap::Args, Clone)]
+struct InlineRowArgs {
+    /// Ordered row item: chip:TEXT, badge:TEXT, segment:TEXT, divider:WIDTH, or divider:WIDTH:GLYPH.
+    #[arg(long = "item", required = true)]
+    items: Vec<String>,
+    /// Output format for all row items.
+    #[arg(long, value_enum, default_value_t = InlineFormatArg::Kitty)]
+    format: InlineFormatArg,
+    /// Tone palette used by fallback formats.
+    #[arg(long, value_enum, default_value_t = ToneArg::Assistant)]
+    tone: ToneArg,
+    /// Inline graphics theme.
+    #[arg(long, value_enum, default_value_t = InlineThemeArg::Nord)]
+    theme: InlineThemeArg,
+    /// Inline graphics style.
+    #[arg(long, value_enum, default_value_t = InlineStyleArg::Glass)]
+    style: InlineStyleArg,
+    /// Spaces of horizontal padding around text items.
+    #[arg(long, default_value_t = 1)]
+    padding: usize,
+    /// Visible spaces between row items.
+    #[arg(long, default_value_t = 0)]
+    gap: usize,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -719,6 +746,7 @@ fn run_inline(
             run_inline_text_component(global, runtime, args, InlineTextComponent::Segment, mode)
         }
         InlineCmd::Divider(args) => run_inline_divider(global, runtime, args, mode),
+        InlineCmd::Row(args) => run_inline_row(global, runtime, args, mode),
         InlineCmd::Examples => {
             print!("{}", inline_examples_text());
             Ok(())
@@ -905,7 +933,11 @@ fn inline_cursor_back(cols: u16, _transport: kittui_core::terminal::Transport) -
 }
 
 fn inline_chip_cols(args: &InlineChipArgs) -> u16 {
-    (args.text.chars().count() + args.padding.saturating_mul(2)).max(1) as u16
+    inline_text_cols(&args.text, args.padding)
+}
+
+fn inline_text_cols(text: &str, padding: usize) -> u16 {
+    (text.chars().count() + padding.saturating_mul(2)).max(1) as u16
 }
 
 fn inline_chip_text_embed(text: &str, padding: usize, fg: Rgba, wrapper: PromptWrapper) -> String {
@@ -1001,6 +1033,305 @@ fn render_inline_text_component(args: &InlineChipArgs, component: InlineTextComp
             rgba_hex(palette.bg_top),
             tmux_escape(&label),
         ),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum InlineRowItem {
+    Text {
+        component: InlineTextComponent,
+        text: String,
+    },
+    Divider {
+        width: u16,
+        glyph: String,
+    },
+}
+
+fn run_inline_row(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &InlineRowArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let items = parse_inline_row_items(&args.items)?;
+    if !args.format.uses_kitty_graphics() {
+        print!("{}", render_inline_row_fallback(&items, args)?);
+        return Ok(());
+    }
+    let output = render_inline_row_output(runtime, args, &items)?;
+    if mode.scene_json {
+        println!("{}", serialize_scene_json(&output.scene)?);
+        return Ok(());
+    }
+    if mode.dry_run || global.json.value {
+        let mut payload = placement_json_payload(
+            global,
+            &output.placement,
+            None,
+            mode.dry_run,
+            mode.json_bytes,
+        );
+        payload["inline_component"] = serde_json::json!("row");
+        payload["inline_format"] = serde_json::json!(args.format.label());
+        payload["inline_items"] = serde_json::json!(args.items);
+        payload["upload_bytes"] = serde_json::json!(output.upload.len());
+        payload["placement_bytes"] = serde_json::json!(output.inline_placement.len());
+        payload["embed_bytes"] = serde_json::json!(output.embed.len());
+        if mode.json_bytes || mode.dry_run {
+            payload["upload"] = serde_json::json!(output.upload);
+            payload["placement"] = serde_json::json!(output.inline_placement);
+            payload["embed"] = serde_json::json!(output.embed);
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        return Ok(());
+    }
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let any_filter = mode.upload_only || mode.placement_only || mode.embed_only;
+    if !any_filter || mode.upload_only {
+        handle.write_all(output.upload.as_bytes())?;
+    }
+    if !any_filter || mode.placement_only {
+        handle.write_all(output.inline_placement.as_bytes())?;
+    }
+    if !any_filter || mode.embed_only {
+        handle.write_all(output.embed.as_bytes())?;
+    }
+    Ok(())
+}
+
+struct InlineRowOutput {
+    scene: Scene,
+    placement: kittui::Placement,
+    upload: String,
+    inline_placement: String,
+    embed: String,
+}
+
+fn render_inline_row_output(
+    runtime: &Runtime,
+    args: &InlineRowArgs,
+    items: &[InlineRowItem],
+) -> Result<InlineRowOutput> {
+    let colors = InlineChipColors::resolve(args.theme.into(), args.style.into());
+    let scene = inline_row_scene(items, args, colors)?;
+    let placement = runtime.place(&scene)?;
+    let wrapper = args.format.prompt_wrapper();
+    let upload = wrap_prompt_nonprinting(&placement.upload, wrapper);
+    let inline_placement = wrap_prompt_nonprinting(
+        &inline_background_placement(&placement, runtime.transport()),
+        wrapper,
+    );
+    let embed = inline_row_embed(items, args, colors, wrapper)?;
+    Ok(InlineRowOutput {
+        scene,
+        placement,
+        upload,
+        inline_placement,
+        embed,
+    })
+}
+
+fn parse_inline_row_items(values: &[String]) -> Result<Vec<InlineRowItem>> {
+    values
+        .iter()
+        .map(|value| parse_inline_row_item(value))
+        .collect()
+}
+
+fn parse_inline_row_item(value: &str) -> Result<InlineRowItem> {
+    let (kind, rest) = value
+        .split_once(':')
+        .ok_or_else(|| anyhow!("inline row item must be kind:value, got {value:?}"))?;
+    match kind {
+        "chip" => Ok(InlineRowItem::Text {
+            component: InlineTextComponent::Chip,
+            text: rest.to_string(),
+        }),
+        "badge" => Ok(InlineRowItem::Text {
+            component: InlineTextComponent::Badge,
+            text: rest.to_string(),
+        }),
+        "segment" => Ok(InlineRowItem::Text {
+            component: InlineTextComponent::Segment,
+            text: rest.to_string(),
+        }),
+        "divider" => {
+            let (width, glyph) = rest.split_once(':').unwrap_or((rest, "─"));
+            Ok(InlineRowItem::Divider {
+                width: width.parse()?,
+                glyph: glyph.to_string(),
+            })
+        }
+        other => Err(anyhow!(
+            "unknown inline row item kind {other:?}; expected chip, badge, segment, or divider"
+        )),
+    }
+}
+
+fn inline_row_scene(
+    items: &[InlineRowItem],
+    args: &InlineRowArgs,
+    colors: InlineChipColors,
+) -> Result<Scene> {
+    let cell = CellSize::default();
+    let gap = args.gap as u16;
+    let cols = inline_row_cols(items, args.padding, gap);
+    let mut layers = Vec::new();
+    let mut cursor = 0u16;
+    for (idx, item) in items.iter().enumerate() {
+        if idx > 0 {
+            cursor = cursor.saturating_add(gap);
+        }
+        match item {
+            InlineRowItem::Text { component, text } => {
+                let item_cols = inline_text_cols(text, args.padding);
+                let mut scene = inline_chip_scene(item_cols, colors, *component);
+                for layer in &mut scene.layers {
+                    offset_layer_x(layer, cursor, cell);
+                }
+                layers.extend(scene.layers);
+                cursor = cursor.saturating_add(item_cols);
+            }
+            InlineRowItem::Divider { width, .. } => {
+                let mut scene = inline_divider_scene(*width, colors.border);
+                for layer in &mut scene.layers {
+                    offset_layer_x(layer, cursor, cell);
+                }
+                layers.extend(scene.layers);
+                cursor = cursor.saturating_add((*width).max(1));
+            }
+        }
+    }
+    Ok(Scene {
+        footprint: CellRect::new(0, 0, cols.max(1), 1),
+        cell_size: cell,
+        layers,
+        animation: None,
+    })
+}
+
+fn inline_row_cols(items: &[InlineRowItem], padding: usize, gap: u16) -> u16 {
+    let item_cols: u16 = items
+        .iter()
+        .map(|item| match item {
+            InlineRowItem::Text { text, .. } => inline_text_cols(text, padding),
+            InlineRowItem::Divider { width, .. } => (*width).max(1),
+        })
+        .sum();
+    item_cols.saturating_add(gap.saturating_mul(items.len().saturating_sub(1) as u16))
+}
+
+fn inline_row_embed(
+    items: &[InlineRowItem],
+    args: &InlineRowArgs,
+    colors: InlineChipColors,
+    wrapper: PromptWrapper,
+) -> Result<String> {
+    if !args.format.uses_kitty_graphics() {
+        return render_inline_row_fallback(items, args);
+    }
+    let mut out = String::new();
+    for (idx, item) in items.iter().enumerate() {
+        if idx > 0 && args.gap > 0 {
+            out.push_str(&" ".repeat(args.gap));
+        }
+        match item {
+            InlineRowItem::Text { text, .. } => {
+                out.push_str(&inline_chip_text_embed(
+                    text,
+                    args.padding,
+                    colors.fg,
+                    wrapper,
+                ));
+            }
+            InlineRowItem::Divider { width, glyph } => {
+                let divider = InlineDividerArgs {
+                    width: *width,
+                    glyph: glyph.clone(),
+                    format: args.format,
+                    tone: args.tone,
+                    theme: args.theme,
+                    style: args.style,
+                    color: None,
+                };
+                out.push_str(&inline_chip_text_embed(
+                    &inline_divider_visible_text(&divider),
+                    0,
+                    colors.border,
+                    wrapper,
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn render_inline_row_fallback(items: &[InlineRowItem], args: &InlineRowArgs) -> Result<String> {
+    let mut out = String::new();
+    for (idx, item) in items.iter().enumerate() {
+        if idx > 0 && args.gap > 0 {
+            out.push_str(&" ".repeat(args.gap));
+        }
+        match item {
+            InlineRowItem::Text { component, text } => {
+                let item_args = InlineChipArgs {
+                    text: text.clone(),
+                    format: args.format,
+                    tone: args.tone,
+                    theme: args.theme,
+                    style: args.style,
+                    bg_color: None,
+                    border_color: None,
+                    fg_color: None,
+                    padding: args.padding,
+                };
+                out.push_str(&render_inline_text_component(&item_args, *component));
+            }
+            InlineRowItem::Divider { width, glyph } => {
+                let item_args = InlineDividerArgs {
+                    width: *width,
+                    glyph: glyph.clone(),
+                    format: args.format,
+                    tone: args.tone,
+                    theme: args.theme,
+                    style: args.style,
+                    color: None,
+                };
+                out.push_str(&render_inline_divider(&item_args)?);
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn offset_layer_x(layer: &mut Layer, cells: u16, cell: CellSize) {
+    let dx = cells as f32 * cell.width_px as f32;
+    offset_node_x(&mut layer.root, dx);
+}
+
+fn offset_node_x(node: &mut Node, dx: f32) {
+    match node {
+        Node::Rect { rect, .. } | Node::Image { rect, .. } => {
+            rect.origin.0 += dx;
+        }
+        Node::Group { children, .. } | Node::Composite { children, .. } => {
+            for child in children {
+                offset_node_x(child, dx);
+            }
+        }
+        Node::Gradient { rect, .. }
+        | Node::Glow { rect, .. }
+        | Node::Scanlines { rect, .. }
+        | Node::Shader { rect, .. }
+        | Node::Clip { rect, .. } => {
+            rect.origin.0 += dx;
+        }
+        Node::Mask { mask, child } => {
+            offset_node_x(mask, dx);
+            offset_node_x(child, dx);
+        }
     }
 }
 
@@ -2489,6 +2820,37 @@ mod tests {
         let scene = inline_divider_scene(5, inline_divider_color(&divider).unwrap());
         assert_eq!(scene.footprint.cols, 5);
         assert_eq!(scene.footprint.rows, 1);
+    }
+
+    #[test]
+    fn inline_row_composes_multiple_items_in_order() {
+        let raw_items = vec![
+            "chip:main".to_string(),
+            "badge:ok".to_string(),
+            "divider:3:=".to_string(),
+            "segment:dev".to_string(),
+        ];
+        let items = parse_inline_row_items(&raw_items).unwrap();
+        assert_eq!(items.len(), 4);
+        let args = InlineRowArgs {
+            items: raw_items,
+            format: InlineFormatArg::Plain,
+            tone: ToneArg::Assistant,
+            theme: InlineThemeArg::Nord,
+            style: InlineStyleArg::Glass,
+            padding: 1,
+            gap: 1,
+        };
+        assert_eq!(
+            render_inline_row_fallback(&items, &args).unwrap(),
+            "[ main ] < ok > ===  dev "
+        );
+        assert_eq!(inline_row_cols(&items, args.padding, args.gap as u16), 21);
+        let colors = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass);
+        let scene = inline_row_scene(&items, &args, colors).unwrap();
+        assert_eq!(scene.footprint.cols, 21);
+        assert_eq!(scene.footprint.rows, 1);
+        assert!(!scene.layers.is_empty());
     }
 
     #[test]
