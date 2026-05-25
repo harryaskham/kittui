@@ -3124,6 +3124,64 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_launcher_and_picker_overlay_scenes_expose_selection_rows() {
+        let launcher = LauncherOverlay {
+            active: true,
+            query: "term".to_string(),
+            selected: 1,
+        };
+        let candidates = vec![
+            LauncherSelection {
+                kind: LauncherKind::Path,
+                command: "bash".to_string(),
+            },
+            LauncherSelection {
+                kind: LauncherKind::Shell,
+                command: "kittwm-terminal".to_string(),
+            },
+        ];
+        let scene =
+            launcher_overlay_scene_for_candidates(&launcher, &candidates, native_cell_size());
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("launcher-overlay-backdrop:kittwm launcher")),
+            "{labels:?}"
+        );
+        assert!(labels.iter().any(|label| label
+            .starts_with("launcher-overlay-row-1:2. [shell] kittwm-terminal")), "{labels:?}");
+        assert!(
+            labels.contains(&"launcher-overlay-footer-hints"),
+            "{labels:?}"
+        );
+
+        let mut picker = PickerOverlay::default();
+        picker.open();
+        picker.selected = 1;
+        let scene = picker_overlay_scene(&picker, native_cell_size());
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.contains(&"picker-overlay-backdrop:kittwm picker"),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("picker-overlay-row-1:backend: kittwm-browser")),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
     fn native_live_top_bar_defaults_to_kittui_bar_scene_metadata() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
@@ -5065,6 +5123,133 @@ impl LauncherOverlay {
         write!(handle, "\x1b[17;2H└{}┘", "─".repeat(width))?;
         Ok(())
     }
+}
+
+#[cfg(test)]
+fn graphical_overlay_panel_scene(
+    id: &str,
+    title: &str,
+    rows: &[String],
+    selected: usize,
+    cell_size: CellSize,
+) -> Scene {
+    let colors = native_glass_chrome_colors();
+    let width_cells = 64u16;
+    let height_cells = rows.len().min(8) as u16 + 5;
+    let rect = CellRect::new(0, 0, width_cells, height_cells).to_pixels(cell_size);
+    let row_h = cell_size.height_px.max(1) as f32;
+    let mut layers = vec![
+        Layer::new(
+            format!("{id}-backdrop:{title}"),
+            Node::Rect {
+                rect,
+                fill: Paint::Solid { color: colors.fill },
+                stroke: Some(Stroke::inside(
+                    2.0,
+                    Paint::Solid {
+                        color: colors.border,
+                    },
+                )),
+                corners: Corners::uniform(9.0),
+            },
+        ),
+        Layer::new(
+            format!("{id}-heading"),
+            Node::Rect {
+                rect: PxRect::new(0.0, 0.0, rect.width, row_h * 1.6),
+                fill: Paint::Solid {
+                    color: colors.highlight,
+                },
+                stroke: None,
+                corners: Corners::uniform(9.0),
+            },
+        ),
+    ];
+    for (idx, row) in rows.iter().take(8).enumerate() {
+        let y = row_h * (idx as f32 + 2.0);
+        let selected_row = idx == selected.min(rows.len().saturating_sub(1));
+        layers.push(Layer::new(
+            format!("{id}-row-{idx}:{row}"),
+            Node::Rect {
+                rect: PxRect::new(
+                    8.0,
+                    y + 2.0,
+                    (rect.width - 16.0).max(1.0),
+                    (row_h - 4.0).max(6.0),
+                ),
+                fill: Paint::Solid {
+                    color: rgba_with_alpha(colors.border, if selected_row { 96 } else { 34 }),
+                },
+                stroke: Some(Stroke::inside(
+                    if selected_row { 2.0 } else { 1.0 },
+                    Paint::Solid {
+                        color: rgba_with_alpha(colors.border, if selected_row { 255 } else { 130 }),
+                    },
+                )),
+                corners: Corners::uniform(5.0),
+            },
+        ));
+    }
+    layers.push(Layer::new(
+        format!("{id}-footer-hints"),
+        Node::Rect {
+            rect: PxRect::new(
+                8.0,
+                rect.height - row_h * 1.4,
+                (rect.width - 16.0).max(1.0),
+                1.0,
+            ),
+            fill: Paint::Solid {
+                color: colors.highlight,
+            },
+            stroke: None,
+            corners: Corners::default(),
+        },
+    ));
+    Scene {
+        footprint: CellRect::new(0, 0, width_cells, height_cells),
+        cell_size,
+        layers,
+        animation: None,
+    }
+}
+
+#[cfg(test)]
+fn launcher_overlay_scene_for_candidates(
+    overlay: &LauncherOverlay,
+    candidates: &[LauncherSelection],
+    cell_size: CellSize,
+) -> Scene {
+    let rows = candidates
+        .iter()
+        .enumerate()
+        .map(|(idx, candidate)| {
+            format!(
+                "{}. [{}] {}",
+                idx + 1,
+                candidate.kind_name(),
+                candidate.command
+            )
+        })
+        .collect::<Vec<_>>();
+    graphical_overlay_panel_scene(
+        "launcher-overlay",
+        &format!("kittwm launcher query={}", overlay.query),
+        &rows,
+        overlay.selected,
+        cell_size,
+    )
+}
+
+#[cfg(test)]
+fn picker_overlay_scene(overlay: &PickerOverlay, cell_size: CellSize) -> Scene {
+    graphical_overlay_panel_scene(
+        "picker-overlay",
+        "kittwm picker",
+        &overlay.entries,
+        overlay.selected,
+        cell_size,
+    )
 }
 
 fn clear_launcher_overlay_area<W: Write>(handle: &mut W) -> Result<()> {
