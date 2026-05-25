@@ -223,6 +223,20 @@ impl SurfaceSpec {
         }
     }
 
+    /// Return the concrete PTY command used by the current v0 native socket
+    /// transport for this typed surface. This preserves the SDK's browser
+    /// surface vocabulary while allowing CLIs to preview/dry-run the exact
+    /// command that `spawn_surface` will send today.
+    pub fn native_pty_command(&self) -> Result<String> {
+        match &self.kind {
+            SurfaceKind::Terminal => Ok(self.command.clone()),
+            SurfaceKind::Browser => Ok(browser_surface_command(&self.command)),
+            SurfaceKind::Other(kind) => Err(Error::Daemon(format!(
+                "surface kind {kind:?} is not supported by the SDK transport"
+            ))),
+        }
+    }
+
     /// Attach a display title.
     pub fn titled(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
@@ -1821,15 +1835,7 @@ impl Kittwm {
     /// transport by launching the first-party `kittwm-browser` app.
     pub fn spawn_surface(&self, spec: &SurfaceSpec) -> Result<SurfaceSpawn> {
         self.capabilities.ensure(Capability::CreateWindow)?;
-        let command = match &spec.kind {
-            SurfaceKind::Terminal => spec.command.clone(),
-            SurfaceKind::Browser => browser_surface_command(&spec.command),
-            SurfaceKind::Other(kind) => {
-                return Err(Error::Daemon(format!(
-                    "surface kind {kind:?} is not supported by the SDK transport"
-                )))
-            }
-        };
+        let command = spec.native_pty_command()?;
         let reply = self.request_protocol(format!("SPAWN_PTY {command}"))?;
         let handle = self.focused_surface();
         if let Some(title) = &spec.title {
@@ -2425,6 +2431,27 @@ mod tests {
                 title: Some("web".to_string())
             }
         );
+    }
+
+    #[test]
+    fn surface_spec_exposes_native_pty_command_for_dry_runs() {
+        assert_eq!(
+            SurfaceSpec::terminal("htop").native_pty_command().unwrap(),
+            "htop"
+        );
+        assert_eq!(
+            SurfaceSpec::browser("https://example.com/it's")
+                .native_pty_command()
+                .unwrap(),
+            "kittwm-browser 'https://example.com/it'\\''s'"
+        );
+        assert!(SurfaceSpec {
+            kind: SurfaceKind::Other("canvas".to_string()),
+            command: "canvas".to_string(),
+            title: None,
+        }
+        .native_pty_command()
+        .is_err());
     }
 
     #[test]

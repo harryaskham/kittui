@@ -150,6 +150,7 @@ Backends:\n  auto      choose browser for URLs, terminal for shell-like commands
 struct LaunchPlan {
     backend: Backend,
     command: String,
+    surface: Option<SurfaceSpec>,
     status: String,
 }
 
@@ -164,8 +165,32 @@ impl Backend {
     }
 }
 
-fn browser_command(query: &str) -> String {
-    format!("kittwm-browser {query}")
+fn surface_spec_for_backend(backend: Backend, args: &LaunchArgs) -> Option<SurfaceSpec> {
+    match backend {
+        Backend::Terminal => {
+            let mut spec = SurfaceSpec::terminal(args.query.clone());
+            if let Some(title) = args.title.clone() {
+                spec = spec.titled(title);
+            }
+            Some(spec)
+        }
+        Backend::Browser => {
+            let mut spec = SurfaceSpec::browser(browser_target_from_query(&args.query));
+            if let Some(title) = args.title.clone() {
+                spec = spec.titled(title);
+            }
+            Some(spec)
+        }
+        Backend::App | Backend::Auto => None,
+    }
+}
+
+fn browser_target_from_query(query: &str) -> String {
+    query
+        .strip_prefix('\'')
+        .and_then(|inner| inner.strip_suffix('\''))
+        .map(|inner| inner.replace("'\\''", "'"))
+        .unwrap_or_else(|| query.to_string())
 }
 
 fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
@@ -175,10 +200,14 @@ fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
     } else {
         "new-window"
     };
-    let command = match backend {
-        Backend::Terminal => format!("SPAWN_PTY {}", args.query),
-        Backend::Browser => format!("SPAWN_PTY {}", browser_command(&args.query)),
-        Backend::App | Backend::Auto => format!("APPS_LAUNCH_FIRST {}", args.query),
+    let surface = surface_spec_for_backend(backend, args);
+    let command = match &surface {
+        Some(spec) => format!(
+            "SPAWN_PTY {}",
+            spec.native_pty_command()
+                .expect("terminal/browser surface specs are supported")
+        ),
+        None => format!("APPS_LAUNCH_FIRST {}", args.query),
     };
     let status = format!(
         "kittwm-launch: backend={} mode={} title={} query={}",
@@ -190,6 +219,7 @@ fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
     LaunchPlan {
         backend,
         command,
+        surface,
         status,
     }
 }
@@ -206,23 +236,20 @@ fn run(args: LaunchArgs) -> Result<String, String> {
     })?;
     let reply = match plan.backend {
         Backend::Terminal | Backend::Browser => {
-            let command = if plan.backend == Backend::Browser {
-                browser_command(&args.query)
-            } else {
-                args.query.clone()
-            };
+            let spec = plan
+                .surface
+                .as_ref()
+                .expect("terminal/browser plan carries a typed SDK surface");
             if args.replace {
                 wm.replace_current(&WindowSpec {
-                    title: args.title.clone(),
-                    command,
+                    title: spec.title.clone(),
+                    command: spec.native_pty_command().map_err(|err| {
+                        format!("prepare {} surface: {err}", plan.backend.label())
+                    })?,
                 })
                 .map_err(|err| format!("replace {} surface: {err}", plan.backend.label()))?
             } else {
-                let mut spec = SurfaceSpec::terminal(command);
-                if let Some(title) = args.title.clone() {
-                    spec = spec.titled(title);
-                }
-                wm.spawn_surface(&spec)
+                wm.spawn_surface(spec)
                     .map(|spawn| spawn.reply)
                     .map_err(|err| format!("spawn {} surface: {err}", plan.backend.label()))?
             }
@@ -329,6 +356,18 @@ mod tests {
     }
 
     #[test]
+    fn browser_target_strips_shell_word_quotes_before_sdk_surface_quote() {
+        assert_eq!(
+            browser_target_from_query("'https://example.com/a%20b'"),
+            "https://example.com/a%20b"
+        );
+        assert_eq!(
+            browser_target_from_query("'https://example.com/it'\\''s'"),
+            "https://example.com/it's"
+        );
+    }
+
+    #[test]
     fn builds_launch_plans_for_terminal_browser_and_app() {
         let terminal = LaunchArgs::parse_from(["--terminal", "--", "echo", "hi there"]).unwrap();
         let plan = build_launch_plan(&terminal);
@@ -343,6 +382,7 @@ mod tests {
             plan.command,
             "SPAWN_PTY kittwm-browser 'https://example.com/a%20b'"
         );
+        assert_eq!(plan.surface.unwrap().kind, kittwm_sdk::SurfaceKind::Browser);
 
         let app = LaunchArgs::parse_from(["firefox"]).unwrap();
         let plan = build_launch_plan(&app);
