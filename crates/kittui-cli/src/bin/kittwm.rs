@@ -772,6 +772,7 @@ DAILY DRIVER BASICS
   Cheat sheet:     kittwm cheat
   Start:           kittwm        (or: kittwm start)
   New terminal:    press C-a Enter or C-a t inside kittwm
+  Launcher:        press C-a g inside kittwm
   Help overlay:    press C-a ? inside kittwm
   Exit:            press Ctrl-]
   Shortcut list:   kittwm shortcuts        (JSON: kittwm --shortcuts-json)
@@ -2812,6 +2813,7 @@ fn quickstart_text() -> &'static str {
 
 2. Inside kittwm
    C-a Enter / C-a t   open a terminal pane
+   C-a g               open launcher
    C-a ?               show the shortcut overlay
    C-a Tab             focus next pane
    C-a x               close focused pane
@@ -2915,7 +2917,7 @@ fn cheat_text() -> &'static str {
     r#"kittwm cheat — daily keys + commands
 
 IN SESSION
-  C-a Enter/t  terminal     C-a ? help       Ctrl-] exit
+  C-a Enter/t  terminal     C-a g launcher   C-a ? help
   C-a % split columns       C-a - split rows  C-a x close
   C-a Tab focus next        C-a b balance     C-a +/- resize
 
@@ -3876,6 +3878,7 @@ mod tests {
         let text = quickstart_text();
         assert!(text.contains("kittwm quickstart"), "{text}");
         assert!(text.contains("C-a Enter / C-a t"), "{text}");
+        assert!(text.contains("C-a g"), "{text}");
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("kittwm spawn htop"), "{text}");
         assert!(text.contains("kittwm help topics"), "{text}");
@@ -3901,6 +3904,7 @@ mod tests {
     fn cheat_sheet_is_compact_daily_reference() {
         let text = cheat_text();
         assert!(text.contains("C-a Enter/t"), "{text}");
+        assert!(text.contains("C-a g launcher"), "{text}");
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("kittwm spawn htop"), "{text}");
         assert!(text.contains("kittwm balance"), "{text}");

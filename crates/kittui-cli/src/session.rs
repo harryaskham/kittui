@@ -751,7 +751,7 @@ fn native_status_line_text(panes: usize, log_path: &str) -> String {
     if panes == 0 {
         String::new()
     } else {
-        format!(" C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: {log_path}")
+        format!(" C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: {log_path}")
     }
 }
 
@@ -762,7 +762,7 @@ fn native_help_overlay_lines() -> &'static [&'static str] {
 fn native_empty_workspace_hint_lines() -> &'static [&'static str] {
     &[
         "Empty kittwm workspace",
-        "C-a Enter / C-a t opens a terminal · C-a ? shows shortcuts · Ctrl-] exits",
+        "C-a Enter / C-a t opens a terminal · C-a g opens launcher · C-a ? shows shortcuts · Ctrl-] exits",
         "From another shell: kittwm quickstart · kittwm info · kittwm examples",
     ]
 }
@@ -2111,7 +2111,7 @@ fn native_showcase_scenes(cols: u16, rows: u16, help_overlay: bool) -> Vec<Nativ
         ],
         footer: NativeFooterChrome {
             row: rows.saturating_sub(1),
-            text: " C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase"
+            text: " C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase"
                 .to_string(),
         },
         help_overlay,
@@ -3299,6 +3299,7 @@ mod native_pane_tests {
             rendered.contains("C-a Enter / C-a t opens a terminal"),
             "{rendered:?}"
         );
+        assert!(rendered.contains("C-a g opens launcher"), "{rendered:?}");
         assert!(rendered.contains("kittwm quickstart"), "{rendered:?}");
         assert!(rendered.contains("kittwm info"), "{rendered:?}");
     }

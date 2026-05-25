@@ -48,7 +48,10 @@ impl KeySpec {
         }
         // A bare dash is a valid punctuation key, not a modifier separator.
         if token == "-" {
-            return Ok(Self { mods, key: "-".to_string() });
+            return Ok(Self {
+                mods,
+                key: "-".to_string(),
+            });
         }
         let mut parts: Vec<&str> = token.split('-').collect();
         let key = parts.pop().unwrap_or("");
@@ -63,7 +66,10 @@ impl KeySpec {
                 other => return Err(anyhow!("unknown modifier {other:?} in {token:?}")),
             }
         }
-        Ok(Self { mods, key: normalize_key_name(key) })
+        Ok(Self {
+            mods,
+            key: normalize_key_name(key),
+        })
     }
 }
 
@@ -79,9 +85,15 @@ fn normalize_key_name(key: &str) -> String {
 
 impl fmt::Display for KeySpec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.mods.ctrl { write!(f, "C-")?; }
-        if self.mods.alt { write!(f, "M-")?; }
-        if self.mods.shift { write!(f, "S-")?; }
+        if self.mods.ctrl {
+            write!(f, "C-")?;
+        }
+        if self.mods.alt {
+            write!(f, "M-")?;
+        }
+        if self.mods.shift {
+            write!(f, "S-")?;
+        }
         write!(f, "{}", self.key)
     }
 }
@@ -143,7 +155,9 @@ impl Action {
             "workspace.next" => Self::WorkspaceNext,
             "workspace.prev" => Self::WorkspacePrev,
             "split.vertical.launcher" | "split-vertical-launcher" => Self::SplitVerticalLauncher,
-            "split.horizontal.launcher" | "split-horizontal-launcher" => Self::SplitHorizontalLauncher,
+            "split.horizontal.launcher" | "split-horizontal-launcher" => {
+                Self::SplitHorizontalLauncher
+            }
             "launch" | "launcher.open" => Self::Launch,
             "picker.open" | "window.picker" => Self::PickerOpen,
             "fullscreen" | "fullscreen.toggle" => Self::FullscreenToggle,
@@ -207,7 +221,11 @@ pub struct Binding {
 impl Binding {
     /// Render chord as user-facing key tokens.
     pub fn chord_string(&self) -> String {
-        self.chord.iter().map(ToString::to_string).collect::<Vec<_>>().join(" ")
+        self.chord
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
@@ -228,7 +246,9 @@ impl Keymap {
         for (idx, raw) in src.lines().enumerate() {
             let line_no = idx + 1;
             let line = raw.split('#').next().unwrap_or("").trim();
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             let parts: Vec<&str> = line.split_whitespace().collect();
             match parts.as_slice() {
                 ["prefix", key] => prefix = Some(KeySpec::parse(key)?),
@@ -299,6 +319,7 @@ bind | split.vertical.launcher
 bind - split.horizontal.launcher
 bind Enter launch
 bind d launch
+bind g launch
 bind Space picker.open
 bind f fullscreen.toggle
 bind t float.toggle
@@ -330,6 +351,7 @@ mod tests {
         assert!(rendered.contains("C-a |"));
         assert!(rendered.contains("split.vertical.launcher"));
         assert!(rendered.contains("C-a d"));
+        assert!(rendered.contains("C-a g"));
         assert!(rendered.contains("launch"));
         assert!(rendered.contains("C-a f"));
         assert!(rendered.contains("fullscreen.toggle"));

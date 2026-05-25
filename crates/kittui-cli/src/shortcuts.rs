@@ -19,6 +19,11 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
         description: "launch terminal",
     },
     NativeShortcut {
+        id: "open_launcher",
+        keys: "C-a g",
+        description: "open launcher",
+    },
+    NativeShortcut {
         id: "toggle_help",
         keys: "C-a ?",
         description: "toggle this help",
@@ -75,6 +80,7 @@ pub const NATIVE_SHORTCUT_COMMAND_HINTS: &[&str] = &[
 pub const NATIVE_SHORTCUTS: &[&str] = &[
     "kittwm shortcuts",
     "C-a Enter / C-a t  launch terminal",
+    "C-a g              open launcher",
     "C-a ?              toggle this help",
     "C-a % / C-a |      split columns",
     "C-a -              split rows",
@@ -125,6 +131,7 @@ mod tests {
     fn shortcuts_include_first_launch_actions() {
         let text = render_native_shortcuts();
         assert!(text.contains("launch terminal"), "{text}");
+        assert!(text.contains("open launcher"), "{text}");
         assert!(text.contains("toggle this help"), "{text}");
         assert!(text.contains("Ctrl-]"), "{text}");
         assert!(text.contains("kittwm info"), "{text}");
@@ -141,6 +148,7 @@ mod tests {
         assert!(shortcuts
             .iter()
             .any(|entry| entry["id"] == "launch_terminal"));
+        assert!(shortcuts.iter().any(|entry| entry["id"] == "open_launcher"));
         assert!(shortcuts.iter().any(|entry| entry["id"] == "toggle_help"));
         assert!(shortcuts.iter().any(|entry| entry["keys"] == "Ctrl-]"));
         assert!(shortcuts
