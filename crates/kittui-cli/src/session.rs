@@ -3717,6 +3717,38 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_focus_sequence_survives_rapid_close_churn() {
+        let mut windows = vec!["native-1", "native-2", "native-3", "native-4"];
+        let mut focused = 2usize;
+        let mut len_before = windows.len();
+        let removed = 1usize;
+        windows.remove(removed);
+        focused = focus_after_remove(focused, removed, len_before);
+        assert_eq!(focused, 1);
+        assert_eq!(windows[focused], "native-3");
+
+        len_before = windows.len();
+        let removed = focused;
+        windows.remove(removed);
+        focused = focus_after_remove(focused, removed, len_before);
+        assert_eq!(focused, 1);
+        assert_eq!(windows[focused], "native-4");
+
+        len_before = windows.len();
+        let removed = 1usize;
+        windows.remove(removed);
+        focused = focus_after_remove(focused, removed, len_before);
+        assert_eq!(focused, 0);
+        assert_eq!(windows[focused], "native-1");
+
+        len_before = windows.len();
+        windows.remove(0);
+        focused = focus_after_remove(focused, 0, len_before);
+        assert_eq!(focused, 0);
+        assert!(windows.is_empty());
+    }
+
+    #[test]
     #[cfg_attr(
         target_os = "macos",
         ignore = "Nix Darwin sandbox lacks a stable PTY shell for dummy panes"
