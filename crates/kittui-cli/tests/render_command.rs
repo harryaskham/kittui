@@ -47,6 +47,31 @@ fn scene_json() -> Vec<u8> {
     output.stdout
 }
 
+fn animated_scene_json() -> Vec<u8> {
+    let output = Command::new(kittui_bin())
+        .args([
+            "box",
+            "-w",
+            "4",
+            "-h",
+            "2",
+            "--animated",
+            "--frames",
+            "3",
+            "--fps",
+            "3",
+            "--scene-json",
+        ])
+        .output()
+        .expect("run animated kittui box --scene-json");
+    assert!(
+        output.status.success(),
+        "animated scene failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.stdout
+}
+
 #[test]
 fn render_stdin_writes_png_file() {
     let path = temp_path("kittui-render-command", "png");
@@ -111,6 +136,50 @@ fn render_json_reports_metadata_without_writing_on_dry_run() {
     assert_eq!(payload["dry_run"], true);
     assert!(payload["bytes"].as_u64().unwrap() > 8);
     assert_eq!(payload["footprint"]["cols"], 4);
+}
+
+#[test]
+fn render_single_animated_scene_writes_frame_directory() {
+    let out_dir = temp_path("kittui-render-animation", "dir");
+    let manifest_path = out_dir.join("manifest.json");
+    let mut render = Command::new(kittui_bin())
+        .args([
+            "render",
+            "-",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--manifest",
+            manifest_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn kittui render animation");
+    render
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(&animated_scene_json())
+        .unwrap();
+    let output = render.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "render animation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for idx in 0..3 {
+        let png = std::fs::read(out_dir.join(format!("frame-{idx:05}.png"))).unwrap();
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+    }
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest["frames"], 3);
+    assert_eq!(manifest["files"][0]["delay_ms"], 333);
+    assert!(manifest["files"][0]["output"]
+        .as_str()
+        .unwrap()
+        .ends_with("frame-00000.png"));
+    let _ = std::fs::remove_dir_all(&out_dir);
 }
 
 #[test]

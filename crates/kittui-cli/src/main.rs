@@ -2260,9 +2260,7 @@ fn run_render_single(
     scene: Scene,
 ) -> Result<()> {
     if args.out_dir.is_some() {
-        return Err(anyhow!(
-            "render --out-dir is only supported for scene arrays"
-        ));
+        return run_render_single_animation(global, args, mode, &scene);
     }
     let png = runtime.render_png(&scene)?;
     let mut payload = serde_json::json!({
@@ -2290,6 +2288,71 @@ fn run_render_single(
         std::fs::write(path, &png)?;
     } else if !global.json.value {
         std::io::stdout().lock().write_all(&png)?;
+    }
+    if let Some(path) = &args.manifest {
+        write_json_manifest(path, &payload)?;
+    }
+    Ok(())
+}
+
+fn run_render_single_animation(
+    global: &GlobalConfig,
+    args: &RenderArgs,
+    mode: EmitMode,
+    scene: &Scene,
+) -> Result<()> {
+    if args.out.is_some() {
+        return Err(anyhow!(
+            "render --out and --out-dir cannot be used together"
+        ));
+    }
+    if scene.animation.is_none() {
+        return Err(anyhow!(
+            "render --out-dir with a single Scene requires Scene.animation"
+        ));
+    }
+    let Some(out_dir) = args.out_dir.as_ref() else {
+        unreachable!("checked by caller")
+    };
+    let animation = kittui_render_cpu::render_animation(scene)?;
+    let mut entries = Vec::with_capacity(animation.frames.len());
+    for (idx, png) in animation.frames.iter().enumerate() {
+        let path = out_dir.join(format!("frame-{idx:05}.png"));
+        let mut entry = serde_json::json!({
+            "index": idx,
+            "bytes": png.len(),
+            "delay_ms": animation.frame_delays_ms[idx],
+            "output": path.display().to_string(),
+        });
+        if mode.json_bytes {
+            entry["png_base64"] =
+                serde_json::json!(base64::engine::general_purpose::STANDARD.encode(png));
+        }
+        entries.push(entry);
+    }
+    let mut payload = serde_json::json!({
+        "frames": entries.len(),
+        "width_px": animation.width_px,
+        "height_px": animation.height_px,
+        "loops": animation.loops,
+        "output_dir": out_dir.display().to_string(),
+        "files": entries,
+    });
+    if mode.dry_run {
+        payload["dry_run"] = serde_json::json!(true);
+    }
+    if global.json.value || mode.dry_run {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        if mode.dry_run {
+            if let Some(path) = &args.manifest {
+                write_json_manifest(path, &payload)?;
+            }
+            return Ok(());
+        }
+    }
+    std::fs::create_dir_all(out_dir)?;
+    for (idx, png) in animation.frames.iter().enumerate() {
+        std::fs::write(out_dir.join(format!("frame-{idx:05}.png")), png)?;
     }
     if let Some(path) = &args.manifest {
         write_json_manifest(path, &payload)?;
