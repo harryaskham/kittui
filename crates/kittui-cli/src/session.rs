@@ -885,6 +885,10 @@ const NATIVE_CELL_WIDTH_PX: u32 = 8;
 const NATIVE_CELL_HEIGHT_PX: u32 = 16;
 const NATIVE_FRAME_BG_RGBA: [u8; 4] = [0x08, 0x0d, 0x14, 0xff];
 
+fn native_cell_size() -> CellSize {
+    CellSize::new(NATIVE_CELL_WIDTH_PX as u16, NATIVE_CELL_HEIGHT_PX as u16)
+}
+
 fn fit_rgba_frame_to_cells(
     rgba: Vec<u8>,
     width: u32,
@@ -1947,7 +1951,7 @@ pub fn native_showcase_scene_json(cols: u16, rows: u16, help_overlay: bool) -> R
         },
         help_overlay,
     };
-    let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::default(), cols);
+    let scenes = render_native_shell_view_affordance_scenes(&view, native_cell_size(), cols);
     serde_json::to_string_pretty(&scenes).map_err(Into::into)
 }
 
@@ -2420,7 +2424,7 @@ fn write_native_shell_affordance_chrome<W: Write>(
     view: &NativeShellView,
     cols: u16,
 ) -> Result<()> {
-    for chrome in render_native_shell_view_affordance_scenes(view, CellSize::default(), cols) {
+    for chrome in render_native_shell_view_affordance_scenes(view, native_cell_size(), cols) {
         let placement = CellRect::new(
             chrome.x,
             chrome.y,
@@ -3433,6 +3437,29 @@ mod native_pane_tests {
                 .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS)
         );
         assert_eq!(native_tilable_rows(1), 1);
+    }
+
+    #[test]
+    fn native_graphics_cell_size_defines_pixel_density_contract() {
+        let cell_size = native_cell_size();
+        assert_eq!(cell_size.width_px as u32, NATIVE_CELL_WIDTH_PX);
+        assert_eq!(cell_size.height_px as u32, NATIVE_CELL_HEIGHT_PX);
+
+        let scene = native_empty_workspace_scene(cell_size, 80, 20).2;
+        assert_eq!(
+            scene.pixel_width(),
+            scene.footprint.cols as u32 * NATIVE_CELL_WIDTH_PX
+        );
+        assert_eq!(
+            scene.pixel_height(),
+            scene.footprint.rows as u32 * NATIVE_CELL_HEIGHT_PX
+        );
+
+        let source = vec![0xff; 4];
+        let (fitted, width, height) = fit_rgba_frame_to_cells(source, 1, 1, 7, 3);
+        assert_eq!(width, 7 * NATIVE_CELL_WIDTH_PX);
+        assert_eq!(height, 3 * NATIVE_CELL_HEIGHT_PX);
+        assert_eq!(fitted.len(), (width * height * 4) as usize);
     }
 
     #[test]
