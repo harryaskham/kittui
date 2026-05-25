@@ -2918,6 +2918,74 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_live_top_bar_defaults_to_kittui_bar_scene_metadata() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
+        assert!(native_should_use_affordance_scene_chrome());
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: " kittui-bar  ws:1  active  panes:2  focus:-  12:00 UTC ".to_string(),
+            },
+            panes: vec![
+                NativePaneChrome {
+                    x: 0,
+                    y: 1,
+                    focused: true,
+                    text: "* native-1 shell".to_string(),
+                    cache_key: "key1".to_string(),
+                    status: "shell · pid:101 · frame:new".to_string(),
+                    app_x: 0,
+                    app_y: 2,
+                    app_cols: 10,
+                    app_rows: 4,
+                    cols: 10,
+                    rows: 5,
+                    text_snapshot: String::new(),
+                },
+                NativePaneChrome {
+                    x: 10,
+                    y: 1,
+                    focused: false,
+                    text: "  native-2 logs".to_string(),
+                    cache_key: "key2".to_string(),
+                    status: "logs · pid:102 · frame:clean".to_string(),
+                    app_x: 10,
+                    app_y: 2,
+                    app_cols: 10,
+                    app_rows: 4,
+                    cols: 10,
+                    rows: 5,
+                    text_snapshot: String::new(),
+                },
+            ],
+            footer: NativeFooterChrome {
+                row: 7,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let scene = native_top_bar_scene(&view, 40, CellSize::new(8, 16));
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.contains(&"kittwm-live-top-bar:active:1"),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("kittwm-live-top-bar-text:kittui-bar")),
+            "{labels:?}"
+        );
+        assert_eq!(scene.footprint.rows, 1);
+        assert_eq!(scene.footprint.cols, 40);
+    }
+
+    #[test]
     fn native_pane_window_chrome_scenes_align_with_app_bounds() {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
