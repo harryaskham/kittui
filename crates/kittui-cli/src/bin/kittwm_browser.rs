@@ -12,13 +12,16 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
-use kittui::{CellRect, TerminalInfo};
+use kittui::{CellRect, TerminalInfo, Transport};
 use kittui_kitty as kitty;
 use kittui_wm::native::{HeadlessBrowserApp, NativeApp, NativeFrame};
 use kittwm_sdk::{Kittwm, SemanticSurfaceSnapshot};
 
 const DEFAULT_URL: &str =
     "data:text/html,<html><body><h1>kittwm-browser</h1><input autofocus value='ready'></body></html>";
+const BROWSER_RESERVED_STATUS_ROWS: u16 = 2;
+const BROWSER_IMAGE_ID: u32 = 1;
+const BROWSER_IMAGE_Z_INDEX: i32 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BrowserArgs {
@@ -107,9 +110,12 @@ fn real_main() -> Result<()> {
         return print_semantic_snapshot(&args.url, args.compact_json);
     }
     let url = args.url;
-    let (mut cols, mut rows) = terminal_cells().unwrap_or((80, 24));
-    rows = rows.saturating_sub(2).max(1);
-    let mut browser = HeadlessBrowserApp::launch(&url, u32::from(cols) * 8, u32::from(rows) * 16)?;
+    let mut viewport = BrowserViewport::from_terminal_cells(terminal_cells().unwrap_or((80, 24)));
+    let mut browser = HeadlessBrowserApp::launch(
+        &url,
+        u32::from(viewport.cols) * 8,
+        u32::from(viewport.content_rows) * 16,
+    )?;
     let transport = TerminalInfo::detect().transport;
     let _guard = TtyGuard::enter()?;
     let mut semantic_publisher = BrowserSemanticPublisher::from_env();
@@ -139,12 +145,11 @@ fn real_main() -> Result<()> {
                 browser.send_text(&text)?;
             }
         }
-        if let Some((new_cols, new_rows_raw)) = terminal_cells() {
-            let new_rows = new_rows_raw.saturating_sub(2).max(1);
-            if (new_cols, new_rows) != (cols, rows) {
-                cols = new_cols;
-                rows = new_rows;
-                browser.resize(cols, rows)?;
+        if let Some(cells) = terminal_cells() {
+            let new_viewport = BrowserViewport::from_terminal_cells(cells);
+            if new_viewport != viewport {
+                viewport = new_viewport;
+                browser.resize(viewport.cols, viewport.content_rows)?;
                 placed = false;
             }
         }
@@ -157,20 +162,19 @@ fn real_main() -> Result<()> {
             return Err(anyhow!("browser returned non-PNG frame"));
         };
         semantic_publisher.maybe_publish(&mut browser);
-        let fp = CellRect::new(0, 0, cols, rows);
+        let fp = viewport.frame_footprint();
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        handle.write_all(kitty::upload_still(1, &bytes, transport).as_bytes())?;
+        handle.write_all(kitty::upload_still(BROWSER_IMAGE_ID, &bytes, transport).as_bytes())?;
         if !placed {
-            handle.write_all(kitty::cursor_move(0, 0, transport).as_bytes())?;
-            handle.write_all(kitty::placement_command(1, fp, transport).as_bytes())?;
-            handle.write_all(kitty::placeholder_text(1, fp).as_bytes())?;
+            handle
+                .write_all(browser_image_placement(BROWSER_IMAGE_ID, fp, transport).as_bytes())?;
             placed = true;
         }
         write!(
             handle,
             "\x1b[{};1H\x1b[Kkittwm-browser — {} — window={} socket={} — Ctrl-] exits — frame {}",
-            rows + 2,
+            viewport.status_row,
             truncate(&url, 40),
             std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "<none>".into()),
             std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<none>".into()),
@@ -275,6 +279,41 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct BrowserViewport {
+    cols: u16,
+    raw_rows: u16,
+    content_rows: u16,
+    status_row: u16,
+}
+
+impl BrowserViewport {
+    fn from_terminal_cells((cols, raw_rows): (u16, u16)) -> Self {
+        let raw_rows = raw_rows.max(1);
+        let content_rows = raw_rows.saturating_sub(BROWSER_RESERVED_STATUS_ROWS).max(1);
+        Self {
+            cols: cols.max(1),
+            raw_rows,
+            content_rows,
+            status_row: raw_rows,
+        }
+    }
+
+    fn frame_footprint(&self) -> CellRect {
+        CellRect::new(0, 0, self.cols, self.content_rows)
+    }
+}
+
+fn browser_image_placement(image_id: u32, footprint: CellRect, transport: Transport) -> String {
+    let mut options = kitty::PlacementOptions::absolute();
+    options.z_index = BROWSER_IMAGE_Z_INDEX;
+    format!(
+        "{}{}",
+        kitty::cursor_move(footprint.x, footprint.y, transport),
+        kitty::placement_command_ex(image_id, footprint, &options, transport)
+    )
+}
+
 fn terminal_cells() -> Option<(u16, u16)> {
     let mut ws = libc::winsize {
         ws_row: 0,
@@ -366,6 +405,30 @@ mod tests {
         let err = BrowserArgs::parse_from(["--bogus"]).unwrap_err();
         assert!(err.contains("unknown option --bogus"));
         assert!(err.contains("--semantic-snapshot"));
+    }
+
+    #[test]
+    fn browser_viewport_clamps_content_and_status_to_reported_rows() {
+        let normal = BrowserViewport::from_terminal_cells((100, 30));
+        assert_eq!(normal.cols, 100);
+        assert_eq!(normal.content_rows, 28);
+        assert_eq!(normal.status_row, 30);
+        assert_eq!(normal.frame_footprint(), CellRect::new(0, 0, 100, 28));
+
+        let tiny = BrowserViewport::from_terminal_cells((0, 1));
+        assert_eq!(tiny.cols, 1);
+        assert_eq!(tiny.content_rows, 1);
+        assert_eq!(tiny.status_row, 1);
+        assert_eq!(tiny.frame_footprint(), CellRect::new(0, 0, 1, 1));
+    }
+
+    #[test]
+    fn browser_image_placement_uses_absolute_kitty_graphics_without_placeholders() {
+        let placement = browser_image_placement(42, CellRect::new(0, 0, 80, 22), Transport::Direct);
+        assert!(placement.contains("a=p"), "{placement:?}");
+        assert!(placement.contains("c=80"), "{placement:?}");
+        assert!(placement.contains("r=22"), "{placement:?}");
+        assert!(!placement.contains("U=1"), "{placement:?}");
     }
 
     #[test]
