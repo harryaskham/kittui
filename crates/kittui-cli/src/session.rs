@@ -479,7 +479,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             )?;
             last_top_bar = shell_view.top_bar.text.clone();
         }
-        if shell_view.help_overlay {
+        if shell_view.help_overlay && !affordance_scene_chrome {
             write_native_help_overlay(&mut handle, cols, rows)?;
         }
         for (idx, pane) in panes.iter_mut().enumerate() {
@@ -544,6 +544,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         if affordance_scene_chrome {
             write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view, cols)?;
+            if shell_view.help_overlay {
+                write_native_help_overlay(&mut handle, cols, rows)?;
+            }
         }
         if !affordance_scene_chrome
             && !shell_view.footer.text.is_empty()
@@ -1834,7 +1837,109 @@ fn render_native_shell_view_affordance_scenes(
             scene: footer.to_scene(cell_size),
         });
     }
+    if view.help_overlay {
+        let (x, y, scene) = native_help_overlay_scene(cell_size, cols, native_help_overlay_lines());
+        scenes.push(NativeShellChromeScene {
+            id: "help-overlay".to_string(),
+            x,
+            y,
+            scene,
+        });
+    }
     scenes
+}
+
+fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> (u16, u16, Scene) {
+    let max_line = lines
+        .iter()
+        .map(|line| line.chars().count() as u16)
+        .max()
+        .unwrap_or(20);
+    let panel_cols = max_line
+        .saturating_add(4)
+        .min(cols.saturating_sub(4).max(20));
+    let panel_rows = (lines.len() as u16).saturating_add(2).max(4);
+    let x = cols.saturating_sub(panel_cols).saturating_div(2);
+    let y = 2;
+    let rect = CellRect::new(0, 0, panel_cols, panel_rows).to_pixels(cell_size);
+    let row_h = cell_size.height_px.max(1) as f32;
+    let chip_h = (row_h - 5.0).max(6.0);
+    let chip_w = (cell_size.width_px.max(1) as f32 * 15.0).min((rect.width - 20.0).max(1.0));
+    let mut layers = vec![
+        Layer::new(
+            "help-overlay-backdrop",
+            Node::Rect {
+                rect,
+                fill: Paint::Solid {
+                    color: Rgba::rgba(0x04, 0x08, 0x10, 0xdd),
+                },
+                stroke: Some(Stroke::inside(
+                    2.0,
+                    Paint::Solid {
+                        color: Rgba::rgba(0x8c, 0xd2, 0xff, 0xee),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        ),
+        Layer::new(
+            "help-overlay-heading-band",
+            Node::Rect {
+                rect: PxRect::new(0.0, 0.0, rect.width, row_h * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(0x18, 0x2b, 0x3c, 0xaa),
+                },
+                stroke: None,
+                corners: Corners::uniform(8.0),
+            },
+        ),
+    ];
+    for (idx, line) in lines.iter().enumerate().skip(1) {
+        let row_y = row_h * (idx as f32 + 1.0);
+        if row_y + chip_h >= rect.height {
+            break;
+        }
+        let keyish = line.starts_with("C-a") || line.starts_with("Ctrl-");
+        if keyish {
+            layers.push(Layer::new(
+                format!("help-overlay-key-chip-{idx}"),
+                Node::Rect {
+                    rect: PxRect::new(10.0, row_y + 2.0, chip_w, chip_h),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(0x1f, 0x35, 0x4a, 0xcc),
+                    },
+                    stroke: Some(Stroke::inside(
+                        1.0,
+                        Paint::Solid {
+                            color: Rgba::rgba(0x88, 0xc0, 0xd0, 0xff),
+                        },
+                    )),
+                    corners: Corners::uniform(5.0),
+                },
+            ));
+        }
+        layers.push(Layer::new(
+            format!("help-overlay-row-{idx}"),
+            Node::Rect {
+                rect: PxRect::new(8.0, row_y + row_h - 2.0, (rect.width - 16.0).max(1.0), 1.0),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(0x88, 0xc0, 0xd0, 0x44),
+                },
+                stroke: None,
+                corners: Corners::default(),
+            },
+        ));
+    }
+    (
+        x,
+        y,
+        Scene {
+            footprint: CellRect::new(0, 0, panel_cols, panel_rows),
+            cell_size,
+            layers,
+            animation: None,
+        },
+    )
 }
 
 fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: CellSize) -> Scene {
@@ -2379,6 +2484,41 @@ mod native_pane_tests {
             .iter()
             .any(|layer| layer.label.as_deref() == Some("pane-0-kittui-border")));
         assert!(scenes.iter().all(|chrome| !chrome.scene.layers.is_empty()));
+    }
+
+    #[test]
+    fn native_help_overlay_builds_graphical_panel_and_key_chips() {
+        let (_x, y, scene) = native_help_overlay_scene(
+            CellSize::new(8, 16),
+            80,
+            &[
+                "kittwm shortcuts",
+                "C-a ?              toggle this help",
+                "C-a x              close pane",
+                "outside: kittwm info · kittwm cheat",
+            ],
+        );
+        assert_eq!(y, 2);
+        assert!(scene.footprint.cols <= 76, "{:?}", scene.footprint);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(labels.contains(&"help-overlay-backdrop"), "{labels:?}");
+        assert!(labels.contains(&"help-overlay-heading-band"), "{labels:?}");
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("help-overlay-key-chip-")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("help-overlay-row-")),
+            "{labels:?}"
+        );
     }
 
     #[test]
