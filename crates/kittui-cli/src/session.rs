@@ -23,7 +23,9 @@ use anyhow::{anyhow, Result};
 use kittui::{
     CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Runtime, Scene, Stroke,
 };
-use kittui_affordances::{button, text_input, ControlState};
+use kittui_affordances::{
+    button, text_input, ControlState, InlineChipColors, InlineStyle, InlineTheme,
+};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
@@ -1849,7 +1851,16 @@ fn render_native_shell_view_affordance_scenes(
     scenes
 }
 
+fn native_glass_chrome_colors() -> InlineChipColors {
+    InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass)
+}
+
+fn rgba_with_alpha(color: Rgba, alpha: u8) -> Rgba {
+    Rgba::rgba(color.0, color.1, color.2, alpha)
+}
+
 fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> (u16, u16, Scene) {
+    let colors = native_glass_chrome_colors();
     let max_line = lines
         .iter()
         .map(|line| line.chars().count() as u16)
@@ -1870,13 +1881,11 @@ fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> 
             "help-overlay-backdrop",
             Node::Rect {
                 rect,
-                fill: Paint::Solid {
-                    color: Rgba::rgba(0x04, 0x08, 0x10, 0xdd),
-                },
+                fill: Paint::Solid { color: colors.fill },
                 stroke: Some(Stroke::inside(
                     2.0,
                     Paint::Solid {
-                        color: Rgba::rgba(0x8c, 0xd2, 0xff, 0xee),
+                        color: colors.border,
                     },
                 )),
                 corners: Corners::uniform(8.0),
@@ -1887,7 +1896,7 @@ fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> 
             Node::Rect {
                 rect: PxRect::new(0.0, 0.0, rect.width, row_h * 1.4),
                 fill: Paint::Solid {
-                    color: Rgba::rgba(0x18, 0x2b, 0x3c, 0xaa),
+                    color: colors.highlight,
                 },
                 stroke: None,
                 corners: Corners::uniform(8.0),
@@ -1906,12 +1915,12 @@ fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> 
                 Node::Rect {
                     rect: PxRect::new(10.0, row_y + 2.0, chip_w, chip_h),
                     fill: Paint::Solid {
-                        color: Rgba::rgba(0x1f, 0x35, 0x4a, 0xcc),
+                        color: rgba_with_alpha(colors.border, 80),
                     },
                     stroke: Some(Stroke::inside(
                         1.0,
                         Paint::Solid {
-                            color: Rgba::rgba(0x88, 0xc0, 0xd0, 0xff),
+                            color: colors.border,
                         },
                     )),
                     corners: Corners::uniform(5.0),
@@ -1923,7 +1932,7 @@ fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> 
             Node::Rect {
                 rect: PxRect::new(8.0, row_y + row_h - 2.0, (rect.width - 16.0).max(1.0), 1.0),
                 fill: Paint::Solid {
-                    color: Rgba::rgba(0x88, 0xc0, 0xd0, 0x44),
+                    color: colors.highlight,
                 },
                 stroke: None,
                 corners: Corners::default(),
@@ -1943,18 +1952,19 @@ fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> 
 }
 
 fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: CellSize) -> Scene {
+    let colors = native_glass_chrome_colors();
     let cols = pane.cols.max(1);
     let rows = pane.rows.max(1);
     let rect = CellRect::new(0, 0, cols, rows).to_pixels(cell_size);
     let border = if pane.focused {
-        Rgba::rgba(0x8c, 0xd2, 0xff, 0xff)
+        colors.border
     } else {
-        Rgba::rgba(0x60, 0x64, 0x70, 0xcc)
+        rgba_with_alpha(colors.border, 150)
     };
     let title_fill = if pane.focused {
-        Rgba::rgba(0x18, 0x2b, 0x3c, 0x88)
+        colors.fill
     } else {
-        Rgba::rgba(0x10, 0x14, 0x1c, 0x66)
+        rgba_with_alpha(colors.fill, 110)
     };
     let title_rect = PxRect::new(0.0, 0.0, rect.width, cell_size.height_px.max(1) as f32);
     Scene {
@@ -2483,6 +2493,20 @@ mod native_pane_tests {
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("pane-0-kittui-border")));
+        let colors = native_glass_chrome_colors();
+        match &scenes[2].scene.layers[0].root {
+            Node::Rect {
+                fill: Paint::Solid { color },
+                ..
+            } => {
+                assert_eq!(*color, colors.fill);
+                assert!(
+                    color.3 < 255,
+                    "expected translucent title gutter: {color:?}"
+                );
+            }
+            node => panic!("expected pane title gutter rect, got {node:?}"),
+        }
         assert!(scenes.iter().all(|chrome| !chrome.scene.layers.is_empty()));
     }
 
@@ -2507,6 +2531,22 @@ mod native_pane_tests {
             .collect::<Vec<_>>();
         assert!(labels.contains(&"help-overlay-backdrop"), "{labels:?}");
         assert!(labels.contains(&"help-overlay-heading-band"), "{labels:?}");
+        match &scene.layers[0].root {
+            Node::Rect {
+                fill: Paint::Solid { color },
+                stroke: Some(stroke),
+                ..
+            } => {
+                let colors = native_glass_chrome_colors();
+                assert_eq!(*color, colors.fill);
+                assert!(color.3 < 255, "expected translucent backdrop: {color:?}");
+                match &stroke.paint {
+                    Paint::Solid { color } => assert_eq!(*color, colors.border),
+                    paint => panic!("expected solid border paint, got {paint:?}"),
+                }
+            }
+            node => panic!("expected help overlay backdrop rect, got {node:?}"),
+        }
         assert!(
             labels
                 .iter()
