@@ -28,7 +28,7 @@ use kittui_affordances::{
     chip_chrome, divider_chrome, panel_chrome, parse_nord_inline_color, title_chrome,
     InlineChipColors, InlineStyle, InlineTheme, Palette, PanelOptions, Tone,
 };
-use kittui_core::node::{Corners, Node, StrokeAlign};
+use kittui_core::node::{BlendMode, Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
 use kittui_core::Stroke;
 
@@ -850,7 +850,13 @@ fn run_inline_chip_kitty(
 ) -> Result<()> {
     let colors = inline_chip_colors(args)?;
     let cols = inline_chip_cols(args);
-    let scene = inline_chip_scene(cols, colors, component, args.animation.scene_animation());
+    let scene = inline_chip_scene(
+        cols,
+        colors,
+        component,
+        args.style,
+        args.animation.scene_animation(),
+    );
     if mode.scene_json {
         println!("{}", serialize_scene_json(&scene)?);
         return Ok(());
@@ -922,6 +928,7 @@ fn inline_chip_scene(
     cols: u16,
     colors: InlineChipColors,
     component: InlineTextComponent,
+    style: InlineStyleArg,
     animation: Option<Animation>,
 ) -> Scene {
     let cell = CellSize::default();
@@ -934,33 +941,146 @@ fn inline_chip_scene(
         rect.width,
         (rect.height / 2.0).max(1.0),
     );
+    let mut layers = vec![
+        Layer::anon(Node::Rect {
+            rect,
+            fill: Paint::Solid { color: colors.fill },
+            stroke: Some(Stroke {
+                align: StrokeAlign::Inside,
+                width_px: 1.0,
+                paint: Paint::Solid {
+                    color: colors.border,
+                },
+            }),
+            corners: Corners::uniform(radius),
+        }),
+        Layer::anon(Node::Rect {
+            rect: highlight_rect,
+            fill: Paint::Solid {
+                color: colors.highlight,
+            },
+            stroke: None,
+            corners: Corners::uniform(radius),
+        }),
+    ];
+    if animation.is_some() {
+        layers.extend(inline_style_effect_layers(rect, radius, style, colors));
+    }
     Scene {
         footprint,
         cell_size: cell,
-        layers: vec![
-            Layer::anon(Node::Rect {
-                rect,
-                fill: Paint::Solid { color: colors.fill },
-                stroke: Some(Stroke {
-                    align: StrokeAlign::Inside,
-                    width_px: 1.0,
-                    paint: Paint::Solid {
-                        color: colors.border,
-                    },
-                }),
-                corners: Corners::uniform(radius),
-            }),
-            Layer::anon(Node::Rect {
-                rect: highlight_rect,
+        layers,
+        animation,
+    }
+}
+
+fn inline_style_effect_layers(
+    rect: kittui_core::geom::PxRect,
+    radius: f32,
+    style: InlineStyleArg,
+    colors: InlineChipColors,
+) -> Vec<Layer> {
+    let glare = kittui_core::geom::PxRect::new(
+        rect.origin.0,
+        rect.origin.1,
+        rect.width,
+        (rect.height * 0.62).max(1.0),
+    );
+    let reflection = kittui_core::geom::PxRect::new(
+        rect.origin.0 + rect.width * 0.12,
+        rect.origin.1 + rect.height * 0.18,
+        (rect.width * 0.76).max(1.0),
+        (rect.height * 0.28).max(1.0),
+    );
+    let (label, center_x_frac, center_y_frac, radius_frac, color, intensity, extra) = match style {
+        InlineStyleArg::Glass => (
+            "inline-effect-glass-glare",
+            0.22,
+            0.05,
+            1.6,
+            Rgba(255, 255, 255, 118),
+            0.46,
+            Some(Node::Rect {
+                rect: glare,
                 fill: Paint::Solid {
-                    color: colors.highlight,
+                    color: Rgba(255, 255, 255, 34),
                 },
                 stroke: None,
                 corners: Corners::uniform(radius),
             }),
-        ],
-        animation,
-    }
+        ),
+        InlineStyleArg::Neon => (
+            "inline-effect-neon-pulse",
+            0.5,
+            0.5,
+            2.6,
+            colors.border,
+            0.72,
+            None,
+        ),
+        InlineStyleArg::Metal => (
+            "inline-effect-metal-reflection",
+            0.78,
+            0.22,
+            2.0,
+            Rgba(255, 255, 255, 96),
+            0.42,
+            Some(Node::Rect {
+                rect: reflection,
+                fill: Paint::Solid {
+                    color: Rgba(255, 255, 255, 28),
+                },
+                stroke: None,
+                corners: Corners::uniform((reflection.height / 2.0).max(1.0)),
+            }),
+        ),
+        InlineStyleArg::Chrome => (
+            "inline-effect-chrome-sheen",
+            0.5,
+            0.0,
+            1.8,
+            Rgba(255, 255, 255, 104),
+            0.38,
+            Some(Node::Rect {
+                rect: glare,
+                fill: Paint::Solid {
+                    color: Rgba(255, 255, 255, 26),
+                },
+                stroke: None,
+                corners: Corners::uniform(radius),
+            }),
+        ),
+    };
+    let glow = Node::Glow {
+        rect,
+        center_x_frac,
+        center_y_frac,
+        radius_frac,
+        color,
+        intensity,
+    };
+    let root = match extra {
+        Some(extra) => Node::Composite {
+            mode: BlendMode::Screen,
+            children: vec![extra, glow],
+        },
+        None => glow,
+    };
+    vec![Layer::new(label, root)]
+}
+
+fn inline_divider_effect_layers(
+    rect: kittui_core::geom::PxRect,
+    color: Rgba,
+    style: InlineStyleArg,
+) -> Vec<Layer> {
+    let colors = InlineChipColors {
+        fill: Rgba(color.0, color.1, color.2, 42),
+        border: color,
+        highlight: Rgba(255, 255, 255, 64),
+        fg: color,
+    };
+    inline_style_effect_layers(rect, (rect.height / 2.0).max(1.0), style, colors)
 }
 
 fn add_inline_animation_json(payload: &mut serde_json::Value, animation: InlineAnimationArgs) {
@@ -1260,7 +1380,7 @@ fn inline_row_scene(
         match item {
             InlineRowItem::Text { component, text } => {
                 let item_cols = inline_text_cols(text, args.padding);
-                let mut scene = inline_chip_scene(item_cols, colors, *component, None);
+                let mut scene = inline_chip_scene(item_cols, colors, *component, args.style, None);
                 for layer in &mut scene.layers {
                     offset_layer_x(layer, cursor, cell);
                 }
@@ -1268,7 +1388,7 @@ fn inline_row_scene(
                 cursor = cursor.saturating_add(item_cols);
             }
             InlineRowItem::Divider { width, .. } => {
-                let mut scene = inline_divider_scene(*width, colors.border, None);
+                let mut scene = inline_divider_scene(*width, colors.border, args.style, None);
                 for layer in &mut scene.layers {
                     offset_layer_x(layer, cursor, cell);
                 }
@@ -1277,8 +1397,18 @@ fn inline_row_scene(
             }
         }
     }
+    let footprint = CellRect::new(0, 0, cols.max(1), 1);
+    if animation.is_some() {
+        let rect = footprint.to_pixels(cell);
+        layers.extend(inline_style_effect_layers(
+            rect,
+            (rect.height / 2.0).max(1.0),
+            args.style,
+            colors,
+        ));
+    }
     Ok(Scene {
-        footprint: CellRect::new(0, 0, cols.max(1), 1),
+        footprint,
         cell_size: cell,
         layers,
         animation,
@@ -1422,7 +1552,12 @@ fn run_inline_divider(
         return Ok(());
     }
     let color = inline_divider_color(args)?;
-    let scene = inline_divider_scene(args.width, color, args.animation.scene_animation());
+    let scene = inline_divider_scene(
+        args.width,
+        color,
+        args.style,
+        args.animation.scene_animation(),
+    );
     if mode.scene_json {
         println!("{}", serialize_scene_json(&scene)?);
         return Ok(());
@@ -1475,25 +1610,34 @@ fn inline_divider_color(args: &InlineDividerArgs) -> Result<Rgba> {
     })
 }
 
-fn inline_divider_scene(cols: u16, color: Rgba, animation: Option<Animation>) -> Scene {
+fn inline_divider_scene(
+    cols: u16,
+    color: Rgba,
+    style: InlineStyleArg,
+    animation: Option<Animation>,
+) -> Scene {
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, cols.max(1), 1);
     let rect = footprint.to_pixels(cell);
     let rule_height = 2.0_f32.min(rect.height.max(1.0));
+    let mut layers = vec![Layer::anon(Node::Rect {
+        rect: kittui_core::geom::PxRect::new(
+            0.0,
+            ((rect.height - rule_height) / 2.0).max(0.0),
+            rect.width,
+            rule_height,
+        ),
+        fill: Paint::Solid { color },
+        stroke: None,
+        corners: Corners::uniform(rule_height / 2.0),
+    })];
+    if animation.is_some() {
+        layers.extend(inline_divider_effect_layers(rect, color, style));
+    }
     Scene {
         footprint,
         cell_size: cell,
-        layers: vec![Layer::anon(Node::Rect {
-            rect: kittui_core::geom::PxRect::new(
-                0.0,
-                ((rect.height - rule_height) / 2.0).max(0.0),
-                rect.width,
-                rule_height,
-            ),
-            fill: Paint::Solid { color },
-            stroke: None,
-            corners: Corners::uniform(rule_height / 2.0),
-        })],
+        layers,
         animation,
     }
 }
@@ -2809,10 +2953,16 @@ mod tests {
             8,
             colors,
             InlineTextComponent::Chip,
+            InlineStyleArg::Glass,
             Some(animation.clone()),
         );
         assert_eq!(chip.animation, Some(animation.clone()));
-        let divider = inline_divider_scene(8, colors.border, Some(animation.clone()));
+        let divider = inline_divider_scene(
+            8,
+            colors.border,
+            InlineStyleArg::Glass,
+            Some(animation.clone()),
+        );
         assert_eq!(divider.animation, Some(animation.clone()));
         let row_args = InlineRowArgs {
             items: vec!["chip:main".to_string(), "divider:4".to_string()],
@@ -2856,6 +3006,48 @@ mod tests {
     }
 
     #[test]
+    fn inline_animated_styles_add_phase_reactive_effect_layers() {
+        let animation = InlineAnimationArgs {
+            animated: true,
+            ..InlineAnimationArgs::default()
+        }
+        .scene_animation();
+        let cases = [
+            (InlineStyleArg::Glass, "inline-effect-glass-glare"),
+            (InlineStyleArg::Neon, "inline-effect-neon-pulse"),
+            (InlineStyleArg::Metal, "inline-effect-metal-reflection"),
+            (InlineStyleArg::Chrome, "inline-effect-chrome-sheen"),
+        ];
+        for (style, label) in cases {
+            let colors = InlineChipColors::resolve(InlineTheme::Nord, style.into());
+            let scene = inline_chip_scene(
+                8,
+                colors,
+                InlineTextComponent::Chip,
+                style,
+                animation.clone(),
+            );
+            assert!(
+                scene
+                    .layers
+                    .iter()
+                    .any(|layer| layer.label.as_deref() == Some(label)),
+                "missing {label}: {:?}",
+                scene
+                    .layers
+                    .iter()
+                    .filter_map(|layer| layer.label.as_deref())
+                    .collect::<Vec<_>>()
+            );
+            let divider = inline_divider_scene(8, colors.border, style, animation.clone());
+            assert!(divider
+                .layers
+                .iter()
+                .any(|layer| layer.label.as_deref() == Some(label)));
+        }
+    }
+
+    #[test]
     fn inline_chip_renders_plain_ansi_tmux_and_kitty_embed_formats() {
         let mut args = InlineChipArgs {
             text: "main#1".to_string(),
@@ -2891,6 +3083,7 @@ mod tests {
             inline_chip_cols(&args),
             colors,
             InlineTextComponent::Chip,
+            args.style,
             None,
         );
         assert_eq!(scene.footprint.cols, 8);
@@ -2952,7 +3145,8 @@ mod tests {
         assert!(badge.contains(" ok "), "{badge}");
 
         let colors = inline_chip_colors(&args).unwrap();
-        let segment_scene = inline_chip_scene(4, colors, InlineTextComponent::Segment, None);
+        let segment_scene =
+            inline_chip_scene(4, colors, InlineTextComponent::Segment, args.style, None);
         assert_eq!(segment_scene.footprint.rows, 1);
         assert_eq!(segment_scene.footprint.cols, 4);
 
@@ -2967,7 +3161,12 @@ mod tests {
             animation: InlineAnimationArgs::default(),
         };
         assert_eq!(render_inline_divider(&divider).unwrap(), "=====");
-        let scene = inline_divider_scene(5, inline_divider_color(&divider).unwrap(), None);
+        let scene = inline_divider_scene(
+            5,
+            inline_divider_color(&divider).unwrap(),
+            divider.style,
+            None,
+        );
         assert_eq!(scene.footprint.cols, 5);
         assert_eq!(scene.footprint.rows, 1);
     }
