@@ -82,6 +82,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut prefix = false;
     let mut clear = true;
     let mut help_overlay = false;
+    let mut ctrl_c_exit_guard = NativeCtrlCExitGuard::default();
     let mut last_title_rows = Vec::<String>::new();
     let mut last_top_bar = String::new();
     let mut last_footer = String::new();
@@ -135,6 +136,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             rows,
                             &mut clear,
                             &mut help_overlay,
+                            &mut ctrl_c_exit_guard,
                             &dbg,
                         )? {
                             return Ok(());
@@ -154,6 +156,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         rows,
                         &mut clear,
                         &mut help_overlay,
+                        &mut ctrl_c_exit_guard,
                         &dbg,
                     )? {
                         return Ok(());
@@ -936,6 +939,36 @@ fn next_native_pane_id(panes: &[NativePane]) -> u32 {
         .saturating_add(1)
 }
 
+const NATIVE_CTRL_C_EXIT_THRESHOLD: u8 = 3;
+const NATIVE_CTRL_C_EXIT_WINDOW: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Debug, Default)]
+struct NativeCtrlCExitGuard {
+    count: u8,
+    last: Option<Instant>,
+}
+
+impl NativeCtrlCExitGuard {
+    fn observe(&mut self, now: Instant) -> bool {
+        if self
+            .last
+            .and_then(|last| now.checked_duration_since(last))
+            .is_some_and(|elapsed| elapsed <= NATIVE_CTRL_C_EXIT_WINDOW)
+        {
+            self.count = self.count.saturating_add(1);
+        } else {
+            self.count = 1;
+        }
+        self.last = Some(now);
+        self.count >= NATIVE_CTRL_C_EXIT_THRESHOLD
+    }
+
+    fn reset(&mut self) {
+        self.count = 0;
+        self.last = None;
+    }
+}
+
 fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Result<NativePane> {
     let window = format!("native-{id}");
     let envs = vec![
@@ -972,6 +1005,7 @@ fn process_native_terminal_byte(
     rows: u16,
     clear: &mut bool,
     help_overlay: &mut bool,
+    ctrl_c_exit_guard: &mut NativeCtrlCExitGuard,
     dbg: &Debugger,
 ) -> Result<bool> {
     if byte == 0x1d {
@@ -1145,9 +1179,21 @@ fn process_native_terminal_byte(
         return Ok(false);
     }
     if byte == 0x01 {
+        ctrl_c_exit_guard.reset();
         *prefix = true;
         return Ok(false);
     }
+    if byte == 0x03 {
+        if !panes.is_empty() {
+            panes[*focused].app.send_bytes(&[byte])?;
+        }
+        if ctrl_c_exit_guard.observe(Instant::now()) {
+            dbg.log("native terminal loop: triple Ctrl-C exit");
+            return Ok(true);
+        }
+        return Ok(false);
+    }
+    ctrl_c_exit_guard.reset();
     if !panes.is_empty() {
         panes[*focused].app.send_bytes(&[byte])?;
     }
@@ -2680,6 +2726,24 @@ mod native_pane_tests {
             }),
             Some(("move", 5, 6, false))
         );
+    }
+
+    #[test]
+    fn native_ctrl_c_exit_guard_requires_three_presses_in_window() {
+        let start = Instant::now();
+        let mut guard = NativeCtrlCExitGuard::default();
+        assert!(!guard.observe(start));
+        assert!(!guard.observe(start + Duration::from_millis(500)));
+        assert!(guard.observe(start + Duration::from_millis(900)));
+
+        let mut guard = NativeCtrlCExitGuard::default();
+        assert!(!guard.observe(start));
+        assert!(!guard.observe(start + NATIVE_CTRL_C_EXIT_WINDOW + Duration::from_millis(1)));
+        assert!(!guard.observe(start + NATIVE_CTRL_C_EXIT_WINDOW + Duration::from_millis(100)));
+        assert!(guard.observe(start + NATIVE_CTRL_C_EXIT_WINDOW + Duration::from_millis(200)));
+
+        guard.reset();
+        assert!(!guard.observe(start + Duration::from_secs(10)));
     }
 
     #[test]
