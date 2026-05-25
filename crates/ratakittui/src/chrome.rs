@@ -305,14 +305,8 @@ impl Chrome {
         } = self.padding;
         let x = area.x.saturating_add(left);
         let y = area.y.saturating_add(top);
-        let w = area
-            .width
-            .saturating_sub(left)
-            .saturating_sub(right);
-        let h = area
-            .height
-            .saturating_sub(top)
-            .saturating_sub(bottom);
+        let w = area.width.saturating_sub(left).saturating_sub(right);
+        let h = area.height.saturating_sub(top).saturating_sub(bottom);
         Rect {
             x,
             y,
@@ -355,7 +349,10 @@ impl Chrome {
         }
 
         if let Some(title) = &self.title {
-            layers.push(Layer::new("title", strip_node(title, top_strip(rect, cell))));
+            layers.push(Layer::new(
+                "title",
+                strip_node(title, top_strip(rect, cell)),
+            ));
         }
         if let Some(footer) = &self.footer {
             layers.push(Layer::new(
@@ -493,7 +490,12 @@ fn strip_node(strip: &Strip, rect: PxRect) -> Node {
 }
 
 fn top_strip(rect: PxRect, cell: CellSize) -> PxRect {
-    PxRect::new(rect.origin.0, rect.origin.1, rect.width, cell.height_px as f32)
+    PxRect::new(
+        rect.origin.0,
+        rect.origin.1,
+        rect.width,
+        cell.height_px as f32,
+    )
 }
 
 fn bottom_strip(rect: PxRect, cell: CellSize) -> PxRect {
@@ -533,7 +535,10 @@ mod tests {
         let inner = chrome.inner_rect(Rect::new(0, 0, 20, 4));
         assert_eq!(inner.y, 1);
         let scene = chrome.to_scene(Rect::new(0, 0, 20, 4)).unwrap();
-        assert!(scene.layers.iter().any(|l| l.label.as_deref() == Some("title")));
+        assert!(scene
+            .layers
+            .iter()
+            .any(|l| l.label.as_deref() == Some("title")));
     }
 
     #[test]
@@ -545,12 +550,14 @@ mod tests {
             radius: 0.5,
             intensity: 0.6,
             pulse: Some(Pulse {
-                frames: 8,
-                cycle_ms: 800,
+                frames: 180,
+                cycle_ms: 3000,
             }),
         });
         let scene = chrome.to_scene(Rect::new(0, 0, 20, 4)).unwrap();
-        assert_eq!(scene.animation.as_ref().unwrap().frames, 8);
+        let animation = scene.animation.as_ref().unwrap();
+        assert_eq!(animation.frames, 180);
+        assert_eq!(animation.cycle_ms, 3000);
     }
 
     #[test]
