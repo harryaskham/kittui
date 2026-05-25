@@ -3948,6 +3948,33 @@ mod tests {
         assert!(session_json["panes"][1].get("x").is_none());
         assert!(session_json["panes"][1].get("text_snapshot").is_none());
 
+        let restore_reply = native_spawn_queue_reply(
+            &format!(
+                "RESTORE_SESSION_JSON {}",
+                serde_json::to_string(&session_json).unwrap()
+            ),
+            &pending,
+        );
+        assert!(
+            restore_reply.starts_with("RESTORE_SESSION_QUEUED"),
+            "{restore_reply}"
+        );
+        let restore = drain_native_spawn_pending(&pending)
+            .into_iter()
+            .find_map(|cmd| match cmd {
+                NativePaneCommand::RestoreSession(restore) => Some(restore),
+                _ => None,
+            })
+            .expect("restore command queued");
+        assert_eq!(restore.layout.as_deref(), Some("rows"));
+        assert_eq!(restore.focus_index, Some(1));
+        assert_eq!(restore.panes.len(), 2);
+        assert_eq!(restore.panes[0].command, "/bin/sh");
+        assert_eq!(restore.panes[0].weight, 1);
+        assert_eq!(restore.panes[1].command, "htop");
+        assert_eq!(restore.panes[1].weight, 3);
+        assert!(restore.panes[1].focused);
+
         let text = native_spawn_queue_reply("READ_TEXT focused", &pending);
         assert!(
             text.starts_with("TEXT window=native-2 bytes=17 cursor=12,2"),
