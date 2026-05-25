@@ -202,12 +202,51 @@ impl From<InlineStyleArg> for InlineStyle {
 enum InlineFormatArg {
     /// Kitty graphics background with inline width-bearing placeholder/text.
     Kitty,
+    /// Kitty graphics for zsh prompts; nonprinting escapes are wrapped in `%{...%}`.
+    PromptZsh,
+    /// Kitty graphics for bash prompts; nonprinting escapes are wrapped in `\\[...\\]`.
+    PromptBash,
     /// ASCII/plain fallback.
     Plain,
     /// 24-bit ANSI styled text fallback.
     Ansi,
     /// tmux statusline style syntax fallback.
     Tmux,
+}
+
+impl InlineFormatArg {
+    fn uses_kitty_graphics(self) -> bool {
+        matches!(
+            self,
+            InlineFormatArg::Kitty | InlineFormatArg::PromptZsh | InlineFormatArg::PromptBash
+        )
+    }
+
+    fn prompt_wrapper(self) -> PromptWrapper {
+        match self {
+            InlineFormatArg::PromptZsh => PromptWrapper::Zsh,
+            InlineFormatArg::PromptBash => PromptWrapper::Bash,
+            _ => PromptWrapper::None,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            InlineFormatArg::Kitty => "kitty",
+            InlineFormatArg::PromptZsh => "prompt-zsh",
+            InlineFormatArg::PromptBash => "prompt-bash",
+            InlineFormatArg::Plain => "plain",
+            InlineFormatArg::Ansi => "ansi",
+            InlineFormatArg::Tmux => "tmux",
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum PromptWrapper {
+    None,
+    Zsh,
+    Bash,
 }
 
 #[derive(Subcommand)]
@@ -637,7 +676,7 @@ fn run_inline(
     mode: EmitMode,
 ) -> Result<()> {
     match cmd {
-        InlineCmd::Chip(args) if args.format == InlineFormatArg::Kitty => {
+        InlineCmd::Chip(args) if args.format.uses_kitty_graphics() => {
             run_inline_chip_kitty(global, runtime, args, mode)
         }
         InlineCmd::Chip(args) => {
@@ -661,16 +700,23 @@ fn run_inline_chip_kitty(
         return Ok(());
     }
     let placement = runtime.place(&scene)?;
-    let embed = inline_chip_text_embed(&args.text, args.padding, colors.fg);
-    let inline_placement = inline_background_placement(&placement, runtime.transport());
+    let wrapper = args.format.prompt_wrapper();
+    let upload = wrap_prompt_nonprinting(&placement.upload, wrapper);
+    let embed = inline_chip_text_embed(&args.text, args.padding, colors.fg, wrapper);
+    let inline_placement = wrap_prompt_nonprinting(
+        &inline_background_placement(&placement, runtime.transport()),
+        wrapper,
+    );
     if mode.dry_run || global.json.value {
         let mut payload =
             placement_json_payload(global, &placement, None, mode.dry_run, mode.json_bytes);
         payload["inline_text"] = serde_json::json!(args.text);
-        payload["inline_format"] = serde_json::json!("kitty");
+        payload["inline_format"] = serde_json::json!(args.format.label());
+        payload["upload_bytes"] = serde_json::json!(upload.len());
         payload["placement_bytes"] = serde_json::json!(inline_placement.len());
         payload["embed_bytes"] = serde_json::json!(embed.len());
         if mode.json_bytes || mode.dry_run {
+            payload["upload"] = serde_json::json!(upload);
             payload["placement"] = serde_json::json!(inline_placement);
             payload["embed"] = serde_json::json!(embed);
         }
@@ -681,7 +727,7 @@ fn run_inline_chip_kitty(
     let mut handle = stdout.lock();
     let any_filter = mode.upload_only || mode.placement_only || mode.embed_only;
     if !any_filter || mode.upload_only {
-        handle.write_all(placement.upload.as_bytes())?;
+        handle.write_all(upload.as_bytes())?;
     }
     if !any_filter || mode.placement_only {
         handle.write_all(inline_placement.as_bytes())?;
@@ -780,12 +826,34 @@ fn inline_chip_cols(args: &InlineChipArgs) -> u16 {
     (args.text.chars().count() + args.padding.saturating_mul(2)).max(1) as u16
 }
 
-fn inline_chip_text_embed(text: &str, padding: usize, fg: Rgba) -> String {
-    let pad = " ".repeat(padding);
+fn inline_chip_text_embed(text: &str, padding: usize, fg: Rgba, wrapper: PromptWrapper) -> String {
     format!(
-        "\x1b[38;2;{};{};{}m{}{}{}\x1b[39m",
-        fg.0, fg.1, fg.2, pad, text, pad
+        "{}{}{}",
+        wrap_prompt_nonprinting(&inline_chip_text_prefix(fg), wrapper),
+        inline_chip_visible_text(text, padding),
+        wrap_prompt_nonprinting(inline_chip_text_suffix(), wrapper),
     )
+}
+
+fn inline_chip_visible_text(text: &str, padding: usize) -> String {
+    let pad = " ".repeat(padding);
+    format!("{pad}{text}{pad}")
+}
+
+fn inline_chip_text_prefix(fg: Rgba) -> String {
+    format!("\x1b[38;2;{};{};{}m", fg.0, fg.1, fg.2)
+}
+
+fn inline_chip_text_suffix() -> &'static str {
+    "\x1b[39m"
+}
+
+fn wrap_prompt_nonprinting(text: &str, wrapper: PromptWrapper) -> String {
+    match wrapper {
+        PromptWrapper::None => text.to_string(),
+        PromptWrapper::Zsh => format!("%{{{text}%}}"),
+        PromptWrapper::Bash => format!("\\[{text}\\]"),
+    }
 }
 
 fn render_inline_chip(args: &InlineChipArgs) -> String {
@@ -793,7 +861,10 @@ fn render_inline_chip(args: &InlineChipArgs) -> String {
     let label = format!("{padding}{}{padding}", args.text);
     let palette = Palette::for_tone(args.tone.into());
     match args.format {
-        InlineFormatArg::Kitty | InlineFormatArg::Plain => format!("[{label}]"),
+        InlineFormatArg::Kitty
+        | InlineFormatArg::PromptZsh
+        | InlineFormatArg::PromptBash
+        | InlineFormatArg::Plain => format!("[{label}]"),
         InlineFormatArg::Ansi => format!(
             "\x1b[1;38;2;{};{};{};48;2;{};{};{}m{label}\x1b[0m",
             palette.rail.0,
@@ -2089,7 +2160,8 @@ mod tests {
         let scene = inline_chip_scene(inline_chip_cols(&args), colors);
         assert_eq!(scene.footprint.cols, 8);
         assert_eq!(scene.footprint.rows, 1);
-        let embed = inline_chip_text_embed(&args.text, args.padding, colors.fg);
+        let embed =
+            inline_chip_text_embed(&args.text, args.padding, colors.fg, PromptWrapper::None);
         assert!(!embed.contains(kittui_kitty::PLACEHOLDER_CHAR), "{embed:?}");
         assert!(embed.contains(" main#1 \x1b[39m"), "{embed:?}");
         assert_eq!(
@@ -2115,6 +2187,49 @@ mod tests {
         assert!(placement.contains("\x1b[8D"), "{placement:?}");
         assert!(!placement.contains("U=1"), "{placement:?}");
         assert!(!placement.contains("[1;1H"), "{placement:?}");
+    }
+
+    #[test]
+    fn inline_chip_prompt_formats_wrap_only_nonprinting_bytes() {
+        let args = InlineChipArgs {
+            text: "main#1".to_string(),
+            format: InlineFormatArg::PromptZsh,
+            tone: ToneArg::Assistant,
+            theme: InlineThemeArg::Nord,
+            style: InlineStyleArg::Glass,
+            bg_color: None,
+            border_color: None,
+            fg_color: None,
+            padding: 1,
+        };
+        assert!(args.format.uses_kitty_graphics());
+        assert_eq!(args.format.label(), "prompt-zsh");
+        let colors = inline_chip_colors(&args).unwrap();
+        let zsh = inline_chip_text_embed(&args.text, args.padding, colors.fg, PromptWrapper::Zsh);
+        assert!(zsh.starts_with("%{\x1b[38;2;"), "{zsh:?}");
+        assert!(zsh.contains("%} main#1 %{"), "{zsh:?}");
+        assert!(zsh.ends_with("\x1b[39m%}"), "{zsh:?}");
+        assert!(!zsh.contains("%{ main#1 %}"), "{zsh:?}");
+
+        let bash = inline_chip_text_embed(&args.text, args.padding, colors.fg, PromptWrapper::Bash);
+        assert!(bash.starts_with("\\[\x1b[38;2;"), "{bash:?}");
+        assert!(bash.contains("\\] main#1 \\["), "{bash:?}");
+        assert!(bash.ends_with("\x1b[39m\\]"), "{bash:?}");
+        assert!(!bash.contains("\\[ main#1 \\]"), "{bash:?}");
+
+        let placement = kittui::Placement {
+            image_id: 0x00112233,
+            upload: String::new(),
+            placement: String::new(),
+            embed: String::new(),
+            footprint: CellRect::new(0, 0, 8, 1),
+        };
+        let raw = inline_background_placement(&placement, kittui_core::terminal::Transport::Direct);
+        let wrapped = wrap_prompt_nonprinting(&raw, PromptWrapper::Zsh);
+        assert!(wrapped.starts_with("%{\x1b_G"), "{wrapped:?}");
+        assert!(wrapped.ends_with("\x1b[8D%}"), "{wrapped:?}");
+        let upload = wrap_prompt_nonprinting("\x1b_Ga=t,f=100;payload\x1b\\", PromptWrapper::Bash);
+        assert_eq!(upload, "\\[\x1b_Ga=t,f=100;payload\x1b\\\\]");
     }
 
     #[test]
