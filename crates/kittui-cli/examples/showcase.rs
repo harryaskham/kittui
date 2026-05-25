@@ -12,17 +12,13 @@ use std::io::Write;
 
 use kittui::scene::{background_linear, background_solid, glow_layer, rounded_rect};
 use kittui::{
-    Animation, CellRect, CellSize, Direction, Layer, PhaseCurve, RendererKind, Rgba, Runtime, Scene,
+    Animation, CellRect, CellSize, Direction, Layer, PhaseCurve, RendererKind, Rgba, Runtime,
+    Scene, STANDARD_ANIMATION_CYCLE_MS, STANDARD_ANIMATION_FRAMES,
 };
 use kittui_core::geom::PxRect;
 use kittui_core::node::{Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
 use kittui_core::Stroke;
-
-const SHOWCASE_ANIMATION_FPS: u32 = 60;
-const SHOWCASE_ANIMATION_FRAMES: u16 = 180;
-const SHOWCASE_ANIMATION_CYCLE_MS: u32 =
-    (SHOWCASE_ANIMATION_FRAMES as u32 * 1000) / SHOWCASE_ANIMATION_FPS;
 
 #[derive(Copy, Clone)]
 enum Tone {
@@ -91,8 +87,8 @@ fn panel(tone: Tone, cols: u16, rows: u16, animated: bool) -> Scene {
         cell_size: cell,
         layers,
         animation: animated.then(|| Animation {
-            frames: SHOWCASE_ANIMATION_FRAMES,
-            cycle_ms: SHOWCASE_ANIMATION_CYCLE_MS,
+            frames: STANDARD_ANIMATION_FRAMES,
+            cycle_ms: STANDARD_ANIMATION_CYCLE_MS,
             curve: PhaseCurve::Pulse { harmonics: 0 },
             loops: 0,
         }),

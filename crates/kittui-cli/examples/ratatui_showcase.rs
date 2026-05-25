@@ -39,7 +39,10 @@ use ratatui::widgets::{
 };
 use ratatui::{Frame, Terminal};
 
-use kittui::{Direction as KittuiDir, Rgba, Runtime, TerminalInfo};
+use kittui::{
+    Direction as KittuiDir, Rgba, Runtime, TerminalInfo, STANDARD_ANIMATION_CYCLE_MS,
+    STANDARD_ANIMATION_FRAMES,
+};
 use ratakittui::{
     inline::{KittuiChip, KittuiDivider, KittuiLine, KittuiTitle},
     Background, Border, Chrome, EffectsSink, Glow, JoinGroup, KittuiBarChart, KittuiBlock,
@@ -49,10 +52,6 @@ use ratakittui::{
 };
 
 const TOTAL_PERF_SAMPLES: usize = 240;
-const SHOWCASE_ANIMATION_FPS: u32 = 60;
-const SHOWCASE_ANIMATION_FRAMES: u16 = 180;
-const SHOWCASE_ANIMATION_CYCLE_MS: u32 =
-    (SHOWCASE_ANIMATION_FRAMES as u32 * 1000) / SHOWCASE_ANIMATION_FPS;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum Tone {
@@ -202,8 +201,8 @@ impl Controls {
             border_width: 1.5,
             border_radius: 8.0,
             glow_intensity: 0.55,
-            pulse_frames: SHOWCASE_ANIMATION_FRAMES,
-            pulse_cycle_ms: SHOWCASE_ANIMATION_CYCLE_MS,
+            pulse_frames: STANDARD_ANIMATION_FRAMES,
+            pulse_cycle_ms: STANDARD_ANIMATION_CYCLE_MS,
             scanline_alpha: 0x22,
             scanline_period: 3,
             padding_top: 1,
