@@ -204,7 +204,11 @@ impl Default for InlineAnimationArgs {
 
 impl InlineAnimationArgs {
     fn scene_animation(self) -> Option<Animation> {
-        if !self.animated {
+        self.scene_animation_when(self.animated)
+    }
+
+    fn scene_animation_when(self, enabled: bool) -> Option<Animation> {
+        if !enabled {
             return None;
         }
         let fps = self.fps.max(1) as u32;
@@ -511,9 +515,12 @@ struct PanelArgs {
     /// Height in cells or as a percentage (`100%`).
     #[arg(short = 'h', long)]
     height: String,
-    /// Add native kitty-side pulsing glow animation.
+    /// Add native kitty-side pulsing glow animation (legacy alias for --animated).
     #[arg(long)]
     animate: bool,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args)]
@@ -531,6 +538,9 @@ struct ChipArgs {
     /// Border color.
     #[arg(long)]
     border: String,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args)]
@@ -545,6 +555,9 @@ struct DividerArgs {
     /// Right gradient color.
     #[arg(long)]
     right: String,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args)]
@@ -595,6 +608,9 @@ struct TitleBarArgs {
     /// Right gradient color.
     #[arg(long)]
     right: String,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -1081,6 +1097,30 @@ fn inline_divider_effect_layers(
         fg: color,
     };
     inline_style_effect_layers(rect, (rect.height / 2.0).max(1.0), style, colors)
+}
+
+fn add_affordance_animation(
+    scene: &mut Scene,
+    animation: Option<Animation>,
+    color: Rgba,
+    label: &str,
+) {
+    let Some(animation) = animation else {
+        return;
+    };
+    let rect = scene.footprint.to_pixels(scene.cell_size);
+    scene.layers.push(Layer::new(
+        label,
+        Node::Glow {
+            rect,
+            center_x_frac: 0.5,
+            center_y_frac: 0.35,
+            radius_frac: 2.0,
+            color,
+            intensity: 0.55,
+        },
+    ));
+    scene.animation = Some(animation);
 }
 
 fn add_inline_animation_json(payload: &mut serde_json::Value, animation: InlineAnimationArgs) {
@@ -1794,16 +1834,19 @@ fn run_panel(
 ) -> Result<()> {
     let cols = resolve_size(&args.width, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height, global.terminal_rows.value)?;
-    let chrome = panel_chrome(
-        args.tone.into(),
-        &PanelOptions {
-            animated: args.animate,
-        },
-    );
+    let chrome = panel_chrome(args.tone.into(), &PanelOptions { animated: false });
     let area = ratatui::layout::Rect::new(0, 0, cols, rows);
-    let scene = chrome
+    let mut scene = chrome
         .to_scene(area)
         .ok_or_else(|| anyhow!("panel chrome produced no scene for {cols}x{rows}"))?;
+    let palette = Palette::for_tone(args.tone.into());
+    add_affordance_animation(
+        &mut scene,
+        args.animation
+            .scene_animation_when(args.animate || args.animation.animated),
+        palette.glow,
+        "affordance-panel-animation",
+    );
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 
@@ -1821,12 +1864,19 @@ fn run_chip(
 ) -> Result<()> {
     let cols = resolve_size(&args.width, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height, global.terminal_rows.value)?;
-    let scene = chrome_to_scene(
-        chip_chrome(Rgba::parse(&args.bg)?, Rgba::parse(&args.border)?),
+    let border = Rgba::parse(&args.border)?;
+    let mut scene = chrome_to_scene(
+        chip_chrome(Rgba::parse(&args.bg)?, border),
         cols,
         rows,
         "chip",
     )?;
+    add_affordance_animation(
+        &mut scene,
+        args.animation.scene_animation(),
+        border,
+        "affordance-chip-animation",
+    );
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 
@@ -1837,12 +1887,15 @@ fn run_divider(
     mode: EmitMode,
 ) -> Result<()> {
     let cols = resolve_size(&args.width, global.terminal_cols.value)?;
-    let scene = chrome_to_scene(
-        divider_chrome(Rgba::parse(&args.left)?, Rgba::parse(&args.right)?),
-        cols,
-        1,
-        "divider",
-    )?;
+    let left = Rgba::parse(&args.left)?;
+    let right = Rgba::parse(&args.right)?;
+    let mut scene = chrome_to_scene(divider_chrome(left, right), cols, 1, "divider")?;
+    add_affordance_animation(
+        &mut scene,
+        args.animation.scene_animation(),
+        right,
+        "affordance-divider-animation",
+    );
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 
@@ -2018,12 +2071,15 @@ fn run_title_bar(
 ) -> Result<()> {
     let cols = resolve_size(&args.width, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height, global.terminal_rows.value)?;
-    let scene = chrome_to_scene(
-        title_chrome(Rgba::parse(&args.left)?, Rgba::parse(&args.right)?),
-        cols,
-        rows,
-        "title-bar",
-    )?;
+    let left = Rgba::parse(&args.left)?;
+    let right = Rgba::parse(&args.right)?;
+    let mut scene = chrome_to_scene(title_chrome(left, right), cols, rows, "title-bar")?;
+    add_affordance_animation(
+        &mut scene,
+        args.animation.scene_animation(),
+        right,
+        "affordance-title-bar-animation",
+    );
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 

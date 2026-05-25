@@ -5,7 +5,7 @@ statusline graphics. The CLI renders every frame once, uploads them in one shot,
 and asks the terminal to loop the animation. After that, the animation continues
 inside the terminal even if the `kittui` process has exited.
 
-## Supported inline elements
+## Supported elements
 
 All first-party inline graphics elements support the same animation flags:
 
@@ -14,6 +14,13 @@ All first-party inline graphics elements support the same animation flags:
 - `kittui inline segment`
 - `kittui inline divider`
 - `kittui inline row`
+
+Top-level affordance scene commands also support the same flags:
+
+- `kittui panel`
+- `kittui chip`
+- `kittui divider`
+- `kittui title-bar`
 
 Text fallbacks (`--format plain`, `--format ansi`, `--format tmux`) remain static.
 Kitty/prompt formats (`kitty`, `prompt-zsh`, `prompt-bash`) can animate.
@@ -41,6 +48,10 @@ Each inline style maps to a labelled phase-reactive scene layer:
 These layers are only added for animated scenes; non-animated scenes keep the
 same compact static layer set.
 
+Top-level affordance commands use labelled pulse/glow layers named
+`affordance-panel-animation`, `affordance-chip-animation`,
+`affordance-divider-animation`, and `affordance-title-bar-animation`.
+
 ## Examples
 
 ```sh
@@ -59,6 +70,10 @@ kittui inline row \
   --item divider:4 \
   --item segment:dev \
   --animated --fps 60 --frames 180
+
+# Top-level affordance scene commands use the same contract.
+kittui chip -w 10 --bg '#001122' --border '#00d8ff' --animated
+kittui panel -w 40 -h 8 --animated --fps 60 --frames 180
 ```
 
 ## Inspection
