@@ -6,7 +6,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kittui::{Layer, Node, Rgba, Scene};
-use kittui_affordances::title_chrome;
+use kittui_affordances::{title_chrome, InlineChipColors, InlineStyle, InlineTheme};
 use ratatui::layout::Rect;
 use serde::Serialize;
 
@@ -77,11 +77,7 @@ impl BarModel {
 
     /// Render the bar as a one-line scene with caller-chosen diagnostic labels.
     pub fn scene_with_prefix(&self, cols: u16, label_prefix: &str) -> Scene {
-        let (left, right) = match (self.connected, self.state.as_str()) {
-            (true, "active") => (Rgba::rgb(0x18, 0x4e, 0x77), Rgba::rgb(0x52, 0xb6, 0x9a)),
-            (true, _) => (Rgba::rgb(0x24, 0x24, 0x36), Rgba::rgb(0x5a, 0x4f, 0x7c)),
-            (false, _) => (Rgba::rgb(0x20, 0x20, 0x24), Rgba::rgb(0x3a, 0x3a, 0x44)),
-        };
+        let (left, right) = top_bar_theme_colors(self.connected, self.state.as_str());
         let mut scene = title_chrome(left, right)
             .to_scene(Rect::new(0, 0, cols.max(1), 1))
             .expect("title chrome produces a one-line scene");
@@ -99,6 +95,16 @@ impl BarModel {
         ));
         scene
     }
+}
+
+fn top_bar_theme_colors(connected: bool, state: &str) -> (Rgba, Rgba) {
+    let style = match (connected, state) {
+        (true, "active") => InlineStyle::Neon,
+        (true, _) => InlineStyle::Glass,
+        (false, _) => InlineStyle::Metal,
+    };
+    let colors = InlineChipColors::resolve(InlineTheme::Nord, style);
+    (colors.fill, colors.border)
 }
 
 /// Workspace label from environment, defaulting to `1`.
@@ -146,6 +152,20 @@ mod tests {
         assert_eq!(
             time_label(UNIX_EPOCH + std::time::Duration::from_secs(23 * 3_600 + 59 * 60)),
             "23:59 UTC"
+        );
+    }
+
+    #[test]
+    fn top_bar_theme_colors_use_shared_inline_tokens() {
+        let (active_fill, active_border) = top_bar_theme_colors(true, "active");
+        let active = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Neon);
+        assert_eq!((active_fill, active_border), (active.fill, active.border));
+
+        let (offline_fill, offline_border) = top_bar_theme_colors(false, "empty");
+        let offline = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Metal);
+        assert_eq!(
+            (offline_fill, offline_border),
+            (offline.fill, offline.border)
         );
     }
 

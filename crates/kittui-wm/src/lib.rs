@@ -267,6 +267,7 @@ mod tests {
 /// Reusable kittwm window chrome theme helpers.
 pub mod chrome {
     use kittui::{PxRect, Rgba};
+    use kittui_affordances::{InlineChipColors, InlineStyle, InlineTheme};
     use kittui_core::node::{Corners, Layer, Node, Stroke, StrokeAlign};
     use kittui_core::paint::Paint;
 
@@ -311,10 +312,12 @@ pub mod chrome {
 
     impl Default for WindowChromeTheme {
         fn default() -> Self {
+            let focused = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Neon);
+            let unfocused = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Metal);
             Self {
-                focused_border: Rgba::parse("#00d8ff").expect("default focused border color"),
-                unfocused_border: Rgba::parse("#53647a").expect("default unfocused border color"),
-                overlay_fill: Rgba::parse("#00000080").expect("default overlay fill color"),
+                focused_border: focused.border,
+                unfocused_border: unfocused.border,
+                overlay_fill: unfocused.fill,
                 focused_border_width_px: 2.0,
                 unfocused_border_width_px: 1.0,
                 corner_radius_px: 4.0,
@@ -361,6 +364,11 @@ pub mod chrome {
         #[test]
         fn default_theme_distinguishes_focused_and_unfocused_chrome() {
             let theme = WindowChromeTheme::default();
+            let focused_tokens = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Neon);
+            let unfocused_tokens = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Metal);
+            assert_eq!(theme.focused_border, focused_tokens.border);
+            assert_eq!(theme.unfocused_border, unfocused_tokens.border);
+            assert_eq!(theme.overlay_fill, unfocused_tokens.fill);
             let rect = PxRect::new(0.0, 0.0, 80.0, 48.0);
             let focused = theme.layers(rect, &WindowChromeState::new(true, true, "term"));
             let unfocused = theme.layers(rect, &WindowChromeState::new(false, true, "term"));
@@ -1379,6 +1387,7 @@ pub mod compositor {
 /// the compositor; backends only have to honour the small `XServer` contract.
 pub mod multi {
     use kittui::{CellRect, CellSize, Rgba, Scene};
+    use kittui_affordances::{InlineChipColors, InlineStyle, InlineTheme};
     use kittui_core::geom::PxRect;
     use kittui_core::node::{Corners, Layer, Node};
     use kittui_core::paint::Paint;
@@ -1670,7 +1679,7 @@ pub mod multi {
                     );
                     let rect = PxRect::new(0.0, 0.0, target_rect.width, target_rect.height);
                     let border = backend_color(i);
-                    let bg = Rgba::parse("#00000080").unwrap();
+                    let bg = compositor_overlay_fill();
                     let png = kittui_render_cpu::encode_png(&{
                         let mut p = kittui_render_cpu::Pixmap::new(cap.width, cap.height);
                         p.data_mut().copy_from_slice(&cap.rgba);
@@ -1747,7 +1756,7 @@ pub mod multi {
                     );
                     let rect = PxRect::new(0.0, 0.0, target_rect.width, target_rect.height);
                     let border = backend_color(i);
-                    let bg = Rgba::parse("#00000080").unwrap();
+                    let bg = compositor_overlay_fill();
                     let mut layers = Vec::with_capacity(2);
                     if let Some(cap) = frame.capture {
                         let png = kittui_render_cpu::encode_png(&{
@@ -1888,6 +1897,10 @@ pub mod multi {
         })
     }
 
+    fn compositor_overlay_fill() -> Rgba {
+        InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Metal).fill
+    }
+
     /// Per-backend accent colour so the user can visually tell which window
     /// came from which source. Cyan / violet / lime / amber / rose, cycling.
     fn backend_color(idx: usize) -> Rgba {
@@ -1917,6 +1930,12 @@ pub mod multi {
                 "beta",
                 [0x00, 0xff, 0x00, 0xff],
             )])
+        }
+
+        #[test]
+        fn multi_compositor_overlay_fill_uses_shared_inline_tokens() {
+            let colors = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Metal);
+            assert_eq!(compositor_overlay_fill(), colors.fill);
         }
 
         #[test]
