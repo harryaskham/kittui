@@ -1,0 +1,105 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish assets to (defaults to current ref name)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-cli:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-darwin
+            os: macOS
+            arch: ARM64
+            features: sck
+          - target: x86_64-linux
+            os: Linux
+            arch: X64
+            features: xvfb
+    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.arch }}', nix]
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build kittui CLI binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          features="${{ matrix.features }}"
+          nix develop --command cargo build --release --jobs 2 -p kittui-cli --features "$features" --bin kittui --bin kittwm
+      - name: Package update-compatible assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.meta.outputs.version }}"
+          target="${{ matrix.target }}"
+          mkdir -p dist
+          for tool in kittui kittwm; do
+            root="$tool-$version-$target"
+            rm -rf "$root"
+            mkdir -p "$root"
+            cp "target/release/$tool" "$root/$tool"
+            tar -czf "dist/$root.tar.gz" "$root"
+            shasum -a 256 "dist/$root.tar.gz" | awk '{print $1}' > "dist/$root.sha256"
+          done
+      - name: Create or update GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.meta.outputs.tag }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --draft --title "$tag" --notes "kittui $tag"
+          gh release upload "$tag" dist/* --clobber
+
+  publish:
+    name: publish release
+    needs: build-cli
+    runs-on: [self-hosted, Linux, X64, nix]
+    if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish draft after assets exist
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          expected=(
+            "kittui-${tag#v}-aarch64-darwin.tar.gz"
+            "kittui-${tag#v}-aarch64-darwin.sha256"
+            "kittwm-${tag#v}-aarch64-darwin.tar.gz"
+            "kittwm-${tag#v}-aarch64-darwin.sha256"
+            "kittui-${tag#v}-x86_64-linux.tar.gz"
+            "kittui-${tag#v}-x86_64-linux.sha256"
+            "kittwm-${tag#v}-x86_64-linux.tar.gz"
+            "kittwm-${tag#v}-x86_64-linux.sha256"
+          )
+          assets="$(gh release view "$tag" --json assets --jq '.assets[].name')"
+          for asset in "${expected[@]}"; do
+            grep -Fxq "$asset" <<<"$assets"
+          done
+          gh release edit "$tag" --draft=false

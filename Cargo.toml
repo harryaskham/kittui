@@ -50,6 +50,8 @@ rayon = "1"
 clap = { version = "4", features = ["derive", "env"] }
 ratatui = "0.29"
 pulldown-cmark = "0.12"
+mcp-cli = { git = "https://github.com/harryaskham/mcp-cli", branch = "main" }
+updatable-cli = { git = "https://github.com/harryaskham/updatable-cli", branch = "main" }
 
 [profile.release]
 lto = "thin"

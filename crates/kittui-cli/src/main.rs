@@ -28,6 +28,7 @@ use kittui_affordances::{
     chip_chrome, divider_chrome, panel_chrome, parse_nord_inline_color, title_chrome,
     InlineChipColors, InlineStyle, InlineTheme, Palette, PanelOptions, Tone,
 };
+use kittui_cli::update::{self as cli_update, UpdateAction, UpdateOptions};
 use kittui_core::node::{BlendMode, Corners, Node, StrokeAlign};
 use kittui_core::paint::Paint;
 use kittui_core::Stroke;
@@ -127,6 +128,26 @@ enum Cmd {
     Probe(ProbeArgs),
     /// Walk the full kitty graphics protocol surface and emit labelled output.
     Proof(ProofArgs),
+    /// Download and install a released kittui binary.
+    Update(UpdateArgs),
+    /// Expose shared kittui tools over MCP stdio.
+    Mcp,
+}
+
+#[derive(clap::Args, Clone, Debug)]
+struct UpdateArgs {
+    /// Print local install/staged status instead of updating.
+    #[arg(long)]
+    status: bool,
+    /// Check GitHub releases instead of updating.
+    #[arg(long)]
+    check: bool,
+    /// Override owner/repo release source.
+    #[arg(long)]
+    repository: Option<String>,
+    /// Override install directory.
+    #[arg(long = "install-dir")]
+    install_dir: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -734,7 +755,14 @@ fn build_runtime(global: &GlobalConfig, transport_override: Option<&str>) -> Res
 }
 
 fn main() -> Result<()> {
+    cli_update::maybe_apply_staged_update("kittui");
     let cli = Cli::parse();
+    if let Cmd::Update(args) = &cli.cmd {
+        return cli_update::run_update_command("kittui", &update_options(args, cli.json));
+    }
+    if let Cmd::Mcp = &cli.cmd {
+        return cli_update::serve_update_mcp("kittui");
+    }
     let layers = ConfigLayers::load()?;
     let global = layers.resolve_global(GlobalFlagValues {
         cache_dir: cli.cache_dir.clone(),
@@ -805,6 +833,23 @@ fn main() -> Result<()> {
         Cmd::Cache(sub) => run_cache(&global, &layers, sub),
         Cmd::Probe(args) => run_probe(&global, args),
         Cmd::Proof(args) => run_proof(&global, args),
+        Cmd::Update(_) | Cmd::Mcp => unreachable!("handled before runtime construction"),
+    }
+}
+
+fn update_options(args: &UpdateArgs, json: bool) -> UpdateOptions {
+    let action = if args.status {
+        UpdateAction::Status
+    } else if args.check {
+        UpdateAction::Check
+    } else {
+        UpdateAction::Run
+    };
+    UpdateOptions {
+        action,
+        json,
+        repository: args.repository.clone(),
+        install_dir: args.install_dir.clone(),
     }
 }
 
@@ -3045,6 +3090,24 @@ mod tests {
             )],
             animation: None,
         }
+    }
+
+    #[test]
+    fn update_args_map_to_shared_update_options() {
+        let args = UpdateArgs {
+            status: false,
+            check: true,
+            repository: Some("owner/repo".to_string()),
+            install_dir: Some(PathBuf::from("/tmp/kittui-bin")),
+        };
+        let options = update_options(&args, true);
+        assert_eq!(options.action, UpdateAction::Check);
+        assert!(options.json);
+        assert_eq!(options.repository.as_deref(), Some("owner/repo"));
+        assert_eq!(
+            options.install_dir.as_deref(),
+            Some(std::path::Path::new("/tmp/kittui-bin"))
+        );
     }
 
     #[test]

@@ -33,6 +33,7 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 
 use kittui::{CellSize, Runtime, TerminalInfo, TransportDiagnostics};
+use kittui_cli::update::{self as cli_update, UpdateAction, UpdateOptions};
 use kittui_core::geom::PxRect;
 use kittui_core::terminal::{
     read_kitty_response, KittyResponseReadConfig, KittyResponseReadStatus,
@@ -94,6 +95,8 @@ struct Cli {
     showcase_metrics_json: bool,
     showcase_composition_json: bool,
     tui_smoke_json: bool,
+    update: Option<UpdateOptions>,
+    mcp: bool,
     completions: Option<String>,
     keymap_path: Option<String>,
     keymap_check: bool,
@@ -172,6 +175,16 @@ fn parse_args() -> Result<Cli> {
                 out.showcase_composition_json = true
             }
             "tui-smoke-json" | "terminal-smoke-json" => out.tui_smoke_json = true,
+            "update" => {
+                let mut options = parse_update_options(&mut args)?;
+                options.json |= out.json;
+                out.update = Some(options);
+                break;
+            }
+            "mcp" => {
+                out.mcp = true;
+                break;
+            }
             "completions" => {
                 out.completions = Some(
                     args.next()
@@ -683,6 +696,33 @@ fn parse_args() -> Result<Cli> {
     Ok(out)
 }
 
+fn parse_update_options(args: &mut impl Iterator<Item = String>) -> Result<UpdateOptions> {
+    let mut options = UpdateOptions::default();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--status" | "status" => options.action = UpdateAction::Status,
+            "--check" | "check" => options.action = UpdateAction::Check,
+            "--run" | "run" => options.action = UpdateAction::Run,
+            "--json" => options.json = true,
+            "--repository" => {
+                options.repository = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("--repository OWNER/REPO"))?,
+                );
+            }
+            "--install-dir" => {
+                options.install_dir = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow!("--install-dir PATH"))?
+                        .into(),
+                );
+            }
+            other => return Err(anyhow!("unknown update option {other:?}")),
+        }
+    }
+    Ok(options)
+}
+
 fn validate_socket_target_flags(cli: &Cli) -> Result<()> {
     if cli.socket.is_some() && cli.display.is_some() {
         return Err(anyhow!("--socket and --display are mutually exclusive"));
@@ -721,6 +761,8 @@ USAGE
   kittwm showcase-metrics-json   Emit scene/layer/pixel metrics for that artifact
   kittwm showcase-composition-json Emit ordered app/chrome/overlay composition graph
   kittwm tui-smoke-json          Emit terminal/TUI conformance smoke matrix
+  kittwm update [--status|--check] Self-update from GitHub release assets
+  kittwm mcp                     Expose shared update tools over MCP stdio
   kittwm completions SHELL       Print shell completions (bash|zsh|fish)
   kittwm cheat                   Show compact daily-driver cheat sheet
 
@@ -1217,6 +1259,7 @@ fn pick_backend(forced: Option<Backend>) -> Backend {
 }
 
 fn main() -> ExitCode {
+    cli_update::maybe_apply_staged_update("kittwm");
     match real_main() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -1305,6 +1348,12 @@ fn real_main() -> Result<()> {
     }
     if cli.tui_smoke_json {
         return tui_smoke_json_cmd();
+    }
+    if let Some(options) = &cli.update {
+        return cli_update::run_update_command("kittwm", options);
+    }
+    if cli.mcp {
+        return cli_update::serve_update_mcp("kittwm");
     }
     if let Some(shell) = &cli.completions {
         return completions_cmd(shell);
@@ -2498,6 +2547,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "completions SHELL",
             category: "help",
             description: "shell completions for bash, zsh, or fish",
+        },
+        LocalCommandEntry {
+            command: "update [--status|--check]",
+            category: "lifecycle",
+            description: "self-update from GitHub release assets",
+        },
+        LocalCommandEntry {
+            command: "mcp",
+            category: "lifecycle",
+            description: "serve shared update tools over MCP stdio",
         },
         LocalCommandEntry {
             command: "help <topic>",
@@ -3719,6 +3778,33 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn update_options_parse_status_check_json_and_paths() {
+        let mut values = args(&[
+            "--check",
+            "--json",
+            "--repository",
+            "owner/repo",
+            "--install-dir",
+            "/tmp/kittwm-bin",
+        ])
+        .into_iter();
+        let options = parse_update_options(&mut values).unwrap();
+        assert_eq!(options.action, UpdateAction::Check);
+        assert!(options.json);
+        assert_eq!(options.repository.as_deref(), Some("owner/repo"));
+        assert_eq!(
+            options.install_dir.as_deref(),
+            Some(std::path::Path::new("/tmp/kittwm-bin"))
+        );
+
+        let mut values = args(&["status"]).into_iter();
+        assert_eq!(
+            parse_update_options(&mut values).unwrap().action,
+            UpdateAction::Status
+        );
     }
 
     #[test]
