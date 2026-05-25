@@ -957,6 +957,43 @@ mod tests {
     }
 
     #[test]
+    fn uploaded_raw_frame_repositions_without_upload_or_delete() {
+        let runtime = Runtime::builder()
+            .cache_dir(tempdir())
+            .renderer(RendererKind::Cpu)
+            .terminal(TerminalInfo::override_with(
+                Some(80),
+                Some(24),
+                CellSize::new(8, 16),
+                true,
+                true,
+                Transport::Direct,
+            ))
+            .build()
+            .unwrap();
+        let rgba = vec![0xff; 2 * 2 * 4];
+        let first = runtime.place_raw_frame(8, &rgba, 2, 2, CellRect::new(0, 0, 1, 1));
+        assert!(first.upload.starts_with("\x1b_Ga=t,f=32"));
+        let moved = runtime.place_uploaded_image(8, CellRect::new(10, 5, 2, 2));
+        assert!(
+            moved.upload.is_empty(),
+            "move should not re-upload raw frame"
+        );
+        assert!(
+            !moved.placement.contains("a=d"),
+            "move should not delete/recreate image and flicker: {:?}",
+            moved.placement
+        );
+        assert_eq!(moved.footprint, CellRect::new(10, 5, 2, 2));
+        assert!(
+            moved.placement.contains("\x1b[6;11H"),
+            "{:?}",
+            moved.placement
+        );
+        assert_eq!(moved.image_id, first.image_id);
+    }
+
+    #[test]
     fn raw_frame_file_transport_uses_tempfile_medium() {
         let runtime = Runtime::builder()
             .cache_dir(tempdir())
