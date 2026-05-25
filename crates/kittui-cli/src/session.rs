@@ -3256,6 +3256,38 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_command_palette_scene_maps_daily_driver_actions() {
+        let scene = command_palette_scene("split", 1, native_cell_size());
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("command-palette-backdrop:kittwm command palette")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("command-palette-row-0:split-columns")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("command-palette-row-1:split-rows")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.contains(&"command-palette-footer-hints"),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
     fn graphical_launcher_and_picker_overlay_scenes_expose_selection_rows() {
         let launcher = LauncherOverlay {
             active: true,
@@ -5400,6 +5432,33 @@ fn launcher_overlay_scene_for_candidates(
         &format!("kittwm launcher query={}", overlay.query),
         &rows,
         overlay.selected,
+        cell_size,
+    )
+}
+
+#[cfg(test)]
+fn command_palette_scene(query: &str, selected: usize, cell_size: CellSize) -> Scene {
+    let actions = [
+        "terminal: spawn a new shell",
+        "split-columns: split focused pane vertically",
+        "split-rows: split focused pane horizontally",
+        "focus-next: move focus to next pane",
+        "layout-columns: arrange panes as columns",
+        "help: open shortcut overlay",
+        "examples: show daily-driver examples",
+        "apps: open app launcher",
+    ];
+    let query_lower = query.to_ascii_lowercase();
+    let rows = actions
+        .iter()
+        .filter(|action| query_lower.is_empty() || action.contains(query_lower.as_str()))
+        .map(|action| (*action).to_string())
+        .collect::<Vec<_>>();
+    graphical_overlay_panel_scene(
+        "command-palette",
+        &format!("kittwm command palette query={query}"),
+        &rows,
+        selected,
         cell_size,
     )
 }
