@@ -56,6 +56,11 @@ fn panel_animate_includes_animation_metadata() {
         String::from_utf8_lossy(&output.stderr)
     );
     let scene: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(scene["animation"]["frames"], 8);
-    assert_eq!(scene["animation"]["cycle_ms"], 800);
+    assert_eq!(scene["animation"]["frames"], 180);
+    assert_eq!(scene["animation"]["cycle_ms"], 3000);
+    assert!(scene["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|layer| layer["label"] == "affordance-panel-animation"));
 }
