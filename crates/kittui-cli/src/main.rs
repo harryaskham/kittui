@@ -414,6 +414,9 @@ struct ImageArgs {
     /// Optional multiplicative tint (e.g. "#ff0000").
     #[arg(long)]
     tint: Option<String>,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args, Clone)]
@@ -2400,7 +2403,7 @@ fn run_image(
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, args.width, args.height);
     let rect = footprint.to_pixels(cell);
-    let scene = Scene {
+    let mut scene = Scene {
         footprint,
         cell_size: cell,
         layers: vec![Layer::anon(Node::Image {
@@ -2409,8 +2412,21 @@ fn run_image(
             fit,
             tint,
         })],
-        animation: None,
+        animation: args.animation.scene_animation(),
     };
+    if scene.animation.is_some() {
+        scene.layers.push(Layer::new(
+            "image-animation",
+            Node::Glow {
+                rect,
+                center_x_frac: 0.5,
+                center_y_frac: 0.5,
+                radius_frac: 1.6,
+                color: Rgba(255, 255, 255, 96),
+                intensity: 0.42,
+            },
+        ));
+    }
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 

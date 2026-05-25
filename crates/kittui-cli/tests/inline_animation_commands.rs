@@ -154,6 +154,28 @@ fn primitive_scene_json_reports_animation_contract() {
 }
 
 #[test]
+fn image_scene_json_reports_animation_contract() {
+    let image = scene_for(&[
+        "image",
+        "--src",
+        "/tmp/kittui-animation-placeholder.png",
+        "-w",
+        "8",
+        "-h",
+        "3",
+        "--animated",
+        "--scene-json",
+    ]);
+    assert_eq!(image["animation"]["frames"], 180);
+    assert_eq!(image["animation"]["cycle_ms"], 3000);
+    assert!(image["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|layer| { layer["label"] == "image-animation" }));
+}
+
+#[test]
 fn animated_inline_row_scene_json_reports_effect_layer() {
     let scene = scene_for(&[
         "inline",

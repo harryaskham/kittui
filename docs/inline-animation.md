@@ -24,6 +24,7 @@ Top-level affordance and primitive scene commands also support the same flags:
 - `kittui box`
 - `kittui gradient`
 - `kittui glow`
+- `kittui image`
 - `kittui wm-chrome`
 - `kittui wm-session`
 
@@ -57,8 +58,9 @@ Top-level affordance commands use labelled pulse/glow layers named
 `affordance-panel-animation`, `affordance-chip-animation`,
 `affordance-divider-animation`, and `affordance-title-bar-animation`.
 Primitive scene commands use `primitive-box-animation`,
-`primitive-gradient-animation`, and `primitive-glow-animation`. WM chrome scene
-commands use `wm-chrome-animation` and `wm-session-animation`.
+`primitive-gradient-animation`, and `primitive-glow-animation`. Image scenes use
+`image-animation`. WM chrome scene commands use `wm-chrome-animation` and
+`wm-session-animation`.
 
 ## Examples
 
@@ -84,6 +86,7 @@ kittui chip -w 10 --bg '#001122' --border '#00d8ff' --animated
 kittui panel -w 40 -h 8 --animated --fps 60 --frames 180
 kittui gradient -w 40 --animated
 kittui glow -w 20 -h 4 --animated
+kittui image --src ./badge.png -w 20 -h 8 --animated
 kittui wm-chrome -w 40 -h 6 --title logs --focused --animated
 ```
 
