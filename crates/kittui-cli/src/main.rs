@@ -580,6 +580,9 @@ struct WmSessionArgs {
     /// Preview height in cells.
     #[arg(short = 'h', long)]
     height: String,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args)]
@@ -600,6 +603,9 @@ struct WmChromeArgs {
     /// Render floating chrome mode. Default is tiled.
     #[arg(long)]
     floating: bool,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args)]
@@ -1960,7 +1966,13 @@ fn run_wm_chrome(
 ) -> Result<()> {
     let cols = resolve_size(&args.width, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height, global.terminal_rows.value)?;
-    let scene = wm_chrome_scene(cols, rows, args.focused, !args.floating, &args.title);
+    let mut scene = wm_chrome_scene(cols, rows, args.focused, !args.floating, &args.title);
+    add_affordance_animation(
+        &mut scene,
+        args.animation.scene_animation(),
+        Rgba(0x88, 0xc0, 0xd0, 0xcc),
+        "wm-chrome-animation",
+    );
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 
@@ -1973,7 +1985,15 @@ fn run_wm_session(
     let cols = resolve_size(&args.width, global.terminal_cols.value)?;
     let rows = resolve_size(&args.height, global.terminal_rows.value)?;
     let manifest = read_wm_session_manifest(&args.path)?;
-    let scenes = wm_session_scenes(&manifest, cols, rows)?;
+    let mut scenes = wm_session_scenes(&manifest, cols, rows)?;
+    for scene in &mut scenes {
+        add_affordance_animation(
+            scene,
+            args.animation.scene_animation(),
+            Rgba(0x88, 0xc0, 0xd0, 0xcc),
+            "wm-session-animation",
+        );
+    }
     emit_scene_batch_with_mode(global, runtime, &scenes, mode)
 }
 
@@ -3524,6 +3544,45 @@ mod tests {
             &layer.root,
             Node::Rect { stroke: Some(stroke), .. } if stroke.width_px == 2.0
         )));
+    }
+
+    #[test]
+    fn wm_chrome_and_session_can_add_animation_layers() {
+        let mut chrome = wm_chrome_scene(20, 3, true, false, "logs");
+        let animation = InlineAnimationArgs {
+            animated: true,
+            ..InlineAnimationArgs::default()
+        }
+        .scene_animation();
+        add_affordance_animation(
+            &mut chrome,
+            animation.clone(),
+            Rgba(0x88, 0xc0, 0xd0, 0xcc),
+            "wm-chrome-animation",
+        );
+        assert_eq!(chrome.animation, animation);
+        assert!(chrome
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("wm-chrome-animation")));
+
+        let manifest: WmSessionManifest = serde_json::from_value(serde_json::json!({
+            "layout": "columns",
+            "panes": [{"title": "shell"}]
+        }))
+        .unwrap();
+        let mut scenes = wm_session_scenes(&manifest, 20, 3).unwrap();
+        add_affordance_animation(
+            &mut scenes[0],
+            animation.clone(),
+            Rgba(0x88, 0xc0, 0xd0, 0xcc),
+            "wm-session-animation",
+        );
+        assert_eq!(scenes[0].animation, animation);
+        assert!(scenes[0]
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("wm-session-animation")));
     }
 
     #[test]
