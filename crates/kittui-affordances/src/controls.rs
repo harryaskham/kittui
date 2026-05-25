@@ -5,8 +5,8 @@
 //! lower to ordinary kittui primitive scenes for renderers and tests.
 
 use kittui::{
-    scene, Animation, CellRect, CellSize, Corners, Layer, Node, Paint, PhaseCurve, PxRect, Rgba,
-    Scene, Stroke,
+    scene, Animation, CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Scene, Stroke,
+    STANDARD_ANIMATION_FPS, STANDARD_ANIMATION_FRAMES,
 };
 use ratakittui::{Background, Border, Chrome, Padding};
 
@@ -157,8 +157,8 @@ pub struct ControlAnimation {
 impl Default for ControlAnimation {
     fn default() -> Self {
         Self {
-            fps: 60,
-            frames: 180,
+            fps: STANDARD_ANIMATION_FPS,
+            frames: STANDARD_ANIMATION_FRAMES,
         }
     }
 }
@@ -166,14 +166,7 @@ impl Default for ControlAnimation {
 impl ControlAnimation {
     /// Convert to the kittui core animation descriptor.
     pub fn to_animation(self) -> Animation {
-        let fps = self.fps.max(1) as u32;
-        let frames = self.frames.max(2);
-        Animation {
-            frames,
-            cycle_ms: (((frames as u32) * 1000) / fps).max(1),
-            curve: PhaseCurve::Pulse { harmonics: 0 },
-            loops: 0,
-        }
+        Animation::pulse_fps(self.frames, self.fps)
     }
 }
 

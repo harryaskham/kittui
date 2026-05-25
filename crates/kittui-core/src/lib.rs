@@ -9,16 +9,19 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
+pub mod animation;
 pub mod color;
 pub mod geom;
-pub mod paint;
-pub mod node;
-pub mod scene;
-pub mod animation;
 pub mod hash;
+pub mod node;
+pub mod paint;
+pub mod scene;
 pub mod terminal;
 
-pub use animation::{Animation, PhaseCurve};
+pub use animation::{
+    Animation, PhaseCurve, STANDARD_ANIMATION_CYCLE_MS, STANDARD_ANIMATION_FPS,
+    STANDARD_ANIMATION_FRAMES,
+};
 pub use color::Rgba;
 pub use geom::{CellRect, CellSize, Px, PxRect};
 pub use node::{BlendMode, Corners, Direction, Fit, ImageRef, Layer, Node, Stop, Stroke};

@@ -18,7 +18,10 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
-use kittui::{CellRect, Composer, Composition, CompositionEntry, DiffResult, Rgba, Runtime, Scene};
+use kittui::{
+    CellRect, Composer, Composition, CompositionEntry, DiffResult, Rgba, Runtime, Scene,
+    STANDARD_ANIMATION_FPS, STANDARD_ANIMATION_FRAMES,
+};
 use ratakittui::{Background, Border, Chrome, Glow, Padding, Pulse, Shadow};
 
 /// Kitty-native overlay animation options.
@@ -33,8 +36,8 @@ pub struct OverlayAnimation {
 impl Default for OverlayAnimation {
     fn default() -> Self {
         Self {
-            fps: 60,
-            frames: 180,
+            fps: STANDARD_ANIMATION_FPS,
+            frames: STANDARD_ANIMATION_FRAMES,
         }
     }
 }

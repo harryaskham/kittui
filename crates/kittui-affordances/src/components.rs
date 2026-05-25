@@ -4,7 +4,7 @@
 //! labels, tones, and chrome metadata that renderers (ratakittui, markdown
 //! viewer, kittwm overlays) can turn into scenes or terminal widgets.
 
-use kittui::Rgba;
+use kittui::{Rgba, STANDARD_ANIMATION_FPS, STANDARD_ANIMATION_FRAMES};
 use ratakittui::{Background, Border, Chrome, Glow, Padding, Pulse, Shadow};
 
 use crate::palette::{Palette, Tone};
@@ -44,8 +44,8 @@ pub struct ComponentAnimation {
 impl Default for ComponentAnimation {
     fn default() -> Self {
         Self {
-            fps: 60,
-            frames: 180,
+            fps: STANDARD_ANIMATION_FPS,
+            frames: STANDARD_ANIMATION_FRAMES,
         }
     }
 }

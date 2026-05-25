@@ -8,6 +8,13 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Standard native animation frame rate used by kittui visual affordances.
+pub const STANDARD_ANIMATION_FPS: u16 = 60;
+/// Standard frame count for one seamless native animation loop.
+pub const STANDARD_ANIMATION_FRAMES: u16 = 180;
+/// Standard cycle length in milliseconds (`180 / 60 = 3s`).
+pub const STANDARD_ANIMATION_CYCLE_MS: u32 = 3000;
+
 /// Phase curve applied across an animation cycle. Phase values are `[0,1]`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -99,6 +106,18 @@ impl Animation {
         }
     }
 
+    /// Construct a pulsing animation from a frame count and frames-per-second.
+    pub fn pulse_fps(frames: u16, fps: u16) -> Self {
+        let frames = frames.max(2);
+        let fps = u32::from(fps.max(1));
+        Self::pulse(frames, ((u32::from(frames) * 1000) / fps).max(1))
+    }
+
+    /// Construct kittui's standard 60fps / 180-frame / 3s native loop.
+    pub fn standard_loop() -> Self {
+        Self::pulse(STANDARD_ANIMATION_FRAMES, STANDARD_ANIMATION_CYCLE_MS)
+    }
+
     /// Compute the per-frame phase array used by renderers.
     pub fn phases(&self) -> Vec<f32> {
         let n = self.frames.max(2) as usize;
@@ -138,6 +157,22 @@ mod tests {
             phases: vec![0.0, 0.5, 0.5, 0.0],
         };
         assert!(good.closes_loop());
+    }
+
+    #[test]
+    fn standard_loop_uses_shared_affordance_contract() {
+        let anim = Animation::standard_loop();
+        assert_eq!(anim.frames, STANDARD_ANIMATION_FRAMES);
+        assert_eq!(anim.cycle_ms, STANDARD_ANIMATION_CYCLE_MS);
+        assert_eq!(anim.delay_ms(0), 1000 / u32::from(STANDARD_ANIMATION_FPS));
+        assert!(anim.curve.closes_loop());
+    }
+
+    #[test]
+    fn pulse_fps_clamps_inputs_and_computes_period() {
+        let anim = Animation::pulse_fps(1, 0);
+        assert_eq!(anim.frames, 2);
+        assert_eq!(anim.cycle_ms, 2000);
     }
 
     #[test]

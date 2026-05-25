@@ -24,6 +24,7 @@ pub use kittui_core::terminal::{GraphicsCompressionMode, Transport, TransportDia
 pub use kittui_core::{
     Animation, BlendMode, CellRect, CellSize, Corners, Direction, Fit, ImageRef, Layer, Node,
     Paint, PhaseCurve, Px, PxRect, Rgba, Scene, SceneId, Stop, Stroke, TerminalInfo,
+    STANDARD_ANIMATION_CYCLE_MS, STANDARD_ANIMATION_FPS, STANDARD_ANIMATION_FRAMES,
 };
 
 use std::path::PathBuf;

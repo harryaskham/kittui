@@ -1,7 +1,7 @@
 //! Tonal panel: the showcase example's "assistant / tool / user" panel
 //! distilled to a free function returning a ratakittui `Chrome`.
 
-use kittui::Direction;
+use kittui::{Direction, STANDARD_ANIMATION_FPS, STANDARD_ANIMATION_FRAMES};
 use ratakittui::{Background, Border, Chrome, Glow, Padding, Pulse};
 
 use crate::palette::{Palette, Tone};
@@ -18,8 +18,8 @@ pub struct PanelAnimation {
 impl Default for PanelAnimation {
     fn default() -> Self {
         Self {
-            fps: 60,
-            frames: 180,
+            fps: STANDARD_ANIMATION_FPS,
+            frames: STANDARD_ANIMATION_FRAMES,
         }
     }
 }

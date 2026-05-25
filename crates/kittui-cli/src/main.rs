@@ -22,7 +22,7 @@ use config::{
 use kittui::{
     scene::{background_linear, background_solid, rounded_rect},
     Animation, CellRect, CellSize, Direction, Layer, PhaseCurve, Rgba, Runtime, Scene,
-    TerminalInfo,
+    TerminalInfo, STANDARD_ANIMATION_FPS, STANDARD_ANIMATION_FRAMES,
 };
 use kittui_affordances::{
     chip_chrome, divider_chrome, panel_chrome, parse_nord_inline_color, title_chrome,
@@ -217,8 +217,8 @@ impl Default for InlineAnimationArgs {
     fn default() -> Self {
         Self {
             animated: false,
-            fps: 60,
-            frames: 180,
+            fps: STANDARD_ANIMATION_FPS,
+            frames: STANDARD_ANIMATION_FRAMES,
         }
     }
 }
@@ -232,14 +232,7 @@ impl InlineAnimationArgs {
         if !enabled {
             return None;
         }
-        let fps = self.fps.max(1) as u32;
-        let frames = self.frames.max(2);
-        Some(Animation {
-            frames,
-            cycle_ms: (((frames as u32) * 1000) / fps).max(1),
-            curve: PhaseCurve::Pulse { harmonics: 0 },
-            loops: 0,
-        })
+        Some(Animation::pulse_fps(self.frames, self.fps))
     }
 }
 
@@ -1170,12 +1163,7 @@ fn primitive_animation(
         let (frames, cycle) = spec
             .split_once('@')
             .ok_or_else(|| anyhow!("--animate expects `frames@cycle_ms`"))?;
-        return Ok(Some(Animation {
-            frames: frames.parse()?,
-            cycle_ms: cycle.parse()?,
-            curve: PhaseCurve::Pulse { harmonics: 0 },
-            loops: 0,
-        }));
+        return Ok(Some(Animation::pulse(frames.parse()?, cycle.parse()?)));
     }
     Ok(animation.scene_animation())
 }

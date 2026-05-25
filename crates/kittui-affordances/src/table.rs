@@ -2,7 +2,8 @@
 
 use kittui::scene::scene;
 use kittui::{
-    Animation, CellRect, CellSize, Corners, Layer, Node, Paint, PhaseCurve, PxRect, Rgba, Scene,
+    Animation, CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Scene,
+    STANDARD_ANIMATION_FPS, STANDARD_ANIMATION_FRAMES,
 };
 use kittui_kitty::{PlacementOptions, Quiet, RelativePlacement, SubcellOffset};
 
@@ -240,8 +241,8 @@ pub struct BoxGlyphAnimation {
 impl Default for BoxGlyphAnimation {
     fn default() -> Self {
         Self {
-            fps: 60,
-            frames: 180,
+            fps: STANDARD_ANIMATION_FPS,
+            frames: STANDARD_ANIMATION_FRAMES,
         }
     }
 }
@@ -249,14 +250,7 @@ impl Default for BoxGlyphAnimation {
 impl BoxGlyphAnimation {
     /// Convert to the kittui core animation descriptor.
     pub fn to_animation(self) -> Animation {
-        let fps = self.fps.max(1) as u32;
-        let frames = self.frames.max(2);
-        Animation {
-            frames,
-            cycle_ms: (((frames as u32) * 1000) / fps).max(1),
-            curve: PhaseCurve::Pulse { harmonics: 0 },
-            loops: 0,
-        }
+        Animation::pulse_fps(self.frames, self.fps)
     }
 }
 
