@@ -144,6 +144,22 @@ impl Runtime {
         scene: &Scene,
         placement_footprint: CellRect,
     ) -> Result<Placement, KittuiError> {
+        self.place_at_with_options(
+            scene,
+            placement_footprint,
+            &kitty::PlacementOptions::unicode(),
+        )
+    }
+
+    /// Like [`Runtime::place_at`], but with explicit kitty placement options
+    /// such as z-index. This lets hosts keep app surfaces and chrome on
+    /// separate compositor planes without changing scene content.
+    pub fn place_at_with_options(
+        &self,
+        scene: &Scene,
+        placement_footprint: CellRect,
+        options: &kitty::PlacementOptions,
+    ) -> Result<Placement, KittuiError> {
         self.ensure_terminal_support()?;
         if scene.footprint.cols != placement_footprint.cols
             || scene.footprint.rows != placement_footprint.rows
@@ -218,7 +234,7 @@ impl Runtime {
 
         let placement = {
             let mv = kitty::cursor_move(placement_footprint.x, placement_footprint.y, transport);
-            let p = kitty::placement_command(image_id, placement_footprint, transport);
+            let p = kitty::placement_command_ex(image_id, placement_footprint, options, transport);
             format!("{mv}{p}")
         };
         let embed = kitty::placeholder_text(image_id, placement_footprint);
@@ -256,8 +272,29 @@ impl Runtime {
         height: u32,
         footprint: CellRect,
     ) -> Placement {
+        self.place_raw_frame_with_options(
+            image_id,
+            rgba,
+            width,
+            height,
+            footprint,
+            &kitty::PlacementOptions::unicode(),
+        )
+    }
+
+    /// Like [`Runtime::place_raw_frame`], but with explicit kitty placement
+    /// options such as z-index.
+    pub fn place_raw_frame_with_options(
+        &self,
+        image_id: u32,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        footprint: CellRect,
+        options: &kitty::PlacementOptions,
+    ) -> Placement {
         let upload = self.raw_frame_upload(image_id, rgba, width, height);
-        self.place_uploaded_image_with_upload(image_id, footprint, upload)
+        self.place_uploaded_image_with_upload_and_options(image_id, footprint, upload, options)
     }
 
     /// Emit placement/embed text for an image id that is already uploaded.
@@ -265,7 +302,27 @@ impl Runtime {
     /// This is useful for WM policies that skip re-uploading byte-identical raw
     /// frames but still need to redraw or move the terminal placement.
     pub fn place_uploaded_image(&self, image_id: u32, footprint: CellRect) -> Placement {
-        self.place_uploaded_image_with_upload(image_id, footprint, String::new())
+        self.place_uploaded_image_with_options(
+            image_id,
+            footprint,
+            &kitty::PlacementOptions::unicode(),
+        )
+    }
+
+    /// Like [`Runtime::place_uploaded_image`], but with explicit kitty placement
+    /// options such as z-index.
+    pub fn place_uploaded_image_with_options(
+        &self,
+        image_id: u32,
+        footprint: CellRect,
+        options: &kitty::PlacementOptions,
+    ) -> Placement {
+        self.place_uploaded_image_with_upload_and_options(
+            image_id,
+            footprint,
+            String::new(),
+            options,
+        )
     }
 
     fn raw_frame_upload(&self, image_id: u32, rgba: &[u8], width: u32, height: u32) -> String {
@@ -342,16 +399,17 @@ impl Runtime {
         }
     }
 
-    fn place_uploaded_image_with_upload(
+    fn place_uploaded_image_with_upload_and_options(
         &self,
         image_id: u32,
         footprint: CellRect,
         upload: String,
+        options: &kitty::PlacementOptions,
     ) -> Placement {
         let transport = self.terminal.transport;
         let placement = {
             let mv = kitty::cursor_move(footprint.x, footprint.y, transport);
-            let p = kitty::placement_command(image_id, footprint, transport);
+            let p = kitty::placement_command_ex(image_id, footprint, options, transport);
             format!("{mv}{p}")
         };
         let embed = kitty::placeholder_text(image_id, footprint);
@@ -899,6 +957,40 @@ mod tests {
         assert_eq!(pngs.len(), 2);
         assert!(pngs.iter().all(|png| png.starts_with(b"\x89PNG\r\n\x1a\n")));
         assert!(runtime.render_many_png(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn placement_options_allow_hosts_to_assign_z_planes() {
+        let rt = runtime_with_terminal(TerminalInfo::override_with(
+            None,
+            None,
+            CellSize::default(),
+            true,
+            true,
+            Transport::Direct,
+        ));
+        let scene = builders::simple_solid_box(2, 1, "#00d8ff");
+        let mut opts = kitty::PlacementOptions::unicode();
+        opts.z_index = 12;
+        let placement = rt
+            .place_at_with_options(&scene, scene.footprint, &opts)
+            .unwrap();
+        assert!(
+            placement.placement.contains("z=12"),
+            "{}",
+            placement.placement
+        );
+
+        let rgba = vec![0xff; 4 * 2 * 2];
+        opts.z_index = -5;
+        let raw =
+            rt.place_raw_frame_with_options(777, &rgba, 2, 2, CellRect::new(0, 0, 1, 1), &opts);
+        assert!(raw.placement.contains("z=-5"), "{}", raw.placement);
+
+        opts.z_index = -4;
+        let moved = rt.place_uploaded_image_with_options(777, CellRect::new(1, 0, 1, 1), &opts);
+        assert!(moved.upload.is_empty());
+        assert!(moved.placement.contains("z=-4"), "{}", moved.placement);
     }
 
     #[test]

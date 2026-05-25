@@ -514,10 +514,23 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     );
                     let decision = dirty_frames.decide(pane.image_id, width, height, &rgba);
                     pane.dirty_frame = Some(decision.metrics.clone());
+                    let mut placement_options = kittui_kitty::PlacementOptions::unicode();
+                    placement_options.z_index = NATIVE_APP_Z_INDEX;
                     let p = if decision.upload {
-                        runtime.place_raw_frame(pane.image_id, &rgba, width, height, footprint)
+                        runtime.place_raw_frame_with_options(
+                            pane.image_id,
+                            &rgba,
+                            width,
+                            height,
+                            footprint,
+                            &placement_options,
+                        )
                     } else {
-                        runtime.place_uploaded_image(pane.image_id, footprint)
+                        runtime.place_uploaded_image_with_options(
+                            pane.image_id,
+                            footprint,
+                            &placement_options,
+                        )
                     };
                     handle.write_all(p.upload.as_bytes())?;
                     handle.write_all(p.placement.as_bytes())?;
@@ -885,6 +898,8 @@ const NATIVE_PANE_BORDER_COLS: u16 = 1;
 const NATIVE_PANE_BOTTOM_BORDER_ROWS: u16 = 1;
 const NATIVE_CELL_WIDTH_PX: u32 = 8;
 const NATIVE_CELL_HEIGHT_PX: u32 = 16;
+const NATIVE_APP_Z_INDEX: i32 = 0;
+const NATIVE_CHROME_Z_INDEX: i32 = 20;
 const NATIVE_FRAME_BG_RGBA: [u8; 4] = [0x08, 0x0d, 0x14, 0xff];
 
 fn native_cell_size() -> CellSize {
@@ -1327,6 +1342,46 @@ fn native_tilable_rows(rows: u16) -> u16 {
     rows.saturating_sub(NATIVE_TOP_BAR_ROWS).max(1)
 }
 
+fn native_weighted_spans(total: u16, weights: &[u16], min_span: u16) -> Vec<u16> {
+    let count = weights.len().max(1).min(u16::MAX as usize);
+    let weights = if weights.is_empty() {
+        vec![1]
+    } else {
+        weights.to_vec()
+    };
+    let effective_min = if u32::from(total) >= u32::from(min_span.max(1)) * count as u32 {
+        min_span.max(1)
+    } else if total as usize >= count {
+        1
+    } else {
+        0
+    };
+    let mut spans = Vec::with_capacity(count);
+    let mut remaining = total;
+    let mut remaining_weight = weights
+        .iter()
+        .take(count)
+        .map(|w| u32::from((*w).max(1)))
+        .sum::<u32>()
+        .max(1);
+    for idx in 0..count {
+        let weight = u32::from(weights[idx].max(1));
+        let span = if idx + 1 == count {
+            remaining
+        } else {
+            let panes_left = (count - idx - 1) as u16;
+            let reserve_for_rest = panes_left.saturating_mul(effective_min);
+            let max_span = remaining.saturating_sub(reserve_for_rest);
+            let weighted = ((u32::from(remaining) * weight) / remaining_weight) as u16;
+            weighted.max(effective_min).min(max_span)
+        };
+        spans.push(span);
+        remaining = remaining.saturating_sub(span);
+        remaining_weight = remaining_weight.saturating_sub(weight).max(1);
+    }
+    spans
+}
+
 fn native_pane_layouts_weighted(
     cols: u16,
     rows: u16,
@@ -1339,25 +1394,13 @@ fn native_pane_layouts_weighted(
     } else {
         weights.to_vec()
     };
-    let total_weight = weights
-        .iter()
-        .take(count)
-        .map(|w| (*w).max(1) as u32)
-        .sum::<u32>()
-        .max(1);
     match axis {
         NativePaneLayoutAxis::Columns => {
             let pane_rows = rows.max(NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1);
+            let spans = native_weighted_spans(cols, &weights, 1);
             let mut x = 0u16;
             let mut layouts = Vec::with_capacity(count);
-            for idx in 0..count {
-                let remaining = cols.saturating_sub(x).max(1);
-                let pane_cols = if idx + 1 == count {
-                    remaining
-                } else {
-                    let share = ((cols as u32 * weights[idx].max(1) as u32) / total_weight) as u16;
-                    share.max(1).min(remaining)
-                };
+            for pane_cols in spans {
                 layouts.push(NativePaneLayout {
                     x,
                     y: 0,
@@ -1377,20 +1420,11 @@ fn native_pane_layouts_weighted(
             layouts
         }
         NativePaneLayoutAxis::Rows => {
+            let min_rows = NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1;
+            let spans = native_weighted_spans(rows, &weights, min_rows);
             let mut y = 0u16;
             let mut layouts = Vec::with_capacity(count);
-            for idx in 0..count {
-                let remaining = rows
-                    .saturating_sub(y)
-                    .max(NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1);
-                let pane_rows = if idx + 1 == count {
-                    remaining
-                } else {
-                    let share = ((rows as u32 * weights[idx].max(1) as u32) / total_weight) as u16;
-                    share
-                        .max(NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1)
-                        .min(remaining)
-                };
+            for pane_rows in spans {
                 layouts.push(NativePaneLayout {
                     x: 0,
                     y,
@@ -2790,7 +2824,9 @@ fn write_native_shell_affordance_chrome<W: Write>(
             chrome.scene.footprint.cols,
             chrome.scene.footprint.rows,
         );
-        let p = runtime.place_at(&chrome.scene, placement)?;
+        let mut placement_options = kittui_kitty::PlacementOptions::unicode();
+        placement_options.z_index = NATIVE_CHROME_Z_INDEX;
+        let p = runtime.place_at_with_options(&chrome.scene, placement, &placement_options)?;
         out.write_all(p.upload.as_bytes())?;
         out.write_all(p.placement.as_bytes())?;
         out.write_all(p.embed.as_bytes())?;
@@ -4141,6 +4177,60 @@ mod native_pane_tests {
         assert_eq!(layouts[1].app_y, 13);
         assert_eq!(layouts[1].app_rows, 11);
         assert!(layouts[0].app_y + layouts[0].app_rows <= layouts[1].y);
+    }
+
+    #[test]
+    fn native_pane_layouts_keep_three_weighted_panes_disjoint() {
+        for axis in [NativePaneLayoutAxis::Columns, NativePaneLayoutAxis::Rows] {
+            let layouts = reserve_native_top_bar(native_pane_layouts_weighted(
+                101,
+                native_tilable_rows(31),
+                &[1, 2, 3],
+                axis,
+            ));
+            assert_eq!(layouts.len(), 3);
+            let total_outer: u16 = match axis {
+                NativePaneLayoutAxis::Columns => layouts.iter().map(|layout| layout.cols).sum(),
+                NativePaneLayoutAxis::Rows => layouts
+                    .iter()
+                    .map(|layout| {
+                        layout
+                            .app_rows
+                            .saturating_add(NATIVE_PANE_TITLE_ROWS)
+                            .saturating_add(NATIVE_PANE_BOTTOM_BORDER_ROWS)
+                    })
+                    .sum(),
+            };
+            let expected_total = match axis {
+                NativePaneLayoutAxis::Columns => 101,
+                NativePaneLayoutAxis::Rows => native_tilable_rows(31),
+            };
+            assert_eq!(total_outer, expected_total, "{axis:?}: {layouts:?}");
+            for pair in layouts.windows(2) {
+                let a = pair[0];
+                let b = pair[1];
+                match axis {
+                    NativePaneLayoutAxis::Columns => {
+                        assert_eq!(a.x.saturating_add(a.cols), b.x, "{layouts:?}");
+                        assert!(
+                            a.app_x.saturating_add(a.app_cols) <= b.app_x,
+                            "app bounds overlap: {layouts:?}"
+                        );
+                    }
+                    NativePaneLayoutAxis::Rows => {
+                        let a_rows = a
+                            .app_rows
+                            .saturating_add(NATIVE_PANE_TITLE_ROWS)
+                            .saturating_add(NATIVE_PANE_BOTTOM_BORDER_ROWS);
+                        assert_eq!(a.y.saturating_add(a_rows), b.y, "{layouts:?}");
+                        assert!(
+                            a.app_y.saturating_add(a.app_rows) <= b.y,
+                            "app bounds overlap chrome: {layouts:?}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
