@@ -803,26 +803,32 @@ fn inline_background_placement(
 ) -> String {
     let mut options = kittui_kitty::PlacementOptions::absolute();
     options.z_index = -1;
-    kittui_kitty::placement_command_ex(
+    let mut out = kittui_kitty::placement_command_ex(
         placement.image_id,
         CellRect::new(0, 0, placement.footprint.cols, placement.footprint.rows),
         &options,
         transport,
-    )
+    );
+    out.push_str(&inline_cursor_back(placement.footprint.cols, transport));
+    out
+}
+
+fn inline_cursor_back(cols: u16, _transport: kittui_core::terminal::Transport) -> String {
+    // This must be normal terminal output, not kitty/tmux passthrough: tmux
+    // needs to update its own cursor model before the visible text fallback is
+    // printed over the z=-1 image placement.
+    format!("\x1b[{}D", cols.max(1))
 }
 
 fn inline_chip_cols(args: &InlineChipArgs) -> u16 {
-    (args.text.chars().count() + args.padding + 1).max(1) as u16
+    (args.text.chars().count() + args.padding.saturating_mul(2)).max(1) as u16
 }
 
 fn inline_chip_text_embed(text: &str, padding: usize, fg: Rgba) -> String {
+    let pad = " ".repeat(padding);
     format!(
-        "\x1b[38;2;{};{};{}m{}{}\x1b[39m",
-        fg.0,
-        fg.1,
-        fg.2,
-        text,
-        " ".repeat(padding)
+        "\x1b[38;2;{};{};{}m{}{}{}\x1b[39m",
+        fg.0, fg.1, fg.2, pad, text, pad
     )
 }
 
@@ -2129,7 +2135,7 @@ mod tests {
         assert_eq!(scene.footprint.rows, 1);
         let embed = inline_chip_text_embed(&args.text, args.padding, colors.fg);
         assert!(!embed.contains(kittui_kitty::PLACEHOLDER_CHAR), "{embed:?}");
-        assert!(embed.contains("main#1 \x1b[39m"), "{embed:?}");
+        assert!(embed.contains(" main#1 \x1b[39m"), "{embed:?}");
         assert_eq!(
             parse_inline_color("8").unwrap(),
             Rgba::parse("#88c0d0").unwrap()
@@ -2150,6 +2156,7 @@ mod tests {
         assert!(placement.contains("a=p"), "{placement:?}");
         assert!(placement.contains("c=8,r=1"), "{placement:?}");
         assert!(placement.contains("z=-1"), "{placement:?}");
+        assert!(placement.contains("\x1b[8D"), "{placement:?}");
         assert!(!placement.contains("U=1"), "{placement:?}");
         assert!(!placement.contains("[1;1H"), "{placement:?}");
     }
