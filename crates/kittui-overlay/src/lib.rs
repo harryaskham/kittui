@@ -18,33 +18,67 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
-use kittui::{CellRect, Composer, Composition, CompositionEntry, DiffResult, Runtime, Rgba, Scene};
+use kittui::{CellRect, Composer, Composition, CompositionEntry, DiffResult, Rgba, Runtime, Scene};
 use ratakittui::{Background, Border, Chrome, Glow, Padding, Pulse, Shadow};
+
+/// Kitty-native overlay animation options.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct OverlayAnimation {
+    /// Frames per second.
+    pub fps: u16,
+    /// Frames in one seamless loop.
+    pub frames: u16,
+}
+
+impl Default for OverlayAnimation {
+    fn default() -> Self {
+        Self {
+            fps: 60,
+            frames: 180,
+        }
+    }
+}
+
+impl OverlayAnimation {
+    fn pulse(self) -> Pulse {
+        let fps = self.fps.max(1) as u32;
+        let frames = self.frames.max(2);
+        Pulse {
+            frames,
+            cycle_ms: (((frames as u32) * 1000) / fps).max(1),
+        }
+    }
+}
 
 /// Pre-baked overlay chrome themed for transient surfaces. Hosts can
 /// build their own [`Chrome`] and skip this if they want full control.
 pub fn default_overlay_chrome() -> Chrome {
+    overlay_chrome_with_animation(Some(OverlayAnimation::default()))
+}
+
+/// Pre-baked overlay chrome with explicit animation options.
+pub fn overlay_chrome_with_animation(animation: Option<OverlayAnimation>) -> Chrome {
     let shadow_color = Rgba::parse("#000000aa").unwrap();
-    Chrome::default()
+    let mut chrome = Chrome::default()
         .background(Background::Solid(Rgba::parse("#0b1626ee").unwrap()))
         .border(Border::rounded(Rgba::parse("#00d8ff").unwrap(), 1.5, 8.0))
-        .glow(Glow {
-            color: Rgba::parse("#00d8ffaa").unwrap(),
-            cx: 0.5,
-            cy: 0.5,
-            radius: 0.6,
-            intensity: 0.6,
-            pulse: Some(Pulse {
-                frames: 8,
-                cycle_ms: 1200,
-            }),
-        })
         .shadow(Shadow {
             dx_px: 4.0,
             dy_px: 6.0,
             color: shadow_color,
         })
-        .padding(Padding::trbl(1, 2, 1, 2))
+        .padding(Padding::trbl(1, 2, 1, 2));
+    if let Some(animation) = animation {
+        chrome = chrome.glow(Glow {
+            color: Rgba::parse("#00d8ffaa").unwrap(),
+            cx: 0.5,
+            cy: 0.5,
+            radius: 0.6,
+            intensity: 0.6,
+            pulse: Some(animation.pulse()),
+        });
+    }
+    chrome
 }
 
 /// Stateful overlay surface. Holds a [`Composer`] so the diff-driven
@@ -133,12 +167,31 @@ mod tests {
     }
 
     #[test]
+    fn default_overlay_animation_uses_standard_period() {
+        let chrome = default_overlay_chrome();
+        let pulse = chrome.glow.as_ref().unwrap().pulse.unwrap();
+        assert_eq!(pulse.frames, 180);
+        assert_eq!(pulse.cycle_ms, 3000);
+    }
+
+    #[test]
+    fn explicit_overlay_animation_controls_period() {
+        let chrome = overlay_chrome_with_animation(Some(OverlayAnimation {
+            fps: 30,
+            frames: 90,
+        }));
+        let pulse = chrome.glow.as_ref().unwrap().pulse.unwrap();
+        assert_eq!(pulse.frames, 90);
+        assert_eq!(pulse.cycle_ms, 3000);
+    }
+
+    #[test]
     fn render_then_hide_emits_placement_then_delete() {
         let overlay = Overlay::new();
         let runtime = rt();
         let chrome = default_overlay_chrome();
-        let entry = Overlay::entry_from_chrome("palette", CellRect::new(5, 5, 40, 10), &chrome)
-            .unwrap();
+        let entry =
+            Overlay::entry_from_chrome("palette", CellRect::new(5, 5, 40, 10), &chrome).unwrap();
         let mut comp = Composition::new();
         comp.push(entry);
         let diff = overlay.render(&comp, &runtime).unwrap();

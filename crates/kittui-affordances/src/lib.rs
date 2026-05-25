@@ -30,11 +30,13 @@ pub mod table;
 pub mod theme;
 
 pub use components::{
-    banner, footer, h1, h2, h3, header, textbox, textchip, title, ComponentKind, UiComponent,
+    banner, footer, h1, h2, h3, header, textbox, textchip, title, ComponentAnimation,
+    ComponentKind, UiComponent,
 };
 pub use controls::{
     button, checkbox, menu, progress, radio, radio_group, select_list, slider, split_pane, tabs,
-    text_area, text_input, ControlComponent, ControlKind, ControlOption, ControlState,
+    text_area, text_input, ControlAnimation, ControlComponent, ControlKind, ControlOption,
+    ControlState,
 };
 pub use gallery::{control_gallery, control_gallery_scenes};
 pub use inline::{chip_chrome, divider_chrome, title_chrome};
@@ -47,10 +49,10 @@ pub use markdown::{
     MarkdownMath, MarkdownMathKind, MarkdownMetadataBlock, MarkdownMetadataBlockKind,
 };
 pub use palette::{Palette, Tone};
-pub use panel::{panel_chrome, PanelOptions};
+pub use panel::{panel_chrome, panel_chrome_with_animation, PanelAnimation, PanelOptions};
 pub use table::{
-    box_glyph_scene, relative_cell_options, BoxGlyphCell, MarkdownTable, MarkdownTableAlignment,
-    TableGlyphLayout,
+    box_glyph_scene, box_glyph_scene_with_animation, relative_cell_options, BoxGlyphAnimation,
+    BoxGlyphCell, MarkdownTable, MarkdownTableAlignment, TableGlyphLayout,
 };
 pub use theme::{AffordanceTheme, ThemeRole};
 
