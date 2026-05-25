@@ -2918,6 +2918,53 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_pane_window_chrome_scenes_align_with_app_bounds() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: " kittui-bar  ws:1  active  12:00 UTC ".to_string(),
+            },
+            panes: vec![NativePaneChrome {
+                x: 4,
+                y: 3,
+                focused: true,
+                text: "* native-7 editor".to_string(),
+                cache_key: "key".to_string(),
+                status: "editor · pid:707 · frame:clean".to_string(),
+                app_x: 4,
+                app_y: 4,
+                app_cols: 20,
+                app_rows: 6,
+                cols: 20,
+                rows: 7,
+                text_snapshot: String::new(),
+            }],
+            footer: NativeFooterChrome {
+                row: 12,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+        let title = scenes
+            .iter()
+            .find(|scene| scene.id == "pane-0-title")
+            .unwrap();
+        let border = scenes
+            .iter()
+            .find(|scene| scene.id == "pane-0-border")
+            .unwrap();
+        assert_eq!((title.x, title.y), (4, 3));
+        assert_eq!((border.x, border.y), (4, 3));
+        assert_eq!(title.scene.footprint.cols, view.panes[0].cols);
+        assert_eq!(title.scene.footprint.rows, 1);
+        assert_eq!(border.scene.footprint.cols, view.panes[0].cols);
+        assert_eq!(border.scene.footprint.rows, view.panes[0].rows);
+        assert_eq!(view.panes[0].app_y, view.panes[0].y + 1);
+        assert_eq!(view.panes[0].app_cols, view.panes[0].cols);
+    }
+
+    #[test]
     fn native_graphical_top_bar_and_shortcut_overlay_have_scene_metadata() {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
