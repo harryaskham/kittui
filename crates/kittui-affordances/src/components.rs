@@ -5,7 +5,7 @@
 //! viewer, kittwm overlays) can turn into scenes or terminal widgets.
 
 use kittui::Rgba;
-use ratakittui::{Background, Border, Chrome, Padding, Shadow};
+use ratakittui::{Background, Border, Chrome, Glow, Padding, Pulse, Shadow};
 
 use crate::palette::{Palette, Tone};
 
@@ -32,6 +32,35 @@ pub enum ComponentKind {
     TextChip,
 }
 
+/// Kitty-native animation options for document/UI component chrome.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ComponentAnimation {
+    /// Frames per second.
+    pub fps: u16,
+    /// Frames in one seamless loop.
+    pub frames: u16,
+}
+
+impl Default for ComponentAnimation {
+    fn default() -> Self {
+        Self {
+            fps: 60,
+            frames: 180,
+        }
+    }
+}
+
+impl ComponentAnimation {
+    fn pulse(self) -> Pulse {
+        let fps = self.fps.max(1) as u32;
+        let frames = self.frames.max(2);
+        Pulse {
+            frames,
+            cycle_ms: (((frames as u32) * 1000) / fps).max(1),
+        }
+    }
+}
+
 /// Concrete component payload + chrome.
 #[derive(Clone, Debug)]
 pub struct UiComponent {
@@ -45,6 +74,8 @@ pub struct UiComponent {
     pub height_cells: u16,
     /// Visual chrome for renderers that consume ratakittui styles.
     pub chrome: Chrome,
+    /// Optional kitty-native animation metadata for chrome consumers.
+    pub animation: Option<ComponentAnimation>,
 }
 
 impl UiComponent {
@@ -58,6 +89,7 @@ impl UiComponent {
             width_cells,
             height_cells,
             chrome: card_chrome(tone).padding(Padding::trbl(1, 2, 1, 2)),
+            animation: None,
         }
     }
 
@@ -80,6 +112,7 @@ impl UiComponent {
             width_cells,
             height_cells,
             chrome: bar_chrome(tone),
+            animation: None,
         }
     }
 
@@ -113,7 +146,32 @@ impl UiComponent {
             width_cells,
             height_cells: 1,
             chrome: chip_chrome(tone),
+            animation: None,
         }
+    }
+
+    /// Enable or disable default kitty-native component chrome animation.
+    pub fn animated(mut self, animated: bool) -> Self {
+        if animated {
+            self = self.animation(ComponentAnimation::default());
+        } else {
+            self.animation = None;
+        }
+        self
+    }
+
+    /// Set explicit kitty-native component chrome animation options.
+    pub fn animation(mut self, animation: ComponentAnimation) -> Self {
+        self.animation = Some(animation);
+        self.chrome = self.chrome.clone().glow(Glow {
+            color: Rgba::rgba(0x88, 0xc0, 0xd0, 0xcc),
+            cx: 0.5,
+            cy: 0.35,
+            radius: 0.9,
+            intensity: 0.5,
+            pulse: Some(animation.pulse()),
+        });
+        self
     }
 
     fn bar(
@@ -129,6 +187,7 @@ impl UiComponent {
             width_cells,
             height_cells,
             chrome: bar_chrome(tone),
+            animation: None,
         }
     }
 }
@@ -246,6 +305,23 @@ mod tests {
         let chip = textchip("link", Tone::Tool);
         assert_eq!(chip.kind, ComponentKind::TextChip);
         assert!(chip.width_cells >= 8);
+    }
+
+    #[test]
+    fn components_can_attach_native_animation_metadata() {
+        let chip = textchip("link", Tone::Tool).animated(true);
+        assert_eq!(chip.animation, Some(ComponentAnimation::default()));
+        let pulse = chip.chrome.glow.as_ref().unwrap().pulse.unwrap();
+        assert_eq!(pulse.frames, 180);
+        assert_eq!(pulse.cycle_ms, 3000);
+
+        let banner = banner("note", 40, Tone::User).animation(ComponentAnimation {
+            fps: 30,
+            frames: 90,
+        });
+        let pulse = banner.chrome.glow.as_ref().unwrap().pulse.unwrap();
+        assert_eq!(pulse.frames, 90);
+        assert_eq!(pulse.cycle_ms, 3000);
     }
 
     #[test]
