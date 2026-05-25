@@ -1770,7 +1770,7 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 struct NativeShellChromeScene {
     id: String,
     x: u16,
@@ -1809,6 +1809,59 @@ fn native_top_bar_model_from_view(view: &NativeShellView) -> BarModel {
         time,
         connected: true,
     }
+}
+
+pub fn native_showcase_scene_json(cols: u16, rows: u16, help_overlay: bool) -> Result<String> {
+    let cols = cols.max(40);
+    let rows = rows.max(12);
+    let app_rows = rows.saturating_sub(4).max(3);
+    let split_cols = cols / 2;
+    let view = NativeShellView {
+        top_bar: NativeTopBarChrome {
+            row: 0,
+            text: " kittui-bar  ws:showcase  active  12:00 UTC ".to_string(),
+        },
+        panes: vec![
+            NativePaneChrome {
+                x: 0,
+                y: 1,
+                focused: true,
+                text: "* native-1 shell".to_string(),
+                cache_key: "showcase-1".to_string(),
+                status: "shell · pid:101 · frame:clean".to_string(),
+                app_x: 0,
+                app_y: 2,
+                app_cols: split_cols,
+                app_rows,
+                cols: split_cols,
+                rows: app_rows.saturating_add(1),
+                text_snapshot: String::new(),
+            },
+            NativePaneChrome {
+                x: split_cols,
+                y: 1,
+                focused: false,
+                text: "  native-2 logs".to_string(),
+                cache_key: "showcase-2".to_string(),
+                status: "logs · pid:102 · frame:4".to_string(),
+                app_x: split_cols,
+                app_y: 2,
+                app_cols: cols.saturating_sub(split_cols),
+                app_rows,
+                cols: cols.saturating_sub(split_cols),
+                rows: app_rows.saturating_add(1),
+                text_snapshot: String::new(),
+            },
+        ],
+        footer: NativeFooterChrome {
+            row: rows.saturating_sub(1),
+            text: " C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase"
+                .to_string(),
+        },
+        help_overlay,
+    };
+    let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::default(), cols);
+    serde_json::to_string_pretty(&scenes).map_err(Into::into)
 }
 
 fn render_native_shell_view_affordance_scenes(
@@ -2862,6 +2915,31 @@ mod native_pane_tests {
             node => panic!("expected pane title gutter rect, got {node:?}"),
         }
         assert!(scenes.iter().all(|chrome| !chrome.scene.layers.is_empty()));
+    }
+
+    #[test]
+    fn native_showcase_scene_json_exports_reviewable_shell_artifact() {
+        let json = native_showcase_scene_json(96, 24, true).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let scenes = value.as_array().unwrap();
+        let ids = scenes
+            .iter()
+            .filter_map(|scene| scene["id"].as_str())
+            .collect::<Vec<_>>();
+        for id in [
+            "top-bar",
+            "pane-0-title",
+            "pane-0-border",
+            "pane-1-title",
+            "pane-1-border",
+            "footer",
+            "help-overlay",
+        ] {
+            assert!(ids.contains(&id), "missing {id}: {ids:?}");
+        }
+        assert!(scenes
+            .iter()
+            .all(|scene| scene["scene"]["layers"].is_array()));
     }
 
     #[test]
