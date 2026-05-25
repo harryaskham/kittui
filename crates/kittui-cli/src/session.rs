@@ -2918,6 +2918,47 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_graphical_top_bar_and_shortcut_overlay_have_scene_metadata() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: " kittui-bar  ws:1  active  12:00 UTC ".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 8,
+                text: String::new(),
+            },
+            help_overlay: true,
+        };
+        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+        let top_bar = scenes.iter().find(|scene| scene.id == "top-bar").unwrap();
+        assert!(top_bar.scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("kittwm-live-top-bar:")));
+        let help_overlay = scenes
+            .iter()
+            .find(|scene| scene.id == "help-overlay")
+            .unwrap();
+        assert!(help_overlay
+            .scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("help-overlay-backdrop")));
+        assert!(help_overlay.scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("help-overlay-key-chip-")));
+
+        let fallback = render_native_shell_view_terminal(&view, 80, 12);
+        assert!(fallback.contains("kittui-bar"), "{fallback:?}");
+        assert!(fallback.contains("kittwm shortcuts"), "{fallback:?}");
+    }
+
+    #[test]
     fn native_showcase_scene_json_exports_reviewable_shell_artifact() {
         let json = native_showcase_scene_json(96, 24, true).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
