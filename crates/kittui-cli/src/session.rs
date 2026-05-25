@@ -20,7 +20,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 
-use kittui::{CellRect, CellSize, Runtime, Scene};
+use kittui::{
+    CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Runtime, Scene, Stroke,
+};
 use kittui_affordances::{button, text_input, ControlState};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
@@ -480,9 +482,6 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if shell_view.help_overlay {
             write_native_help_overlay(&mut handle, cols, rows)?;
         }
-        if affordance_scene_chrome {
-            write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view, cols)?;
-        }
         for (idx, pane) in panes.iter_mut().enumerate() {
             let layout = layouts[idx];
             let chrome = &shell_view.panes[idx];
@@ -542,6 +541,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 }
                 NativeFrame::Png { .. } => {}
             }
+        }
+        if affordance_scene_chrome {
+            write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view, cols)?;
         }
         if !affordance_scene_chrome
             && !shell_view.footer.text.is_empty()
@@ -640,6 +642,8 @@ struct NativePaneChrome {
     app_y: u16,
     app_cols: u16,
     app_rows: u16,
+    cols: u16,
+    rows: u16,
     text_snapshot: String,
 }
 
@@ -676,6 +680,11 @@ fn native_shell_view(
                 app_y: layout.app_y,
                 app_cols: layout.app_cols,
                 app_rows: layout.app_rows,
+                cols: layout.cols,
+                rows: layout
+                    .app_y
+                    .saturating_sub(layout.y)
+                    .saturating_add(layout.app_rows),
                 text_snapshot: pane.app.text_snapshot(),
             })
         })
@@ -746,13 +755,13 @@ fn native_should_use_pure_terminal_renderer() -> bool {
 }
 
 fn native_should_use_affordance_scene_chrome() -> bool {
-    matches!(
-        std::env::var("KITTWM_NATIVE_CHROME_RENDERER")
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .as_str(),
-        "affordance-scene" | "affordance_scene" | "kittui"
-    )
+    match std::env::var("KITTWM_NATIVE_CHROME_RENDERER") {
+        Ok(value) => !matches!(
+            value.to_ascii_lowercase().as_str(),
+            "terminal" | "text" | "ansi" | "ascii" | "off" | "0" | "false"
+        ),
+        Err(_) => true,
+    }
 }
 
 fn native_dirty_frames_skip_unchanged() -> bool {
@@ -1790,18 +1799,20 @@ fn render_native_shell_view_affordance_scenes(
     });
     for (idx, pane) in view.panes.iter().enumerate() {
         let state = ControlState::default().focused(pane.focused);
-        let mut control = button(
-            format!("pane-{idx}"),
-            pane.text.clone(),
-            pane.app_cols.max(6),
-        )
-        .state(state);
+        let mut control =
+            button(format!("pane-{idx}"), pane.text.clone(), pane.cols.max(6)).state(state);
         control.height_cells = 1;
         scenes.push(NativeShellChromeScene {
             id: format!("pane-{idx}-title"),
             x: pane.x,
             y: pane.y,
             scene: control.to_scene(cell_size),
+        });
+        scenes.push(NativeShellChromeScene {
+            id: format!("pane-{idx}-border"),
+            x: pane.x,
+            y: pane.y,
+            scene: native_pane_border_scene(idx, pane, cell_size),
         });
     }
     if !view.footer.text.is_empty() {
@@ -1824,6 +1835,50 @@ fn render_native_shell_view_affordance_scenes(
         });
     }
     scenes
+}
+
+fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: CellSize) -> Scene {
+    let cols = pane.cols.max(1);
+    let rows = pane.rows.max(1);
+    let rect = CellRect::new(0, 0, cols, rows).to_pixels(cell_size);
+    let border = if pane.focused {
+        Rgba::rgba(0x8c, 0xd2, 0xff, 0xff)
+    } else {
+        Rgba::rgba(0x60, 0x64, 0x70, 0xcc)
+    };
+    let title_fill = if pane.focused {
+        Rgba::rgba(0x18, 0x2b, 0x3c, 0x88)
+    } else {
+        Rgba::rgba(0x10, 0x14, 0x1c, 0x66)
+    };
+    let title_rect = PxRect::new(0.0, 0.0, rect.width, cell_size.height_px.max(1) as f32);
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size,
+        layers: vec![
+            Layer::new(
+                format!("pane-{idx}-title-gutter"),
+                Node::Rect {
+                    rect: title_rect,
+                    fill: Paint::Solid { color: title_fill },
+                    stroke: None,
+                    corners: Corners::default(),
+                },
+            ),
+            Layer::new(
+                format!("pane-{idx}-kittui-border"),
+                Node::Rect {
+                    rect,
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(0, 0, 0, 0),
+                    },
+                    stroke: Some(Stroke::inside(2.0, Paint::Solid { color: border })),
+                    corners: Corners::uniform(5.0),
+                },
+            ),
+        ],
+        animation: None,
+    }
 }
 
 fn write_native_shell_affordance_chrome<W: Write>(
@@ -1933,15 +1988,17 @@ mod native_pane_tests {
     }
 
     #[test]
-    fn native_chrome_renderer_selector_is_opt_in() {
+    fn native_chrome_renderer_selector_defaults_to_kittui_graphics() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
-        assert!(!native_should_use_affordance_scene_chrome());
+        assert!(native_should_use_affordance_scene_chrome());
         std::env::set_var("KITTWM_NATIVE_CHROME_RENDERER", "affordance-scene");
         assert!(native_should_use_affordance_scene_chrome());
         std::env::set_var("KITTWM_NATIVE_CHROME_RENDERER", "kittui");
         assert!(native_should_use_affordance_scene_chrome());
         std::env::set_var("KITTWM_NATIVE_CHROME_RENDERER", "ansi");
+        assert!(!native_should_use_affordance_scene_chrome());
+        std::env::set_var("KITTWM_NATIVE_CHROME_RENDERER", "off");
         assert!(!native_should_use_affordance_scene_chrome());
         std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
     }
@@ -2187,6 +2244,8 @@ mod native_pane_tests {
                 app_y: 2,
                 app_cols: 8,
                 app_rows: 2,
+                cols: 8,
+                rows: 3,
                 text_snapshot: "hello\nworld\nignored\n".to_string(),
             }],
             footer: NativeFooterChrome {
@@ -2271,6 +2330,8 @@ mod native_pane_tests {
                     app_y: 2,
                     app_cols: 8,
                     app_rows: 2,
+                    cols: 8,
+                    rows: 3,
                     text_snapshot: "hello".to_string(),
                 },
                 NativePaneChrome {
@@ -2283,6 +2344,8 @@ mod native_pane_tests {
                     app_y: 2,
                     app_cols: 10,
                     app_rows: 2,
+                    cols: 10,
+                    rows: 3,
                     text_snapshot: "logs".to_string(),
                 },
             ],
@@ -2293,7 +2356,7 @@ mod native_pane_tests {
             help_overlay: false,
         };
         let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 18);
-        assert_eq!(scenes.len(), 4);
+        assert_eq!(scenes.len(), 6);
         assert_eq!(scenes[0].id, "top-bar");
         assert_eq!((scenes[0].x, scenes[0].y), (0, 0));
         assert!(scenes[0]
@@ -2302,13 +2365,19 @@ mod native_pane_tests {
             .iter()
             .any(|layer| layer.label.as_deref() == Some("kittwm-live-top-bar:active:1")));
         assert_eq!(scenes[1].id, "pane-0-title");
-        assert_eq!((scenes[2].x, scenes[2].y), (8, 1));
-        assert_eq!(scenes[3].id, "footer");
+        assert_eq!(scenes[2].id, "pane-0-border");
+        assert_eq!((scenes[3].x, scenes[3].y), (8, 1));
+        assert_eq!(scenes[5].id, "footer");
         assert!(scenes[1]
             .scene
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("control_background")));
+        assert!(scenes[2]
+            .scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("pane-0-kittui-border")));
         assert!(scenes.iter().all(|chrome| !chrome.scene.layers.is_empty()));
     }
 
