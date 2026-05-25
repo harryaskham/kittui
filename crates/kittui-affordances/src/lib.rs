@@ -37,7 +37,9 @@ pub use controls::{
 };
 pub use gallery::{control_gallery, control_gallery_scenes};
 pub use inline::{chip_chrome, divider_chrome, title_chrome};
-pub use inline_theme::{parse_nord_inline_color, InlineChipColors, InlineStyle, InlineTheme};
+pub use inline_theme::{
+    parse_nord_inline_color, InlineAccentPalette, InlineChipColors, InlineStyle, InlineTheme,
+};
 pub use markdown::{
     render_markdown, HeadingOutline, LinkChip, MarkdownCodeBlock, MarkdownDefinition,
     MarkdownDocument, MarkdownFootnote, MarkdownHtml, MarkdownHtmlKind, MarkdownImage,

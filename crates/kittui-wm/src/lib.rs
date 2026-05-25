@@ -1387,7 +1387,7 @@ pub mod compositor {
 /// the compositor; backends only have to honour the small `XServer` contract.
 pub mod multi {
     use kittui::{CellRect, CellSize, Rgba, Scene};
-    use kittui_affordances::{InlineChipColors, InlineStyle, InlineTheme};
+    use kittui_affordances::{InlineAccentPalette, InlineChipColors, InlineStyle, InlineTheme};
     use kittui_core::geom::PxRect;
     use kittui_core::node::{Corners, Layer, Node};
     use kittui_core::paint::Paint;
@@ -1902,12 +1902,9 @@ pub mod multi {
     }
 
     /// Per-backend accent colour so the user can visually tell which window
-    /// came from which source. Cyan / violet / lime / amber / rose, cycling.
+    /// came from which source. Uses the shared kittui-affordances accent cycle.
     fn backend_color(idx: usize) -> Rgba {
-        const PALETTE: &[&str] = &[
-            "#00d8ff", "#b48cff", "#c0ff5a", "#ffa44d", "#ff5e8e", "#72fbd6",
-        ];
-        Rgba::parse(PALETTE[idx % PALETTE.len()]).unwrap()
+        InlineAccentPalette::resolve(InlineTheme::Nord).color(idx)
     }
 
     #[cfg(test)]
@@ -1930,6 +1927,14 @@ pub mod multi {
                 "beta",
                 [0x00, 0xff, 0x00, 0xff],
             )])
+        }
+
+        #[test]
+        fn backend_color_uses_shared_accent_palette_and_cycles() {
+            let palette = InlineAccentPalette::resolve(InlineTheme::Nord);
+            assert_eq!(backend_color(0), palette.color(0));
+            assert_eq!(backend_color(1), palette.color(1));
+            assert_eq!(backend_color(palette.colors().len()), palette.color(0));
         }
 
         #[test]

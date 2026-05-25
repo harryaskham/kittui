@@ -91,6 +91,40 @@ impl InlineChipColors {
     }
 }
 
+/// Ordered source/backend accent colors for multi-surface chrome.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InlineAccentPalette {
+    colors: Vec<Rgba>,
+}
+
+impl InlineAccentPalette {
+    /// Resolve the default accent cycle for a theme.
+    pub fn resolve(theme: InlineTheme) -> Self {
+        match theme {
+            InlineTheme::Nord => Self {
+                colors: vec![
+                    parse_nord_inline_color("cyan").expect("default nord cyan accent"),
+                    parse_nord_inline_color("purple").expect("default nord purple accent"),
+                    parse_nord_inline_color("green").expect("default nord green accent"),
+                    parse_nord_inline_color("yellow").expect("default nord yellow accent"),
+                    parse_nord_inline_color("red").expect("default nord red accent"),
+                    parse_nord_inline_color("blue").expect("default nord blue accent"),
+                ],
+            },
+        }
+    }
+
+    /// Return the cycling accent for `index`.
+    pub fn color(&self, index: usize) -> Rgba {
+        self.colors[index % self.colors.len()]
+    }
+
+    /// Expose the deterministic ordered accent tokens.
+    pub fn colors(&self) -> &[Rgba] {
+        &self.colors
+    }
+}
+
 /// Parse a color override for the Nord inline theme.
 ///
 /// Accepts CSS hex literals, zero-based Nord palette indices, and a handful
@@ -146,6 +180,15 @@ mod tests {
         assert_eq!(colors.border, Rgba::rgba(136, 192, 208, 230));
         assert_eq!(colors.fg, Rgba::rgb(236, 239, 244));
         assert!(colors.highlight.3 > 0);
+    }
+
+    #[test]
+    fn nord_accent_palette_cycles_named_theme_tokens() {
+        let palette = InlineAccentPalette::resolve(InlineTheme::Nord);
+        assert_eq!(palette.colors().len(), 6);
+        assert_eq!(palette.color(0), parse_nord_inline_color("cyan").unwrap());
+        assert_eq!(palette.color(1), parse_nord_inline_color("purple").unwrap());
+        assert_eq!(palette.color(6), palette.color(0));
     }
 
     #[test]
