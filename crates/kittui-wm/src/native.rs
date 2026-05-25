@@ -8,8 +8,9 @@
 //! windows.
 
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -2475,6 +2476,9 @@ fn draw_terminal_glyph(
     if draw_box_drawing_glyph(rgba, width, col, row, cell_w, cell_h, ch, color) {
         return;
     }
+    if draw_terminal_font_glyph(rgba, width, col, row, cell_w, cell_h, ch, color) {
+        return;
+    }
     let bitmap = terminal_bitmap_glyph(ch);
     let x0 = u32::from(col) * cell_w;
     let y0 = u32::from(row) * cell_h;
@@ -2498,6 +2502,132 @@ fn draw_terminal_glyph(
             }
         }
     }
+}
+
+static TERMINAL_FONT: OnceLock<Option<TerminalFont>> = OnceLock::new();
+
+struct TerminalFont {
+    font: fontdue::Font,
+}
+
+fn terminal_font() -> Option<&'static TerminalFont> {
+    TERMINAL_FONT
+        .get_or_init(|| load_terminal_font().ok())
+        .as_ref()
+}
+
+fn load_terminal_font() -> Result<TerminalFont> {
+    let path = discover_terminal_font_path().context("discover terminal font")?;
+    let bytes = std::fs::read(&path).with_context(|| format!("read font {}", path.display()))?;
+    let settings = fontdue::FontSettings {
+        collection_index: 0,
+        scale: 40.0,
+        load_substitutions: true,
+    };
+    let font = fontdue::Font::from_bytes(bytes, settings)
+        .map_err(|err| anyhow!("parse font {}: {err}", path.display()))?;
+    Ok(TerminalFont { font })
+}
+
+fn discover_terminal_font_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("KITTUI_TERMINAL_FONT") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    let roots = [
+        "/run/current-system/sw/share/fonts",
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        "/Library/Fonts",
+        "/System/Library/Fonts",
+    ];
+    for root in roots {
+        let root = Path::new(root);
+        if !root.exists() {
+            continue;
+        }
+        if let Some(path) = find_fira_code_font(root, 4) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn find_fira_code_font(root: &Path, depth: usize) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(root).ok()?;
+    let mut dirs = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            dirs.push(path);
+            continue;
+        }
+        let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+        let is_font = name.ends_with(".ttf") || name.ends_with(".otf");
+        if is_font && name.contains("firacode") && name.contains("regular") {
+            return Some(path);
+        }
+    }
+    if depth == 0 {
+        return None;
+    }
+    dirs.into_iter()
+        .find_map(|dir| find_fira_code_font(&dir, depth - 1))
+}
+
+fn draw_terminal_font_glyph(
+    rgba: &mut [u8],
+    width: u32,
+    col: u16,
+    row: u16,
+    cell_w: u32,
+    cell_h: u32,
+    ch: char,
+    color: TerminalColor,
+) -> bool {
+    let Some(font) = terminal_font() else {
+        return false;
+    };
+    let px = (cell_h as f32 * 0.82).max(6.0);
+    let (metrics, bitmap) = font.font.rasterize(ch, px);
+    if metrics.width == 0 || metrics.height == 0 || bitmap.is_empty() {
+        return false;
+    }
+    let x0 = i32::from(col) * cell_w as i32;
+    let y0 = i32::from(row) * cell_h as i32;
+    let left = ((cell_w as i32 - metrics.width as i32) / 2).max(0) + metrics.xmin;
+    let baseline = (cell_h as f32 * 0.78) as i32;
+    let top = baseline - metrics.height as i32 - metrics.ymin;
+    for gy in 0..metrics.height {
+        for gx in 0..metrics.width {
+            let alpha = bitmap[gy * metrics.width + gx];
+            if alpha == 0 {
+                continue;
+            }
+            let px = x0 + left + gx as i32;
+            let py = y0 + top + gy as i32;
+            if px < x0 || py < y0 || px >= x0 + cell_w as i32 || py >= y0 + cell_h as i32 {
+                continue;
+            }
+            blend_rgba_pixel(rgba, width, px as u32, py as u32, color, alpha);
+        }
+    }
+    true
+}
+
+fn blend_rgba_pixel(rgba: &mut [u8], width: u32, x: u32, y: u32, color: TerminalColor, alpha: u8) {
+    let idx = ((y * width + x) as usize) * 4;
+    if idx + 3 >= rgba.len() {
+        return;
+    }
+    let a = u16::from(alpha);
+    let inv = 255u16.saturating_sub(a);
+    rgba[idx] = ((u16::from(color.0) * a + u16::from(rgba[idx]) * inv) / 255) as u8;
+    rgba[idx + 1] = ((u16::from(color.1) * a + u16::from(rgba[idx + 1]) * inv) / 255) as u8;
+    rgba[idx + 2] = ((u16::from(color.2) * a + u16::from(rgba[idx + 2]) * inv) / 255) as u8;
+    rgba[idx + 3] = 0xff;
 }
 
 fn set_rgba_pixel(rgba: &mut [u8], width: u32, x: u32, y: u32, color: TerminalColor) {
@@ -3674,6 +3804,30 @@ mod tests {
         );
         assert_eq!(state.get_cell_at(2, 0).style, TerminalStyle::default());
         assert!(state.text_snapshot().starts_with("RBD"));
+    }
+
+    #[test]
+    fn terminal_font_discovery_honors_env_and_fira_regular_names() {
+        let root = std::env::temp_dir().join(format!(
+            "kittui-font-test-{}-{}",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        let nested = root.join("share/fonts/truetype");
+        std::fs::create_dir_all(&nested).unwrap();
+        let fira = nested.join("FiraCode-Regular.ttf");
+        std::fs::write(&fira, b"not a real font").unwrap();
+        assert_eq!(find_fira_code_font(&root, 4), Some(fira.clone()));
+
+        let old = std::env::var_os("KITTUI_TERMINAL_FONT");
+        std::env::set_var("KITTUI_TERMINAL_FONT", &fira);
+        assert_eq!(discover_terminal_font_path(), Some(fira));
+        if let Some(old) = old {
+            std::env::set_var("KITTUI_TERMINAL_FONT", old);
+        } else {
+            std::env::remove_var("KITTUI_TERMINAL_FONT");
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

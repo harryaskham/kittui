@@ -2020,7 +2020,7 @@ pub fn native_tui_smoke_matrix_json() -> Result<String> {
         (
             "real-fonts",
             "Fira Code/real glyph rasterization",
-            "follow-up",
+            "covered",
         ),
     ];
     let cases = cases
@@ -3773,7 +3773,7 @@ mod native_pane_tests {
         }
         assert!(cases
             .iter()
-            .any(|case| case["id"] == "real-fonts" && case["status"] == "follow-up"));
+            .any(|case| case["id"] == "real-fonts" && case["status"] == "covered"));
     }
 
     #[test]
