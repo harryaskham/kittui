@@ -2935,6 +2935,32 @@ mod tests {
     }
 
     #[test]
+    fn invalid_restore_session_reports_errors_without_pending_ghost_panes() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let missing_command = serde_json::json!({
+            "layout": "columns",
+            "panes": [
+                {"title": "missing command", "weight": 1, "focused": true}
+            ]
+        });
+        let reply =
+            native_spawn_queue_reply(&format!("RESTORE_SESSION_JSON {missing_command}"), &pending);
+        assert!(
+            reply.contains("ERR RESTORE_SESSION_JSON pane 0 missing command"),
+            "{reply}"
+        );
+        assert!(drain_native_spawn_pending(&pending).is_empty());
+
+        let empty = serde_json::json!({ "layout": "rows", "panes": [] });
+        let reply = native_spawn_queue_reply(&format!("RESTORE_SESSION_JSON {empty}"), &pending);
+        assert!(
+            reply.contains("ERR RESTORE_SESSION_JSON requires at least one pane"),
+            "{reply}"
+        );
+        assert!(drain_native_spawn_pending(&pending).is_empty());
+    }
+
+    #[test]
     fn native_spawn_queue_parses_focus_close_layout_and_rename_commands() {
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
         assert!(
