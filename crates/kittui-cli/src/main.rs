@@ -20,7 +20,7 @@ use config::{
     GradientFlagValues, RendererArg, ResolvedBoxConfig, ResolvedGlowConfig, ResolvedGradientConfig,
 };
 use kittui::{
-    scene::{background_linear, background_solid, glow_layer, rounded_rect},
+    scene::{background_linear, background_solid, rounded_rect},
     Animation, CellRect, CellSize, Direction, Layer, PhaseCurve, Rgba, Runtime, Scene,
     TerminalInfo,
 };
@@ -470,9 +470,12 @@ struct BoxArgs {
     /// Border width in pixels.
     #[arg(long)]
     border: Option<f32>,
-    /// Animate with a pulsing glow: `frames@cycle_ms` (e.g. `8@800`).
+    /// Animate with a pulsing glow: `frames@cycle_ms` (legacy form, e.g. `8@800`).
     #[arg(long)]
     animate: Option<String>,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args)]
@@ -488,6 +491,9 @@ struct GradientArgs {
     right: Option<String>,
     #[arg(long, value_enum)]
     direction: Option<DirectionArg>,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args)]
@@ -501,6 +507,9 @@ struct GlowArgs {
     color: Option<String>,
     #[arg(long)]
     intensity: Option<f32>,
+    /// Kitty-native animation options.
+    #[command(flatten)]
+    animation: InlineAnimationArgs,
 }
 
 #[derive(clap::Args)]
@@ -751,7 +760,7 @@ fn main() -> Result<()> {
                 border: args.border,
                 animate: args.animate.clone(),
             });
-            run_box(&global, &runtime, &config, emit_mode)
+            run_box(&global, &runtime, &config, args.animation, emit_mode)
         }
         Cmd::Gradient(args) => {
             let config = layers.resolve_gradient(GradientFlagValues {
@@ -765,7 +774,7 @@ fn main() -> Result<()> {
                     DirectionArg::Diagonal => "diagonal".to_string(),
                 }),
             });
-            run_gradient(&global, &runtime, &config, emit_mode)
+            run_gradient(&global, &runtime, &config, args.animation, emit_mode)
         }
         Cmd::Glow(args) => {
             let config = layers.resolve_glow(GlowFlagValues {
@@ -774,7 +783,7 @@ fn main() -> Result<()> {
                 color: args.color.clone(),
                 intensity: args.intensity,
             });
-            run_glow(&global, &runtime, &config, emit_mode)
+            run_glow(&global, &runtime, &config, args.animation, emit_mode)
         }
         Cmd::Panel(args) => run_panel(&global, &runtime, args, emit_mode),
         Cmd::Chip(args) => run_chip(&global, &runtime, args, emit_mode),
@@ -1097,6 +1106,24 @@ fn inline_divider_effect_layers(
         fg: color,
     };
     inline_style_effect_layers(rect, (rect.height / 2.0).max(1.0), style, colors)
+}
+
+fn primitive_animation(
+    legacy: Option<&str>,
+    animation: InlineAnimationArgs,
+) -> Result<Option<Animation>> {
+    if let Some(spec) = legacy {
+        let (frames, cycle) = spec
+            .split_once('@')
+            .ok_or_else(|| anyhow!("--animate expects `frames@cycle_ms`"))?;
+        return Ok(Some(Animation {
+            frames: frames.parse()?,
+            cycle_ms: cycle.parse()?,
+            curve: PhaseCurve::Pulse { harmonics: 0 },
+            loops: 0,
+        }));
+    }
+    Ok(animation.scene_animation())
 }
 
 fn add_affordance_animation(
@@ -1727,6 +1754,7 @@ fn run_box(
     global: &GlobalConfig,
     runtime: &Runtime,
     args: &ResolvedBoxConfig,
+    animation_args: InlineAnimationArgs,
     mode: EmitMode,
 ) -> Result<()> {
     let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
@@ -1740,21 +1768,20 @@ fn run_box(
         background_solid(footprint, cell, bg),
         rounded_rect(rect, bg, fg, args.border.value, args.radius.value),
     ];
-    let animation = if let Some(spec) = args.animate.value.as_deref() {
-        let (frames, cycle) = spec
-            .split_once('@')
-            .ok_or_else(|| anyhow!("--animate expects `frames@cycle_ms`"))?;
-        let anim = Animation {
-            frames: frames.parse()?,
-            cycle_ms: cycle.parse()?,
-            curve: PhaseCurve::Pulse { harmonics: 0 },
-            loops: 0,
-        };
-        layers.push(glow_layer(rect, fg, 0.6));
-        Some(anim)
-    } else {
-        None
-    };
+    let animation = primitive_animation(args.animate.value.as_deref(), animation_args)?;
+    if animation.is_some() {
+        layers.push(Layer::new(
+            "primitive-box-animation",
+            Node::Glow {
+                rect,
+                center_x_frac: 0.5,
+                center_y_frac: 0.5,
+                radius_frac: 1.5,
+                color: fg,
+                intensity: 0.6,
+            },
+        ));
+    }
     let scene = Scene {
         footprint,
         cell_size: cell,
@@ -1768,6 +1795,7 @@ fn run_gradient(
     global: &GlobalConfig,
     runtime: &Runtime,
     args: &ResolvedGradientConfig,
+    animation_args: InlineAnimationArgs,
     mode: EmitMode,
 ) -> Result<()> {
     let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
@@ -1775,7 +1803,8 @@ fn run_gradient(
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, cols, rows);
     let direction = DirectionArg::parse(&args.direction.value)?;
-    let scene = Scene {
+    let right = Rgba::parse(&args.right.value)?;
+    let mut scene = Scene {
         footprint,
         cell_size: cell,
         layers: vec![background_linear(
@@ -1783,10 +1812,23 @@ fn run_gradient(
             cell,
             direction.into(),
             Rgba::parse(&args.left.value)?,
-            Rgba::parse(&args.right.value)?,
+            right,
         )],
-        animation: None,
+        animation: animation_args.scene_animation(),
     };
+    if scene.animation.is_some() {
+        scene.layers.push(Layer::new(
+            "primitive-gradient-animation",
+            Node::Glow {
+                rect: footprint.to_pixels(cell),
+                center_x_frac: 0.75,
+                center_y_frac: 0.5,
+                radius_frac: 2.2,
+                color: right,
+                intensity: 0.45,
+            },
+        ));
+    }
     emit_with_mode(global, runtime, &scene, Some(args.source_json()), mode)
 }
 
@@ -1794,6 +1836,7 @@ fn run_glow(
     global: &GlobalConfig,
     runtime: &Runtime,
     args: &ResolvedGlowConfig,
+    animation_args: InlineAnimationArgs,
     mode: EmitMode,
 ) -> Result<()> {
     let cols = resolve_size(&args.width.value, global.terminal_cols.value)?;
@@ -1819,9 +1862,19 @@ fn run_glow(
                 }),
                 corners: Corners::uniform(6.0),
             }),
-            glow_layer(rect, Rgba::parse(&args.color.value)?, args.intensity.value),
+            Layer::new(
+                "primitive-glow-animation",
+                Node::Glow {
+                    rect,
+                    center_x_frac: 0.5,
+                    center_y_frac: 0.5,
+                    radius_frac: 0.5,
+                    color: Rgba::parse(&args.color.value)?,
+                    intensity: args.intensity.value,
+                },
+            ),
         ],
-        animation: None,
+        animation: animation_args.scene_animation(),
     };
     emit_with_mode(global, runtime, &scene, Some(args.source_json()), mode)
 }

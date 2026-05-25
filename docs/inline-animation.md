@@ -15,12 +15,15 @@ All first-party inline graphics elements support the same animation flags:
 - `kittui inline divider`
 - `kittui inline row`
 
-Top-level affordance scene commands also support the same flags:
+Top-level affordance and primitive scene commands also support the same flags:
 
 - `kittui panel`
 - `kittui chip`
 - `kittui divider`
 - `kittui title-bar`
+- `kittui box`
+- `kittui gradient`
+- `kittui glow`
 
 Text fallbacks (`--format plain`, `--format ansi`, `--format tmux`) remain static.
 Kitty/prompt formats (`kitty`, `prompt-zsh`, `prompt-bash`) can animate.
@@ -51,6 +54,8 @@ same compact static layer set.
 Top-level affordance commands use labelled pulse/glow layers named
 `affordance-panel-animation`, `affordance-chip-animation`,
 `affordance-divider-animation`, and `affordance-title-bar-animation`.
+Primitive scene commands use `primitive-box-animation`,
+`primitive-gradient-animation`, and `primitive-glow-animation`.
 
 ## Examples
 
@@ -71,9 +76,11 @@ kittui inline row \
   --item segment:dev \
   --animated --fps 60 --frames 180
 
-# Top-level affordance scene commands use the same contract.
+# Top-level affordance and primitive scene commands use the same contract.
 kittui chip -w 10 --bg '#001122' --border '#00d8ff' --animated
 kittui panel -w 40 -h 8 --animated --fps 60 --frames 180
+kittui gradient -w 40 --animated
+kittui glow -w 20 -h 4 --animated
 ```
 
 ## Inspection

@@ -116,6 +116,44 @@ fn top_level_panel_and_title_bar_scene_json_report_animation_contract() {
 }
 
 #[test]
+fn primitive_scene_json_reports_animation_contract() {
+    let bx = scene_for(&["box", "-w", "8", "-h", "2", "--animated", "--scene-json"]);
+    assert_eq!(bx["animation"]["frames"], 180);
+    assert!(bx["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|layer| { layer["label"] == "primitive-box-animation" }));
+
+    let gradient = scene_for(&[
+        "gradient",
+        "-w",
+        "8",
+        "--animated",
+        "--fps",
+        "20",
+        "--frames",
+        "60",
+        "--scene-json",
+    ]);
+    assert_eq!(gradient["animation"]["frames"], 60);
+    assert_eq!(gradient["animation"]["cycle_ms"], 3000);
+    assert!(gradient["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|layer| { layer["label"] == "primitive-gradient-animation" }));
+
+    let glow = scene_for(&["glow", "-w", "8", "-h", "2", "--animated", "--scene-json"]);
+    assert_eq!(glow["animation"]["cycle_ms"], 3000);
+    assert!(glow["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|layer| { layer["label"] == "primitive-glow-animation" }));
+}
+
+#[test]
 fn animated_inline_row_scene_json_reports_effect_layer() {
     let scene = scene_for(&[
         "inline",
