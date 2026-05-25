@@ -4,7 +4,10 @@
 //! control state for kittwm/SDK/component surfaces while still being able to
 //! lower to ordinary kittui primitive scenes for renderers and tests.
 
-use kittui::{scene, CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Scene, Stroke};
+use kittui::{
+    scene, Animation, CellRect, CellSize, Corners, Layer, Node, Paint, PhaseCurve, PxRect, Rgba,
+    Scene, Stroke,
+};
 use ratakittui::{Background, Border, Chrome, Padding};
 
 use crate::palette::{Palette, Tone};
@@ -36,6 +39,26 @@ pub enum ControlKind {
     Tabs,
     /// Two-pane split container.
     SplitPane,
+}
+
+impl ControlKind {
+    /// Stable snake-case label for scene layer names.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Button => "button",
+            Self::Checkbox => "checkbox",
+            Self::Radio => "radio",
+            Self::RadioGroup => "radio_group",
+            Self::TextInput => "text_input",
+            Self::TextArea => "text_area",
+            Self::SelectList => "select_list",
+            Self::Menu => "menu",
+            Self::Slider => "slider",
+            Self::Progress => "progress",
+            Self::Tabs => "tabs",
+            Self::SplitPane => "split_pane",
+        }
+    }
 }
 
 /// Shared visual/semantic state for controls.
@@ -122,6 +145,38 @@ impl ControlOption {
     }
 }
 
+/// Kitty-native animation options for control scenes.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ControlAnimation {
+    /// Frames per second.
+    pub fps: u16,
+    /// Frames in one seamless loop.
+    pub frames: u16,
+}
+
+impl Default for ControlAnimation {
+    fn default() -> Self {
+        Self {
+            fps: 60,
+            frames: 180,
+        }
+    }
+}
+
+impl ControlAnimation {
+    /// Convert to the kittui core animation descriptor.
+    pub fn to_animation(self) -> Animation {
+        let fps = self.fps.max(1) as u32;
+        let frames = self.frames.max(2);
+        Animation {
+            frames,
+            cycle_ms: (((frames as u32) * 1000) / fps).max(1),
+            curve: PhaseCurve::Pulse { harmonics: 0 },
+            loops: 0,
+        }
+    }
+}
+
 /// Reusable high-level form/control component.
 #[derive(Clone, Debug)]
 pub struct ControlComponent {
@@ -145,6 +200,8 @@ pub struct ControlComponent {
     pub numeric_value: Option<f32>,
     /// Visual chrome for ratakittui consumers.
     pub chrome: Chrome,
+    /// Optional kitty-native animation descriptor for rendered scenes.
+    pub animation: Option<ControlAnimation>,
 }
 
 impl ControlComponent {
@@ -388,6 +445,18 @@ impl ControlComponent {
         self
     }
 
+    /// Enable or disable default kitty-native control animation.
+    pub fn animated(mut self, animated: bool) -> Self {
+        self.animation = animated.then(ControlAnimation::default);
+        self
+    }
+
+    /// Set explicit kitty-native animation options.
+    pub fn animation(mut self, animation: ControlAnimation) -> Self {
+        self.animation = Some(animation);
+        self
+    }
+
     /// Lower the control to a primitive kittui scene.
     ///
     /// The scene intentionally encodes structural state using primitive rect
@@ -505,7 +574,24 @@ impl ControlComponent {
             ControlKind::Button | ControlKind::TextInput | ControlKind::TextArea => {}
         }
 
-        scene::scene(footprint, cell_size, layers)
+        if let Some(animation) = self.animation {
+            layers.push(Layer::new(
+                format!("control_animation_{}", self.kind.as_str()),
+                Node::Glow {
+                    rect,
+                    center_x_frac: 0.5,
+                    center_y_frac: 0.35,
+                    radius_frac: 2.0,
+                    color: stroke_for(self.state),
+                    intensity: 0.55,
+                },
+            ));
+            let mut scene = scene::scene(footprint, cell_size, layers);
+            scene.animation = Some(animation.to_animation());
+            scene
+        } else {
+            scene::scene(footprint, cell_size, layers)
+        }
     }
 
     fn base(
@@ -528,6 +614,7 @@ impl ControlComponent {
             options: Vec::new(),
             numeric_value: None,
             chrome: control_chrome_tone(kind, state, tone),
+            animation: None,
         }
     }
 }
@@ -800,6 +887,35 @@ mod tests {
             split_pane("split", "Split", 30, 8).kind,
             ControlKind::SplitPane
         );
+    }
+
+    #[test]
+    fn animated_controls_emit_looping_scene_animation() {
+        let scene = button("save", "Save", 12)
+            .animated(true)
+            .to_scene(CellSize::new(8, 16));
+        let animation = scene.animation.as_ref().unwrap();
+        assert_eq!(animation.frames, 180);
+        assert_eq!(animation.cycle_ms, 3000);
+        assert!(animation.curve.closes_loop());
+        assert!(scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("control_animation_button")));
+
+        let scene = slider("volume", "Volume", 0.5, 20)
+            .animation(ControlAnimation {
+                fps: 30,
+                frames: 90,
+            })
+            .to_scene(CellSize::new(8, 16));
+        let animation = scene.animation.as_ref().unwrap();
+        assert_eq!(animation.frames, 90);
+        assert_eq!(animation.cycle_ms, 3000);
+        assert!(scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("control_animation_slider")));
     }
 
     #[test]
