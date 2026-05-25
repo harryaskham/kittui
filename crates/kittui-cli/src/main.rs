@@ -619,13 +619,16 @@ fn run_inline_chip_kitty(
     }
     let placement = runtime.place(&scene)?;
     let embed = inline_chip_embed(placement.image_id, &args.text, args.padding);
+    let inline_placement = inline_placement_without_cursor_move(&placement.placement);
     if mode.dry_run || global.json.value {
         let mut payload =
             placement_json_payload(global, &placement, None, mode.dry_run, mode.json_bytes);
         payload["inline_text"] = serde_json::json!(args.text);
         payload["inline_format"] = serde_json::json!("kitty");
+        payload["placement_bytes"] = serde_json::json!(inline_placement.len());
         payload["embed_bytes"] = serde_json::json!(embed.len());
         if mode.json_bytes || mode.dry_run {
+            payload["placement"] = serde_json::json!(inline_placement);
             payload["embed"] = serde_json::json!(embed);
         }
         println!("{}", serde_json::to_string_pretty(&payload)?);
@@ -638,12 +641,24 @@ fn run_inline_chip_kitty(
         handle.write_all(placement.upload.as_bytes())?;
     }
     if !any_filter || mode.placement_only {
-        handle.write_all(placement.placement.as_bytes())?;
+        handle.write_all(inline_placement.as_bytes())?;
     }
     if !any_filter || mode.embed_only {
         handle.write_all(embed.as_bytes())?;
     }
     Ok(())
+}
+
+fn inline_placement_without_cursor_move(placement: &str) -> &str {
+    if let Some(tag) = placement.find("Ga=p") {
+        if let Some(wrapper) = placement[..tag].rfind("\x1bPtmux;") {
+            return &placement[wrapper..];
+        }
+        if let Some(kitty) = placement[..tag].rfind("\x1b_") {
+            return &placement[kitty..];
+        }
+    }
+    placement
 }
 
 fn inline_chip_cols(args: &InlineChipArgs) -> u16 {
@@ -1952,6 +1967,17 @@ mod tests {
         let embed = inline_chip_embed(0x00112233, &args.text, args.padding);
         assert!(embed.contains(kittui_kitty::PLACEHOLDER_CHAR), "{embed:?}");
         assert!(embed.contains("main#1 "), "{embed:?}");
+
+        assert_eq!(
+            inline_placement_without_cursor_move("\x1b[1;1H\x1b_Ga=p,i=1\x1b\\"),
+            "\x1b_Ga=p,i=1\x1b\\"
+        );
+        assert_eq!(
+            inline_placement_without_cursor_move(
+                "\x1bPtmux;\x1b\x1b[1;1H\x1b\\\x1bPtmux;\x1b\x1b_Ga=p,i=1\x1b\x1b\\\x1b\\"
+            ),
+            "\x1bPtmux;\x1b\x1b_Ga=p,i=1\x1b\x1b\\\x1b\\"
+        );
     }
 
     #[test]
