@@ -91,6 +91,7 @@ struct Cli {
     cheat: bool,
     commands: bool,
     commands_json: bool,
+    architecture_json: bool,
     showcase_scene_json: bool,
     showcase_metrics_json: bool,
     showcase_composition_json: bool,
@@ -169,6 +170,7 @@ fn parse_args() -> Result<Cli> {
             "cheat" | "cheatsheet" | "cheat-sheet" => out.cheat = true,
             "commands" => out.commands = true,
             "commands-json" => out.commands_json = true,
+            "architecture-json" | "platform-contract-json" => out.architecture_json = true,
             "showcase-scene-json" | "shell-scene-json" => out.showcase_scene_json = true,
             "showcase-metrics-json" | "shell-metrics-json" => out.showcase_metrics_json = true,
             "showcase-composition-json" | "shell-composition-json" => {
@@ -757,6 +759,7 @@ USAGE
   kittwm examples                Show copy-paste daily-driver workflows
   kittwm commands                Show grouped local CLI command catalog
   kittwm commands-json           Show local CLI command catalog JSON
+  kittwm architecture-json       Emit WM architecture/separation contract JSON
   kittwm showcase-scene-json     Emit a representative graphical WM scene artifact
   kittwm showcase-metrics-json   Emit scene/layer/pixel metrics for that artifact
   kittwm showcase-composition-json Emit ordered app/chrome/overlay composition graph
@@ -779,6 +782,7 @@ DAILY DRIVER BASICS
   Scene artifact:  kittwm showcase-scene-json
   Perf metrics:    kittwm showcase-metrics-json
   Composition:     kittwm showcase-composition-json
+  Architecture:    kittwm architecture-json
   TUI smoke:       kittwm tui-smoke-json
   Old startup:     KITTWM_STARTUP_TERMINAL=1 kittwm
 
@@ -1337,6 +1341,9 @@ fn real_main() -> Result<()> {
     }
     if cli.commands_json {
         return commands_json_cmd();
+    }
+    if cli.architecture_json {
+        return architecture_json_cmd();
     }
     if cli.showcase_scene_json {
         return showcase_scene_json_cmd();
@@ -2545,6 +2552,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "machine-readable local command catalog",
         },
         LocalCommandEntry {
+            command: "architecture-json",
+            category: "diagnostics",
+            description: "WM architecture/separation contract JSON",
+        },
+        LocalCommandEntry {
             command: "completions SHELL",
             category: "help",
             description: "shell completions for bash, zsh, or fish",
@@ -2744,6 +2756,141 @@ fn commands_cmd() -> Result<()> {
 
 fn commands_json_cmd() -> Result<()> {
     print!("{}", commands_json_text());
+    Ok(())
+}
+
+fn architecture_contract_json_text() -> String {
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "schema_version": 1,
+            "kind": "kittwm-architecture-contract",
+            "goal": "usable kitty-graphics-backed terminal window manager with explicit separation of concerns",
+            "layers": [
+                {
+                    "id": "sdk-control-plane",
+                    "owner": "kittwm-sdk",
+                    "responsibilities": [
+                        "typed app-facing surface vocabulary",
+                        "socket/display discovery",
+                        "least-privilege client capabilities",
+                        "status/panes/chrome/events/semantic automation helpers"
+                    ],
+                    "must_not": [
+                        "decide pane geometry",
+                        "emit kitty graphics escape sequences",
+                        "know terminal chrome pixel placement"
+                    ],
+                    "native_contracts": [
+                        "SurfaceSpec::terminal",
+                        "SurfaceSpec::browser",
+                        "ChromeReservationRequest",
+                        "ChromeReservationStatus",
+                        "SemanticSurfaceSnapshot"
+                    ]
+                },
+                {
+                    "id": "tiling-engine",
+                    "owner": "kittwm native session layout",
+                    "responsibilities": [
+                        "consume reported terminal cols/rows",
+                        "apply chrome reservations and tile gaps",
+                        "produce disjoint outer/app bounds",
+                        "route focus and pointer/app-local coordinates"
+                    ],
+                    "must_not": [
+                        "upload images",
+                        "paint decorations",
+                        "query application semantics"
+                    ],
+                    "invariants": [
+                        "outer bounds are disjoint",
+                        "app bounds are disjoint and inside outer bounds",
+                        "drawable rows never exceed reported rows minus reservations",
+                        "resize recomputes all pane bounds before surface resize"
+                    ]
+                },
+                {
+                    "id": "surface-renderer",
+                    "owner": "NativeSurface adapters + kittui::Runtime",
+                    "responsibilities": [
+                        "capture PTY/browser/native surfaces into frames or scenes",
+                        "fit frames to allocated app cell bounds",
+                        "cache/upload/place kitty images",
+                        "honor explicit placement/z-plane options"
+                    ],
+                    "must_not": [
+                        "allocate tiles",
+                        "draw WM decorations",
+                        "consume SDK policy directly"
+                    ],
+                    "native_contracts": [
+                        "Runtime::place_at_with_options",
+                        "Runtime::place_raw_frame_with_options",
+                        "Runtime::place_uploaded_image_with_options",
+                        "KITTWM_NATIVE_RENDERER=kitty|terminal"
+                    ]
+                },
+                {
+                    "id": "decoration-renderer",
+                    "owner": "kittui-affordances + kittwm chrome helpers",
+                    "responsibilities": [
+                        "render top bar, pane titles, borders, footer, overlays as kittui scenes",
+                        "use shared theme/style tokens",
+                        "label scene layers for diagnostics",
+                        "stay above app surfaces on a dedicated z-plane"
+                    ],
+                    "must_not": [
+                        "capture app pixels",
+                        "resize PTYs/browser surfaces",
+                        "own app input routing"
+                    ],
+                    "native_contracts": [
+                        "kittwm-bar --scene-json",
+                        "kittwm showcase-scene-json",
+                        "kittwm showcase-composition-json"
+                    ]
+                },
+                {
+                    "id": "kitty-compositor",
+                    "owner": "kittui-kitty transport grammar",
+                    "responsibilities": [
+                        "encode kitty graphics upload/placement/delete commands",
+                        "support direct/tmux/file/shared-memory transports",
+                        "provide absolute or unicode-placeholder placement options"
+                    ],
+                    "must_not": [
+                        "know about panes or workspaces",
+                        "choose WM layout policy",
+                        "special-case first-party apps"
+                    ]
+                }
+            ],
+            "composition_order": [
+                {"plane": "app-surfaces", "z_index": 0},
+                {"plane": "decorations", "z_index": 20},
+                {"plane": "overlays", "z_index": 30}
+            ],
+            "first_party_native_surfaces": [
+                {"name": "kittwm-terminal", "surface_kind": "terminal", "sdk_entry": "SurfaceSpec::terminal", "rendering": "PTY NativeSurface -> fitted app frame -> kitty graphics"},
+                {"name": "kittwm-browser", "surface_kind": "browser", "sdk_entry": "SurfaceSpec::browser", "rendering": "HeadlessBrowserApp frame -> absolute kitty graphics placement"},
+                {"name": "kittwm-bar", "surface_kind": "chrome", "sdk_entry": "Kittwm::chrome / ChromeReservationRequest", "rendering": "BarModel -> kittui Scene JSON"}
+            ],
+            "inspection_artifacts": [
+                "kittwm architecture-json",
+                "kittwm commands-json",
+                "kittwm showcase-composition-json",
+                "kittwm tui-smoke-json",
+                "STATUS_JSON",
+                "PANES_JSON",
+                "CHROME_JSON"
+            ]
+        })
+    )
+}
+
+fn architecture_json_cmd() -> Result<()> {
+    print!("{}", architecture_contract_json_text());
     Ok(())
 }
 
@@ -3871,6 +4018,42 @@ mod tests {
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "wait [WINDOW] TEXT" && entry["category"] == "action"
         }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "architecture-json" && entry["category"] == "diagnostics"
+        }));
+    }
+
+    #[test]
+    fn architecture_contract_names_clean_wm_boundaries() {
+        let json: serde_json::Value =
+            serde_json::from_str(&architecture_contract_json_text()).unwrap();
+        assert_eq!(json["kind"], "kittwm-architecture-contract");
+        let layer_ids = json["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|layer| layer["id"].as_str())
+            .collect::<Vec<_>>();
+        for expected in [
+            "sdk-control-plane",
+            "tiling-engine",
+            "surface-renderer",
+            "decoration-renderer",
+            "kitty-compositor",
+        ] {
+            assert!(layer_ids.contains(&expected), "{layer_ids:?}");
+        }
+        assert!(json["composition_order"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|plane| plane["plane"] == "decorations" && plane["z_index"] == 20));
+        assert!(json["first_party_native_surfaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|surface| surface["name"] == "kittwm-browser"
+                && surface["sdk_entry"] == "SurfaceSpec::browser"));
     }
 
     #[test]

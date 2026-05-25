@@ -74,6 +74,40 @@ Native `PANES_JSON` includes per-pane `window`, `title`, `focused`, `weight`, op
 
 ## Architecture
 
+`kittwm architecture-json` emits the current machine-readable architecture
+contract for the kitty-graphics-backed WM. Treat that artifact as the boundary
+checklist for implementation work: the SDK/control plane names and authorizes
+surface operations, the tiling engine owns drawable geometry, surface adapters
+capture or synthesize app frames, the decoration renderer paints kittui scene
+chrome, and `kittui-kitty` only encodes transport/placement grammar.
+
+The intended separation of concerns is:
+
+- **SDK/control plane (`kittwm-sdk`)**: typed app-facing vocabulary such as
+  `SurfaceSpec::terminal`, `SurfaceSpec::browser`, chrome reservation requests,
+  status/panes/chrome/events, and semantic snapshots. It must not decide pane
+  geometry or emit kitty graphics.
+- **Tiling engine (native session layout)**: consumes reported terminal
+  cols/rows plus top/bottom/side/gap reservations and produces disjoint outer
+  and app bounds. It must not upload images or draw decorations.
+- **Surface renderer (`NativeSurface` adapters + `kittui::Runtime`)**: captures
+  PTY/browser/native surfaces, fits them to allocated app cells, and places
+  kitty images with explicit placement/z-plane options. It must not allocate
+  tiles or consume SDK policy directly.
+- **Decoration renderer (`kittui-affordances` + kittwm chrome helpers)**:
+  renders top bar, pane labels/borders, footer, and overlays as labelled kittui
+  scenes above app surfaces. It must not resize apps or route app input.
+- **Kitty compositor (`kittui-kitty`)**: encodes upload, placement, deletion,
+  and transport grammar. It must not know about workspaces, panes, or first-party
+  app policy.
+
+The standard composition order is app surfaces at z-index `0`, decorations at
+z-index `20`, and overlays above them. First-party apps should enter through SDK
+surface types (`kittwm-terminal` via `SurfaceSpec::terminal`, `kittwm-browser`
+via `SurfaceSpec::browser`) or explicit chrome contracts (`kittwm-bar` via
+`ChromeReservationRequest`/`CHROME_JSON`) so kittwm remains a usable window
+manager rather than a collection of renderer special cases.
+
 ```
 ┌──────────────────┐  pointer / keys   ┌─────────────────────┐
 │ kittui-input     │ ───────────────►  │ kittui-wm           │
