@@ -23,9 +23,7 @@ use anyhow::{anyhow, Result};
 use kittui::{
     CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Runtime, Scene, Stroke,
 };
-use kittui_affordances::{
-    button, text_input, ControlState, InlineChipColors, InlineStyle, InlineTheme,
-};
+use kittui_affordances::{button, ControlState, InlineChipColors, InlineStyle, InlineTheme};
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
@@ -1832,22 +1830,11 @@ fn render_native_shell_view_affordance_scenes(
         });
     }
     if !view.footer.text.is_empty() {
-        let mut footer = text_input(
-            "footer",
-            "status",
-            view.footer.text.clone(),
-            view.panes
-                .iter()
-                .map(|pane| pane.app_cols)
-                .sum::<u16>()
-                .max(20),
-        );
-        footer.height_cells = 1;
         scenes.push(NativeShellChromeScene {
             id: "footer".to_string(),
             x: 0,
             y: view.footer.row,
-            scene: footer.to_scene(cell_size),
+            scene: native_footer_status_scene(cell_size, cols, &view.footer.text),
         });
     }
     if view.help_overlay {
@@ -1864,6 +1851,64 @@ fn render_native_shell_view_affordance_scenes(
 
 fn native_glass_chrome_colors() -> InlineChipColors {
     InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass)
+}
+
+fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str) -> Scene {
+    let colors = native_glass_chrome_colors();
+    let cols = cols.max(20);
+    let rect = CellRect::new(0, 0, cols, 1).to_pixels(cell_size);
+    let cell_w = cell_size.width_px.max(1) as f32;
+    let chip_h = (cell_size.height_px.max(1) as f32 - 4.0).max(6.0);
+    let chip_specs = [
+        ("help", 1.0, 10.0),
+        ("terminal", 12.5, 14.0),
+        ("close", 28.0, 9.0),
+    ];
+    let mut layers = vec![Layer::new(
+        format!("status-bar-backdrop:{status_text}"),
+        Node::Rect {
+            rect,
+            fill: Paint::Solid {
+                color: rgba_with_alpha(colors.fill, 145),
+            },
+            stroke: Some(Stroke::inside(
+                1.0,
+                Paint::Solid {
+                    color: rgba_with_alpha(colors.border, 180),
+                },
+            )),
+            corners: Corners::uniform(5.0),
+        },
+    )];
+    for (label, x_cells, width_cells) in chip_specs {
+        let x = x_cells * cell_w;
+        let width = (width_cells * cell_w).min((rect.width - x - 4.0).max(1.0));
+        if width <= 1.0 {
+            continue;
+        }
+        layers.push(Layer::new(
+            format!("status-chip-{label}"),
+            Node::Rect {
+                rect: PxRect::new(x, 2.0, width, chip_h),
+                fill: Paint::Solid {
+                    color: rgba_with_alpha(colors.border, 62),
+                },
+                stroke: Some(Stroke::inside(
+                    1.0,
+                    Paint::Solid {
+                        color: colors.border,
+                    },
+                )),
+                corners: Corners::uniform(5.0),
+            },
+        ));
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, 1),
+        cell_size,
+        layers,
+        animation: None,
+    }
 }
 
 fn native_empty_workspace_scene(
@@ -2646,6 +2691,16 @@ mod native_pane_tests {
         assert_eq!(scenes[2].id, "pane-0-border");
         assert_eq!((scenes[3].x, scenes[3].y), (8, 1));
         assert_eq!(scenes[5].id, "footer");
+        assert!(scenes[5].scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("status-bar-backdrop:footer")));
+        assert!(scenes[5]
+            .scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("status-chip-help")));
         assert!(scenes[1]
             .scene
             .layers
