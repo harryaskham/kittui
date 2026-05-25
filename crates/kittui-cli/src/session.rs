@@ -548,6 +548,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view, cols)?;
             if shell_view.help_overlay {
                 write_native_help_overlay(&mut handle, cols, rows)?;
+            } else if shell_view.panes.is_empty() {
+                write_native_empty_workspace_overlay_text(&mut handle, cols, rows)?;
             }
         }
         if !affordance_scene_chrome
@@ -1802,6 +1804,15 @@ fn render_native_shell_view_affordance_scenes(
         y: view.top_bar.row,
         scene: native_top_bar_scene(view, cols, cell_size),
     });
+    if view.panes.is_empty() && !view.help_overlay {
+        let (x, y, scene) = native_empty_workspace_scene(cell_size, cols, view.footer.row);
+        scenes.push(NativeShellChromeScene {
+            id: "empty-workspace".to_string(),
+            x,
+            y,
+            scene,
+        });
+    }
     for (idx, pane) in view.panes.iter().enumerate() {
         let state = ControlState::default().focused(pane.focused);
         let mut control =
@@ -1853,6 +1864,91 @@ fn render_native_shell_view_affordance_scenes(
 
 fn native_glass_chrome_colors() -> InlineChipColors {
     InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass)
+}
+
+fn native_empty_workspace_scene(
+    cell_size: CellSize,
+    cols: u16,
+    footer_row: u16,
+) -> (u16, u16, Scene) {
+    let colors = native_glass_chrome_colors();
+    let panel_cols = cols.saturating_sub(8).clamp(24, 72);
+    let available_rows = footer_row.saturating_sub(2).max(8);
+    let panel_rows = available_rows.min(10);
+    let x = cols.saturating_sub(panel_cols).saturating_div(2);
+    let y = 2;
+    let rect = CellRect::new(0, 0, panel_cols, panel_rows).to_pixels(cell_size);
+    let cell_w = cell_size.width_px.max(1) as f32;
+    let cell_h = cell_size.height_px.max(1) as f32;
+    let chip_y = (panel_rows.saturating_sub(3).max(4) as f32) * cell_h;
+    let chip_w = (panel_cols as f32 * cell_w - 36.0).max(1.0) / 3.0;
+    let chip_h = (cell_h - 4.0).max(6.0);
+    let mut layers = vec![
+        Layer::new(
+            "empty-workspace-backdrop",
+            Node::Rect {
+                rect,
+                fill: Paint::Solid { color: colors.fill },
+                stroke: Some(Stroke::inside(
+                    2.0,
+                    Paint::Solid {
+                        color: colors.border,
+                    },
+                )),
+                corners: Corners::uniform(10.0),
+            },
+        ),
+        Layer::new(
+            "empty-workspace-hero-band",
+            Node::Rect {
+                rect: PxRect::new(0.0, 0.0, rect.width, cell_h * 2.2),
+                fill: Paint::Solid {
+                    color: colors.highlight,
+                },
+                stroke: None,
+                corners: Corners::uniform(10.0),
+            },
+        ),
+        Layer::new(
+            "empty-workspace-accent-rail",
+            Node::Rect {
+                rect: PxRect::new(10.0, cell_h * 2.7, (rect.width - 20.0).max(1.0), 2.0),
+                fill: Paint::Solid {
+                    color: colors.border,
+                },
+                stroke: None,
+                corners: Corners::uniform(2.0),
+            },
+        ),
+    ];
+    for idx in 0..3 {
+        layers.push(Layer::new(
+            format!("empty-workspace-action-chip-{idx}"),
+            Node::Rect {
+                rect: PxRect::new(10.0 + idx as f32 * (chip_w + 8.0), chip_y, chip_w, chip_h),
+                fill: Paint::Solid {
+                    color: rgba_with_alpha(colors.border, 72),
+                },
+                stroke: Some(Stroke::inside(
+                    1.0,
+                    Paint::Solid {
+                        color: colors.border,
+                    },
+                )),
+                corners: Corners::uniform(6.0),
+            },
+        ));
+    }
+    (
+        x,
+        y,
+        Scene {
+            footprint: CellRect::new(0, 0, panel_cols, panel_rows),
+            cell_size,
+            layers,
+            animation: None,
+        },
+    )
 }
 
 fn rgba_with_alpha(color: Rgba, alpha: u8) -> Rgba {
@@ -2035,6 +2131,29 @@ fn native_pane_title_key_from_text(text: &str, layout: NativePaneLayout, focused
         focused,
         text
     )
+}
+
+fn write_native_empty_workspace_overlay_text<W: Write>(
+    out: &mut W,
+    cols: u16,
+    rows: u16,
+) -> Result<()> {
+    for (idx, line) in native_empty_workspace_hint_lines().iter().enumerate() {
+        let row = 3 + idx as u16;
+        if row >= rows {
+            break;
+        }
+        let line_width = line.chars().count() as u16;
+        let col = cols.saturating_sub(line_width).saturating_div(2).max(1);
+        write!(
+            out,
+            "\x1b[{};{}H\x1b[1m{}\x1b[0m",
+            row + 1,
+            col + 1,
+            clip_and_pad(line, cols.saturating_sub(col) as usize)
+        )?;
+    }
+    Ok(())
 }
 
 fn write_native_help_overlay<W: Write>(out: &mut W, cols: u16, rows: u16) -> Result<()> {
@@ -2508,6 +2627,43 @@ mod native_pane_tests {
             node => panic!("expected pane title gutter rect, got {node:?}"),
         }
         assert!(scenes.iter().all(|chrome| !chrome.scene.layers.is_empty()));
+    }
+
+    #[test]
+    fn native_empty_workspace_builds_graphical_landing_surface() {
+        let (_x, y, scene) = native_empty_workspace_scene(CellSize::new(8, 16), 96, 20);
+        assert_eq!(y, 2);
+        assert!(scene.footprint.cols <= 72, "{:?}", scene.footprint);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(labels.contains(&"empty-workspace-backdrop"), "{labels:?}");
+        assert!(labels.contains(&"empty-workspace-hero-band"), "{labels:?}");
+        assert!(
+            labels.contains(&"empty-workspace-accent-rail"),
+            "{labels:?}"
+        );
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|label| label.starts_with("empty-workspace-action-chip-"))
+                .count(),
+            3,
+            "{labels:?}"
+        );
+        match &scene.layers[0].root {
+            Node::Rect {
+                fill: Paint::Solid { color },
+                ..
+            } => {
+                let colors = native_glass_chrome_colors();
+                assert_eq!(*color, colors.fill);
+                assert!(color.3 < 255, "expected translucent empty panel: {color:?}");
+            }
+            node => panic!("expected empty workspace backdrop rect, got {node:?}"),
+        }
     }
 
     #[test]
