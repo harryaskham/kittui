@@ -140,7 +140,7 @@ struct InlineChipArgs {
     #[arg(long)]
     text: String,
     /// Output format.
-    #[arg(long, value_enum, default_value_t = InlineFormatArg::Ansi)]
+    #[arg(long, value_enum, default_value_t = InlineFormatArg::Kitty)]
     format: InlineFormatArg,
     /// Tone palette.
     #[arg(long, value_enum, default_value_t = ToneArg::Assistant)]
@@ -152,8 +152,13 @@ struct InlineChipArgs {
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
 enum InlineFormatArg {
+    /// Kitty graphics background with inline width-bearing placeholder/text.
+    Kitty,
+    /// ASCII/plain fallback.
     Plain,
+    /// 24-bit ANSI styled text fallback.
     Ansi,
+    /// tmux statusline style syntax fallback.
     Tmux,
 }
 
@@ -522,7 +527,7 @@ fn main() -> Result<()> {
         dry_run: cli.dry_run,
     };
     match &cli.cmd {
-        Cmd::Inline(sub) => run_inline(sub),
+        Cmd::Inline(sub) => run_inline(&global, &runtime, sub, emit_mode),
         Cmd::Box(args) => {
             let config = layers.resolve_box(BoxFlagValues {
                 x: args.x,
@@ -577,8 +582,16 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_inline(cmd: &InlineCmd) -> Result<()> {
+fn run_inline(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    cmd: &InlineCmd,
+    mode: EmitMode,
+) -> Result<()> {
     match cmd {
+        InlineCmd::Chip(args) if args.format == InlineFormatArg::Kitty => {
+            run_inline_chip_kitty(global, runtime, args, mode)
+        }
         InlineCmd::Chip(args) => {
             print!("{}", render_inline_chip(args));
             Ok(())
@@ -586,12 +599,71 @@ fn run_inline(cmd: &InlineCmd) -> Result<()> {
     }
 }
 
+fn run_inline_chip_kitty(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &InlineChipArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    let palette = Palette::for_tone(args.tone.into());
+    let cols = inline_chip_cols(args);
+    let scene = chrome_to_scene(
+        chip_chrome(palette.bg_top, palette.rail),
+        cols,
+        1,
+        "inline chip",
+    )?;
+    if mode.scene_json {
+        println!("{}", serialize_scene_json(&scene)?);
+        return Ok(());
+    }
+    let placement = runtime.place(&scene)?;
+    let embed = inline_chip_embed(placement.image_id, &args.text, args.padding);
+    if mode.dry_run || global.json.value {
+        let mut payload =
+            placement_json_payload(global, &placement, None, mode.dry_run, mode.json_bytes);
+        payload["inline_text"] = serde_json::json!(args.text);
+        payload["inline_format"] = serde_json::json!("kitty");
+        payload["embed_bytes"] = serde_json::json!(embed.len());
+        if mode.json_bytes || mode.dry_run {
+            payload["embed"] = serde_json::json!(embed);
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        return Ok(());
+    }
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let any_filter = mode.upload_only || mode.placement_only || mode.embed_only;
+    if !any_filter || mode.upload_only {
+        handle.write_all(placement.upload.as_bytes())?;
+    }
+    if !any_filter || mode.placement_only {
+        handle.write_all(placement.placement.as_bytes())?;
+    }
+    if !any_filter || mode.embed_only {
+        handle.write_all(embed.as_bytes())?;
+    }
+    Ok(())
+}
+
+fn inline_chip_cols(args: &InlineChipArgs) -> u16 {
+    (args.text.chars().count() + args.padding + 1).max(1) as u16
+}
+
+fn inline_chip_embed(image_id: u32, text: &str, padding: usize) -> String {
+    let placeholder = kittui_kitty::placeholder_text(image_id, CellRect::new(0, 0, 1, 1));
+    let mut out = placeholder.trim_end_matches('\n').to_string();
+    out.push_str(text);
+    out.push_str(&" ".repeat(padding));
+    out
+}
+
 fn render_inline_chip(args: &InlineChipArgs) -> String {
     let padding = " ".repeat(args.padding);
     let label = format!("{padding}{}{padding}", args.text);
     let palette = Palette::for_tone(args.tone.into());
     match args.format {
-        InlineFormatArg::Plain => format!("[{label}]"),
+        InlineFormatArg::Kitty | InlineFormatArg::Plain => format!("[{label}]"),
         InlineFormatArg::Ansi => format!(
             "\x1b[1;38;2;{};{};{};48;2;{};{};{}m{label}\x1b[0m",
             palette.rail.0,
@@ -1854,7 +1926,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_chip_renders_plain_ansi_and_tmux_formats() {
+    fn inline_chip_renders_plain_ansi_tmux_and_kitty_embed_formats() {
         let mut args = InlineChipArgs {
             text: "main#1".to_string(),
             format: InlineFormatArg::Plain,
@@ -1874,6 +1946,12 @@ mod tests {
         assert!(tmux.starts_with("#[bold,fg=#"), "{tmux}");
         assert!(tmux.contains(" main##1 "), "{tmux}");
         assert!(tmux.ends_with("#[default]"), "{tmux}");
+
+        args.format = InlineFormatArg::Kitty;
+        assert_eq!(inline_chip_cols(&args), 8);
+        let embed = inline_chip_embed(0x00112233, &args.text, args.padding);
+        assert!(embed.contains(kittui_kitty::PLACEHOLDER_CHAR), "{embed:?}");
+        assert!(embed.contains("main#1 "), "{embed:?}");
     }
 
     #[test]
