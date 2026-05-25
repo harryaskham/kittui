@@ -3049,6 +3049,60 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_alpha_chrome_layers_are_translucent_and_ordered() {
+        let pane = NativePaneChrome {
+            x: 0,
+            y: 1,
+            focused: true,
+            text: "* native-1 shell".to_string(),
+            cache_key: "key".to_string(),
+            status: "shell · pid:101 · frame:clean".to_string(),
+            app_x: 1,
+            app_y: 2,
+            app_cols: 18,
+            app_rows: 5,
+            cols: 20,
+            rows: 7,
+            text_snapshot: String::new(),
+        };
+        let border = native_pane_border_scene(0, &pane, native_cell_size());
+        let labels = border
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(labels.first(), Some(&"pane-0-focus-glow"));
+        assert_eq!(labels.last(), Some(&"pane-0-focus-ring"));
+        for label in ["pane-0-focus-glow", "pane-0-title-gutter"] {
+            let layer = border
+                .layers
+                .iter()
+                .find(|layer| layer.label.as_deref() == Some(label))
+                .unwrap();
+            match &layer.root {
+                Node::Rect {
+                    fill: Paint::Solid { color },
+                    ..
+                } => assert!(color.3 < 255, "{label} should be translucent: {color:?}"),
+                node => panic!("expected rect for {label}, got {node:?}"),
+            }
+        }
+
+        let (_x, _y, overlay) =
+            native_help_overlay_scene(native_cell_size(), 80, &["kittwm shortcuts", "C-a ? help"]);
+        match &overlay.layers[0].root {
+            Node::Rect {
+                fill: Paint::Solid { color },
+                ..
+            } => assert!(
+                color.3 < 255,
+                "overlay backdrop should be translucent: {color:?}"
+            ),
+            node => panic!("expected overlay backdrop rect, got {node:?}"),
+        }
+    }
+
+    #[test]
     fn native_live_top_bar_defaults_to_kittui_bar_scene_metadata() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
