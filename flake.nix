@@ -24,7 +24,13 @@
         commonArgs = {
           version = workspaceVersion;
           src = lib.cleanSource ./.;
-          cargoLock.lockFile = ./Cargo.lock;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            outputHashes = {
+              "mcp-cli-0.0.1" = "sha256-aEWGvQh5YklD8l8bylHGIakhYovabHmPHtbGPjXM/1w=";
+              "updatable-cli-0.1.0" = "sha256-kwsURSIbPW4o1S+YGGPwxWG8td4uZz8UYx6RIYMr5Ek=";
+            };
+          };
           strictDeps = true;
           buildInputs = lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
         };

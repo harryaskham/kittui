@@ -61,6 +61,17 @@
     ]
   },
   {
+    "id": "toast",
+    "x": 7,
+    "y": 19,
+    "layers": [
+      "toast-backdrop:C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase",
+      "toast-accent-rail",
+      "toast-highlight",
+      "toast-text:C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase"
+    ]
+  },
+  {
     "id": "help-overlay",
     "x": 9,
     "y": 2,
@@ -88,7 +99,10 @@
       "help-overlay-key-chip-10",
       "help-overlay-row-10",
       "help-overlay-row-11",
-      "help-overlay-row-12"
+      "help-overlay-row-12",
+      "help-overlay-control-button:toggle-help:0:control_background",
+      "help-overlay-control-text-input:filter-placeholder:0:control_background",
+      "help-overlay-control-action:toggle-help:C-a ?"
     ]
   }
 ]

@@ -3811,7 +3811,7 @@ mod native_pane_tests {
         assert_eq!(metrics["cols"], 96);
         assert_eq!(metrics["rows"], 24);
         assert_eq!(metrics["help_overlay"], true);
-        assert_eq!(metrics["scene_count"], 7);
+        assert_eq!(metrics["scene_count"], 8);
         assert!(metrics["layer_count"].as_u64().unwrap() >= 40, "{metrics}");
         assert!(metrics["total_pixels"].as_u64().unwrap() > 0, "{metrics}");
         assert_eq!(metrics["cell_width_px"], NATIVE_CELL_WIDTH_PX);
@@ -3834,6 +3834,7 @@ mod native_pane_tests {
             "pane-1-title",
             "pane-1-border",
             "footer",
+            "toast",
             "help-overlay",
         ] {
             assert!(ids.contains(&id), "missing {id}: {ids:?}");
