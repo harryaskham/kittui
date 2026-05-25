@@ -142,12 +142,40 @@ struct InlineChipArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = InlineFormatArg::Kitty)]
     format: InlineFormatArg,
-    /// Tone palette.
+    /// Tone palette used by fallback formats.
     #[arg(long, value_enum, default_value_t = ToneArg::Assistant)]
     tone: ToneArg,
+    /// Inline graphics theme.
+    #[arg(long, value_enum, default_value_t = InlineThemeArg::Nord)]
+    theme: InlineThemeArg,
+    /// Inline graphics style.
+    #[arg(long, value_enum, default_value_t = InlineStyleArg::Glass)]
+    style: InlineStyleArg,
+    /// Fill color override as hex or theme index/name.
+    #[arg(long)]
+    bg_color: Option<String>,
+    /// Border color override as hex or theme index/name.
+    #[arg(long)]
+    border_color: Option<String>,
+    /// Text color override as hex or theme index/name.
+    #[arg(long)]
+    fg_color: Option<String>,
     /// Spaces of horizontal padding around the text.
     #[arg(long, default_value_t = 1)]
     padding: usize,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
+enum InlineThemeArg {
+    Nord,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
+enum InlineStyleArg {
+    Glass,
+    Chrome,
+    Metal,
+    Neon,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -605,21 +633,16 @@ fn run_inline_chip_kitty(
     args: &InlineChipArgs,
     mode: EmitMode,
 ) -> Result<()> {
-    let palette = Palette::for_tone(args.tone.into());
+    let colors = inline_chip_colors(args)?;
     let cols = inline_chip_cols(args);
-    let scene = chrome_to_scene(
-        chip_chrome(palette.bg_top, palette.rail),
-        cols,
-        1,
-        "inline chip",
-    )?;
+    let scene = inline_chip_scene(cols, colors);
     if mode.scene_json {
         println!("{}", serialize_scene_json(&scene)?);
         return Ok(());
     }
     let placement = runtime.place(&scene)?;
-    let embed = inline_chip_embed(placement.image_id, &args.text, args.padding);
-    let inline_placement = inline_placement_without_cursor_move(&placement.placement);
+    let embed = inline_chip_text_embed(&args.text, args.padding, colors.fg);
+    let inline_placement = inline_background_placement(&placement, runtime.transport());
     if mode.dry_run || global.json.value {
         let mut payload =
             placement_json_payload(global, &placement, None, mode.dry_run, mode.json_bytes);
@@ -649,28 +672,158 @@ fn run_inline_chip_kitty(
     Ok(())
 }
 
-fn inline_placement_without_cursor_move(placement: &str) -> &str {
-    if let Some(tag) = placement.find("Ga=p") {
-        if let Some(wrapper) = placement[..tag].rfind("\x1bPtmux;") {
-            return &placement[wrapper..];
-        }
-        if let Some(kitty) = placement[..tag].rfind("\x1b_") {
-            return &placement[kitty..];
+#[derive(Copy, Clone, Debug)]
+struct InlineChipColors {
+    fill: Rgba,
+    border: Rgba,
+    highlight: Rgba,
+    fg: Rgba,
+}
+
+fn inline_chip_colors(args: &InlineChipArgs) -> Result<InlineChipColors> {
+    let mut colors = match (args.theme, args.style) {
+        (InlineThemeArg::Nord, InlineStyleArg::Glass) => InlineChipColors {
+            fill: Rgba::rgba(46, 52, 64, 175),
+            border: Rgba::rgba(136, 192, 208, 230),
+            highlight: Rgba::rgba(236, 239, 244, 70),
+            fg: Rgba::rgb(236, 239, 244),
+        },
+        (InlineThemeArg::Nord, InlineStyleArg::Chrome) => InlineChipColors {
+            fill: Rgba::rgba(59, 66, 82, 230),
+            border: Rgba::rgba(129, 161, 193, 255),
+            highlight: Rgba::rgba(216, 222, 233, 95),
+            fg: Rgba::rgb(236, 239, 244),
+        },
+        (InlineThemeArg::Nord, InlineStyleArg::Metal) => InlineChipColors {
+            fill: Rgba::rgba(67, 76, 94, 235),
+            border: Rgba::rgba(216, 222, 233, 240),
+            highlight: Rgba::rgba(236, 239, 244, 80),
+            fg: Rgba::rgb(236, 239, 244),
+        },
+        (InlineThemeArg::Nord, InlineStyleArg::Neon) => InlineChipColors {
+            fill: Rgba::rgba(46, 52, 64, 205),
+            border: Rgba::rgba(136, 192, 208, 255),
+            highlight: Rgba::rgba(180, 142, 173, 90),
+            fg: Rgba::rgb(236, 239, 244),
+        },
+    };
+    if let Some(value) = &args.bg_color {
+        colors.fill = parse_inline_color(value)?;
+    }
+    if let Some(value) = &args.border_color {
+        colors.border = parse_inline_color(value)?;
+    }
+    if let Some(value) = &args.fg_color {
+        colors.fg = parse_inline_color(value)?;
+    }
+    Ok(colors)
+}
+
+fn parse_inline_color(value: &str) -> Result<Rgba> {
+    let nord = [
+        "#2e3440cc",
+        "#3b4252",
+        "#434c5e",
+        "#4c566a",
+        "#d8dee9",
+        "#e5e9f0",
+        "#eceff4",
+        "#8fbcbb",
+        "#88c0d0",
+        "#81a1c1",
+        "#5e81ac",
+        "#bf616a",
+        "#d08770",
+        "#ebcb8b",
+        "#a3be8c",
+        "#b48ead",
+    ];
+    if let Ok(index) = value.parse::<usize>() {
+        if let Some(color) = nord.get(index) {
+            return Ok(Rgba::parse(color)?);
         }
     }
-    placement
+    let named = match value.to_ascii_lowercase().as_str() {
+        "bg" | "polar-night" => Some(nord[0]),
+        "fg" | "snow" => Some(nord[6]),
+        "frost" | "cyan" => Some(nord[8]),
+        "blue" => Some(nord[10]),
+        "red" => Some(nord[11]),
+        "orange" => Some(nord[12]),
+        "yellow" => Some(nord[13]),
+        "green" => Some(nord[14]),
+        "purple" => Some(nord[15]),
+        _ => None,
+    };
+    Ok(Rgba::parse(named.unwrap_or(value))?)
+}
+
+fn inline_chip_scene(cols: u16, colors: InlineChipColors) -> Scene {
+    let cell = CellSize::default();
+    let footprint = CellRect::new(0, 0, cols, 1);
+    let rect = footprint.to_pixels(cell);
+    let highlight_rect = kittui_core::geom::PxRect::new(
+        rect.origin.0,
+        rect.origin.1,
+        rect.width,
+        (rect.height / 2.0).max(1.0),
+    );
+    Scene {
+        footprint,
+        cell_size: cell,
+        layers: vec![
+            Layer::anon(Node::Rect {
+                rect,
+                fill: Paint::Solid { color: colors.fill },
+                stroke: Some(Stroke {
+                    align: StrokeAlign::Inside,
+                    width_px: 1.0,
+                    paint: Paint::Solid {
+                        color: colors.border,
+                    },
+                }),
+                corners: Corners::uniform((rect.height as f32 / 2.0).max(1.0)),
+            }),
+            Layer::anon(Node::Rect {
+                rect: highlight_rect,
+                fill: Paint::Solid {
+                    color: colors.highlight,
+                },
+                stroke: None,
+                corners: Corners::uniform((rect.height as f32 / 2.0).max(1.0)),
+            }),
+        ],
+        animation: None,
+    }
+}
+
+fn inline_background_placement(
+    placement: &kittui::Placement,
+    transport: kittui_core::terminal::Transport,
+) -> String {
+    let mut options = kittui_kitty::PlacementOptions::absolute();
+    options.z_index = -1;
+    kittui_kitty::placement_command_ex(
+        placement.image_id,
+        CellRect::new(0, 0, placement.footprint.cols, placement.footprint.rows),
+        &options,
+        transport,
+    )
 }
 
 fn inline_chip_cols(args: &InlineChipArgs) -> u16 {
     (args.text.chars().count() + args.padding + 1).max(1) as u16
 }
 
-fn inline_chip_embed(image_id: u32, text: &str, padding: usize) -> String {
-    let placeholder = kittui_kitty::placeholder_text(image_id, CellRect::new(0, 0, 1, 1));
-    let mut out = placeholder.trim_end_matches('\n').to_string();
-    out.push_str(text);
-    out.push_str(&" ".repeat(padding));
-    out
+fn inline_chip_text_embed(text: &str, padding: usize, fg: Rgba) -> String {
+    format!(
+        "\x1b[38;2;{};{};{}m{}{}\x1b[39m",
+        fg.0,
+        fg.1,
+        fg.2,
+        text,
+        " ".repeat(padding)
+    )
 }
 
 fn render_inline_chip(args: &InlineChipArgs) -> String {
@@ -1946,6 +2099,11 @@ mod tests {
             text: "main#1".to_string(),
             format: InlineFormatArg::Plain,
             tone: ToneArg::Assistant,
+            theme: InlineThemeArg::Nord,
+            style: InlineStyleArg::Glass,
+            bg_color: None,
+            border_color: None,
+            fg_color: None,
             padding: 1,
         };
         assert_eq!(render_inline_chip(&args), "[ main#1 ]");
@@ -1963,21 +2121,37 @@ mod tests {
         assert!(tmux.ends_with("#[default]"), "{tmux}");
 
         args.format = InlineFormatArg::Kitty;
+        let colors = inline_chip_colors(&args).unwrap();
+        assert_eq!(colors.fill.3, 175);
         assert_eq!(inline_chip_cols(&args), 8);
-        let embed = inline_chip_embed(0x00112233, &args.text, args.padding);
-        assert!(embed.contains(kittui_kitty::PLACEHOLDER_CHAR), "{embed:?}");
-        assert!(embed.contains("main#1 "), "{embed:?}");
-
+        let scene = inline_chip_scene(inline_chip_cols(&args), colors);
+        assert_eq!(scene.footprint.cols, 8);
+        assert_eq!(scene.footprint.rows, 1);
+        let embed = inline_chip_text_embed(&args.text, args.padding, colors.fg);
+        assert!(!embed.contains(kittui_kitty::PLACEHOLDER_CHAR), "{embed:?}");
+        assert!(embed.contains("main#1 \x1b[39m"), "{embed:?}");
         assert_eq!(
-            inline_placement_without_cursor_move("\x1b[1;1H\x1b_Ga=p,i=1\x1b\\"),
-            "\x1b_Ga=p,i=1\x1b\\"
+            parse_inline_color("8").unwrap(),
+            Rgba::parse("#88c0d0").unwrap()
         );
         assert_eq!(
-            inline_placement_without_cursor_move(
-                "\x1bPtmux;\x1b\x1b[1;1H\x1b\\\x1bPtmux;\x1b\x1b_Ga=p,i=1\x1b\x1b\\\x1b\\"
-            ),
-            "\x1bPtmux;\x1b\x1b_Ga=p,i=1\x1b\x1b\\\x1b\\"
+            parse_inline_color("purple").unwrap(),
+            Rgba::parse("#b48ead").unwrap()
         );
+        let placement = kittui::Placement {
+            image_id: 0x00112233,
+            upload: String::new(),
+            placement: String::new(),
+            embed: String::new(),
+            footprint: CellRect::new(0, 0, 8, 1),
+        };
+        let placement =
+            inline_background_placement(&placement, kittui_core::terminal::Transport::Direct);
+        assert!(placement.contains("a=p"), "{placement:?}");
+        assert!(placement.contains("c=8,r=1"), "{placement:?}");
+        assert!(placement.contains("z=-1"), "{placement:?}");
+        assert!(!placement.contains("U=1"), "{placement:?}");
+        assert!(!placement.contains("[1;1H"), "{placement:?}");
     }
 
     #[test]
