@@ -92,6 +92,7 @@ struct Cli {
     commands_json: bool,
     showcase_scene_json: bool,
     showcase_metrics_json: bool,
+    tui_smoke_json: bool,
     completions: Option<String>,
     keymap_path: Option<String>,
     keymap_check: bool,
@@ -166,6 +167,7 @@ fn parse_args() -> Result<Cli> {
             "commands-json" => out.commands_json = true,
             "showcase-scene-json" | "shell-scene-json" => out.showcase_scene_json = true,
             "showcase-metrics-json" | "shell-metrics-json" => out.showcase_metrics_json = true,
+            "tui-smoke-json" | "terminal-smoke-json" => out.tui_smoke_json = true,
             "completions" => {
                 out.completions = Some(
                     args.next()
@@ -300,6 +302,7 @@ fn parse_args() -> Result<Cli> {
             "--shortcuts-json" => out.shortcuts_json = true,
             "--showcase-scene-json" | "--shell-scene-json" => out.showcase_scene_json = true,
             "--showcase-metrics-json" | "--shell-metrics-json" => out.showcase_metrics_json = true,
+            "--tui-smoke-json" | "--terminal-smoke-json" => out.tui_smoke_json = true,
             "-c" | "--command" => {
                 out.attach_command = Some(args.next().ok_or_else(|| anyhow!("--command CMD"))?);
             }
@@ -709,6 +712,7 @@ USAGE
   kittwm commands-json           Show local CLI command catalog JSON
   kittwm showcase-scene-json     Emit a representative graphical WM scene artifact
   kittwm showcase-metrics-json   Emit scene/layer/pixel metrics for that artifact
+  kittwm tui-smoke-json          Emit terminal/TUI conformance smoke matrix
   kittwm completions SHELL       Print shell completions (bash|zsh|fish)
   kittwm cheat                   Show compact daily-driver cheat sheet
 
@@ -723,6 +727,7 @@ DAILY DRIVER BASICS
   Shortcut list:   kittwm shortcuts        (JSON: kittwm --shortcuts-json)
   Scene artifact:  kittwm showcase-scene-json
   Perf metrics:    kittwm showcase-metrics-json
+  TUI smoke:       kittwm tui-smoke-json
   Old startup:     KITTWM_STARTUP_TERMINAL=1 kittwm
 
 COMMON INSPECTION
@@ -1285,6 +1290,9 @@ fn real_main() -> Result<()> {
     }
     if cli.showcase_metrics_json {
         return showcase_metrics_json_cmd();
+    }
+    if cli.tui_smoke_json {
+        return tui_smoke_json_cmd();
     }
     if let Some(shell) = &cli.completions {
         return completions_cmd(shell);
@@ -3114,6 +3122,11 @@ fn showcase_metrics_json_cmd() -> Result<()> {
     Ok(())
 }
 
+fn tui_smoke_json_cmd() -> Result<()> {
+    println!("{}", kittui_cli::session::native_tui_smoke_matrix_json()?);
+    Ok(())
+}
+
 fn shortcuts_json_cmd() -> Result<()> {
     print!("{}", kittui_cli::shortcuts::render_native_shortcuts_json());
     Ok(())
@@ -3863,6 +3876,7 @@ mod tests {
         assert!(text.contains("kittwm shortcuts"), "{text}");
         assert!(text.contains("kittwm showcase-scene-json"), "{text}");
         assert!(text.contains("kittwm showcase-metrics-json"), "{text}");
+        assert!(text.contains("kittwm tui-smoke-json"), "{text}");
     }
 
     #[test]

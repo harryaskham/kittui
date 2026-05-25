@@ -1909,6 +1909,59 @@ pub fn native_showcase_scene_json(cols: u16, rows: u16, help_overlay: bool) -> R
     serde_json::to_string_pretty(&scenes).map_err(Into::into)
 }
 
+pub fn native_tui_smoke_matrix_json() -> Result<String> {
+    let cases = [
+        (
+            "shell-prompts",
+            "basic prompt text and newline handling",
+            "covered",
+        ),
+        (
+            "cursor-addressing",
+            "CUP/HVP cursor movement used by editors",
+            "covered",
+        ),
+        (
+            "alternate-screen",
+            "htop/vim style DEC alt screen enter/leave",
+            "covered",
+        ),
+        ("colors", "SGR foreground/background attributes", "covered"),
+        ("box-drawing", "line/table glyph rendering", "covered"),
+        (
+            "mouse-sgr",
+            "SGR mouse press/move/release routing",
+            "covered",
+        ),
+        ("bracketed-paste", "DECSET 2004 paste wrapping", "covered"),
+        (
+            "ctrl-c",
+            "Ctrl-C forwarding and triple-exit guard",
+            "covered",
+        ),
+        (
+            "real-fonts",
+            "Fira Code/real glyph rasterization",
+            "follow-up",
+        ),
+    ];
+    let cases = cases
+        .into_iter()
+        .map(|(id, description, status)| {
+            serde_json::json!({
+                "id": id,
+                "description": description,
+                "status": status,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string_pretty(&serde_json::json!({
+        "kind": "kittwm-tui-smoke-matrix",
+        "cases": cases,
+    }))
+    .map_err(Into::into)
+}
+
 pub fn native_showcase_metrics_json(cols: u16, rows: u16, help_overlay: bool) -> Result<String> {
     let cols = cols.max(40);
     let rows = rows.max(12);
@@ -3616,6 +3669,33 @@ mod native_pane_tests {
         let fallback = render_native_shell_view_terminal(&view, 80, 12);
         assert!(fallback.contains("kittui-bar"), "{fallback:?}");
         assert!(fallback.contains("kittwm shortcuts"), "{fallback:?}");
+    }
+
+    #[test]
+    fn native_tui_smoke_matrix_json_lists_common_tui_capabilities() {
+        let matrix: serde_json::Value =
+            serde_json::from_str(&native_tui_smoke_matrix_json().unwrap()).unwrap();
+        assert_eq!(matrix["kind"], "kittwm-tui-smoke-matrix");
+        let cases = matrix["cases"].as_array().unwrap();
+        for id in [
+            "shell-prompts",
+            "cursor-addressing",
+            "alternate-screen",
+            "colors",
+            "box-drawing",
+            "mouse-sgr",
+            "bracketed-paste",
+            "ctrl-c",
+            "real-fonts",
+        ] {
+            assert!(
+                cases.iter().any(|case| case["id"] == id),
+                "missing {id}: {cases:?}"
+            );
+        }
+        assert!(cases
+            .iter()
+            .any(|case| case["id"] == "real-fonts" && case["status"] == "follow-up"));
     }
 
     #[test]
