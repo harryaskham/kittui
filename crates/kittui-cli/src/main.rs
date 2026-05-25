@@ -133,6 +133,12 @@ enum Cmd {
 enum InlineCmd {
     /// Render a one-line text chip for shell prompts or tmux statuslines.
     Chip(InlineChipArgs),
+    /// Render a compact badge for labels, modes, or counts.
+    Badge(InlineChipArgs),
+    /// Render a prompt/status segment.
+    Segment(InlineChipArgs),
+    /// Render a one-line divider/rule.
+    Divider(InlineDividerArgs),
     /// Print copy/paste prompt, statusline, and fallback examples.
     Examples,
 }
@@ -166,6 +172,31 @@ struct InlineChipArgs {
     /// Spaces of horizontal padding around the text.
     #[arg(long, default_value_t = 1)]
     padding: usize,
+}
+
+#[derive(clap::Args, Clone)]
+struct InlineDividerArgs {
+    /// Divider width in terminal cells.
+    #[arg(long, default_value_t = 8)]
+    width: u16,
+    /// Visible divider glyph for text/prompt fallback width.
+    #[arg(long, default_value = "─")]
+    glyph: String,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = InlineFormatArg::Kitty)]
+    format: InlineFormatArg,
+    /// Tone palette used by fallback formats.
+    #[arg(long, value_enum, default_value_t = ToneArg::Assistant)]
+    tone: ToneArg,
+    /// Inline graphics theme.
+    #[arg(long, value_enum, default_value_t = InlineThemeArg::Nord)]
+    theme: InlineThemeArg,
+    /// Inline graphics style.
+    #[arg(long, value_enum, default_value_t = InlineStyleArg::Glass)]
+    style: InlineStyleArg,
+    /// Rule color override as hex or theme index/name.
+    #[arg(long)]
+    color: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -678,13 +709,16 @@ fn run_inline(
     mode: EmitMode,
 ) -> Result<()> {
     match cmd {
-        InlineCmd::Chip(args) if args.format.uses_kitty_graphics() => {
-            run_inline_chip_kitty(global, runtime, args, mode)
-        }
         InlineCmd::Chip(args) => {
-            print!("{}", render_inline_chip(args));
-            Ok(())
+            run_inline_text_component(global, runtime, args, InlineTextComponent::Chip, mode)
         }
+        InlineCmd::Badge(args) => {
+            run_inline_text_component(global, runtime, args, InlineTextComponent::Badge, mode)
+        }
+        InlineCmd::Segment(args) => {
+            run_inline_text_component(global, runtime, args, InlineTextComponent::Segment, mode)
+        }
+        InlineCmd::Divider(args) => run_inline_divider(global, runtime, args, mode),
         InlineCmd::Examples => {
             print!("{}", inline_examples_text());
             Ok(())
@@ -692,15 +726,55 @@ fn run_inline(
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum InlineTextComponent {
+    Chip,
+    Badge,
+    Segment,
+}
+
+impl InlineTextComponent {
+    fn label(self) -> &'static str {
+        match self {
+            InlineTextComponent::Chip => "chip",
+            InlineTextComponent::Badge => "badge",
+            InlineTextComponent::Segment => "segment",
+        }
+    }
+
+    fn radius(self, rect_height: f32) -> f32 {
+        match self {
+            InlineTextComponent::Chip => (rect_height / 2.0).max(1.0),
+            InlineTextComponent::Badge => 4.0,
+            InlineTextComponent::Segment => 2.0,
+        }
+    }
+}
+
+fn run_inline_text_component(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &InlineChipArgs,
+    component: InlineTextComponent,
+    mode: EmitMode,
+) -> Result<()> {
+    if args.format.uses_kitty_graphics() {
+        return run_inline_chip_kitty(global, runtime, args, component, mode);
+    }
+    print!("{}", render_inline_text_component(args, component));
+    Ok(())
+}
+
 fn run_inline_chip_kitty(
     global: &GlobalConfig,
     runtime: &Runtime,
     args: &InlineChipArgs,
+    component: InlineTextComponent,
     mode: EmitMode,
 ) -> Result<()> {
     let colors = inline_chip_colors(args)?;
     let cols = inline_chip_cols(args);
-    let scene = inline_chip_scene(cols, colors);
+    let scene = inline_chip_scene(cols, colors, component);
     if mode.scene_json {
         println!("{}", serialize_scene_json(&scene)?);
         return Ok(());
@@ -716,6 +790,7 @@ fn run_inline_chip_kitty(
     if mode.dry_run || global.json.value {
         let mut payload =
             placement_json_payload(global, &placement, None, mode.dry_run, mode.json_bytes);
+        payload["inline_component"] = serde_json::json!(component.label());
         payload["inline_text"] = serde_json::json!(args.text);
         payload["inline_format"] = serde_json::json!(args.format.label());
         payload["upload_bytes"] = serde_json::json!(upload.len());
@@ -766,10 +841,11 @@ fn inline_chip_colors(args: &InlineChipArgs) -> Result<InlineChipColors> {
     )
 }
 
-fn inline_chip_scene(cols: u16, colors: InlineChipColors) -> Scene {
+fn inline_chip_scene(cols: u16, colors: InlineChipColors, component: InlineTextComponent) -> Scene {
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, cols, 1);
     let rect = footprint.to_pixels(cell);
+    let radius = component.radius(rect.height as f32);
     let highlight_rect = kittui_core::geom::PxRect::new(
         rect.origin.0,
         rect.origin.1,
@@ -790,7 +866,7 @@ fn inline_chip_scene(cols: u16, colors: InlineChipColors) -> Scene {
                         color: colors.border,
                     },
                 }),
-                corners: Corners::uniform((rect.height as f32 / 2.0).max(1.0)),
+                corners: Corners::uniform(radius),
             }),
             Layer::anon(Node::Rect {
                 rect: highlight_rect,
@@ -798,7 +874,7 @@ fn inline_chip_scene(cols: u16, colors: InlineChipColors) -> Scene {
                     color: colors.highlight,
                 },
                 stroke: None,
-                corners: Corners::uniform((rect.height as f32 / 2.0).max(1.0)),
+                corners: Corners::uniform(radius),
             }),
         ],
         animation: None,
@@ -892,15 +968,24 @@ Notes:
 "##
 }
 
+#[cfg(test)]
 fn render_inline_chip(args: &InlineChipArgs) -> String {
-    let padding = " ".repeat(args.padding);
-    let label = format!("{padding}{}{padding}", args.text);
+    render_inline_text_component(args, InlineTextComponent::Chip)
+}
+
+fn render_inline_text_component(args: &InlineChipArgs, component: InlineTextComponent) -> String {
+    let label = inline_chip_visible_text(&args.text, args.padding);
     let palette = Palette::for_tone(args.tone.into());
+    let plain = match component {
+        InlineTextComponent::Chip => format!("[{label}]"),
+        InlineTextComponent::Badge => format!("<{label}>"),
+        InlineTextComponent::Segment => label.clone(),
+    };
     match args.format {
         InlineFormatArg::Kitty
         | InlineFormatArg::PromptZsh
         | InlineFormatArg::PromptBash
-        | InlineFormatArg::Plain => format!("[{label}]"),
+        | InlineFormatArg::Plain => plain,
         InlineFormatArg::Ansi => format!(
             "\x1b[1;38;2;{};{};{};48;2;{};{};{}m{label}\x1b[0m",
             palette.rail.0,
@@ -917,6 +1002,125 @@ fn render_inline_chip(args: &InlineChipArgs) -> String {
             tmux_escape(&label),
         ),
     }
+}
+
+fn run_inline_divider(
+    global: &GlobalConfig,
+    runtime: &Runtime,
+    args: &InlineDividerArgs,
+    mode: EmitMode,
+) -> Result<()> {
+    if !args.format.uses_kitty_graphics() {
+        print!("{}", render_inline_divider(args)?);
+        return Ok(());
+    }
+    let color = inline_divider_color(args)?;
+    let scene = inline_divider_scene(args.width, color);
+    if mode.scene_json {
+        println!("{}", serialize_scene_json(&scene)?);
+        return Ok(());
+    }
+    let placement = runtime.place(&scene)?;
+    let wrapper = args.format.prompt_wrapper();
+    let upload = wrap_prompt_nonprinting(&placement.upload, wrapper);
+    let inline_placement = wrap_prompt_nonprinting(
+        &inline_background_placement(&placement, runtime.transport()),
+        wrapper,
+    );
+    let embed = inline_chip_text_embed(&inline_divider_visible_text(args), 0, color, wrapper);
+    if mode.dry_run || global.json.value {
+        let mut payload =
+            placement_json_payload(global, &placement, None, mode.dry_run, mode.json_bytes);
+        payload["inline_component"] = serde_json::json!("divider");
+        payload["inline_format"] = serde_json::json!(args.format.label());
+        payload["upload_bytes"] = serde_json::json!(upload.len());
+        payload["placement_bytes"] = serde_json::json!(inline_placement.len());
+        payload["embed_bytes"] = serde_json::json!(embed.len());
+        if mode.json_bytes || mode.dry_run {
+            payload["upload"] = serde_json::json!(upload);
+            payload["placement"] = serde_json::json!(inline_placement);
+            payload["embed"] = serde_json::json!(embed);
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+        return Ok(());
+    }
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let any_filter = mode.upload_only || mode.placement_only || mode.embed_only;
+    if !any_filter || mode.upload_only {
+        handle.write_all(upload.as_bytes())?;
+    }
+    if !any_filter || mode.placement_only {
+        handle.write_all(inline_placement.as_bytes())?;
+    }
+    if !any_filter || mode.embed_only {
+        handle.write_all(embed.as_bytes())?;
+    }
+    Ok(())
+}
+
+fn inline_divider_color(args: &InlineDividerArgs) -> Result<Rgba> {
+    let colors = InlineChipColors::resolve(args.theme.into(), args.style.into());
+    Ok(match &args.color {
+        Some(color) => parse_nord_inline_color(color)?,
+        None => colors.border,
+    })
+}
+
+fn inline_divider_scene(cols: u16, color: Rgba) -> Scene {
+    let cell = CellSize::default();
+    let footprint = CellRect::new(0, 0, cols.max(1), 1);
+    let rect = footprint.to_pixels(cell);
+    let rule_height = 2.0_f32.min(rect.height.max(1.0));
+    Scene {
+        footprint,
+        cell_size: cell,
+        layers: vec![Layer::anon(Node::Rect {
+            rect: kittui_core::geom::PxRect::new(
+                0.0,
+                ((rect.height - rule_height) / 2.0).max(0.0),
+                rect.width,
+                rule_height,
+            ),
+            fill: Paint::Solid { color },
+            stroke: None,
+            corners: Corners::uniform(rule_height / 2.0),
+        })],
+        animation: None,
+    }
+}
+
+fn inline_divider_visible_text(args: &InlineDividerArgs) -> String {
+    let glyph = if args.glyph.is_empty() {
+        "─"
+    } else {
+        &args.glyph
+    };
+    glyph
+        .chars()
+        .cycle()
+        .take(args.width.max(1) as usize)
+        .collect()
+}
+
+fn render_inline_divider(args: &InlineDividerArgs) -> Result<String> {
+    let text = inline_divider_visible_text(args);
+    let palette = Palette::for_tone(args.tone.into());
+    Ok(match args.format {
+        InlineFormatArg::Kitty
+        | InlineFormatArg::PromptZsh
+        | InlineFormatArg::PromptBash
+        | InlineFormatArg::Plain => text,
+        InlineFormatArg::Ansi => format!(
+            "\x1b[1;38;2;{};{};{}m{text}\x1b[0m",
+            palette.rail.0, palette.rail.1, palette.rail.2,
+        ),
+        InlineFormatArg::Tmux => format!(
+            "#[bold,fg={}]{}#[default]",
+            rgba_hex(palette.rail),
+            tmux_escape(&text),
+        ),
+    })
 }
 
 fn rgba_hex(color: Rgba) -> String {
@@ -2209,7 +2413,7 @@ mod tests {
         let colors = inline_chip_colors(&args).unwrap();
         assert_eq!(colors.fill.3, 175);
         assert_eq!(inline_chip_cols(&args), 8);
-        let scene = inline_chip_scene(inline_chip_cols(&args), colors);
+        let scene = inline_chip_scene(inline_chip_cols(&args), colors, InlineTextComponent::Chip);
         assert_eq!(scene.footprint.cols, 8);
         assert_eq!(scene.footprint.rows, 1);
         let embed =
@@ -2239,6 +2443,52 @@ mod tests {
         assert!(placement.contains("\x1b[8D"), "{placement:?}");
         assert!(!placement.contains("U=1"), "{placement:?}");
         assert!(!placement.contains("[1;1H"), "{placement:?}");
+    }
+
+    #[test]
+    fn inline_badge_segment_and_divider_have_one_line_outputs() {
+        let mut args = InlineChipArgs {
+            text: "ok".to_string(),
+            format: InlineFormatArg::Plain,
+            tone: ToneArg::Assistant,
+            theme: InlineThemeArg::Nord,
+            style: InlineStyleArg::Glass,
+            bg_color: None,
+            border_color: None,
+            fg_color: None,
+            padding: 1,
+        };
+        assert_eq!(
+            render_inline_text_component(&args, InlineTextComponent::Badge),
+            "< ok >"
+        );
+        assert_eq!(
+            render_inline_text_component(&args, InlineTextComponent::Segment),
+            " ok "
+        );
+        args.format = InlineFormatArg::Tmux;
+        let badge = render_inline_text_component(&args, InlineTextComponent::Badge);
+        assert!(badge.starts_with("#[bold,fg=#"), "{badge}");
+        assert!(badge.contains(" ok "), "{badge}");
+
+        let colors = inline_chip_colors(&args).unwrap();
+        let segment_scene = inline_chip_scene(4, colors, InlineTextComponent::Segment);
+        assert_eq!(segment_scene.footprint.rows, 1);
+        assert_eq!(segment_scene.footprint.cols, 4);
+
+        let divider = InlineDividerArgs {
+            width: 5,
+            glyph: "=".to_string(),
+            format: InlineFormatArg::Plain,
+            tone: ToneArg::Assistant,
+            theme: InlineThemeArg::Nord,
+            style: InlineStyleArg::Glass,
+            color: None,
+        };
+        assert_eq!(render_inline_divider(&divider).unwrap(), "=====");
+        let scene = inline_divider_scene(5, inline_divider_color(&divider).unwrap());
+        assert_eq!(scene.footprint.cols, 5);
+        assert_eq!(scene.footprint.rows, 1);
     }
 
     #[test]
