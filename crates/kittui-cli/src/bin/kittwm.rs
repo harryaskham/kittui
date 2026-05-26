@@ -148,6 +148,8 @@ struct Cli {
     native_out: Option<String>,
     save_session: Option<String>,
     restore_session: Option<String>,
+    session_scene_json: bool,
+    session_kitty: bool,
     semantic_publish: Option<(String, String)>,
     automation_request: Option<String>,
     socket: Option<String>,
@@ -323,6 +325,14 @@ fn parse_args() -> Result<Cli> {
             }
             "chrome-kitty" | "chrome-graphics" => {
                 out.chrome_kitty = true;
+                break;
+            }
+            "session-scene-json" => {
+                out.session_scene_json = true;
+                break;
+            }
+            "session-kitty" | "session-graphics" => {
+                out.session_kitty = true;
                 break;
             }
             "panes" => {
@@ -735,6 +745,8 @@ fn parse_args() -> Result<Cli> {
             "--panes-scene-json" => out.panes_scene_json = true,
             "--panes-kitty" | "--panes-graphics" => out.panes_kitty = true,
             "--session-json" => out.automation_request = Some("SESSION_JSON".to_string()),
+            "--session-scene-json" => out.session_scene_json = true,
+            "--session-kitty" | "--session-graphics" => out.session_kitty = true,
             "--events" => out.automation_request = Some("EVENTS".to_string()),
             "--events-ms" => {
                 let ms = args.next().ok_or_else(|| anyhow!("--events-ms MS"))?;
@@ -1308,6 +1320,9 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "chrome-scene-json",
         "chrome-kitty",
         "chrome-graphics",
+        "session-scene-json",
+        "session-kitty",
+        "session-graphics",
         "panes",
         "panes-json",
         "events",
@@ -1752,6 +1767,9 @@ fn real_main() -> Result<()> {
     }
     if cli.chrome_scene_json || cli.chrome_kitty {
         return chrome_graphical_cmd(cli.chrome_kitty);
+    }
+    if cli.session_scene_json || cli.session_kitty {
+        return session_graphical_cmd(cli.session_kitty);
     }
     if let Some(request) = &cli.automation_request {
         return automation_cmd(request);
@@ -3293,6 +3311,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "restore session manifest",
         },
         LocalCommandEntry {
+            command: "session-scene-json",
+            category: "session",
+            description: "session manifest kittui scene",
+        },
+        LocalCommandEntry {
+            command: "session-kitty",
+            category: "session",
+            description: "session manifest kitty graphics",
+        },
+        LocalCommandEntry {
             command: "doctor",
             category: "diagnostics",
             description: "diagnostics and readiness hints",
@@ -4524,6 +4552,134 @@ fn panes_scene(panes: &serde_json::Value) -> Scene {
                         Rgba::rgba(235, 203, 139, 255)
                     } else {
                         Rgba::rgba(136, 192, 208, 255)
+                    },
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
+}
+
+fn session_graphical_cmd(kitty: bool) -> Result<()> {
+    let session = load_session_snapshot()?;
+    let scene = session_scene(&session);
+    print_scene_or_kitty(&scene, kitty, 20)
+}
+
+fn load_session_snapshot() -> Result<serde_json::Value> {
+    use kittui_cli::daemon::{client_request_multi, default_socket_path};
+    let path = default_socket_path();
+    let session = client_request_multi(&path, "SESSION_JSON")
+        .map_err(|err| anyhow!("connect {}: {err}", path.display()))?;
+    Ok(serde_json::from_str(&session)?)
+}
+
+fn session_scene(session: &serde_json::Value) -> Scene {
+    let cols = info_scene_cols();
+    let panes = session
+        .get("panes")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let rows = (panes.len() as u16 + 5).clamp(8, 24);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let kind = session
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("kittwm-session");
+    let layout = session
+        .get("layout")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let focus = session
+        .get("focus")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let schema = session
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .map(|version| version.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-session-backdrop:kind={kind}:schema={schema}:layout={layout}:focus={focus}:panes={}",
+                panes.len()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(163, 190, 140, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some("kittwm-session-heading:manifest".to_string()),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, pane) in panes.iter().take(18).enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        let window = pane
+            .get("window")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("-");
+        let title = pane
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("-");
+        let command = pane
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("-");
+        let weight = pane
+            .get("weight")
+            .and_then(serde_json::Value::as_u64)
+            .map(|weight| weight.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let focused = pane
+            .get("focused")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-session-row:{idx}:window={window}:title={title}:command={command}:weight={weight}:focused={focused}"
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: if focused {
+                        Rgba::rgba(235, 203, 139, 255)
+                    } else {
+                        Rgba::rgba(163, 190, 140, 255)
                     },
                 },
                 stroke: None,
@@ -6075,6 +6231,9 @@ mod tests {
             entry["command"] == "wait [WINDOW] TEXT" && entry["category"] == "action"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "session-kitty" && entry["category"] == "session"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "help-kitty [topic]" && entry["category"] == "help"
         }));
         assert!(json["commands"]
@@ -6126,6 +6285,38 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn session_scene_labels_manifest_panes() {
+        let session = serde_json::json!({
+            "schema_version": 1,
+            "kind": "kittwm-native-session",
+            "layout": "rows",
+            "focus": "native-2",
+            "panes": [
+                {"index":0,"window":"native-1","title":"shell","command":"bash","weight":1,"focused":false},
+                {"index":1,"window":"native-2","title":"editor","command":"vim","weight":2,"focused":true}
+            ]
+        });
+        let scene = session_scene(&session);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-session-backdrop:kind=kittwm-native-session:schema=1:layout=rows:focus=native-2:panes=2"
+            )),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-session-row:1:window=native-2:title=editor:command=vim:weight=2:focused=true"
+            )),
+            "{labels:?}"
+        );
     }
 
     #[test]
