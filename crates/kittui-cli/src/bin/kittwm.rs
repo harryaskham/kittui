@@ -100,6 +100,8 @@ struct Cli {
     cheat: bool,
     commands: bool,
     commands_json: bool,
+    commands_scene_json: bool,
+    commands_kitty: bool,
     architecture_json: bool,
     native_surfaces: bool,
     native_surfaces_json: bool,
@@ -193,6 +195,8 @@ fn parse_args() -> Result<Cli> {
             "cheat" | "cheatsheet" | "cheat-sheet" => out.cheat = true,
             "commands" => out.commands = true,
             "commands-json" => out.commands_json = true,
+            "commands-scene-json" => out.commands_scene_json = true,
+            "commands-kitty" | "commands-graphics" => out.commands_kitty = true,
             "architecture-json" | "platform-contract-json" => out.architecture_json = true,
             "native-surfaces" | "surface-coverage" => out.native_surfaces = true,
             "native-surfaces-json" | "surface-coverage-json" => out.native_surfaces_json = true,
@@ -816,6 +820,8 @@ USAGE
   kittwm examples                Show copy-paste daily-driver workflows
   kittwm commands                Show grouped local CLI command catalog
   kittwm commands-json           Show local CLI command catalog JSON
+  kittwm commands-scene-json     Emit local command catalog as a kittui Scene
+  kittwm commands-kitty          Render local command catalog with kitty graphics
   kittwm architecture-json       Emit WM architecture/separation contract JSON
   kittwm native-surfaces         Show first-party native surface coverage
   kittwm native-surfaces-json    Emit first-party native surface coverage JSON
@@ -1417,6 +1423,9 @@ fn real_main() -> Result<()> {
     }
     if cli.commands_json {
         return commands_json_cmd();
+    }
+    if cli.commands_scene_json || cli.commands_kitty {
+        return commands_graphical_cmd(cli.commands_kitty);
     }
     if cli.architecture_json {
         return architecture_json_cmd();
@@ -2759,6 +2768,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "machine-readable local command catalog",
         },
         LocalCommandEntry {
+            command: "commands-scene-json",
+            category: "help",
+            description: "kittui scene local command catalog",
+        },
+        LocalCommandEntry {
+            command: "commands-kitty",
+            category: "help",
+            description: "kitty-graphics local command catalog",
+        },
+        LocalCommandEntry {
             command: "architecture-json",
             category: "diagnostics",
             description: "WM architecture/separation contract JSON",
@@ -2974,6 +2993,89 @@ fn commands_cmd() -> Result<()> {
 fn commands_json_cmd() -> Result<()> {
     print!("{}", commands_json_text());
     Ok(())
+}
+
+fn commands_graphical_cmd(kitty: bool) -> Result<()> {
+    let scene = commands_scene();
+    print_scene_or_kitty(&scene, kitty, 20)
+}
+
+fn commands_scene() -> Scene {
+    let cols = info_scene_cols();
+    let entries = local_command_entries();
+    let rows = (entries.len() as u16 + 5).clamp(8, 28);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let mut by_category = std::collections::BTreeMap::<&str, usize>::new();
+    for entry in entries {
+        *by_category.entry(entry.category).or_default() += 1;
+    }
+    let summary = by_category
+        .iter()
+        .map(|(category, count)| format!("{category}={count}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-commands-backdrop:count={}:categories={summary}",
+                entries.len()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(163, 190, 140, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some("kittwm-commands-heading:local-command-catalog".to_string()),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, entry) in entries.iter().take(20).enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-command-row:{}:{}:{}",
+                entry.category, entry.command, entry.description
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(163, 190, 140, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn architecture_contract_json_text() -> String {
@@ -4671,6 +4773,46 @@ mod tests {
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "native-surfaces-json" && entry["category"] == "diagnostics"
         }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "commands-scene-json" && entry["category"] == "help"
+        }));
+        assert!(json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn commands_scene_labels_catalog_categories_and_rows() {
+        let scene = commands_scene();
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("kittwm-commands-backdrop:count=")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains("help=")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-command-row:help:commands-kitty")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-command-row:lifecycle:start")),
+            "{labels:?}"
+        );
     }
 
     #[test]
