@@ -297,6 +297,24 @@ impl Runtime {
         self.place_uploaded_image_with_upload_and_options(image_id, footprint, upload, options)
     }
 
+    /// WM/browser hot path: emit a `Placement` for an already encoded PNG
+    /// frame without constructing a `Scene` or using unicode placeholder text
+    /// at the call site.
+    ///
+    /// This keeps first-party native apps on the same kittui runtime transport
+    /// and placement semantics as scene/raw-frame surfaces while allowing
+    /// adapters such as headless browsers to provide their native PNG capture.
+    pub fn place_png_frame_with_options(
+        &self,
+        image_id: u32,
+        png: &[u8],
+        footprint: CellRect,
+        options: &kitty::PlacementOptions,
+    ) -> Placement {
+        let upload = kitty::upload_still(image_id, png, self.terminal.transport);
+        self.place_uploaded_image_with_upload_and_options(image_id, footprint, upload, options)
+    }
+
     /// Emit placement/embed text for an image id that is already uploaded.
     ///
     /// This is useful for WM policies that skip re-uploading byte-identical raw
@@ -957,6 +975,44 @@ mod tests {
         assert_eq!(pngs.len(), 2);
         assert!(pngs.iter().all(|png| png.starts_with(b"\x89PNG\r\n\x1a\n")));
         assert!(runtime.render_many_png(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn png_frame_placement_uses_runtime_transport_and_options() {
+        let rt = runtime_with_terminal(TerminalInfo::override_with(
+            None,
+            None,
+            CellSize::default(),
+            true,
+            true,
+            Transport::Direct,
+        ));
+        let mut opts = kitty::PlacementOptions::absolute();
+        opts.z_index = 7;
+        let placement = rt.place_png_frame_with_options(
+            404,
+            b"not-a-real-png-but-uploadable-bytes",
+            CellRect::new(2, 3, 4, 5),
+            &opts,
+        );
+        assert!(placement.upload.contains("a=t"), "{}", placement.upload);
+        assert!(placement.upload.contains("i=404"), "{}", placement.upload);
+        assert!(
+            placement.placement.contains("a=p"),
+            "{}",
+            placement.placement
+        );
+        assert!(
+            placement.placement.contains("z=7"),
+            "{}",
+            placement.placement
+        );
+        assert!(
+            !placement.placement.contains("U=1"),
+            "{}",
+            placement.placement
+        );
+        assert_eq!(placement.footprint, CellRect::new(2, 3, 4, 5));
     }
 
     #[test]

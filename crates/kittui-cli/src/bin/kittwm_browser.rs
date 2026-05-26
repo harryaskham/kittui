@@ -12,7 +12,9 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
-use kittui::{CellRect, TerminalInfo, Transport};
+#[cfg(test)]
+use kittui::Transport;
+use kittui::{CellRect, Runtime, TerminalInfo};
 use kittui_kitty as kitty;
 use kittui_wm::native::{HeadlessBrowserApp, NativeApp, NativeFrame};
 use kittwm_sdk::{Kittwm, SemanticSurfaceSnapshot};
@@ -116,7 +118,9 @@ fn real_main() -> Result<()> {
         u32::from(viewport.cols) * 8,
         u32::from(viewport.content_rows) * 16,
     )?;
-    let transport = TerminalInfo::detect().transport;
+    let runtime = Runtime::builder()
+        .terminal(TerminalInfo::detect())
+        .build()?;
     let _guard = TtyGuard::enter()?;
     let mut semantic_publisher = BrowserSemanticPublisher::from_env();
     let mut placed = false;
@@ -165,10 +169,15 @@ fn real_main() -> Result<()> {
         let fp = viewport.frame_footprint();
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        handle.write_all(kitty::upload_still(BROWSER_IMAGE_ID, &bytes, transport).as_bytes())?;
+        let placement = runtime.place_png_frame_with_options(
+            BROWSER_IMAGE_ID,
+            &bytes,
+            fp,
+            &browser_image_placement_options(),
+        );
+        handle.write_all(placement.upload.as_bytes())?;
         if !placed {
-            handle
-                .write_all(browser_image_placement(BROWSER_IMAGE_ID, fp, transport).as_bytes())?;
+            handle.write_all(placement.placement.as_bytes())?;
             placed = true;
         }
         write!(
@@ -304,9 +313,15 @@ impl BrowserViewport {
     }
 }
 
-fn browser_image_placement(image_id: u32, footprint: CellRect, transport: Transport) -> String {
+fn browser_image_placement_options() -> kitty::PlacementOptions {
     let mut options = kitty::PlacementOptions::absolute();
     options.z_index = BROWSER_IMAGE_Z_INDEX;
+    options
+}
+
+#[cfg(test)]
+fn browser_image_placement(image_id: u32, footprint: CellRect, transport: Transport) -> String {
+    let options = browser_image_placement_options();
     format!(
         "{}{}",
         kitty::cursor_move(footprint.x, footprint.y, transport),
