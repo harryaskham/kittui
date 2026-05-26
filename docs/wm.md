@@ -75,11 +75,12 @@ Native `PANES_JSON` includes per-pane `window`, `title`, `focused`, `weight`, op
 ## Architecture
 
 `kittwm architecture-json` emits the current machine-readable architecture
-contract for the kitty-graphics-backed WM. Treat that artifact as the boundary
-checklist for implementation work: the SDK/control plane names and authorizes
-surface operations, the tiling engine owns drawable geometry, surface adapters
-capture or synthesize app frames, the decoration renderer paints kittui scene
-chrome, and `kittui-kitty` only encodes transport/placement grammar.
+contract for the kitty-graphics-backed WM. The same schema is available to Rust
+apps as `kittwm_sdk::ArchitectureContract::current()`. Treat that artifact as
+the boundary checklist for implementation work: the SDK/control plane names and
+authorizes surface operations, the tiling engine owns drawable geometry, surface
+adapters capture or synthesize app frames, the decoration renderer paints kittui
+scene chrome, and `kittui-kitty` only encodes transport/placement grammar.
 
 The intended separation of concerns is:
 

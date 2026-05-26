@@ -244,6 +244,231 @@ impl SurfaceSpec {
     }
 }
 
+/// Machine-readable kittwm architecture/separation contract.
+///
+/// This is the typed SDK model behind `kittwm architecture-json`. It is not a
+/// live daemon capability negotiation; it is a stable contract that app authors
+/// and tests can use to keep SDK/control-plane, tiling, surface rendering,
+/// decoration rendering, and kitty transport responsibilities separated.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchitectureContract {
+    /// Contract schema version.
+    pub schema_version: u32,
+    /// Artifact kind string.
+    pub kind: String,
+    /// Human-readable platform goal.
+    pub goal: String,
+    /// Ordered architecture layers and their boundaries.
+    pub layers: Vec<ArchitectureLayer>,
+    /// Expected compositor plane ordering.
+    pub composition_order: Vec<CompositionPlane>,
+    /// First-party native surfaces and their SDK entry points.
+    pub first_party_native_surfaces: Vec<NativeSurfaceContract>,
+    /// Inspection artifacts that expose the contract or adjacent runtime state.
+    pub inspection_artifacts: Vec<String>,
+}
+
+/// One responsibility layer in the kittwm architecture contract.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchitectureLayer {
+    /// Stable layer id.
+    pub id: String,
+    /// Code/module owner for the layer.
+    pub owner: String,
+    /// Responsibilities owned by this layer.
+    pub responsibilities: Vec<String>,
+    /// Responsibilities this layer must avoid.
+    pub must_not: Vec<String>,
+    /// Runtime/layout invariants, when applicable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invariants: Vec<String>,
+    /// Public/native contracts associated with this layer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub native_contracts: Vec<String>,
+}
+
+/// One compositor plane in the WM composition order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompositionPlane {
+    /// Plane name.
+    pub plane: String,
+    /// Kitty/kittui placement z-index used by the current contract.
+    pub z_index: i32,
+}
+
+/// First-party native surface contract exposed through the SDK/platform.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeSurfaceContract {
+    /// Binary or surface name.
+    pub name: String,
+    /// SDK/control-plane surface kind.
+    pub surface_kind: String,
+    /// SDK entry point apps should use.
+    pub sdk_entry: String,
+    /// Current rendering path summary.
+    pub rendering: String,
+}
+
+impl ArchitectureContract {
+    /// Return the current built-in kittwm platform contract.
+    pub fn current() -> Self {
+        Self {
+            schema_version: 1,
+            kind: "kittwm-architecture-contract".to_string(),
+            goal: "usable kitty-graphics-backed terminal window manager with explicit separation of concerns".to_string(),
+            layers: vec![
+                ArchitectureLayer {
+                    id: "sdk-control-plane".to_string(),
+                    owner: "kittwm-sdk".to_string(),
+                    responsibilities: strings(&[
+                        "typed app-facing surface vocabulary",
+                        "socket/display discovery",
+                        "least-privilege client capabilities",
+                        "status/panes/chrome/events/semantic automation helpers",
+                    ]),
+                    must_not: strings(&[
+                        "decide pane geometry",
+                        "emit kitty graphics escape sequences",
+                        "know terminal chrome pixel placement",
+                    ]),
+                    invariants: Vec::new(),
+                    native_contracts: strings(&[
+                        "SurfaceSpec::terminal",
+                        "SurfaceSpec::browser",
+                        "ChromeReservationRequest",
+                        "ChromeReservationStatus",
+                        "SemanticSurfaceSnapshot",
+                    ]),
+                },
+                ArchitectureLayer {
+                    id: "tiling-engine".to_string(),
+                    owner: "kittwm native session layout".to_string(),
+                    responsibilities: strings(&[
+                        "consume reported terminal cols/rows",
+                        "apply chrome reservations and tile gaps",
+                        "produce disjoint outer/app bounds",
+                        "route focus and pointer/app-local coordinates",
+                    ]),
+                    must_not: strings(&[
+                        "upload images",
+                        "paint decorations",
+                        "query application semantics",
+                    ]),
+                    invariants: strings(&[
+                        "outer bounds are disjoint",
+                        "app bounds are disjoint and inside outer bounds",
+                        "drawable rows never exceed reported rows minus reservations",
+                        "resize recomputes all pane bounds before surface resize",
+                    ]),
+                    native_contracts: Vec::new(),
+                },
+                ArchitectureLayer {
+                    id: "surface-renderer".to_string(),
+                    owner: "NativeSurface adapters + kittui::Runtime".to_string(),
+                    responsibilities: strings(&[
+                        "capture PTY/browser/native surfaces into frames or scenes",
+                        "fit frames to allocated app cell bounds",
+                        "cache/upload/place kitty images",
+                        "honor explicit placement/z-plane options",
+                    ]),
+                    must_not: strings(&[
+                        "allocate tiles",
+                        "draw WM decorations",
+                        "consume SDK policy directly",
+                    ]),
+                    invariants: Vec::new(),
+                    native_contracts: strings(&[
+                        "Runtime::place_at_with_options",
+                        "Runtime::place_raw_frame_with_options",
+                        "Runtime::place_uploaded_image_with_options",
+                        "KITTWM_NATIVE_RENDERER=kitty|terminal",
+                    ]),
+                },
+                ArchitectureLayer {
+                    id: "decoration-renderer".to_string(),
+                    owner: "kittui-affordances + kittwm chrome helpers".to_string(),
+                    responsibilities: strings(&[
+                        "render top bar, pane titles, borders, footer, overlays as kittui scenes",
+                        "use shared theme/style tokens",
+                        "label scene layers for diagnostics",
+                        "stay above app surfaces on a dedicated z-plane",
+                    ]),
+                    must_not: strings(&[
+                        "capture app pixels",
+                        "resize PTYs/browser surfaces",
+                        "own app input routing",
+                    ]),
+                    invariants: Vec::new(),
+                    native_contracts: strings(&[
+                        "kittwm-bar --scene-json",
+                        "kittwm showcase-scene-json",
+                        "kittwm showcase-composition-json",
+                    ]),
+                },
+                ArchitectureLayer {
+                    id: "kitty-compositor".to_string(),
+                    owner: "kittui-kitty transport grammar".to_string(),
+                    responsibilities: strings(&[
+                        "encode kitty graphics upload/placement/delete commands",
+                        "support direct/tmux/file/shared-memory transports",
+                        "provide absolute or unicode-placeholder placement options",
+                    ]),
+                    must_not: strings(&[
+                        "know about panes or workspaces",
+                        "choose WM layout policy",
+                        "special-case first-party apps",
+                    ]),
+                    invariants: Vec::new(),
+                    native_contracts: Vec::new(),
+                },
+            ],
+            composition_order: vec![
+                CompositionPlane { plane: "app-surfaces".to_string(), z_index: 0 },
+                CompositionPlane { plane: "decorations".to_string(), z_index: 20 },
+                CompositionPlane { plane: "overlays".to_string(), z_index: 30 },
+            ],
+            first_party_native_surfaces: vec![
+                NativeSurfaceContract {
+                    name: "kittwm-terminal".to_string(),
+                    surface_kind: "terminal".to_string(),
+                    sdk_entry: "SurfaceSpec::terminal".to_string(),
+                    rendering: "PTY NativeSurface -> fitted app frame -> kitty graphics".to_string(),
+                },
+                NativeSurfaceContract {
+                    name: "kittwm-browser".to_string(),
+                    surface_kind: "browser".to_string(),
+                    sdk_entry: "SurfaceSpec::browser".to_string(),
+                    rendering: "HeadlessBrowserApp frame -> absolute kitty graphics placement".to_string(),
+                },
+                NativeSurfaceContract {
+                    name: "kittwm-bar".to_string(),
+                    surface_kind: "chrome".to_string(),
+                    sdk_entry: "Kittwm::chrome / ChromeReservationRequest".to_string(),
+                    rendering: "BarModel -> kittui Scene JSON".to_string(),
+                },
+            ],
+            inspection_artifacts: strings(&[
+                "kittwm architecture-json",
+                "kittwm commands-json",
+                "kittwm showcase-composition-json",
+                "kittwm tui-smoke-json",
+                "STATUS_JSON",
+                "PANES_JSON",
+                "CHROME_JSON",
+            ]),
+        }
+    }
+
+    /// Look up a layer by stable id.
+    pub fn layer(&self, id: &str) -> Option<&ArchitectureLayer> {
+        self.layers.iter().find(|layer| layer.id == id)
+    }
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_string()).collect()
+}
+
 /// Result of queueing a surface spawn on the current socket transport.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SurfaceSpawn {
@@ -2411,6 +2636,29 @@ mod tests {
             })
         );
         env::remove_var("KITTWM_WINDOW");
+    }
+
+    #[test]
+    fn architecture_contract_exposes_wm_boundaries_for_apps() {
+        let contract = ArchitectureContract::current();
+        assert_eq!(contract.schema_version, 1);
+        assert_eq!(contract.kind, "kittwm-architecture-contract");
+        assert!(contract.layer("sdk-control-plane").is_some());
+        let tiling = contract.layer("tiling-engine").unwrap();
+        assert!(tiling
+            .invariants
+            .iter()
+            .any(|invariant| invariant.contains("outer bounds are disjoint")));
+        assert!(contract
+            .composition_order
+            .iter()
+            .any(|plane| { plane.plane == "decorations" && plane.z_index == 20 }));
+        assert!(contract.first_party_native_surfaces.iter().any(|surface| {
+            surface.name == "kittwm-browser" && surface.sdk_entry == "SurfaceSpec::browser"
+        }));
+        let roundtrip: ArchitectureContract =
+            serde_json::from_str(&serde_json::to_string(&contract).unwrap()).unwrap();
+        assert_eq!(roundtrip, contract);
     }
 
     #[test]
