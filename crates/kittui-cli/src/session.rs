@@ -2389,17 +2389,30 @@ fn native_pane_title_text(pane: &NativePane, layout: NativePaneLayout, focused: 
     clipped
 }
 
+fn ansi_fg_bg(fg: Rgba, bg: Rgba) -> String {
+    format!(
+        "\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m",
+        fg.0, fg.1, fg.2, bg.0, bg.1, bg.2
+    )
+}
+
 fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u16) -> String {
+    let colors = native_glass_chrome_colors();
     let mut out = String::new();
     out.push_str("\x1b[H");
     out.push_str(&format!(
-        "\x1b[{};1H\x1b[7m{}\x1b[0m",
+        "\x1b[{};1H{}{}\x1b[0m",
         view.top_bar.row + 1,
+        ansi_fg_bg(colors.fg, colors.fill),
         clip_and_pad(&view.top_bar.text, cols as usize)
     ));
     // Empty workspaces intentionally render only the top bar by default.
     for pane in &view.panes {
-        let title_style = if pane.focused { "\x1b[7m" } else { "\x1b[2m" };
+        let title_style = if pane.focused {
+            ansi_fg_bg(colors.fg, colors.border)
+        } else {
+            ansi_fg_bg(colors.fg, rgba_with_alpha(colors.fill, 180))
+        };
         out.push_str(&format!(
             "\x1b[{};{}H{}{}\x1b[0m",
             pane.y + 1,
@@ -2763,7 +2776,36 @@ fn render_native_shell_view_affordance_scenes(
 }
 
 fn native_glass_chrome_colors() -> InlineChipColors {
-    InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass)
+    let mut colors = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass);
+    if let Ok(config) = KittwmConfig::load_default() {
+        colors.fill = config_color_rgba(
+            &config.background.color,
+            config.background.opacity,
+            colors.fill,
+        );
+        colors.border = config_color_rgba(&config.colorscheme.fg, 1.0, colors.border);
+        colors.highlight = config_color_rgba(
+            config
+                .colorscheme
+                .ansi_color(4)
+                .unwrap_or(&config.colorscheme.fg),
+            0.42,
+            colors.highlight,
+        );
+        colors.fg = config_color_rgba(&config.colorscheme.fg, 1.0, colors.fg);
+    }
+    colors
+}
+
+fn config_color_rgba(value: &str, opacity: f32, fallback: Rgba) -> Rgba {
+    let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let rgba = nord_or_hex_rgba(value, alpha);
+    if rgba == [0x2e, 0x34, 0x40, alpha]
+        && !matches!(value.to_ascii_lowercase().as_str(), "nord0" | "#2e3440")
+    {
+        return fallback;
+    }
+    Rgba(rgba[0], rgba[1], rgba[2], rgba[3])
 }
 
 fn native_pane_title_status_scene(
@@ -3551,6 +3593,25 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_chrome_colors_follow_kittwm_config() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let root = std::env::temp_dir().join(format!("kittwm-theme-test-{}", std::process::id()));
+        let cfg_dir = root.join("kittwm");
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        std::fs::write(
+            cfg_dir.join("config.yaml"),
+            "background:\n  color: '#112233'\n  opacity: 0.5\ncolorscheme:\n  fg: '#abcdef'\n",
+        )
+        .unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", &root);
+        let colors = native_glass_chrome_colors();
+        assert_eq!(colors.fill, Rgba(0x11, 0x22, 0x33, 128));
+        assert_eq!(colors.border, Rgba(0xab, 0xcd, 0xef, 255));
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn native_chrome_renderer_selector_defaults_to_kittui_graphics() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
@@ -3894,10 +3955,8 @@ mod native_pane_tests {
         };
         let rendered = render_native_shell_view_terminal(&view, 12, 5);
         assert!(rendered.contains("| 1 | 2 | 3"), "{rendered:?}");
-        assert!(
-            rendered.contains("\x1b[2;1H\x1b[7m* native-1 shell\x1b[0m"),
-            "{rendered:?}"
-        );
+        assert!(rendered.contains("\x1b[2;1H"), "{rendered:?}");
+        assert!(rendered.contains("* native-1 shell\x1b[0m"), "{rendered:?}");
         assert!(rendered.contains("\x1b[3;1Hhello   "), "{rendered:?}");
         assert!(rendered.contains("\x1b[4;1Hworld   "), "{rendered:?}");
         assert!(!rendered.contains("ignored"), "{rendered:?}");
