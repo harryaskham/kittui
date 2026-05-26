@@ -237,6 +237,22 @@ impl SurfaceSpec {
         }
     }
 
+    /// Return the current first-party native surface contract that backs this
+    /// typed surface request, if any.
+    pub fn native_surface_contract(&self) -> Option<NativeSurfaceContract> {
+        ArchitectureContract::current()
+            .native_surface_for_spec(self)
+            .cloned()
+    }
+
+    /// Whether this typed surface request is covered by the current SDK-backed,
+    /// kitty-graphics-native first-party surface contract.
+    pub fn is_native_ready(&self) -> bool {
+        self.native_surface_contract()
+            .map(|surface| surface.is_native_ready())
+            .unwrap_or(false)
+    }
+
     /// Attach a display title.
     pub fn titled(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
@@ -2787,6 +2803,28 @@ mod tests {
         let roundtrip: ArchitectureContract =
             serde_json::from_str(&serde_json::to_string(&contract).unwrap()).unwrap();
         assert_eq!(roundtrip, contract);
+    }
+
+    #[test]
+    fn surface_spec_native_readiness_uses_architecture_contract() {
+        let terminal = SurfaceSpec::terminal("htop");
+        let terminal_contract = terminal.native_surface_contract().unwrap();
+        assert_eq!(terminal_contract.name, "kittwm-terminal");
+        assert!(terminal.is_native_ready());
+
+        let browser = SurfaceSpec::browser("https://example.com");
+        let browser_contract = browser.native_surface_contract().unwrap();
+        assert_eq!(browser_contract.name, "kittwm-browser");
+        assert_eq!(browser_contract.surface_kind, "browser");
+        assert!(browser.is_native_ready());
+
+        let other = SurfaceSpec {
+            kind: SurfaceKind::Other("canvas".to_string()),
+            command: "canvas".to_string(),
+            title: None,
+        };
+        assert!(other.native_surface_contract().is_none());
+        assert!(!other.is_native_ready());
     }
 
     #[test]
