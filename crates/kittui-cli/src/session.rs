@@ -40,6 +40,42 @@ use kittwm_sdk::{KittwmConfig, LibghosttyConfig};
 use crate::keymap::{Action, KeyMods, KeySpec, Keymap};
 use crate::top_bar::{workspace_label, BarModel};
 
+#[derive(Default)]
+struct NativeFrameWriteBatch {
+    bytes: Vec<u8>,
+}
+
+impl NativeFrameWriteBatch {
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    #[cfg(test)]
+    fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        if !self.bytes.is_empty() {
+            writer.write_all(&self.bytes)?;
+            writer.flush()?;
+        }
+        Ok(())
+    }
+}
+
+impl Write for NativeFrameWriteBatch {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.bytes.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
 /// `compositor` and `layout` are passed in so callers can wire any
@@ -531,9 +567,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         queue.update_panes(native_pane_statuses(&panes, focused, &layouts));
         let stdout = io::stdout();
         let mut handle = stdout.lock();
+        let mut frame_out = NativeFrameWriteBatch::default();
         let current_native_image_ids = native_image_id_set(&panes);
         for old_id in retired_native_image_ids(&prev_native_image_ids, &current_native_image_ids) {
-            handle.write_all(runtime.unplace(old_id).as_bytes())?;
+            frame_out.write_all(runtime.unplace(old_id).as_bytes())?;
         }
         prev_native_image_ids = current_native_image_ids;
         for pane in &panes {
@@ -543,7 +580,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             }
             let sequences = pane.app.take_host_sequences();
             if !sequences.is_empty() {
-                handle.write_all(&sequences)?;
+                frame_out.write_all(&sequences)?;
                 dbg.log(&format!(
                     "native terminal forwarded host sequence: window={} bytes={}",
                     pane.window,
@@ -555,10 +592,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if pure_terminal_renderer {
             let rendered = render_native_shell_view_terminal(&shell_view, cols, rows);
             if redraw_static {
-                handle.write_all(b"\x1b[2J")?;
+                frame_out.write_all(b"\x1b[2J")?;
             }
-            handle.write_all(rendered.as_bytes())?;
-            handle.flush()?;
+            frame_out.write_all(rendered.as_bytes())?;
+            frame_out.write_to(&mut handle)?;
             clear = false;
             if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
                 std::thread::sleep(slack);
@@ -566,7 +603,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             continue;
         }
         if clear {
-            handle.write_all(b"\x1b[2J")?;
+            frame_out.write_all(b"\x1b[2J")?;
             last_title_rows.clear();
             last_top_bar.clear();
             last_footer.clear();
@@ -577,7 +614,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         if redraw_static || shell_view.top_bar.text != last_top_bar {
             write!(
-                handle,
+                frame_out,
                 "\x1b[{};1H\x1b[7m{}\x1b[0m",
                 shell_view.top_bar.row + 1,
                 clip_and_pad(&shell_view.top_bar.text, cols as usize)
@@ -585,7 +622,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             last_top_bar = shell_view.top_bar.text.clone();
         }
         if shell_view.help_overlay && !affordance_scene_chrome {
-            write_native_help_overlay(&mut handle, cols, rows)?;
+            write_native_help_overlay(&mut frame_out, cols, rows)?;
         }
         for (idx, pane) in panes.iter_mut().enumerate() {
             let layout = layouts[idx];
@@ -593,7 +630,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             if !affordance_scene_chrome
                 && (redraw_static || last_title_rows.get(idx) != Some(&chrome.cache_key))
             {
-                write_native_pane_chrome(&mut handle, chrome)?;
+                write_native_pane_chrome(&mut frame_out, chrome)?;
                 last_title_rows[idx] = chrome.cache_key.clone();
             }
             let frame_start = Instant::now();
@@ -636,9 +673,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             &placement_options,
                         )
                     };
-                    handle.write_all(p.upload.as_bytes())?;
-                    handle.write_all(p.placement.as_bytes())?;
-                    handle.write_all(p.embed.as_bytes())?;
+                    frame_out.write_all(p.upload.as_bytes())?;
+                    frame_out.write_all(p.placement.as_bytes())?;
+                    frame_out.write_all(p.embed.as_bytes())?;
                     queue.publish_frame_presented(
                         pane.window.clone(),
                         crate::daemon::NativeFramePresented {
@@ -678,9 +715,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         footprint,
                         &placement_options,
                     );
-                    handle.write_all(p.upload.as_bytes())?;
-                    handle.write_all(p.placement.as_bytes())?;
-                    handle.write_all(p.embed.as_bytes())?;
+                    frame_out.write_all(p.upload.as_bytes())?;
+                    frame_out.write_all(p.placement.as_bytes())?;
+                    frame_out.write_all(p.embed.as_bytes())?;
                     pane.dirty_frame = Some(NativeDirtyFrameMetrics {
                         changed_tiles: 0,
                         total_tiles: 0,
@@ -711,9 +748,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             }
         }
         if affordance_scene_chrome {
-            write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view, cols)?;
+            write_native_shell_affordance_chrome(&mut frame_out, runtime, &shell_view, cols)?;
             if shell_view.help_overlay {
-                write_native_help_overlay(&mut handle, cols, rows)?;
+                write_native_help_overlay(&mut frame_out, cols, rows)?;
             }
         }
         if !affordance_scene_chrome
@@ -721,14 +758,14 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             && (redraw_static || shell_view.footer.text != last_footer)
         {
             write!(
-                handle,
+                frame_out,
                 "\x1b[{};1H\x1b[K{}",
                 shell_view.footer.row + 1,
                 shell_view.footer.text
             )?;
             last_footer = shell_view.footer.text;
         }
-        handle.flush()?;
+        frame_out.write_to(&mut handle)?;
         if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
             std::thread::sleep(slack);
         }
@@ -3380,6 +3417,50 @@ mod native_pane_tests {
     use super::*;
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[derive(Default)]
+    struct CountingWriter {
+        writes: usize,
+        flushes: usize,
+        bytes: Vec<u8>,
+    }
+
+    impl Write for CountingWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.writes += 1;
+            self.bytes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn native_frame_write_batch_coalesces_frame_segments_into_one_flush() {
+        let mut batch = NativeFrameWriteBatch::default();
+        assert!(batch.is_empty());
+        batch.write_all(b"host-seq").unwrap();
+        batch.write_all(b"upload").unwrap();
+        batch.write_all(b"place").unwrap();
+        batch.write_all(b"chrome").unwrap();
+        assert_eq!(batch.as_bytes(), b"host-sequploadplacechrome");
+
+        let mut writer = CountingWriter::default();
+        batch.write_to(&mut writer).unwrap();
+        assert_eq!(writer.writes, 1);
+        assert_eq!(writer.flushes, 1);
+        assert_eq!(writer.bytes, b"host-sequploadplacechrome");
+
+        let mut empty_writer = CountingWriter::default();
+        NativeFrameWriteBatch::default()
+            .write_to(&mut empty_writer)
+            .unwrap();
+        assert_eq!(empty_writer.writes, 0);
+        assert_eq!(empty_writer.flushes, 0);
+    }
 
     #[test]
     fn native_renderer_defaults_to_terminal_inside_tmux_unless_overridden() {
