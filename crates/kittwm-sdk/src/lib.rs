@@ -228,6 +228,33 @@ pub struct SurfacePlacementContract {
     pub kittui_entry: String,
 }
 
+impl SurfacePlacementContract {
+    /// Whether this placement belongs to the app/content plane.
+    pub fn is_app_surface(&self) -> bool {
+        self.composition_plane == "app-surfaces"
+    }
+
+    /// Whether this placement belongs to the decoration/chrome plane.
+    pub fn is_decoration(&self) -> bool {
+        self.composition_plane == "decorations"
+    }
+
+    /// Whether this placement belongs to the overlay plane.
+    pub fn is_overlay(&self) -> bool {
+        self.composition_plane == "overlays"
+    }
+
+    /// Whether this placement is above another placement by z-index.
+    pub fn is_above(&self, other: &SurfacePlacementContract) -> bool {
+        self.z_index > other.z_index
+    }
+
+    /// Whether this placement is below another placement by z-index.
+    pub fn is_below(&self, other: &SurfacePlacementContract) -> bool {
+        self.z_index < other.z_index
+    }
+}
+
 impl SurfaceSpec {
     /// Build a PTY terminal surface spec.
     pub fn terminal(command: impl Into<String>) -> Self {
@@ -2987,6 +3014,9 @@ mod tests {
         assert_eq!(terminal_placement.composition_plane, "app-surfaces");
         assert_eq!(terminal_placement.z_index, 0);
         assert!(terminal_placement.native_ready);
+        assert!(terminal_placement.is_app_surface());
+        assert!(!terminal_placement.is_decoration());
+        assert!(!terminal_placement.is_overlay());
 
         let browser = SurfaceSpec::browser("https://example.com");
         let browser_contract = browser.native_surface_contract().unwrap();
@@ -3004,6 +3034,22 @@ mod tests {
         assert!(browser_placement
             .kittui_entry
             .contains("Runtime::place_png_frame_with_options"));
+        assert!(browser_placement.is_app_surface());
+        assert!(!browser_placement.is_decoration());
+        let decoration_placement = SurfacePlacementContract {
+            surface: "kittwm-bar".to_string(),
+            surface_kind: "chrome".to_string(),
+            sdk_entry: "Kittwm::chrome / ChromeReservationRequest".to_string(),
+            sdk_backed: true,
+            kitty_graphics_native: true,
+            native_ready: true,
+            composition_plane: "decorations".to_string(),
+            z_index: 20,
+            kittui_entry: "BarModel::scene -> Runtime::place_at_with_options".to_string(),
+        };
+        assert!(decoration_placement.is_decoration());
+        assert!(decoration_placement.is_above(&browser_placement));
+        assert!(browser_placement.is_below(&decoration_placement));
         let roundtrip: SurfacePlacementContract =
             serde_json::from_str(&serde_json::to_string(&browser_placement).unwrap()).unwrap();
         assert_eq!(roundtrip, browser_placement);
