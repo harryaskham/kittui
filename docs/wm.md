@@ -109,6 +109,18 @@ via `SurfaceSpec::browser`) or explicit chrome contracts (`kittwm-bar` via
 `ChromeReservationRequest`/`CHROME_JSON`) so kittwm remains a usable window
 manager rather than a collection of renderer special cases.
 
+`kittwm-bar` is the first-party example of that chrome-app contract. It can
+render the standard top bar as a kittui/kitty graphics scene with `kittwm-bar
+--kitty` (alias `--graphics`), or emit the same model as text, JSON, or
+`--scene-json`. When running inside or alongside a live kittwm session, use
+`kittwm-bar --reserve` to request a one-row top reservation through the typed
+SDK (`ChromeReservationRequest::top_bar(1)`); use `kittwm-bar --release` to
+clear it back to the daemon default. Its JSON output includes the full drawable
+reservation reported by `CHROME_JSON`: `top_bar_rows`, `bottom_bar_rows`,
+`left_cols`, `right_cols`, `gap_cols`, `gap_rows`, optional `owner`, and
+`tilable_rows`. That makes external/statusline bars regular SDK clients instead
+of hard-coded renderer exceptions.
+
 ```
 ┌──────────────────┐  pointer / keys   ┌─────────────────────┐
 │ kittui-input     │ ───────────────►  │ kittui-wm           │

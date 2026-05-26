@@ -1006,7 +1006,9 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --apps-launch-first QUERY      launch first matching candidate\n\
              launcher [--filter Q] [--limit N]\n\
                                             boxed launcher preview\n\
-             kittwm-launch                  first-party SDK launcher helper\n"),
+             kittwm-launch                  first-party SDK launcher helper\n\
+             kittwm-bar --kitty --reserve   kitty-native top bar chrome app; reserves drawable row\n\
+             kittwm-bar --release           clear the bar chrome reservation\n"),
         other => Err(friendly_unknown_help_topic_error(other)),
     }
 }
@@ -4143,6 +4145,14 @@ mod tests {
         assert!(text.contains("--send-text WINDOW TEXT"), "{text}");
         assert!(text.contains("--semantic-action"), "{text}");
         assert!(!text.contains("--save-session"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_apps_mentions_bar_chrome_contract() {
+        let text = help_topic_text("apps").unwrap();
+        assert!(text.contains("kittwm-launch"), "{text}");
+        assert!(text.contains("kittwm-bar --kitty --reserve"), "{text}");
+        assert!(text.contains("kittwm-bar --release"), "{text}");
     }
 
     #[test]
