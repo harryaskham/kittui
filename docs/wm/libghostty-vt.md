@@ -57,3 +57,8 @@ The preview is still a kittui-owned bitmap-font renderer. It is not intended to 
 ## Style extraction
 
 `GhosttyCellSnapshot` now carries basic style flags from libghostty-vt render-state cells: bold, italic, and underline. The headless preview visualizes these in a simple portable way (bold overdraw/brightening, italic hint, underline stroke). This confirms style metadata is available through the portable VT layer and can be mapped into kittui rendering without using the Ghostty GUI application.
+
+
+## Timelapse artifacts
+
+`examples/headless_timelapse.rs` demonstrates deterministic frame-sequence evidence. It feeds VT bytes into one libghostty-vt terminal over several steps, extracts render-state after each step, writes PNG frames, and emits a small manifest. This gives us a portable substitute for flaky desktop screenshots while we build toward a full `kittui-ghostty` terminal-surface runner.
