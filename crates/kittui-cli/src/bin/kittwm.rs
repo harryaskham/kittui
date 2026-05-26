@@ -92,6 +92,7 @@ struct Cli {
     commands: bool,
     commands_json: bool,
     architecture_json: bool,
+    native_surfaces_json: bool,
     showcase_scene_json: bool,
     showcase_metrics_json: bool,
     showcase_composition_json: bool,
@@ -171,6 +172,7 @@ fn parse_args() -> Result<Cli> {
             "commands" => out.commands = true,
             "commands-json" => out.commands_json = true,
             "architecture-json" | "platform-contract-json" => out.architecture_json = true,
+            "native-surfaces-json" | "surface-coverage-json" => out.native_surfaces_json = true,
             "showcase-scene-json" | "shell-scene-json" => out.showcase_scene_json = true,
             "showcase-metrics-json" | "shell-metrics-json" => out.showcase_metrics_json = true,
             "showcase-composition-json" | "shell-composition-json" => {
@@ -760,6 +762,7 @@ USAGE
   kittwm commands                Show grouped local CLI command catalog
   kittwm commands-json           Show local CLI command catalog JSON
   kittwm architecture-json       Emit WM architecture/separation contract JSON
+  kittwm native-surfaces-json    Emit first-party native surface coverage JSON
   kittwm showcase-scene-json     Emit a representative graphical WM scene artifact
   kittwm showcase-metrics-json   Emit scene/layer/pixel metrics for that artifact
   kittwm showcase-composition-json Emit ordered app/chrome/overlay composition graph
@@ -783,6 +786,7 @@ DAILY DRIVER BASICS
   Perf metrics:    kittwm showcase-metrics-json
   Composition:     kittwm showcase-composition-json
   Architecture:    kittwm architecture-json
+  Native surfaces: kittwm native-surfaces-json
   TUI smoke:       kittwm tui-smoke-json
   Old startup:     KITTWM_STARTUP_TERMINAL=1 kittwm
 
@@ -1344,6 +1348,9 @@ fn real_main() -> Result<()> {
     }
     if cli.architecture_json {
         return architecture_json_cmd();
+    }
+    if cli.native_surfaces_json {
+        return native_surfaces_json_cmd();
     }
     if cli.showcase_scene_json {
         return showcase_scene_json_cmd();
@@ -2557,6 +2564,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "WM architecture/separation contract JSON",
         },
         LocalCommandEntry {
+            command: "native-surfaces-json",
+            category: "diagnostics",
+            description: "first-party SDK/kitty-native surface coverage JSON",
+        },
+        LocalCommandEntry {
             command: "completions SHELL",
             category: "help",
             description: "shell completions for bash, zsh, or fish",
@@ -2768,6 +2780,26 @@ fn architecture_contract_json_text() -> String {
 }
 fn architecture_json_cmd() -> Result<()> {
     print!("{}", architecture_contract_json_text());
+    Ok(())
+}
+
+fn native_surfaces_json_text() -> String {
+    let contract = kittwm_sdk::ArchitectureContract::current();
+    let surfaces = contract.first_party_native_surfaces.clone();
+    let all_ready = surfaces.iter().all(|surface| surface.is_native_ready());
+    format!(
+        "{}\n",
+        serde_json::json!({
+            "schema_version": contract.schema_version,
+            "kind": "kittwm-native-surface-coverage",
+            "all_ready": all_ready,
+            "surfaces": surfaces,
+        })
+    )
+}
+
+fn native_surfaces_json_cmd() -> Result<()> {
+    print!("{}", native_surfaces_json_text());
     Ok(())
 }
 
@@ -3897,6 +3929,33 @@ mod tests {
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "architecture-json" && entry["category"] == "diagnostics"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "native-surfaces-json" && entry["category"] == "diagnostics"
+        }));
+    }
+
+    #[test]
+    fn native_surfaces_json_reports_sdk_and_kitty_native_coverage() {
+        let json: serde_json::Value = serde_json::from_str(&native_surfaces_json_text()).unwrap();
+        assert_eq!(json["kind"], "kittwm-native-surface-coverage");
+        assert_eq!(json["all_ready"], true);
+        let surfaces = json["surfaces"].as_array().unwrap();
+        assert!(surfaces.iter().any(|surface| {
+            surface["name"] == "kittwm-terminal"
+                && surface["sdk_backed"] == true
+                && surface["kitty_graphics_native"] == true
+        }));
+        assert!(surfaces.iter().any(|surface| {
+            surface["name"] == "kittwm-browser"
+                && surface["sdk_entry"] == "SurfaceSpec::browser"
+                && surface["kittui_entry"]
+                    == "HeadlessBrowserApp -> Runtime::place_png_frame_with_options"
+        }));
+        assert!(surfaces.iter().any(|surface| {
+            surface["name"] == "kittwm-bar"
+                && surface["surface_kind"] == "chrome"
+                && surface["kittui_entry"] == "BarModel::scene -> Runtime::place_at_with_options"
         }));
     }
 
