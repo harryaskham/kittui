@@ -89,6 +89,8 @@ struct Cli {
     keymap: bool,
     keymap_scene_json: bool,
     keymap_kitty: bool,
+    config_scene_json: bool,
+    config_kitty: bool,
     shortcuts: bool,
     shortcuts_json: bool,
     shortcuts_scene_json: bool,
@@ -158,6 +160,8 @@ fn parse_args() -> Result<Cli> {
             "doctor-scene-json" => out.doctor_scene_json = true,
             "doctor-kitty" | "doctor-graphics" => out.doctor_kitty = true,
             "config" => out.config = true,
+            "config-scene-json" => out.config_scene_json = true,
+            "config-kitty" | "config-graphics" => out.config_kitty = true,
             "record" => out.record = true,
             "bench" => out.bench = true,
             "launch" => {
@@ -929,6 +933,8 @@ SESSIONS AND SEMANTICS
 DIAGNOSTICS AND BACKENDS
   doctor [--json] [--probe-kitty]   Diagnostics; kitty probing is opt-in
   config [--keymap PATH] [--check]  Config/keymap inspection
+  config-scene-json [--keymap PATH] Emit config readiness as a kittui Scene
+  config-kitty [--keymap PATH]      Render config readiness with kitty graphics
   keymap [--keymap PATH] [--check]  Print resolved keymap
   keymap-scene-json [--keymap PATH] Emit resolved keymap as a kittui Scene
   keymap-kitty [--keymap PATH]      Render resolved keymap with kitty graphics
@@ -1115,6 +1121,9 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "shortcuts-json",
         "doctor",
         "config",
+        "config-scene-json",
+        "config-kitty",
+        "config-graphics",
         "keymap",
         "keymap-scene-json",
         "keymap-kitty",
@@ -1382,7 +1391,7 @@ fn real_main() -> Result<()> {
             cli.probe_kitty || kitty_probe_env_enabled(),
         );
     }
-    if cli.config {
+    if cli.config || cli.config_scene_json || cli.config_kitty {
         return config_cmd(&cli);
     }
     if cli.record {
@@ -2950,6 +2959,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "config",
             category: "diagnostics",
             description: "config and keymap inspection",
+        },
+        LocalCommandEntry {
+            command: "config-scene-json",
+            category: "diagnostics",
+            description: "config readiness kittui scene",
+        },
+        LocalCommandEntry {
+            command: "config-kitty",
+            category: "diagnostics",
+            description: "config readiness kitty graphics",
         },
         LocalCommandEntry {
             command: "keymap",
@@ -4715,51 +4734,142 @@ fn native_browser_cmd(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-fn config_cmd(_cli: &Cli) -> Result<()> {
-    let keymap_path = std::env::var("KITTUI_WM_KEYMAP").ok();
+#[derive(Clone, Debug)]
+struct ConfigSummary {
+    keymap_path: String,
+    launch_cmd: String,
+    launch_query: String,
+    launcher_overlay: String,
+    prefix: String,
+    bindings: usize,
+    duplicate_chords: usize,
+    status: &'static str,
+}
+
+fn config_cmd(cli: &Cli) -> Result<()> {
+    let summary = config_summary(cli)?;
+    if cli.config_scene_json || cli.config_kitty {
+        let scene = config_scene(&summary);
+        return print_scene_or_kitty(&scene, cli.config_kitty, 20);
+    }
+    println!("kittwm config");
+    println!("============");
+    println!("KITTUI_WM_KEYMAP       : {}", summary.keymap_path);
+    println!("KITTUI_WM_LAUNCH_CMD   : {}", summary.launch_cmd);
+    println!("KITTUI_WM_LAUNCH_QUERY : {}", summary.launch_query);
+    println!("KITTUI_WM_LAUNCHER_OVERLAY: {}", summary.launcher_overlay);
+    println!("prefix                 : {}", summary.prefix);
+    println!("bindings               : {}", summary.bindings);
+    println!("duplicate_chords       : {}", summary.duplicate_chords);
+    println!("status                 : {}", summary.status);
+    Ok(())
+}
+
+fn config_summary(cli: &Cli) -> Result<ConfigSummary> {
+    let env_keymap_path = std::env::var("KITTUI_WM_KEYMAP").ok();
+    let keymap_path = cli.keymap_path.clone().or(env_keymap_path);
     let keymap = if let Some(path) = &keymap_path {
         kittui_cli::keymap::Keymap::load(std::path::Path::new(path))?
     } else {
         kittui_cli::keymap::default_keymap()
     };
-    let duplicates = keymap_duplicate_count(&keymap);
-    println!("kittwm config");
-    println!("============");
-    println!(
-        "KITTUI_WM_KEYMAP       : {}",
-        keymap_path.as_deref().unwrap_or("<default>")
-    );
-    println!(
-        "KITTUI_WM_LAUNCH_CMD   : {}",
-        std::env::var("KITTUI_WM_LAUNCH_CMD").unwrap_or_else(|_| "<default: xterm>".to_string())
-    );
-    println!(
-        "KITTUI_WM_LAUNCH_QUERY : {}",
-        std::env::var("KITTUI_WM_LAUNCH_QUERY").unwrap_or_else(|_| "<unset>".to_string())
-    );
-    println!(
-        "KITTUI_WM_LAUNCHER_OVERLAY: {}",
-        std::env::var("KITTUI_WM_LAUNCHER_OVERLAY").unwrap_or_else(|_| "<unset>".to_string())
-    );
-    println!(
-        "prefix                 : {}",
-        keymap
+    let duplicate_chords = keymap_duplicate_count(&keymap);
+    Ok(ConfigSummary {
+        keymap_path: keymap_path.unwrap_or_else(|| "<default>".to_string()),
+        launch_cmd: std::env::var("KITTUI_WM_LAUNCH_CMD")
+            .unwrap_or_else(|_| "<default: xterm>".to_string()),
+        launch_query: std::env::var("KITTUI_WM_LAUNCH_QUERY")
+            .unwrap_or_else(|_| "<unset>".to_string()),
+        launcher_overlay: std::env::var("KITTUI_WM_LAUNCHER_OVERLAY")
+            .unwrap_or_else(|_| "<unset>".to_string()),
+        prefix: keymap
             .prefix
             .as_ref()
             .map(ToString::to_string)
-            .unwrap_or_else(|| "<none>".to_string())
-    );
-    println!("bindings               : {}", keymap.bindings.len());
-    println!("duplicate_chords       : {duplicates}");
-    println!(
-        "status                 : {}",
-        if duplicates == 0 {
+            .unwrap_or_else(|| "<none>".to_string()),
+        bindings: keymap.bindings.len(),
+        duplicate_chords,
+        status: if duplicate_chords == 0 {
             "ok"
         } else {
             "duplicate chords found"
-        }
-    );
-    Ok(())
+        },
+    })
+}
+
+fn config_scene(summary: &ConfigSummary) -> Scene {
+    let cols = info_scene_cols();
+    let rows = 10;
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let rows_data = [
+        format!("keymap={}", summary.keymap_path),
+        format!("launch_cmd={}", summary.launch_cmd),
+        format!("launch_query={}", summary.launch_query),
+        format!("launcher_overlay={}", summary.launcher_overlay),
+        format!("prefix={}", summary.prefix),
+        format!("bindings={}", summary.bindings),
+        format!("duplicates={}", summary.duplicate_chords),
+        format!("status={}", summary.status),
+    ];
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-config-backdrop:keymap={}:bindings={}:duplicates={}:status={}",
+                summary.keymap_path, summary.bindings, summary.duplicate_chords, summary.status
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(136, 192, 208, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some("kittwm-config-heading:readiness".to_string()),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, row) in rows_data.iter().enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!("kittwm-config-row:{idx}:{row}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(136, 192, 208, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn keymap_duplicate_count(km: &kittui_cli::keymap::Keymap) -> usize {
@@ -4880,6 +4990,9 @@ mod tests {
             entry["command"] == "keymap-kitty" && entry["category"] == "diagnostics"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "config-kitty" && entry["category"] == "diagnostics"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "commands-scene-json" && entry["category"] == "help"
         }));
         assert!(json["commands"]
@@ -4887,6 +5000,44 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn config_scene_labels_readiness_summary() {
+        let summary = ConfigSummary {
+            keymap_path: "<default>".to_string(),
+            launch_cmd: "<default: xterm>".to_string(),
+            launch_query: "<unset>".to_string(),
+            launcher_overlay: "1".to_string(),
+            prefix: "C-a".to_string(),
+            bindings: 12,
+            duplicate_chords: 0,
+            status: "ok",
+        };
+        let scene = config_scene(&summary);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-config-backdrop:keymap=<default>:bindings=12:duplicates=0:status=ok"
+            )),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-config-row:4:prefix=C-a")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-config-row:7:status=ok")),
+            "{labels:?}"
+        );
     }
 
     #[test]
