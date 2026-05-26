@@ -1,8 +1,10 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
 
 use kittui_ghostty_vt::{render_snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 #[derive(Debug)]
 struct Args {
@@ -13,6 +15,7 @@ struct Args {
     demo: bool,
     timelapse_demo: bool,
     command: Option<String>,
+    pty_command: Option<String>,
     scroll: ScrollMode,
 }
 
@@ -77,6 +80,7 @@ fn parse_args() -> anyhow::Result<Args> {
     let mut demo = false;
     let mut timelapse_demo = false;
     let mut command = None;
+    let mut pty_command = None;
     let mut scroll = ScrollMode::Current;
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
@@ -113,6 +117,12 @@ fn parse_args() -> anyhow::Result<Args> {
                         .ok_or_else(|| anyhow::anyhow!("--command COMMAND"))?,
                 );
             }
+            "--pty-command" => {
+                pty_command = Some(
+                    iter.next()
+                        .ok_or_else(|| anyhow::anyhow!("--pty-command COMMAND"))?,
+                );
+            }
             "--scroll" => {
                 scroll = parse_scroll(
                     &iter
@@ -135,11 +145,18 @@ fn parse_args() -> anyhow::Result<Args> {
         demo,
         timelapse_demo,
         command,
+        pty_command,
         scroll,
     })
 }
 
 fn input_bytes(args: &Args) -> anyhow::Result<Vec<u8>> {
+    if args.command.is_some() && args.pty_command.is_some() {
+        anyhow::bail!("--command and --pty-command are mutually exclusive");
+    }
+    if let Some(command) = &args.pty_command {
+        return pty_command_bytes(command, args.cols, args.rows);
+    }
     if let Some(command) = &args.command {
         return command_bytes(command);
     }
@@ -169,6 +186,49 @@ fn command_bytes(command: &str) -> anyhow::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn pty_command_bytes(command: &str, cols: u16, rows: u16) -> anyhow::Result<Vec<u8>> {
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    })?;
+    let mut cmd = CommandBuilder::new("sh");
+    cmd.arg("-c");
+    cmd.arg(command);
+    if let Ok(cwd) = std::env::current_dir() {
+        cmd.cwd(cwd.as_os_str());
+    }
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLUMNS", cols.to_string());
+    cmd.env("LINES", rows.to_string());
+
+    let mut reader = pair.master.try_clone_reader()?;
+    let mut child = pair.slave.spawn_command(cmd)?;
+    drop(pair.slave);
+    let handle = thread::spawn(move || {
+        let mut output = Vec::new();
+        let _ = reader.read_to_end(&mut output);
+        output
+    });
+    let status = child.wait()?;
+    drop(child);
+    let output = handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("PTY reader thread panicked"))?;
+
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"$ ");
+    bytes.extend_from_slice(command.as_bytes());
+    bytes.extend_from_slice(b"\r\n");
+    bytes.extend_from_slice(&output);
+    if !status.success() {
+        bytes.extend_from_slice(format!("\r\n[exit {}]\r\n", status.exit_code()).as_bytes());
+    }
+    Ok(bytes)
+}
+
 fn parse_scroll(value: &str) -> anyhow::Result<ScrollMode> {
     match value {
         "current" => Ok(ScrollMode::Current),
@@ -192,9 +252,11 @@ fn print_help() {
          Usage:\n\
            kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo] [--scroll top|bottom|current]\n\
            kittui-ghostty --command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
+           kittui-ghostty --pty-command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --timelapse-demo [--out-dir DIR] [--cols N] [--rows N]\n\n\
          Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
          --command/-c runs COMMAND through sh -c and renders stdout/stderr.\n\
+         --pty-command runs COMMAND in a PTY sized by --cols/--rows and renders captured VT bytes.\n\
          --timelapse-demo emits frame-*.png plus manifest.json into --out-dir."
     );
 }

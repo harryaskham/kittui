@@ -77,3 +77,5 @@ This is the first reusable command-line path for deterministic headless Ghostty 
 The `--scroll top` option is useful for long command output such as `kittwm help` because libghostty-vt otherwise leaves the viewport at the active bottom.
 
 `kittui-ghostty --command/-c COMMAND` runs a command with `sh -c`, captures stdout/stderr, feeds the bytes through libghostty-vt, and writes the same deterministic PNG preview. It composes with `--scroll top` for long command output.
+
+`kittui-ghostty --pty-command COMMAND` runs a command in a pseudo-terminal sized by `--cols`/`--rows`, captures the VT byte stream, then renders it through the same libghostty-vt PNG path. Use it for command evidence that depends on terminal dimensions, colors, or TTY detection.
