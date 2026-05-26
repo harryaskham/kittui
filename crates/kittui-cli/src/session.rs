@@ -14,7 +14,7 @@
 //! Both the `kittui_wm_demo` example and the `kittwm` binary call into
 //! [`run_loop`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
 
@@ -104,6 +104,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let pure_terminal_renderer = native_should_use_pure_terminal_renderer();
     let affordance_scene_chrome = native_should_use_affordance_scene_chrome();
     let mut dirty_frames = NativeDirtyFramePolicy::from_env();
+    let mut prev_native_image_ids = HashSet::<u32>::new();
     loop {
         let frame_start = Instant::now();
         let mut chunk = [0u8; 1024];
@@ -527,6 +528,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         queue.update_panes(native_pane_statuses(&panes, focused, &layouts));
         let stdout = io::stdout();
         let mut handle = stdout.lock();
+        let current_native_image_ids = native_image_id_set(&panes);
+        for old_id in retired_native_image_ids(&prev_native_image_ids, &current_native_image_ids) {
+            handle.write_all(runtime.unplace(old_id).as_bytes())?;
+        }
+        prev_native_image_ids = current_native_image_ids;
         for pane in &panes {
             let surface_events = pane.app.take_surface_events();
             if !surface_events.is_empty() {
@@ -1035,6 +1041,16 @@ fn native_top_bar_model(_workspace_id: u16, panes: usize, sock: &str) -> BarMode
 
 fn native_top_bar_text(workspace_id: u16, panes: usize, sock: &str, cols: u16) -> String {
     native_top_bar_model(workspace_id, panes, sock).render_i3bar(cols as usize)
+}
+
+fn native_image_id_set(panes: &[NativePane]) -> HashSet<u32> {
+    panes.iter().map(|pane| pane.image_id).collect()
+}
+
+fn retired_native_image_ids(previous: &HashSet<u32>, current: &HashSet<u32>) -> Vec<u32> {
+    let mut retired = previous.difference(current).copied().collect::<Vec<_>>();
+    retired.sort_unstable();
+    retired
 }
 
 fn native_pane_status_chip_text(pane: &NativePane) -> String {
@@ -4592,6 +4608,16 @@ mod native_pane_tests {
         assert_eq!(rows[0].y, 2);
         assert_eq!(rows[1].y, 13);
         assert!(rows[0].app_y + rows[0].app_rows < rows[1].app_y);
+    }
+
+    #[test]
+    fn native_frame_lifecycle_retires_only_missing_image_ids() {
+        let previous = HashSet::from([0x6b77_0001, 0x6b77_0002, 0x6b77_0004]);
+        let current = HashSet::from([0x6b77_0002, 0x6b77_0003]);
+        assert_eq!(
+            retired_native_image_ids(&previous, &current),
+            vec![0x6b77_0001, 0x6b77_0004]
+        );
     }
 
     #[test]
