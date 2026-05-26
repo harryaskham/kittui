@@ -304,6 +304,6 @@ mod tests {
         assert_eq!(json["chrome"]["gap_rows"], 1);
         assert_eq!(json["chrome"]["owner"], "bar");
         assert_eq!(json["chrome"]["tilable_rows"], 22);
-        assert!(model.render().contains("panes:2"));
+        assert!(model.render().contains("| 1 | 2 | 3 |"));
     }
 }

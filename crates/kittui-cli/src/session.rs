@@ -516,6 +516,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             clear = true;
         }
         let shell_view = native_shell_view(
+            cols,
             rows,
             &panes,
             focused,
@@ -658,8 +659,6 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             write_native_shell_affordance_chrome(&mut handle, runtime, &shell_view, cols)?;
             if shell_view.help_overlay {
                 write_native_help_overlay(&mut handle, cols, rows)?;
-            } else if shell_view.panes.is_empty() {
-                write_native_empty_workspace_overlay_text(&mut handle, cols, rows)?;
             }
         }
         if !affordance_scene_chrome
@@ -773,6 +772,7 @@ struct NativeFooterChrome {
 }
 
 fn native_shell_view(
+    cols: u16,
     rows: u16,
     panes: &[NativePane],
     focused: usize,
@@ -809,7 +809,7 @@ fn native_shell_view(
     NativeShellView {
         top_bar: NativeTopBarChrome {
             row: 0,
-            text: native_top_bar_text(1, panes.len(), sock),
+            text: native_top_bar_text(1, panes.len(), sock, cols),
         },
         panes: pane_chrome,
         footer: NativeFooterChrome {
@@ -830,8 +830,8 @@ fn native_top_bar_model(_workspace_id: u16, panes: usize, sock: &str) -> BarMode
     )
 }
 
-fn native_top_bar_text(workspace_id: u16, panes: usize, sock: &str) -> String {
-    native_top_bar_model(workspace_id, panes, sock).render()
+fn native_top_bar_text(workspace_id: u16, panes: usize, sock: &str, cols: u16) -> String {
+    native_top_bar_model(workspace_id, panes, sock).render_i3bar(cols as usize)
 }
 
 fn native_pane_status_chip_text(pane: &NativePane) -> String {
@@ -863,14 +863,6 @@ fn native_status_line_text(panes: usize, log_path: &str) -> String {
 
 fn native_help_overlay_lines() -> &'static [&'static str] {
     crate::shortcuts::NATIVE_SHORTCUTS
-}
-
-fn native_empty_workspace_hint_lines() -> &'static [&'static str] {
-    &[
-        "Empty kittwm workspace",
-        "C-a Enter / C-a t opens a terminal · C-a g opens launcher · C-a ? shows shortcuts · Ctrl-] exits",
-        "From another shell: kittwm quickstart · kittwm info · kittwm examples",
-    ]
 }
 
 fn native_startup_terminal_enabled() -> bool {
@@ -2025,22 +2017,7 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
         view.top_bar.row + 1,
         clip_and_pad(&view.top_bar.text, cols as usize)
     ));
-    if view.panes.is_empty() && !view.help_overlay {
-        for (idx, line) in native_empty_workspace_hint_lines().iter().enumerate() {
-            let row = 2 + idx as u16;
-            if row >= rows {
-                break;
-            }
-            let line_width = line.chars().count() as u16;
-            let col = cols.saturating_sub(line_width).saturating_div(2).max(1);
-            out.push_str(&format!(
-                "\x1b[{};{}H{}",
-                row + 1,
-                col + 1,
-                clip_and_pad(line, cols.saturating_sub(col) as usize)
-            ));
-        }
-    }
+    // Empty workspaces intentionally render only the top bar by default.
     for pane in &view.panes {
         let title_style = if pane.focused { "\x1b[7m" } else { "\x1b[2m" };
         out.push_str(&format!(
@@ -2304,7 +2281,7 @@ fn native_showcase_scenes(cols: u16, rows: u16, help_overlay: bool) -> Vec<Nativ
     let view = NativeShellView {
         top_bar: NativeTopBarChrome {
             row: 0,
-            text: " kittui-bar  ws:showcase  active  12:00 UTC ".to_string(),
+            text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
         },
         panes: vec![
             NativePaneChrome {
@@ -2360,15 +2337,7 @@ fn render_native_shell_view_affordance_scenes(
         y: view.top_bar.row,
         scene: native_top_bar_scene(view, cols, cell_size),
     });
-    if view.panes.is_empty() && !view.help_overlay {
-        let (x, y, scene) = native_empty_workspace_scene(cell_size, cols, view.footer.row);
-        scenes.push(NativeShellChromeScene {
-            id: "empty-workspace".to_string(),
-            x,
-            y,
-            scene,
-        });
-    }
+    // Empty workspaces intentionally render only the top bar by default.
     for (idx, pane) in view.panes.iter().enumerate() {
         scenes.push(NativeShellChromeScene {
             id: format!("pane-{idx}-title"),
@@ -2647,6 +2616,7 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
     }
 }
 
+#[allow(dead_code)]
 fn native_empty_workspace_scene(
     cell_size: CellSize,
     cols: u16,
@@ -3044,29 +3014,6 @@ fn native_pane_title_key_from_text(text: &str, layout: NativePaneLayout, focused
     )
 }
 
-fn write_native_empty_workspace_overlay_text<W: Write>(
-    out: &mut W,
-    cols: u16,
-    rows: u16,
-) -> Result<()> {
-    for (idx, line) in native_empty_workspace_hint_lines().iter().enumerate() {
-        let row = 3 + idx as u16;
-        if row >= rows {
-            break;
-        }
-        let line_width = line.chars().count() as u16;
-        let col = cols.saturating_sub(line_width).saturating_div(2).max(1);
-        write!(
-            out,
-            "\x1b[{};{}H\x1b[1m{}\x1b[0m",
-            row + 1,
-            col + 1,
-            clip_and_pad(line, cols.saturating_sub(col) as usize)
-        )?;
-    }
-    Ok(())
-}
-
 fn write_native_help_overlay<W: Write>(out: &mut W, cols: u16, rows: u16) -> Result<()> {
     for (idx, line) in native_help_overlay_lines().iter().enumerate() {
         let row = 2 + idx as u16;
@@ -3451,7 +3398,7 @@ mod native_pane_tests {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
-                text: " kittui-bar  ws:1  active  12:00 UTC ".to_string(),
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
             },
             panes: vec![NativePaneChrome {
                 x: 0,
@@ -3475,7 +3422,7 @@ mod native_pane_tests {
             help_overlay: false,
         };
         let rendered = render_native_shell_view_terminal(&view, 12, 5);
-        assert!(rendered.contains("kittui-bar"), "{rendered:?}");
+        assert!(rendered.contains("| 1 | 2 | 3"), "{rendered:?}");
         assert!(
             rendered.contains("\x1b[2;1H\x1b[7m* native-1 shell\x1b[0m"),
             "{rendered:?}"
@@ -3491,7 +3438,7 @@ mod native_pane_tests {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
-                text: " kittui-bar  ws:1  empty  12:00 UTC ".to_string(),
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
             },
             panes: Vec::new(),
             footer: NativeFooterChrome {
@@ -3501,19 +3448,18 @@ mod native_pane_tests {
             help_overlay: true,
         };
         let rendered = render_native_shell_view_terminal(&view, 40, 8);
-        assert!(rendered.contains("kittui-bar"), "{rendered:?}");
-        assert!(rendered.contains("ws:1"), "{rendered:?}");
-        assert!(rendered.contains("empty"), "{rendered:?}");
+        assert!(rendered.contains("| 1 | 2 | 3 |"), "{rendered:?}");
+        assert!(!rendered.contains("kittui-bar"), "{rendered:?}");
         assert!(rendered.contains("kittwm shortcuts"), "{rendered:?}");
         assert!(!rendered.contains("footer"), "{rendered:?}");
     }
 
     #[test]
-    fn native_shell_terminal_renderer_teaches_empty_workspace_without_help_overlay() {
+    fn native_shell_terminal_renderer_keeps_empty_workspace_minimal_without_help_overlay() {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
-                text: " kittui-bar  ws:1  empty  12:00 UTC ".to_string(),
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
             },
             panes: Vec::new(),
             footer: NativeFooterChrome {
@@ -3523,14 +3469,31 @@ mod native_pane_tests {
             help_overlay: false,
         };
         let rendered = render_native_shell_view_terminal(&view, 96, 8);
-        assert!(rendered.contains("Empty kittwm workspace"), "{rendered:?}");
+        assert!(!rendered.contains("Empty kittwm workspace"), "{rendered:?}");
         assert!(
-            rendered.contains("C-a Enter / C-a t opens a terminal"),
+            !rendered.contains("C-a Enter / C-a t opens a terminal"),
             "{rendered:?}"
         );
-        assert!(rendered.contains("C-a g opens launcher"), "{rendered:?}");
-        assert!(rendered.contains("kittwm quickstart"), "{rendered:?}");
-        assert!(rendered.contains("kittwm info"), "{rendered:?}");
+        assert!(!rendered.contains("kittwm quickstart"), "{rendered:?}");
+    }
+
+    #[test]
+    fn native_shell_affordance_renderer_keeps_empty_workspace_minimal_by_default() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 8,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+        assert_eq!(scenes.len(), 1, "{scenes:?}");
+        assert_eq!(scenes[0].id, "top-bar");
     }
 
     #[test]
@@ -3538,7 +3501,7 @@ mod native_pane_tests {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
-                text: " kittui-bar  ws:1  active  12:00 UTC ".to_string(),
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
             },
             panes: vec![
                 NativePaneChrome {
@@ -3831,7 +3794,7 @@ mod native_pane_tests {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
-                text: " kittui-bar  ws:1  active  panes:2  focus:-  12:00 UTC ".to_string(),
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
             },
             panes: vec![
                 NativePaneChrome {
@@ -3884,7 +3847,7 @@ mod native_pane_tests {
         assert!(
             labels
                 .iter()
-                .any(|label| label.starts_with("kittwm-live-top-bar-text:kittui-bar")),
+                .any(|label| label.starts_with("kittwm-live-top-bar-text:| 1 | 2 | 3 |")),
             "{labels:?}"
         );
         assert_eq!(scene.footprint.rows, 1);
@@ -3896,7 +3859,7 @@ mod native_pane_tests {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
-                text: " kittui-bar  ws:1  active  12:00 UTC ".to_string(),
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
             },
             panes: vec![NativePaneChrome {
                 x: 4,
@@ -3943,7 +3906,7 @@ mod native_pane_tests {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
-                text: " kittui-bar  ws:1  active  12:00 UTC ".to_string(),
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
             },
             panes: Vec::new(),
             footer: NativeFooterChrome {
@@ -3975,7 +3938,7 @@ mod native_pane_tests {
             .starts_with("help-overlay-key-chip-")));
 
         let fallback = render_native_shell_view_terminal(&view, 80, 12);
-        assert!(fallback.contains("kittui-bar"), "{fallback:?}");
+        assert!(fallback.contains("| 1 | 2 | 3 |"), "{fallback:?}");
         assert!(fallback.contains("kittwm shortcuts"), "{fallback:?}");
     }
 
@@ -4218,7 +4181,7 @@ mod native_pane_tests {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
-                text: " kittui-bar  ws:1  empty  12:00 UTC ".to_string(),
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
             },
             panes: Vec::new(),
             footer: NativeFooterChrome {
@@ -4238,15 +4201,21 @@ mod native_pane_tests {
             .label
             .as_deref()
             .unwrap_or_default()
-            .contains("kittui-bar  ws:1  empty")));
+            .contains("| 1 | 2 | 3 |")));
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("workspace-chip:1:active")));
     }
 
     #[test]
     fn native_top_bar_uses_workspace_label_env() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("KITTWM_WORKSPACE", "dev");
-        let text = native_top_bar_text(1, 0, "/tmp/kittwm.sock");
-        assert!(text.contains("ws:dev"), "{text}");
+        let text = native_top_bar_text(1, 0, "/tmp/kittwm.sock", 40);
+        assert!(text.contains("| 1 | 2 | 3 |"), "{text}");
+        assert!(text.ends_with("00:00 ") || text.contains(":"), "{text}");
         std::env::remove_var("KITTWM_WORKSPACE");
     }
 
@@ -4265,6 +4234,7 @@ mod native_pane_tests {
         let key = native_pane_title_key_from_text("* native-1 sh", layout, true);
         assert!(key.contains("0,0,12x7:true:* native-1 sh"));
         let view = native_shell_view(
+            80,
             10,
             &[],
             0,
@@ -4274,9 +4244,8 @@ mod native_pane_tests {
             false,
         );
         assert_eq!(view.top_bar.row, 0);
-        assert!(view.top_bar.text.contains("kittui-bar"));
-        assert!(view.top_bar.text.contains("ws:1"));
-        assert!(view.top_bar.text.contains("empty"));
+        assert!(view.top_bar.text.contains("| 1 | 2 | 3 |"));
+        assert!(!view.top_bar.text.contains("kittui-bar"));
         assert!(view.footer.text.is_empty());
     }
 

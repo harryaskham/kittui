@@ -62,12 +62,43 @@ impl BarModel {
         Self::new(workspace, panes as u64, focus, true, now)
     }
 
-    /// Render a concise one-line text bar.
+    /// Render a minimal i3bar-style one-line text bar.
     pub fn render(&self) -> String {
+        self.render_i3bar(0)
+    }
+
+    /// Render a minimal i3bar-style bar padded to a target width when provided.
+    pub fn render_i3bar(&self, cols: usize) -> String {
+        let left = self.workspace_chips_text();
+        let clock = self.time.strip_suffix(" UTC").unwrap_or(&self.time);
+        let right = format!(" {clock} ");
+        if cols == 0 {
+            return format!("{left}{right}");
+        }
+        let left_width = left.chars().count();
+        let right_width = right.chars().count();
+        if left_width + right_width >= cols {
+            return format!("{left}{right}").chars().take(cols).collect();
+        }
         format!(
-            " kittui-bar  ws:{}  {}  panes:{}  focus:{}  {} ",
-            self.workspace, self.state, self.panes, self.focus, self.time
+            "{left}{}{right}",
+            " ".repeat(cols - left_width - right_width)
         )
+    }
+
+    fn workspace_chips_text(&self) -> String {
+        let workspace = self.workspace.trim();
+        (1..=3)
+            .map(|idx| {
+                let label = idx.to_string();
+                if label == workspace {
+                    format!("| {label} ")
+                } else {
+                    format!("| {label} ")
+                }
+            })
+            .collect::<String>()
+            + "|"
     }
 
     /// Render the bar as a one-line kittui scene.
@@ -86,8 +117,27 @@ impl BarModel {
                 layer.label = Some(format!("{label_prefix}:{}:{}", self.state, self.workspace));
             }
         }
+        for idx in 1..=3 {
+            scene.layers.push(Layer::new(
+                format!(
+                    "{label_prefix}-workspace-chip:{idx}:{}:action=workspace.switch.{idx}",
+                    if self.workspace == idx.to_string() {
+                        "active"
+                    } else {
+                        "inactive"
+                    }
+                ),
+                Node::Group {
+                    opacity: 1.0,
+                    children: Vec::new(),
+                },
+            ));
+        }
         scene.layers.push(Layer::new(
-            format!("{label_prefix}-text:{}", self.render().trim()),
+            format!(
+                "{label_prefix}-text:{}",
+                self.render_i3bar(cols as usize).trim()
+            ),
             Node::Group {
                 opacity: 1.0,
                 children: Vec::new(),
@@ -140,10 +190,9 @@ mod tests {
         assert_eq!(model.state, "empty");
         assert!(!model.connected);
         let rendered = model.render();
-        assert!(rendered.contains("kittui-bar"), "{rendered}");
-        assert!(rendered.contains("ws:1"), "{rendered}");
-        assert!(rendered.contains("empty"), "{rendered}");
-        assert!(rendered.contains("12:34 UTC"), "{rendered}");
+        assert!(rendered.contains("| 1 | 2 | 3 |"), "{rendered}");
+        assert!(rendered.contains("12:34"), "{rendered}");
+        assert!(!rendered.contains("kittui-bar"), "{rendered}");
     }
 
     #[test]
@@ -183,6 +232,11 @@ mod tests {
             .label
             .as_deref()
             .unwrap_or_default()
-            .contains("kittui-bar  ws:1  empty")));
+            .contains("| 1 | 2 | 3 |")));
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("workspace-chip:1:active")));
     }
 }
