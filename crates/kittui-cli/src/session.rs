@@ -14,7 +14,7 @@
 //! Both the `kittui_wm_demo` example and the `kittwm` binary call into
 //! [`run_loop`].
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
 
@@ -73,6 +73,28 @@ impl Write for NativeFrameWriteBatch {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct NativeAppPlacementDecision {
+    write_upload: bool,
+    write_placement: bool,
+}
+
+fn decide_native_app_placement_write(
+    placements: &mut HashMap<u32, CellRect>,
+    image_id: u32,
+    footprint: CellRect,
+    upload: bool,
+) -> NativeAppPlacementDecision {
+    let placement_changed = placements.get(&image_id).copied() != Some(footprint);
+    if placement_changed {
+        placements.insert(image_id, footprint);
+    }
+    NativeAppPlacementDecision {
+        write_upload: upload,
+        write_placement: upload && placement_changed || !upload && placement_changed,
     }
 }
 
@@ -144,6 +166,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let affordance_scene_chrome = native_should_use_affordance_scene_chrome();
     let mut dirty_frames = NativeDirtyFramePolicy::from_env();
     let mut prev_native_image_ids = HashSet::<u32>::new();
+    let mut native_app_placements = HashMap::<u32, CellRect>::new();
     loop {
         let frame_start = Instant::now();
         let mut chunk = [0u8; 1024];
@@ -570,6 +593,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         let mut frame_out = NativeFrameWriteBatch::default();
         let current_native_image_ids = native_image_id_set(&panes);
         for old_id in retired_native_image_ids(&prev_native_image_ids, &current_native_image_ids) {
+            native_app_placements.remove(&old_id);
             frame_out.write_all(runtime.unplace(old_id).as_bytes())?;
         }
         prev_native_image_ids = current_native_image_ids;
@@ -655,27 +679,37 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     );
                     let decision = dirty_frames.decide(pane.image_id, width, height, &rgba);
                     pane.dirty_frame = Some(decision.metrics.clone());
+                    let placement_write = decide_native_app_placement_write(
+                        &mut native_app_placements,
+                        pane.image_id,
+                        footprint,
+                        decision.upload,
+                    );
                     let mut placement_options = kittui_kitty::PlacementOptions::absolute();
                     placement_options.z_index = native_app_z_index();
-                    let p = if decision.upload {
-                        runtime.place_raw_frame_with_options(
+                    if placement_write.write_upload {
+                        let p = runtime.place_raw_frame_with_options(
                             pane.image_id,
                             &rgba,
                             width,
                             height,
                             footprint,
                             &placement_options,
-                        )
-                    } else {
-                        runtime.place_uploaded_image_with_options(
+                        );
+                        frame_out.write_all(p.upload.as_bytes())?;
+                        if placement_write.write_placement {
+                            frame_out.write_all(p.placement.as_bytes())?;
+                            frame_out.write_all(p.embed.as_bytes())?;
+                        }
+                    } else if placement_write.write_placement {
+                        let p = runtime.place_uploaded_image_with_options(
                             pane.image_id,
                             footprint,
                             &placement_options,
-                        )
-                    };
-                    frame_out.write_all(p.upload.as_bytes())?;
-                    frame_out.write_all(p.placement.as_bytes())?;
-                    frame_out.write_all(p.embed.as_bytes())?;
+                        );
+                        frame_out.write_all(p.placement.as_bytes())?;
+                        frame_out.write_all(p.embed.as_bytes())?;
+                    }
                     queue.publish_frame_presented(
                         pane.window.clone(),
                         crate::daemon::NativeFramePresented {
@@ -707,6 +741,12 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         continue;
                     }
                     let footprint = native_app_frame_footprint(layout);
+                    let placement_write = decide_native_app_placement_write(
+                        &mut native_app_placements,
+                        pane.image_id,
+                        footprint,
+                        true,
+                    );
                     let mut placement_options = kittui_kitty::PlacementOptions::absolute();
                     placement_options.z_index = native_app_z_index();
                     let p = runtime.place_png_frame_with_options(
@@ -716,8 +756,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         &placement_options,
                     );
                     frame_out.write_all(p.upload.as_bytes())?;
-                    frame_out.write_all(p.placement.as_bytes())?;
-                    frame_out.write_all(p.embed.as_bytes())?;
+                    if placement_write.write_placement {
+                        frame_out.write_all(p.placement.as_bytes())?;
+                        frame_out.write_all(p.embed.as_bytes())?;
+                    }
                     pane.dirty_frame = Some(NativeDirtyFrameMetrics {
                         changed_tiles: 0,
                         total_tiles: 0,
@@ -3513,6 +3555,58 @@ mod native_pane_tests {
             .unwrap();
         assert_eq!(empty_writer.writes, 0);
         assert_eq!(empty_writer.flushes, 0);
+    }
+
+    #[test]
+    fn native_app_placement_write_decision_skips_redundant_placements() {
+        let mut placements = HashMap::new();
+        let first =
+            decide_native_app_placement_write(&mut placements, 7, CellRect::new(2, 3, 10, 4), true);
+        assert_eq!(
+            first,
+            NativeAppPlacementDecision {
+                write_upload: true,
+                write_placement: true,
+            }
+        );
+
+        let pixel_only =
+            decide_native_app_placement_write(&mut placements, 7, CellRect::new(2, 3, 10, 4), true);
+        assert_eq!(
+            pixel_only,
+            NativeAppPlacementDecision {
+                write_upload: true,
+                write_placement: false,
+            }
+        );
+
+        let unchanged_clean = decide_native_app_placement_write(
+            &mut placements,
+            7,
+            CellRect::new(2, 3, 10, 4),
+            false,
+        );
+        assert_eq!(
+            unchanged_clean,
+            NativeAppPlacementDecision {
+                write_upload: false,
+                write_placement: false,
+            }
+        );
+
+        let moved_clean = decide_native_app_placement_write(
+            &mut placements,
+            7,
+            CellRect::new(4, 3, 10, 4),
+            false,
+        );
+        assert_eq!(
+            moved_clean,
+            NativeAppPlacementDecision {
+                write_upload: false,
+                write_placement: true,
+            }
+        );
     }
 
     #[test]
