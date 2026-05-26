@@ -14,6 +14,7 @@ struct Args {
     montage: Option<PathBuf>,
     cols: u16,
     rows: u16,
+    chunk_lines: usize,
     demo: bool,
     timelapse_demo: bool,
     command: Option<String>,
@@ -64,7 +65,7 @@ fn render_timelapse_demo(args: &Args) -> anyhow::Result<()> {
 
 fn render_pty_timelapse_command(args: &Args, command: &str) -> anyhow::Result<()> {
     let bytes = pty_command_bytes(command, args.cols, args.rows)?;
-    let chunks = line_chunks(&bytes);
+    let chunks = line_chunks(&bytes, args.chunk_lines);
     render_timelapse_chunks(args, chunks)
 }
 
@@ -98,6 +99,7 @@ fn parse_args() -> anyhow::Result<Args> {
     let mut montage = None;
     let mut cols = 64u16;
     let mut rows = 12u16;
+    let mut chunk_lines = 1usize;
     let mut demo = false;
     let mut timelapse_demo = false;
     let mut command = None;
@@ -137,6 +139,15 @@ fn parse_args() -> anyhow::Result<Args> {
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--rows N"))?
                     .parse()?;
+            }
+            "--chunk-lines" => {
+                chunk_lines = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--chunk-lines N"))?
+                    .parse()?;
+                if chunk_lines == 0 {
+                    anyhow::bail!("--chunk-lines must be greater than zero");
+                }
             }
             "--demo" => demo = true,
             "--timelapse-demo" => timelapse_demo = true,
@@ -178,6 +189,7 @@ fn parse_args() -> anyhow::Result<Args> {
         montage,
         cols,
         rows,
+        chunk_lines,
         demo,
         timelapse_demo,
         command,
@@ -266,16 +278,21 @@ fn pty_command_bytes(command: &str, cols: u16, rows: u16) -> anyhow::Result<Vec<
     Ok(bytes)
 }
 
-fn line_chunks(bytes: &[u8]) -> Vec<&[u8]> {
+fn line_chunks(bytes: &[u8], lines_per_chunk: usize) -> Vec<&[u8]> {
     if bytes.is_empty() {
         return vec![b""];
     }
     let mut chunks = Vec::new();
     let mut start = 0;
+    let mut lines = 0;
     for (idx, byte) in bytes.iter().enumerate() {
         if *byte == b'\n' {
-            chunks.push(&bytes[start..=idx]);
-            start = idx + 1;
+            lines += 1;
+            if lines >= lines_per_chunk {
+                chunks.push(&bytes[start..=idx]);
+                start = idx + 1;
+                lines = 0;
+            }
         }
     }
     if start < bytes.len() {
@@ -308,12 +325,13 @@ fn print_help() {
            kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo] [--scroll top|bottom|current]\n\
            kittui-ghostty --command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --pty-command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
-           kittui-ghostty --pty-timelapse-command COMMAND [--out-dir DIR] [--montage PATH] [--cols N] [--rows N]\n\
+           kittui-ghostty --pty-timelapse-command COMMAND [--out-dir DIR] [--montage PATH] [--cols N] [--rows N] [--chunk-lines N]\n\
            kittui-ghostty --timelapse-demo [--out-dir DIR] [--montage PATH] [--cols N] [--rows N]\n\n\
          Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
          --command/-c runs COMMAND through sh -c and renders stdout/stderr.\n\
          --pty-command runs COMMAND in a PTY sized by --cols/--rows and renders captured VT bytes.\n\
          --pty-timelapse-command replays captured PTY bytes into frame-*.png plus manifest.json.\n\
+         --chunk-lines controls PTY timelapse replay density; default is 1.\n\
          --timelapse-demo emits frame-*.png plus manifest.json into --out-dir.\n\
          --montage writes a representative vertical PNG montage for timelapse modes."
     );
