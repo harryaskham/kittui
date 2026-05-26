@@ -32,6 +32,7 @@ struct BrowserArgs {
     semantic_snapshot: bool,
     semantic_scene_json: bool,
     semantic_kitty: bool,
+    capabilities: bool,
     capabilities_json: bool,
     compact_json: bool,
     help: bool,
@@ -47,6 +48,7 @@ impl BrowserArgs {
         let mut semantic_snapshot = false;
         let mut semantic_scene_json = false;
         let mut semantic_kitty = false;
+        let mut capabilities = false;
         let mut capabilities_json = false;
         let mut compact_json = true;
         let mut help = false;
@@ -57,6 +59,7 @@ impl BrowserArgs {
                 "--semantic-snapshot" | "--print-semantic" => semantic_snapshot = true,
                 "--semantic-scene-json" => semantic_scene_json = true,
                 "--semantic-kitty" | "--semantic-graphics" => semantic_kitty = true,
+                "--capabilities" | "--native-capabilities" => capabilities = true,
                 "--capabilities-json" | "--native-capabilities-json" => capabilities_json = true,
                 "--pretty" | "--pretty-json" => compact_json = false,
                 "--compact" | "--compact-json" => compact_json = true,
@@ -90,6 +93,7 @@ impl BrowserArgs {
             semantic_snapshot,
             semantic_scene_json,
             semantic_kitty,
+            capabilities,
             capabilities_json,
             compact_json,
             help,
@@ -100,7 +104,7 @@ impl BrowserArgs {
 fn help_text() -> String {
     "kittwm-browser — first-party kittwm-native browser app\n\n\
 Usage:\n  kittwm-browser [OPTIONS] [URL]\n\n\
-Options:\n  --semantic-snapshot, --print-semantic  load URL, print DOM/ARIA semantic snapshot JSON, and exit\n  --semantic-scene-json                  load URL, render semantic snapshot as kittui scene JSON, and exit\n  --semantic-kitty, --semantic-graphics  load URL, render semantic snapshot as kitty graphics, and exit\n  --capabilities-json                    print SDK/kittui native capability JSON and exit\n  --pretty, --pretty-json                pretty-print semantic snapshot JSON\n  --compact, --compact-json              compact semantic snapshot JSON (default)\n  -h, --help                             show this help\n\n\
+Options:\n  --semantic-snapshot, --print-semantic  load URL, print DOM/ARIA semantic snapshot JSON, and exit\n  --semantic-scene-json                  load URL, render semantic snapshot as kittui scene JSON, and exit\n  --semantic-kitty, --semantic-graphics  load URL, render semantic snapshot as kitty graphics, and exit\n  --capabilities, --native-capabilities  print SDK/kittui native capability summary and exit\n  --capabilities-json                    print SDK/kittui native capability JSON and exit\n  --pretty, --pretty-json                pretty-print semantic snapshot JSON\n  --compact, --compact-json              compact semantic snapshot JSON (default)\n  -h, --help                             show this help\n\n\
 Default mode renders the browser surface in the terminal and publishes semantic snapshots to kittwm when KITTWM_SOCKET is set.\n"
         .to_string()
 }
@@ -129,6 +133,9 @@ fn real_main() -> Result<()> {
     }
     if args.semantic_kitty {
         return print_semantic_kitty(&args.url);
+    }
+    if args.capabilities {
+        return print_capabilities();
     }
     if args.capabilities_json {
         return print_capabilities_json();
@@ -258,6 +265,48 @@ fn browser_capabilities_json_text() -> String {
             ]
         })
     )
+}
+
+fn browser_capabilities_text() -> String {
+    let json: serde_json::Value =
+        serde_json::from_str(&browser_capabilities_json_text()).expect("capabilities JSON is valid");
+    let mut out = String::from("kittwm-browser native capabilities\n");
+    out.push_str(&format!(
+        "surface: {} ({})\n",
+        json["surface"].as_str().unwrap_or("kittwm-browser"),
+        json["surface_kind"].as_str().unwrap_or("browser")
+    ));
+    out.push_str(&format!(
+        "sdk: {} backed={}\n",
+        json["sdk_entry"].as_str().unwrap_or("SurfaceSpec::browser"),
+        json["sdk_backed"].as_bool().unwrap_or(false)
+    ));
+    out.push_str(&format!(
+        "kitty graphics native: {}\n",
+        if json["kitty_graphics_native"].as_bool().unwrap_or(false) {
+            "yes"
+        } else {
+            "no"
+        }
+    ));
+    out.push_str("kittui entries:\n");
+    if let Some(entries) = json["kittui_entries"].as_array() {
+        for entry in entries {
+            out.push_str(&format!("  - {}\n", entry.as_str().unwrap_or_default()));
+        }
+    }
+    out.push_str("semantic outputs:\n");
+    if let Some(outputs) = json["semantic_outputs"].as_array() {
+        for output in outputs {
+            out.push_str(&format!("  - {}\n", output.as_str().unwrap_or_default()));
+        }
+    }
+    out
+}
+
+fn print_capabilities() -> Result<()> {
+    print!("{}", browser_capabilities_text());
+    Ok(())
 }
 
 fn print_capabilities_json() -> Result<()> {
@@ -523,13 +572,28 @@ mod tests {
         assert!(kitty.semantic_kitty);
         assert!(!kitty.semantic_scene_json);
 
-        let caps = BrowserArgs::parse_from(["--capabilities-json"]).unwrap();
-        assert!(caps.capabilities_json);
+        let caps = BrowserArgs::parse_from(["--capabilities"]).unwrap();
+        assert!(caps.capabilities);
+        assert!(!caps.capabilities_json);
+        let caps_json = BrowserArgs::parse_from(["--capabilities-json"]).unwrap();
+        assert!(caps_json.capabilities_json);
 
         let help = help_text();
         assert!(help.contains("--semantic-scene-json"), "{help}");
         assert!(help.contains("--semantic-kitty"), "{help}");
+        assert!(help.contains("--capabilities"), "{help}");
         assert!(help.contains("--capabilities-json"), "{help}");
+    }
+
+    #[test]
+    fn browser_capabilities_text_reports_sdk_and_kittui_paths() {
+        let text = browser_capabilities_text();
+        assert!(text.contains("kittwm-browser native capabilities"), "{text}");
+        assert!(text.contains("surface: kittwm-browser (browser)"), "{text}");
+        assert!(text.contains("sdk: SurfaceSpec::browser backed=true"), "{text}");
+        assert!(text.contains("kitty graphics native: yes"), "{text}");
+        assert!(text.contains("Runtime::place_png_frame_with_options"), "{text}");
+        assert!(text.contains("--semantic-scene-json"), "{text}");
     }
 
     #[test]
