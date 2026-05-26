@@ -11,6 +11,14 @@ struct Args {
     rows: u16,
     demo: bool,
     timelapse_demo: bool,
+    scroll: ScrollMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScrollMode {
+    Current,
+    Top,
+    Bottom,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -27,6 +35,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut terminal = GhosttyVtTerminal::new(args.cols, args.rows, 1_000)?;
     terminal.write(&input);
+    apply_scroll(&mut terminal, args.scroll);
     let snapshot = terminal.render_snapshot()?;
     let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
     std::fs::write(&args.out, png)?;
@@ -69,6 +78,7 @@ fn parse_args() -> anyhow::Result<Args> {
     let mut rows = 12u16;
     let mut demo = false;
     let mut timelapse_demo = false;
+    let mut scroll = ScrollMode::Current;
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -98,6 +108,13 @@ fn parse_args() -> anyhow::Result<Args> {
             }
             "--demo" => demo = true,
             "--timelapse-demo" => timelapse_demo = true,
+            "--scroll" => {
+                scroll = parse_scroll(
+                    &iter
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--scroll top|bottom|current"))?,
+                )?;
+            }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -112,14 +129,32 @@ fn parse_args() -> anyhow::Result<Args> {
         rows,
         demo,
         timelapse_demo,
+        scroll,
     })
+}
+
+fn parse_scroll(value: &str) -> anyhow::Result<ScrollMode> {
+    match value {
+        "current" => Ok(ScrollMode::Current),
+        "top" => Ok(ScrollMode::Top),
+        "bottom" => Ok(ScrollMode::Bottom),
+        other => anyhow::bail!("--scroll expects top|bottom|current, got {other:?}"),
+    }
+}
+
+fn apply_scroll(terminal: &mut GhosttyVtTerminal, scroll: ScrollMode) {
+    match scroll {
+        ScrollMode::Current => {}
+        ScrollMode::Top => terminal.scroll_top(),
+        ScrollMode::Bottom => terminal.scroll_bottom(),
+    }
 }
 
 fn print_help() {
     println!(
         "kittui-ghostty — portable headless libghostty-vt PNG preview\n\n\
          Usage:\n\
-           kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo]\n\
+           kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo] [--scroll top|bottom|current]\n\
            kittui-ghostty --timelapse-demo [--out-dir DIR] [--cols N] [--rows N]\n\n\
          Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
          --timelapse-demo emits frame-*.png plus manifest.json into --out-dir."

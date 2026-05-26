@@ -41,6 +41,23 @@ mod ffi {
 
     #[repr(C)]
     #[derive(Clone, Copy)]
+    pub union GhosttyTerminalScrollViewportValue {
+        pub delta: isize,
+        pub _padding: [u64; 2],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct GhosttyTerminalScrollViewport {
+        pub tag: i32,
+        pub value: GhosttyTerminalScrollViewportValue,
+    }
+
+    pub const GHOSTTY_SCROLL_VIEWPORT_TOP: i32 = 0;
+    pub const GHOSTTY_SCROLL_VIEWPORT_BOTTOM: i32 = 1;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct GhosttyFormatterScreenExtra {
         pub size: usize,
         pub cursor: bool,
@@ -148,6 +165,10 @@ mod ffi {
         ) -> GhosttyResult;
         pub fn ghostty_terminal_free(terminal: GhosttyTerminal);
         pub fn ghostty_terminal_vt_write(terminal: GhosttyTerminal, data: *const u8, len: usize);
+        pub fn ghostty_terminal_scroll_viewport(
+            terminal: GhosttyTerminal,
+            behavior: GhosttyTerminalScrollViewport,
+        );
         pub fn ghostty_terminal_get(
             terminal: GhosttyTerminal,
             data: i32,
@@ -297,6 +318,32 @@ impl GhosttyVtTerminal {
             return;
         }
         unsafe { ffi::ghostty_terminal_vt_write(self.raw, bytes.as_ptr(), bytes.len()) };
+    }
+
+    /// Scroll the viewport to the top of available scrollback.
+    pub fn scroll_top(&mut self) {
+        unsafe {
+            ffi::ghostty_terminal_scroll_viewport(
+                self.raw,
+                ffi::GhosttyTerminalScrollViewport {
+                    tag: ffi::GHOSTTY_SCROLL_VIEWPORT_TOP,
+                    value: ffi::GhosttyTerminalScrollViewportValue { _padding: [0; 2] },
+                },
+            )
+        };
+    }
+
+    /// Scroll the viewport to the bottom/current active area.
+    pub fn scroll_bottom(&mut self) {
+        unsafe {
+            ffi::ghostty_terminal_scroll_viewport(
+                self.raw,
+                ffi::GhosttyTerminalScrollViewport {
+                    tag: ffi::GHOSTTY_SCROLL_VIEWPORT_BOTTOM,
+                    value: ffi::GhosttyTerminalScrollViewportValue { _padding: [0; 2] },
+                },
+            )
+        };
     }
 
     /// Extract rows/cells from libghostty-vt render state.
@@ -633,6 +680,18 @@ mod tests {
     fn rejects_zero_dimensions() {
         assert!(GhosttyVtTerminal::new(0, 24, 0).is_err());
         assert!(GhosttyVtTerminal::new(80, 0, 0).is_err());
+    }
+
+    #[test]
+    fn scroll_top_and_bottom_are_safe() {
+        let mut term = GhosttyVtTerminal::new(10, 2, 10).unwrap();
+        term.write(b"one\ntwo\nthree\nfour\n");
+        term.scroll_top();
+        let top = term.render_snapshot().unwrap();
+        term.scroll_bottom();
+        let bottom = term.render_snapshot().unwrap();
+        assert_eq!(top.cols, 10);
+        assert_eq!(bottom.rows, 2);
     }
 
     #[test]
