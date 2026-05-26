@@ -92,6 +92,7 @@ struct Cli {
     commands: bool,
     commands_json: bool,
     architecture_json: bool,
+    native_surfaces: bool,
     native_surfaces_json: bool,
     showcase_scene_json: bool,
     showcase_metrics_json: bool,
@@ -172,6 +173,7 @@ fn parse_args() -> Result<Cli> {
             "commands" => out.commands = true,
             "commands-json" => out.commands_json = true,
             "architecture-json" | "platform-contract-json" => out.architecture_json = true,
+            "native-surfaces" | "surface-coverage" => out.native_surfaces = true,
             "native-surfaces-json" | "surface-coverage-json" => out.native_surfaces_json = true,
             "showcase-scene-json" | "shell-scene-json" => out.showcase_scene_json = true,
             "showcase-metrics-json" | "shell-metrics-json" => out.showcase_metrics_json = true,
@@ -762,6 +764,7 @@ USAGE
   kittwm commands                Show grouped local CLI command catalog
   kittwm commands-json           Show local CLI command catalog JSON
   kittwm architecture-json       Emit WM architecture/separation contract JSON
+  kittwm native-surfaces         Show first-party native surface coverage
   kittwm native-surfaces-json    Emit first-party native surface coverage JSON
   kittwm showcase-scene-json     Emit a representative graphical WM scene artifact
   kittwm showcase-metrics-json   Emit scene/layer/pixel metrics for that artifact
@@ -786,7 +789,7 @@ DAILY DRIVER BASICS
   Perf metrics:    kittwm showcase-metrics-json
   Composition:     kittwm showcase-composition-json
   Architecture:    kittwm architecture-json
-  Native surfaces: kittwm native-surfaces-json
+  Native surfaces: kittwm native-surfaces     (JSON: kittwm native-surfaces-json)
   TUI smoke:       kittwm tui-smoke-json
   Old startup:     KITTWM_STARTUP_TERMINAL=1 kittwm
 
@@ -1350,6 +1353,9 @@ fn real_main() -> Result<()> {
     }
     if cli.architecture_json {
         return architecture_json_cmd();
+    }
+    if cli.native_surfaces {
+        return native_surfaces_cmd();
     }
     if cli.native_surfaces_json {
         return native_surfaces_json_cmd();
@@ -2566,6 +2572,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "WM architecture/separation contract JSON",
         },
         LocalCommandEntry {
+            command: "native-surfaces",
+            category: "diagnostics",
+            description: "first-party SDK/kitty-native surface coverage",
+        },
+        LocalCommandEntry {
             command: "native-surfaces-json",
             category: "diagnostics",
             description: "first-party SDK/kitty-native surface coverage JSON",
@@ -2802,6 +2813,39 @@ fn native_surfaces_json_text() -> String {
 
 fn native_surfaces_json_cmd() -> Result<()> {
     print!("{}", native_surfaces_json_text());
+    Ok(())
+}
+
+fn native_surfaces_text() -> String {
+    let contract = kittwm_sdk::ArchitectureContract::current();
+    let mut out = String::from("kittwm native surfaces — SDK + kitty graphics coverage\n");
+    out.push_str(&format!(
+        "all ready: {}\n\n",
+        if contract.all_native_surfaces_ready() {
+            "yes"
+        } else {
+            "no"
+        }
+    ));
+    for surface in &contract.first_party_native_surfaces {
+        out.push_str(&format!(
+            "  {:16} kind:{:<9} sdk:{:<38} kitty:{}\n",
+            surface.name,
+            surface.surface_kind,
+            surface.sdk_entry,
+            if surface.kitty_graphics_native {
+                "yes"
+            } else {
+                "no"
+            }
+        ));
+        out.push_str(&format!("    kittui: {}\n", surface.kittui_entry));
+    }
+    out
+}
+
+fn native_surfaces_cmd() -> Result<()> {
+    print!("{}", native_surfaces_text());
     Ok(())
 }
 
@@ -3933,8 +3977,28 @@ mod tests {
             entry["command"] == "architecture-json" && entry["category"] == "diagnostics"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "native-surfaces" && entry["category"] == "diagnostics"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "native-surfaces-json" && entry["category"] == "diagnostics"
         }));
+    }
+
+    #[test]
+    fn native_surfaces_text_reports_sdk_and_kitty_native_coverage() {
+        let text = native_surfaces_text();
+        assert!(text.contains("kittwm native surfaces"), "{text}");
+        assert!(text.contains("all ready: yes"), "{text}");
+        assert!(text.contains("kittwm-terminal"), "{text}");
+        assert!(text.contains("kind:terminal"), "{text}");
+        assert!(text.contains("kittwm-browser"), "{text}");
+        assert!(text.contains("SurfaceSpec::browser"), "{text}");
+        assert!(
+            text.contains("Runtime::place_png_frame_with_options"),
+            "{text}"
+        );
+        assert!(text.contains("kittwm-bar"), "{text}");
+        assert!(text.contains("BarModel::scene"), "{text}");
     }
 
     #[test]
