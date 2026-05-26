@@ -12,6 +12,7 @@ fn main() -> anyhow::Result<()> {
         b"kittui-ghostty headless preview\n\
           powered by portable libghostty-vt\n\
           \x1b[32mVT state is Ghostty-owned\x1b[0m\n\
+          \x1b[1mbold\x1b[0m \x1b[3mitalic\x1b[0m \x1b[4munderline\x1b[0m styles extracted\n\
           kittui/kittwm can render the surface\n",
     );
     let snapshot = term.render_snapshot()?;

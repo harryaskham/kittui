@@ -52,3 +52,8 @@ This keeps the architecture clean: libghostty-vt handles terminal semantics, kit
 `GhosttyVtTerminal::render_snapshot` now updates a `GhosttyRenderState` and extracts rows/cells/graphemes plus resolved foreground/background colors where libghostty-vt reports them. `render_snapshot_preview_png` uses those cells for a deterministic PNG artifact. This moves the proof beyond formatter text while staying portable and independent of desktop capture.
 
 The preview is still a kittui-owned bitmap-font renderer. It is not intended to match Ghostty's GPU text shaping pixel-for-pixel yet. The next step is to carry more render-state metadata (style flags, cursor style, dirty rows, kitty image placements) and map that to kittui scene/RGBA primitives.
+
+
+## Style extraction
+
+`GhosttyCellSnapshot` now carries basic style flags from libghostty-vt render-state cells: bold, italic, and underline. The headless preview visualizes these in a simple portable way (bold overdraw/brightening, italic hint, underline stroke). This confirms style metadata is available through the portable VT layer and can be mapped into kittui rendering without using the Ghostty GUI application.

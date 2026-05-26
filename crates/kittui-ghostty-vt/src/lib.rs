@@ -93,6 +93,39 @@ mod ffi {
         pub b: u8,
     }
 
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub union GhosttyStyleColorValue {
+        pub palette: u8,
+        pub rgb: GhosttyColorRgb,
+        pub _padding: u64,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct GhosttyStyleColor {
+        pub tag: i32,
+        pub value: GhosttyStyleColorValue,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct GhosttyStyle {
+        pub size: usize,
+        pub fg_color: GhosttyStyleColor,
+        pub bg_color: GhosttyStyleColor,
+        pub underline_color: GhosttyStyleColor,
+        pub bold: bool,
+        pub italic: bool,
+        pub faint: bool,
+        pub blink: bool,
+        pub inverse: bool,
+        pub invisible: bool,
+        pub strikethrough: bool,
+        pub overline: bool,
+        pub underline: i32,
+    }
+
     pub const GHOSTTY_TERMINAL_DATA_COLS: i32 = 1;
     pub const GHOSTTY_TERMINAL_DATA_ROWS: i32 = 2;
     pub const GHOSTTY_TERMINAL_DATA_CURSOR_X: i32 = 3;
@@ -101,6 +134,7 @@ mod ffi {
 
     pub const GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR: i32 = 4;
     pub const GHOSTTY_RENDER_STATE_ROW_DATA_CELLS: i32 = 3;
+    pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE: i32 = 2;
     pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN: i32 = 3;
     pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF: i32 = 4;
     pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR: i32 = 5;
@@ -203,6 +237,12 @@ pub struct GhosttyCellSnapshot {
     pub fg: Option<[u8; 3]>,
     /// Resolved background color when libghostty-vt reports one.
     pub bg: Option<[u8; 3]>,
+    /// Whether the cell style is bold.
+    pub bold: bool,
+    /// Whether the cell style is italic.
+    pub italic: bool,
+    /// Underline style value from libghostty-vt; 0 means none.
+    pub underline: i32,
 }
 
 /// Render-state rows/cells extracted from libghostty-vt.
@@ -476,11 +516,50 @@ fn read_render_cell(cells: ffi::GhosttyRenderStateRowCells) -> Result<GhosttyCel
         .into_iter()
         .filter_map(char::from_u32)
         .collect::<String>();
+    let style = read_cell_style(cells);
     Ok(GhosttyCellSnapshot {
         text,
         fg: read_cell_color(cells, ffi::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR),
         bg: read_cell_color(cells, ffi::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR),
+        bold: style.map(|style| style.bold).unwrap_or(false),
+        italic: style.map(|style| style.italic).unwrap_or(false),
+        underline: style.map(|style| style.underline).unwrap_or(0),
     })
+}
+
+fn read_cell_style(cells: ffi::GhosttyRenderStateRowCells) -> Option<ffi::GhosttyStyle> {
+    let mut style = ffi::GhosttyStyle {
+        size: std::mem::size_of::<ffi::GhosttyStyle>(),
+        fg_color: ffi::GhosttyStyleColor {
+            tag: 0,
+            value: ffi::GhosttyStyleColorValue { _padding: 0 },
+        },
+        bg_color: ffi::GhosttyStyleColor {
+            tag: 0,
+            value: ffi::GhosttyStyleColorValue { _padding: 0 },
+        },
+        underline_color: ffi::GhosttyStyleColor {
+            tag: 0,
+            value: ffi::GhosttyStyleColorValue { _padding: 0 },
+        },
+        bold: false,
+        italic: false,
+        faint: false,
+        blink: false,
+        inverse: false,
+        invisible: false,
+        strikethrough: false,
+        overline: false,
+        underline: 0,
+    };
+    let result = unsafe {
+        ffi::ghostty_render_state_row_cells_get(
+            cells,
+            ffi::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE,
+            (&mut style as *mut ffi::GhosttyStyle).cast::<c_void>(),
+        )
+    };
+    (result == ffi::GHOSTTY_SUCCESS).then_some(style)
 }
 
 fn read_cell_color(cells: ffi::GhosttyRenderStateRowCells, data: i32) -> Option<[u8; 3]> {
@@ -559,7 +638,7 @@ mod tests {
     #[test]
     fn extracts_render_state_cells_and_colors() {
         let mut term = GhosttyVtTerminal::new(20, 4, 100).unwrap();
-        term.write(b"hello\n\x1b[31mred\x1b[0m");
+        term.write(b"hello\n\x1b[31mred\x1b[0m \x1b[1mbold\x1b[0m \x1b[4mul\x1b[0m");
         let render = term.render_snapshot().unwrap();
         assert_eq!(render.cols, 20);
         assert_eq!(render.rows, 4);
@@ -579,6 +658,22 @@ mod tests {
                 .any(|cell| cell.text == "r" && cell.fg.is_some()),
             "{render:?}"
         );
+        assert!(
+            render
+                .cells
+                .iter()
+                .flat_map(|row| row.iter())
+                .any(|cell| cell.text == "b" && cell.bold),
+            "{render:?}"
+        );
+        assert!(
+            render
+                .cells
+                .iter()
+                .flat_map(|row| row.iter())
+                .any(|cell| cell.text == "u" && cell.underline != 0),
+            "{render:?}"
+        );
     }
 }
 
@@ -596,6 +691,7 @@ pub struct PreviewOptions {
     pub foreground: [u8; 4],
     /// Accent RGBA for the cursor.
     pub cursor: [u8; 4],
+    x_offset: u32,
 }
 
 impl Default for PreviewOptions {
@@ -606,7 +702,15 @@ impl Default for PreviewOptions {
             background: [7, 17, 31, 255],
             foreground: [216, 222, 233, 255],
             cursor: [235, 203, 139, 255],
+            x_offset: 0,
         }
+    }
+}
+
+impl PreviewOptions {
+    fn with_x_offset(mut self, x_offset: u32) -> Self {
+        self.x_offset = x_offset;
+        self
     }
 }
 
@@ -629,6 +733,9 @@ pub fn snapshot_preview_png(
                     text: ch.to_string(),
                     fg: None,
                     bg: None,
+                    bold: false,
+                    italic: false,
+                    underline: 0,
                 })
                 .collect::<Vec<_>>()
         })
@@ -676,6 +783,23 @@ pub fn render_snapshot_preview_png(
             }
             for ch in cell.text.chars().take(1) {
                 draw_ascii_cell(&mut img, col as u32, row as u32, ch, &cell_options);
+                if cell.bold {
+                    let mut bold_options = cell_options.clone();
+                    bold_options.foreground = brighten_rgba(bold_options.foreground);
+                    draw_ascii_cell(
+                        &mut img,
+                        col as u32,
+                        row as u32,
+                        ch,
+                        &bold_options.with_x_offset(1),
+                    );
+                }
+                if cell.italic {
+                    draw_italic_hint(&mut img, col as u32, row as u32, &cell_options);
+                }
+                if cell.underline != 0 {
+                    draw_underline(&mut img, col as u32, row as u32, &cell_options);
+                }
             }
         }
     }
@@ -726,7 +850,7 @@ fn draw_ascii_cell(
     let Some(glyph) = font8x8::BASIC_FONTS.get(ch) else {
         return;
     };
-    let x0 = col * options.cell_width;
+    let x0 = col * options.cell_width + options.x_offset;
     let y0 = row * options.cell_height;
     let color = image::Rgba(options.foreground);
     let x_pad = options.cell_width.saturating_sub(8) / 2;
@@ -740,6 +864,45 @@ fn draw_ascii_cell(
                     img.put_pixel(x, y, color);
                 }
             }
+        }
+    }
+}
+
+fn brighten_rgba(mut color: [u8; 4]) -> [u8; 4] {
+    color[0] = color[0].saturating_add(32);
+    color[1] = color[1].saturating_add(32);
+    color[2] = color[2].saturating_add(32);
+    color
+}
+
+fn draw_underline(
+    img: &mut image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    col: u32,
+    row: u32,
+    options: &PreviewOptions,
+) {
+    let x0 = col * options.cell_width;
+    let y = ((row + 1) * options.cell_height).saturating_sub(2);
+    for x in x0..(x0 + options.cell_width).min(img.width()) {
+        if y < img.height() {
+            img.put_pixel(x, y, image::Rgba(options.foreground));
+        }
+    }
+}
+
+fn draw_italic_hint(
+    img: &mut image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    col: u32,
+    row: u32,
+    options: &PreviewOptions,
+) {
+    let x0 = col * options.cell_width;
+    let y0 = row * options.cell_height;
+    for offset in 0..options.cell_height.min(options.cell_width) {
+        let x = x0 + offset;
+        let y = y0 + offset;
+        if x < img.width() && y < img.height() {
+            img.put_pixel(x, y, image::Rgba(options.cursor));
         }
     }
 }
