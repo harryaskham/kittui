@@ -8,6 +8,8 @@ authors.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+font8x8 = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [build-dependencies]
 pkg-config = "0.3"

@@ -34,9 +34,14 @@ The first option is immediately portable and keeps kittwm in control of composit
 
 ## Proposed next steps
 
-1. Extend `kittui-ghostty-vt` from formatter proof to render-state extraction: rows, cells, graphemes, fg/bg colors, cursor state, dirty rows.
-2. Add a CPU raster adapter that converts render-state snapshots into a kittui `Scene` or RGBA frame.
+1. Replace the interim pseudo-glyph preview renderer with render-state extraction: rows, cells, graphemes, fg/bg colors, cursor state, dirty rows.
+2. Add a CPU raster adapter that converts render-state snapshots into a kittui `Scene` or RGBA frame with real cell colors/styles and kitty placement metadata.
 3. Teach a `kittui-ghostty` utility to run a child PTY, feed output into libghostty-vt, and emit frame PNG/manifest sequences for deterministic screenshot evidence.
 4. Wrap that utility as a first-party kittwm native app surface so libghostty-vt owns terminal emulation while kittwm owns IO forwarding, layout, decoration, and kitty/kittui compositing.
 
 This keeps the architecture clean: libghostty-vt handles terminal semantics, kittui handles rendering primitives/frames, and kittwm handles surface lifecycle, placement, decorations, and control-plane contracts.
+
+
+## Interim headless preview
+
+`snapshot_preview_png` and `examples/headless_preview.rs` emit a deterministic PNG from the libghostty-vt formatter snapshot. This uses a tiny bundled bitmap font and avoids platform text APIs, so it is suitable as a first CI/headless proof artifact. It proves Ghostty-owned VT state can drive an image artifact without desktop capture. It is not yet pixel-identical to Ghostty because it does not consume render-state cell style/color data.

@@ -328,3 +328,143 @@ mod tests {
         assert!(GhosttyVtTerminal::new(80, 0, 0).is_err());
     }
 }
+
+/// Styling options for deterministic PNG previews produced from a
+/// libghostty-vt text snapshot.
+#[derive(Debug, Clone)]
+pub struct PreviewOptions {
+    /// Width of one terminal cell in pixels.
+    pub cell_width: u32,
+    /// Height of one terminal cell in pixels.
+    pub cell_height: u32,
+    /// Background RGBA.
+    pub background: [u8; 4],
+    /// Foreground RGBA.
+    pub foreground: [u8; 4],
+    /// Accent RGBA for the cursor.
+    pub cursor: [u8; 4],
+}
+
+impl Default for PreviewOptions {
+    fn default() -> Self {
+        Self {
+            cell_width: 8,
+            cell_height: 12,
+            background: [7, 17, 31, 255],
+            foreground: [216, 222, 233, 255],
+            cursor: [235, 203, 139, 255],
+        }
+    }
+}
+
+/// Render the snapshot's plain-text screen into a deterministic PNG preview.
+///
+/// This is an interim evidence renderer: it visualizes the terminal text/state
+/// driven by libghostty-vt, but it does not yet consume Ghostty render-state
+/// cell colors/styles or kitty image placement metadata.
+pub fn snapshot_preview_png(
+    snapshot: &GhosttyVtSnapshot,
+    options: &PreviewOptions,
+) -> Result<Vec<u8>> {
+    use image::{ImageBuffer, ImageEncoder, Rgba};
+
+    let width = u32::from(snapshot.cols).max(1) * options.cell_width;
+    let height = u32::from(snapshot.rows).max(1) * options.cell_height;
+    let mut img = ImageBuffer::from_pixel(width, height, Rgba(options.background));
+    for (row, line) in snapshot
+        .plain_text
+        .lines()
+        .take(snapshot.rows as usize)
+        .enumerate()
+    {
+        for (col, ch) in line.chars().take(snapshot.cols as usize).enumerate() {
+            draw_ascii_cell(&mut img, col as u32, row as u32, ch, options);
+        }
+    }
+    draw_cursor(&mut img, snapshot.cursor_x, snapshot.cursor_y, options);
+
+    let mut bytes = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut bytes).write_image(
+        img.as_raw(),
+        width,
+        height,
+        image::ExtendedColorType::Rgba8,
+    )?;
+    Ok(bytes)
+}
+
+fn draw_ascii_cell(
+    img: &mut image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    col: u32,
+    row: u32,
+    ch: char,
+    options: &PreviewOptions,
+) {
+    use font8x8::UnicodeFonts;
+
+    if ch == ' ' || ch == '\0' {
+        return;
+    }
+    let Some(glyph) = font8x8::BASIC_FONTS.get(ch) else {
+        return;
+    };
+    let x0 = col * options.cell_width;
+    let y0 = row * options.cell_height;
+    let color = image::Rgba(options.foreground);
+    let x_pad = options.cell_width.saturating_sub(8) / 2;
+    let y_pad = options.cell_height.saturating_sub(8) / 2;
+    for (gy, row_bits) in glyph.iter().enumerate() {
+        for gx in 0..8u32 {
+            if (row_bits >> gx) & 1 == 1 {
+                let x = x0 + x_pad + gx;
+                let y = y0 + y_pad + gy as u32;
+                if x < img.width() && y < img.height() {
+                    img.put_pixel(x, y, color);
+                }
+            }
+        }
+    }
+}
+
+fn draw_cursor(
+    img: &mut image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    cursor_x: u16,
+    cursor_y: u16,
+    options: &PreviewOptions,
+) {
+    let x0 = u32::from(cursor_x) * options.cell_width;
+    let y0 = u32::from(cursor_y) * options.cell_height;
+    let color = image::Rgba(options.cursor);
+    for y in y0..(y0 + options.cell_height).min(img.height()) {
+        for x in x0..(x0 + options.cell_width).min(img.width()) {
+            if y == y0
+                || y + 1 == (y0 + options.cell_height).min(img.height())
+                || x == x0
+                || x + 1 == (x0 + options.cell_width).min(img.width())
+            {
+                img.put_pixel(x, y, color);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_preview_png_emits_png_bytes() {
+        let snapshot = GhosttyVtSnapshot {
+            cols: 12,
+            rows: 3,
+            cursor_x: 2,
+            cursor_y: 1,
+            title: "demo".to_string(),
+            plain_text: "hello\nworld".to_string(),
+            vt_text: String::new(),
+        };
+        let png = snapshot_preview_png(&snapshot, &PreviewOptions::default()).unwrap();
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert!(png.len() > 100);
+    }
+}

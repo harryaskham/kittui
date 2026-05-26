@@ -1,0 +1,22 @@
+use std::path::PathBuf;
+
+use kittui_ghostty_vt::{snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
+
+fn main() -> anyhow::Result<()> {
+    let out = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp/kittui-ghostty-vt-preview.png"));
+    let mut term = GhosttyVtTerminal::new(48, 10, 200)?;
+    term.write(
+        b"kittui-ghostty headless preview\n\
+          powered by portable libghostty-vt\n\
+          \x1b[32mVT state is Ghostty-owned\x1b[0m\n\
+          kittui/kittwm can render the surface\n",
+    );
+    let snapshot = term.snapshot()?;
+    let png = snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
+    std::fs::write(&out, png)?;
+    println!("wrote {}", out.display());
+    Ok(())
+}
