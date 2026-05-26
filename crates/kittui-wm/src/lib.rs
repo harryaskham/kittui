@@ -122,12 +122,14 @@ fn layout_node(node: &LayoutNode, rect: CellRect, z_base: u16, out: &mut Vec<Win
             };
             for (i, (weight, child)) in children.iter().enumerate() {
                 let is_last = i + 1 == children.len();
+                let remaining = along.saturating_sub(consumed);
                 let len: u16 = if is_last {
-                    (along - consumed) as u16
+                    remaining.min(u32::from(u16::MAX)) as u16
                 } else {
                     let slice = ((weight / total) * along as f32).round() as u32;
-                    consumed = consumed.saturating_add(slice);
-                    slice as u16
+                    let clamped = slice.min(remaining);
+                    consumed = consumed.saturating_add(clamped).min(along);
+                    clamped.min(u32::from(u16::MAX)) as u16
                 };
                 let child_rect = match direction {
                     SplitDirection::Horizontal => CellRect::new(cursor, rect.y, len, rect.rows),
@@ -210,6 +212,48 @@ mod tests {
         assert_eq!(geo.len(), 2);
         let total: u32 = geo.iter().map(|g| g.rect.rows as u32).sum();
         assert_eq!(total, 7);
+    }
+
+    #[test]
+    fn split_never_over_consumes_tiny_horizontal_rect() {
+        let tree = WindowTree {
+            rect: CellRect::new(0, 0, 1, 3),
+            root: LayoutNode::Split {
+                direction: SplitDirection::Horizontal,
+                children: vec![(100.0, win(1)), (100.0, win(2)), (100.0, win(3))],
+            },
+        };
+        let geo = tree.layout();
+        assert_eq!(geo.len(), 3);
+        assert!(geo.iter().all(|g| g.rect.x <= 1));
+        assert_eq!(geo.iter().map(|g| g.rect.cols as u32).sum::<u32>(), 1);
+        assert_eq!(
+            geo.iter()
+                .map(|g| (g.rect.x, g.rect.cols))
+                .collect::<Vec<_>>(),
+            [(0, 0), (0, 0), (0, 1)]
+        );
+    }
+
+    #[test]
+    fn split_never_over_consumes_tiny_vertical_rect() {
+        let tree = WindowTree {
+            rect: CellRect::new(0, 0, 3, 1),
+            root: LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                children: vec![(100.0, win(1)), (100.0, win(2)), (100.0, win(3))],
+            },
+        };
+        let geo = tree.layout();
+        assert_eq!(geo.len(), 3);
+        assert!(geo.iter().all(|g| g.rect.y <= 1));
+        assert_eq!(geo.iter().map(|g| g.rect.rows as u32).sum::<u32>(), 1);
+        assert_eq!(
+            geo.iter()
+                .map(|g| (g.rect.y, g.rect.rows))
+                .collect::<Vec<_>>(),
+            [(0, 0), (0, 0), (0, 1)]
+        );
     }
 
     #[test]
