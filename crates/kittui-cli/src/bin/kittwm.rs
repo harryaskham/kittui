@@ -89,6 +89,8 @@ struct Cli {
     keymap: bool,
     shortcuts: bool,
     shortcuts_json: bool,
+    shortcuts_scene_json: bool,
+    shortcuts_kitty: bool,
     help_topic: Option<String>,
     info: bool,
     quickstart: bool,
@@ -164,6 +166,8 @@ fn parse_args() -> Result<Cli> {
             "keymap" => out.keymap = true,
             "shortcuts" => out.shortcuts = true,
             "shortcuts-json" => out.shortcuts_json = true,
+            "shortcuts-scene-json" => out.shortcuts_scene_json = true,
+            "shortcuts-kitty" | "shortcuts-graphics" => out.shortcuts_kitty = true,
             "help" => {
                 out.help_topic = Some(args.next().unwrap_or_else(|| "topics".to_string()));
                 if let Some(extra) = args.next() {
@@ -330,6 +334,8 @@ fn parse_args() -> Result<Cli> {
             "--check" => out.keymap_check = true,
             "--shortcuts" => out.shortcuts = true,
             "--shortcuts-json" => out.shortcuts_json = true,
+            "--shortcuts-scene-json" => out.shortcuts_scene_json = true,
+            "--shortcuts-kitty" | "--shortcuts-graphics" => out.shortcuts_kitty = true,
             "--showcase-scene-json" | "--shell-scene-json" => out.showcase_scene_json = true,
             "--showcase-metrics-json" | "--shell-metrics-json" => out.showcase_metrics_json = true,
             "--showcase-composition-json" | "--shell-composition-json" => {
@@ -1398,6 +1404,12 @@ fn real_main() -> Result<()> {
     }
     if cli.shortcuts_json {
         return shortcuts_json_cmd();
+    }
+    if cli.shortcuts_scene_json {
+        return shortcuts_scene_json_cmd();
+    }
+    if cli.shortcuts_kitty {
+        return shortcuts_kitty_cmd();
     }
     if cli.native_terminal {
         return native_terminal_cmd();
@@ -3399,6 +3411,99 @@ fn shortcuts_cmd() -> Result<()> {
     Ok(())
 }
 
+fn shortcuts_scene_json_cmd() -> Result<()> {
+    println!("{}", serde_json::to_string(&shortcuts_scene())?);
+    Ok(())
+}
+
+fn shortcuts_kitty_cmd() -> Result<()> {
+    let scene = shortcuts_scene();
+    let runtime = Runtime::builder()
+        .terminal(TerminalInfo::detect())
+        .build()?;
+    let mut options = kittui_kitty::PlacementOptions::unicode();
+    options.z_index = 30;
+    let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
+    print!("{}", placement.to_bytes());
+    Ok(())
+}
+
+fn shortcuts_scene() -> Scene {
+    let entries = kittui_cli::shortcuts::NATIVE_SHORTCUT_ENTRIES;
+    let cols = shortcuts_scene_cols();
+    let rows = (entries.len() as u16 + 3).clamp(4, 18);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let mut layers = vec![
+        Layer {
+            label: Some(format!("kittwm-shortcuts-backdrop:count={}", entries.len())),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(136, 192, 208, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some("kittwm-shortcuts-heading:kittwm shortcuts".to_string()),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, entry) in entries.iter().take(12).enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-shortcut-row:{}:{}:{}",
+                entry.id, entry.keys, entry.description
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(163, 190, 140, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
+}
+
+fn shortcuts_scene_cols() -> u16 {
+    std::env::var("KITTWM_SHORTCUTS_COLS")
+        .or_else(|_| std::env::var("COLUMNS"))
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|cols| *cols > 0)
+        .unwrap_or(72)
+        .clamp(40, 140)
+}
+
 fn showcase_scene_json_cmd() -> Result<()> {
     println!(
         "{}",
@@ -4100,6 +4205,34 @@ mod tests {
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "native-surfaces-json" && entry["category"] == "diagnostics"
         }));
+    }
+
+    #[test]
+    fn shortcuts_scene_labels_shared_shortcut_catalog() {
+        let scene = shortcuts_scene();
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("kittwm-shortcuts-backdrop:count=")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("launch_terminal:C-a Enter")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("open_launcher:C-a g")),
+            "{labels:?}"
+        );
     }
 
     #[test]
