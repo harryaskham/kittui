@@ -204,6 +204,30 @@ pub struct SurfaceSpec {
     pub title: Option<String>,
 }
 
+/// Placement/readiness metadata for a typed surface request, derived from the
+/// current architecture contract.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfacePlacementContract {
+    /// First-party surface name backing the request.
+    pub surface: String,
+    /// SDK/control-plane surface kind.
+    pub surface_kind: String,
+    /// SDK entry point apps should use.
+    pub sdk_entry: String,
+    /// Whether this request is SDK-backed.
+    pub sdk_backed: bool,
+    /// Whether this request is kitty-graphics-native.
+    pub kitty_graphics_native: bool,
+    /// Whether the current SDK + kitty-native contract is ready.
+    pub native_ready: bool,
+    /// Composition plane for kitty/kittui placement.
+    pub composition_plane: String,
+    /// Kitty/kittui placement z-index.
+    pub z_index: i32,
+    /// kittui/kittwm rendering entry point responsible for the graphics path.
+    pub kittui_entry: String,
+}
+
 impl SurfaceSpec {
     /// Build a PTY terminal surface spec.
     pub fn terminal(command: impl Into<String>) -> Self {
@@ -267,6 +291,24 @@ impl SurfaceSpec {
         contract
             .native_surface_for_spec(self)
             .and_then(|surface| surface.z_index(&contract))
+    }
+
+    /// Return a compact placement/readiness contract for this typed surface
+    /// request, if the current architecture names a backing first-party surface.
+    pub fn placement_contract(&self) -> Option<SurfacePlacementContract> {
+        let contract = ArchitectureContract::current();
+        let surface = contract.native_surface_for_spec(self)?;
+        Some(SurfacePlacementContract {
+            surface: surface.name.clone(),
+            surface_kind: surface.surface_kind.clone(),
+            sdk_entry: surface.sdk_entry.clone(),
+            sdk_backed: surface.sdk_backed,
+            kitty_graphics_native: surface.kitty_graphics_native,
+            native_ready: surface.is_native_ready(),
+            composition_plane: surface.composition_plane()?.to_string(),
+            z_index: surface.z_index(&contract)?,
+            kittui_entry: surface.kittui_entry.clone(),
+        })
     }
 
     /// Attach a display title.
@@ -2940,6 +2982,11 @@ mod tests {
         assert!(terminal.is_native_ready());
         assert_eq!(terminal.composition_plane(), Some("app-surfaces"));
         assert_eq!(terminal.z_index(), Some(0));
+        let terminal_placement = terminal.placement_contract().unwrap();
+        assert_eq!(terminal_placement.surface, "kittwm-terminal");
+        assert_eq!(terminal_placement.composition_plane, "app-surfaces");
+        assert_eq!(terminal_placement.z_index, 0);
+        assert!(terminal_placement.native_ready);
 
         let browser = SurfaceSpec::browser("https://example.com");
         let browser_contract = browser.native_surface_contract().unwrap();
@@ -2948,6 +2995,18 @@ mod tests {
         assert!(browser.is_native_ready());
         assert_eq!(browser.composition_plane(), Some("app-surfaces"));
         assert_eq!(browser.z_index(), Some(0));
+        let browser_placement = browser.placement_contract().unwrap();
+        assert_eq!(browser_placement.surface, "kittwm-browser");
+        assert_eq!(browser_placement.surface_kind, "browser");
+        assert_eq!(browser_placement.sdk_entry, "SurfaceSpec::browser");
+        assert_eq!(browser_placement.composition_plane, "app-surfaces");
+        assert_eq!(browser_placement.z_index, 0);
+        assert!(browser_placement
+            .kittui_entry
+            .contains("Runtime::place_png_frame_with_options"));
+        let roundtrip: SurfacePlacementContract =
+            serde_json::from_str(&serde_json::to_string(&browser_placement).unwrap()).unwrap();
+        assert_eq!(roundtrip, browser_placement);
 
         let other = SurfaceSpec {
             kind: SurfaceKind::Other("canvas".to_string()),
@@ -2958,6 +3017,7 @@ mod tests {
         assert!(!other.is_native_ready());
         assert_eq!(other.composition_plane(), None);
         assert_eq!(other.z_index(), None);
+        assert!(other.placement_contract().is_none());
     }
 
     #[test]
