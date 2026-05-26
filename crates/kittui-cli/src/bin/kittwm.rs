@@ -102,6 +102,8 @@ struct Cli {
     shortcuts_scene_json: bool,
     shortcuts_kitty: bool,
     help_topic: Option<String>,
+    help_scene_topic: Option<String>,
+    help_kitty_topic: Option<String>,
     info: bool,
     info_scene_json: bool,
     info_kitty: bool,
@@ -207,6 +209,24 @@ fn parse_args() -> Result<Cli> {
                 if let Some(extra) = args.next() {
                     return Err(anyhow!(
                         "kittwm help accepts at most one topic, got {extra:?}"
+                    ));
+                }
+                break;
+            }
+            "help-scene-json" => {
+                out.help_scene_topic = Some(args.next().unwrap_or_else(|| "topics".to_string()));
+                if let Some(extra) = args.next() {
+                    return Err(anyhow!(
+                        "kittwm help-scene-json accepts at most one topic, got {extra:?}"
+                    ));
+                }
+                break;
+            }
+            "help-kitty" | "help-graphics" => {
+                out.help_kitty_topic = Some(args.next().unwrap_or_else(|| "topics".to_string()));
+                if let Some(extra) = args.next() {
+                    return Err(anyhow!(
+                        "kittwm help-kitty accepts at most one topic, got {extra:?}"
                     ));
                 }
                 break;
@@ -880,6 +900,7 @@ USAGE
   kittwm --display :N COMMAND    Target a DISPLAY-like kittwm socket token
   kittwm --help                  Show this overview
   kittwm help <topic>            Show focused help (when available)
+  kittwm help-kitty [topic]      Render focused help with kitty graphics
   kittwm info                    Show friendly running-WM overview
   kittwm status-kitty            Render daemon status with kitty graphics
   kittwm quickstart              Show first-run daily-driver checklist
@@ -1037,6 +1058,96 @@ fn help_topic_cmd(topic: &str) -> Result<()> {
     Ok(())
 }
 
+fn help_topic_graphical_cmd(topic: &str, kitty: bool) -> Result<()> {
+    let text = help_topic_text(topic)?;
+    let scene = help_topic_scene(topic, text);
+    print_scene_or_kitty(&scene, kitty, 20)
+}
+
+fn help_topic_scene(topic: &str, text: &str) -> Scene {
+    let cols = info_scene_cols();
+    let content_lines = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    let rows = (content_lines.len() as u16 + 4).clamp(8, 30);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let heading = content_lines.first().copied().unwrap_or(topic).trim();
+    let command_count = content_lines
+        .iter()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            trimmed.starts_with("kittwm")
+                || trimmed.starts_with("--")
+                || trimmed.contains(" WINDOW")
+        })
+        .count();
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-help-topic-backdrop:{topic}:lines={}:commands={command_count}",
+                content_lines.len()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(136, 192, 208, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some(format!("kittwm-help-topic-heading:{topic}:{heading}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, line) in content_lines.iter().skip(1).take(20).enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        let trimmed = line.trim();
+        layers.push(Layer {
+            label: Some(format!("kittwm-help-topic-row:{topic}:{idx}:{trimmed}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: if trimmed.starts_with("--") || trimmed.starts_with("kittwm") {
+                        Rgba::rgba(163, 190, 140, 255)
+                    } else {
+                        Rgba::rgba(136, 192, 208, 255)
+                    },
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
+}
+
 fn help_topic_text(topic: &str) -> Result<&'static str> {
     match topic {
         "topics" | "topic" | "list" => Ok("kittwm help topics\n\
@@ -1175,6 +1286,9 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "cheat-graphics",
         "info",
         "help",
+        "help-scene-json",
+        "help-kitty",
+        "help-graphics",
         "status",
         "status-scene-json",
         "status-kitty",
@@ -1506,6 +1620,12 @@ fn real_main() -> Result<()> {
     }
     if cli.keymap || cli.keymap_scene_json || cli.keymap_kitty {
         return keymap_cmd(&cli);
+    }
+    if let Some(topic) = &cli.help_scene_topic {
+        return help_topic_graphical_cmd(topic, false);
+    }
+    if let Some(topic) = &cli.help_kitty_topic {
+        return help_topic_graphical_cmd(topic, true);
     }
     if let Some(topic) = &cli.help_topic {
         return help_topic_cmd(topic);
@@ -2983,6 +3103,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "help <topic>",
             category: "help",
             description: "focused topic help",
+        },
+        LocalCommandEntry {
+            command: "help-scene-json [topic]",
+            category: "help",
+            description: "focused topic help kittui scene",
+        },
+        LocalCommandEntry {
+            command: "help-kitty [topic]",
+            category: "help",
+            description: "focused topic help kitty graphics",
         },
         LocalCommandEntry {
             command: "info",
@@ -5792,6 +5922,9 @@ mod tests {
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "wait [WINDOW] TEXT" && entry["category"] == "action"
         }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "help-kitty [topic]" && entry["category"] == "help"
+        }));
         assert!(json["commands"]
             .as_array()
             .unwrap()
@@ -5836,6 +5969,33 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn help_topic_scene_labels_existing_topic_text() {
+        let text = help_topic_text("panes").unwrap();
+        let scene = help_topic_scene("panes", text);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("kittwm-help-topic-backdrop:panes:")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-help-topic-heading:panes:kittwm help panes")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains("--spawn-pty CMD")),
+            "{labels:?}"
+        );
     }
 
     #[test]
