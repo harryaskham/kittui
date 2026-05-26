@@ -74,6 +74,8 @@ struct Cli {
     replace: bool,
     replace_args: Vec<String>,
     launcher_preview: bool,
+    launcher_scene_json: bool,
+    launcher_kitty: bool,
     launcher_select: Option<usize>,
     launcher_launch_selection: bool,
     launch_args: Vec<String>,
@@ -189,6 +191,8 @@ fn parse_args() -> Result<Cli> {
                 break;
             }
             "launcher" => out.launcher_preview = true,
+            "launcher-scene-json" => out.launcher_scene_json = true,
+            "launcher-kitty" | "launcher-graphics" => out.launcher_kitty = true,
             "start" => out.mode = lifecycle_alias_mode("start")?,
             "stop" => out.mode = lifecycle_alias_mode("stop")?,
             "keymap" => out.keymap = true,
@@ -981,6 +985,7 @@ APPS AND LAUNCHING
   --apps-first QUERY       Print first matching app candidate
   --apps-launch-first Q    Launch first matching app candidate
   launcher                 Render launcher preview; use --select N / --launch-selection
+  launcher-kitty           Render launcher preview with kitty graphics
   launch -- CMD ARGS       Spawn command through backend launcher
   replace CMD ARGS         Exec command in current KITTWM_WINDOW
 
@@ -1195,6 +1200,9 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "apps-scene-json",
         "apps-kitty",
         "apps-graphics",
+        "launcher-scene-json",
+        "launcher-kitty",
+        "launcher-graphics",
         "shortcuts",
         "shortcuts-json",
         "architecture-json",
@@ -1493,7 +1501,7 @@ fn real_main() -> Result<()> {
     if cli.replace {
         return replace_cmd(&cli);
     }
-    if cli.launcher_preview {
+    if cli.launcher_preview || cli.launcher_scene_json || cli.launcher_kitty {
         return launcher_preview_cmd(&cli);
     }
     if cli.keymap || cli.keymap_scene_json || cli.keymap_kitty {
@@ -3100,6 +3108,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "launcher",
             category: "apps",
             description: "launcher preview",
+        },
+        LocalCommandEntry {
+            command: "launcher-scene-json",
+            category: "apps",
+            description: "launcher preview kittui scene",
+        },
+        LocalCommandEntry {
+            command: "launcher-kitty",
+            category: "apps",
+            description: "launcher preview kitty graphics",
         },
         LocalCommandEntry {
             command: "launch -- CMD",
@@ -4988,8 +5006,8 @@ struct AppsSummary {
 
 fn apps_scene(summary: &AppsSummary) -> Scene {
     let cols = info_scene_cols();
-    let rows = (summary.path_commands.len() as u16 + summary.macos_apps.len() as u16 + 7)
-        .clamp(8, 30);
+    let rows =
+        (summary.path_commands.len() as u16 + summary.macos_apps.len() as u16 + 7).clamp(8, 30);
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -5345,6 +5363,10 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
         );
         return Ok(());
     }
+    if cli.launcher_scene_json || cli.launcher_kitty {
+        let scene = launcher_scene(query, selected_idx, &candidates);
+        return print_scene_or_kitty(&scene, cli.launcher_kitty, 20);
+    }
 
     let width = 62usize;
     println!("┌{}┐", "─".repeat(width));
@@ -5365,6 +5387,86 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
     );
     println!("└{}┘", "─".repeat(width));
     Ok(())
+}
+
+fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate]) -> Scene {
+    let cols = info_scene_cols();
+    let rows = (candidates.len() as u16 + 5).clamp(8, 24);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let selected = candidates
+        .get(selected_idx)
+        .map(|candidate| format!("{}:{}", candidate.kind, candidate.name))
+        .unwrap_or_else(|| "none:<none>".to_string());
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-launcher-backdrop:query={query}:selected={}:count={}",
+                selected_idx + 1,
+                candidates.len()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(136, 192, 208, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some(format!("kittwm-launcher-heading:selected={selected}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, candidate) in candidates.iter().take(18).enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        let selected = idx == selected_idx;
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-launcher-row:{}:{}:{}:selected={selected}",
+                idx + 1,
+                candidate.kind,
+                candidate.name
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: if selected {
+                        Rgba::rgba(235, 203, 139, 255)
+                    } else {
+                        Rgba::rgba(136, 192, 208, 255)
+                    },
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn native_terminal_cmd() -> Result<()> {
@@ -5700,6 +5802,11 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "apps-kitty" && entry["category"] == "apps" }));
+        assert!(json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "launcher-kitty" && entry["category"] == "apps" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "architecture-json" && entry["category"] == "diagnostics"
         }));
@@ -5729,6 +5836,45 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn launcher_scene_labels_selected_candidate() {
+        let candidates = vec![
+            AppCandidate {
+                kind: "path",
+                name: "xterm".to_string(),
+            },
+            AppCandidate {
+                kind: "macos",
+                name: "Terminal".to_string(),
+            },
+        ];
+        let scene = launcher_scene("term", 1, &candidates);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label
+                    .contains("kittwm-launcher-backdrop:query=term:selected=2:count=2")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-launcher-heading:selected=macos:Terminal")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-launcher-row:2:macos:Terminal:selected=true")),
+            "{labels:?}"
+        );
     }
 
     #[test]
