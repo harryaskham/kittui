@@ -1,6 +1,10 @@
 use std::env;
 use std::process::ExitCode;
 
+use kittui::{
+    CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Runtime, Scene, Stroke,
+    TerminalInfo,
+};
 use kittwm_sdk::{Kittwm, SurfaceSpec, WindowSpec};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,6 +15,13 @@ enum Backend {
     Browser,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlanOutput {
+    Text,
+    SceneJson,
+    Kitty,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LaunchArgs {
     replace: bool,
@@ -18,6 +29,7 @@ struct LaunchArgs {
     title: Option<String>,
     dry_run: bool,
     status: bool,
+    plan_output: PlanOutput,
     query: String,
 }
 
@@ -32,6 +44,7 @@ impl LaunchArgs {
         let mut title = None;
         let mut dry_run = false;
         let mut status = false;
+        let mut plan_output = PlanOutput::Text;
         let mut query = None;
         let mut iter = args.into_iter().map(Into::into).peekable();
         while let Some(arg) = iter.next() {
@@ -41,6 +54,17 @@ impl LaunchArgs {
                 "--new-window" => replace = false,
                 "--dry-run" => dry_run = true,
                 "--status" => status = true,
+                "--plan-scene-json" if plan_output == PlanOutput::Text => {
+                    plan_output = PlanOutput::SceneJson;
+                    dry_run = true;
+                }
+                "--plan-kitty" | "--plan-graphics" if plan_output == PlanOutput::Text => {
+                    plan_output = PlanOutput::Kitty;
+                    dry_run = true;
+                }
+                "--plan-scene-json" | "--plan-kitty" | "--plan-graphics" => {
+                    return Err("choose only one launch plan output mode".to_string())
+                }
                 "--terminal" => backend = Backend::Terminal,
                 "--app" => backend = Backend::App,
                 "--browser" => backend = Backend::Browser,
@@ -81,6 +105,7 @@ impl LaunchArgs {
             title,
             dry_run,
             status,
+            plan_output,
             query,
         })
     }
@@ -141,7 +166,7 @@ fn shell_words(args: &[String]) -> String {
 
 fn help_text() -> String {
     "kittwm-launch — SDK app/surface launcher for kittwm\n\n\
-Usage:\n  kittwm-launch [--replace|--new-window] [--dry-run|--status] [--backend auto|terminal|app|browser] [--title TITLE] QUERY\n  kittwm-launch --terminal [--title TITLE] -- PROGRAM [ARGS...]\n\n\
+Usage:\n  kittwm-launch [--replace|--new-window] [--dry-run|--status] [--plan-scene-json|--plan-kitty] [--backend auto|terminal|app|browser] [--title TITLE] QUERY\n  kittwm-launch --terminal [--title TITLE] -- PROGRAM [ARGS...]\n\n\
 Backends:\n  auto      choose browser for URLs, terminal for shell-like commands, app discovery otherwise\n  terminal  spawn a PTY terminal surface through kittwm-sdk\n  app      ask kittwm app discovery to launch the first matching app\n  browser  launch the first-party kittwm-browser app in a PTY surface\n"
         .to_string()
 }
@@ -227,7 +252,7 @@ fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
 fn run(args: LaunchArgs) -> Result<String, String> {
     let plan = build_launch_plan(&args);
     if args.dry_run {
-        return Ok(format!("{}\n{}\n", plan.status, plan.command));
+        return render_launch_plan(&plan, args.plan_output);
     }
     let wm = Kittwm::connect_from_env().map_err(|err| {
         format!(
@@ -294,6 +319,107 @@ fn run(args: LaunchArgs) -> Result<String, String> {
     }
 }
 
+fn render_launch_plan(plan: &LaunchPlan, output: PlanOutput) -> Result<String, String> {
+    match output {
+        PlanOutput::Text => Ok(format!("{}\n{}\n", plan.status, plan.command)),
+        PlanOutput::SceneJson => serde_json::to_string(&launch_plan_scene(plan))
+            .map(|json| format!("{json}\n"))
+            .map_err(|err| format!("encode launch plan scene: {err}")),
+        PlanOutput::Kitty => render_launch_plan_kitty(plan),
+    }
+}
+
+fn launch_plan_scene(plan: &LaunchPlan) -> Scene {
+    let cols = launch_plan_scene_cols();
+    let rows = 5;
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let command = plan.command.chars().take(40).collect::<String>();
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers: vec![
+            Layer {
+                label: Some(format!(
+                    "kittwm-launch-plan-backdrop:{}",
+                    plan.backend.label()
+                )),
+                root: Node::Rect {
+                    rect: PxRect::new(0.0, 0.0, width, height),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(7, 17, 31, 238),
+                    },
+                    stroke: Some(Stroke::inside(
+                        1.5,
+                        Paint::Solid {
+                            color: Rgba::rgba(180, 142, 173, 255),
+                        },
+                    )),
+                    corners: Corners::uniform(8.0),
+                },
+            },
+            Layer {
+                label: Some(format!("kittwm-launch-plan-heading:{}", plan.status)),
+                root: Node::Rect {
+                    rect: PxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(94, 129, 172, 210),
+                    },
+                    stroke: None,
+                    corners: Corners {
+                        tl: 8.0,
+                        tr: 8.0,
+                        bl: 0.0,
+                        br: 0.0,
+                    },
+                },
+            },
+            Layer {
+                label: Some(format!("kittwm-launch-plan-command:{command}")),
+                root: Node::Rect {
+                    rect: PxRect::new(
+                        10.0,
+                        cell.height_px as f32 * 2.35,
+                        (width - 20.0).max(1.0),
+                        2.0,
+                    ),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(136, 192, 208, 255),
+                    },
+                    stroke: None,
+                    corners: Corners::uniform(1.0),
+                },
+            },
+        ],
+        animation: None,
+    }
+}
+
+fn launch_plan_scene_cols() -> u16 {
+    env::var("KITTWM_LAUNCH_PLAN_COLS")
+        .or_else(|_| env::var("COLUMNS"))
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|cols| *cols > 0)
+        .unwrap_or(64)
+        .clamp(32, 120)
+}
+
+fn render_launch_plan_kitty(plan: &LaunchPlan) -> Result<String, String> {
+    let runtime = Runtime::builder()
+        .terminal(TerminalInfo::detect())
+        .build()
+        .map_err(|err| err.to_string())?;
+    let scene = launch_plan_scene(plan);
+    let mut options = kittui_kitty::PlacementOptions::unicode();
+    options.z_index = 20;
+    runtime
+        .place_at_with_options(&scene, scene.footprint, &options)
+        .map(|placement| placement.to_bytes())
+        .map_err(|err| err.to_string())
+}
+
 fn main() -> ExitCode {
     let parsed = match LaunchArgs::parse_from(env::args().skip(1)) {
         Ok(args) => args,
@@ -343,6 +469,21 @@ mod tests {
     fn parses_backend_aliases() {
         let args = LaunchArgs::parse_from(["--backend", "term", "htop"]).unwrap();
         assert_eq!(args.backend, Backend::Terminal);
+    }
+
+    #[test]
+    fn parses_launch_plan_output_modes() {
+        let scene =
+            LaunchArgs::parse_from(["--plan-scene-json", "--browser", "https://example.com"])
+                .unwrap();
+        assert!(scene.dry_run);
+        assert_eq!(scene.plan_output, PlanOutput::SceneJson);
+        let kitty = LaunchArgs::parse_from(["--plan-kitty", "htop"]).unwrap();
+        assert!(kitty.dry_run);
+        assert_eq!(kitty.plan_output, PlanOutput::Kitty);
+        let err =
+            LaunchArgs::parse_from(["--plan-kitty", "--plan-scene-json", "htop"]).unwrap_err();
+        assert!(err.contains("choose only one"), "{err}");
     }
 
     #[test]
@@ -397,6 +538,36 @@ mod tests {
         let out = run(args).unwrap();
         assert!(out.contains("backend=browser"));
         assert!(out.contains("SPAWN_PTY kittwm-browser https://example.com"));
+    }
+
+    #[test]
+    fn launch_plan_scene_labels_include_backend_status_and_command() {
+        let args =
+            LaunchArgs::parse_from(["--plan-scene-json", "--browser", "https://example.com"])
+                .unwrap();
+        let plan = build_launch_plan(&args);
+        let scene = launch_plan_scene(&plan);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.contains(&"kittwm-launch-plan-backdrop:browser"),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains("backend=browser")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("SPAWN_PTY kittwm-browser")),
+            "{labels:?}"
+        );
+        let json = render_launch_plan(&plan, PlanOutput::SceneJson).unwrap();
+        assert!(json.contains("kittwm-launch-plan-command"), "{json}");
     }
 
     #[test]
