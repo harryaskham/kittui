@@ -82,6 +82,8 @@ struct Cli {
     launcher_overlay: bool,
     no_launcher_overlay: bool,
     apps: bool,
+    apps_scene_json: bool,
+    apps_kitty: bool,
     apps_limit: Option<usize>,
     apps_filter: Option<String>,
     apps_first: bool,
@@ -365,6 +367,8 @@ fn parse_args() -> Result<Cli> {
                 break;
             }
             "apps" => out.apps = true,
+            "apps-scene-json" => out.apps_scene_json = true,
+            "apps-kitty" | "apps-graphics" => out.apps_kitty = true,
             "native-terminal" => out.native_terminal = true,
             "native-browser" => out.native_browser = true,
             "--socket" => {
@@ -971,6 +975,8 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
+  apps-kitty [--filter QUERY] [--limit N]
+                            Render launcher candidates with kitty graphics
   --apps-json              App discovery catalog JSON
   --apps-first QUERY       Print first matching app candidate
   --apps-launch-first Q    Launch first matching app candidate
@@ -1186,6 +1192,9 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "balance",
         "rename",
         "apps",
+        "apps-scene-json",
+        "apps-kitty",
+        "apps-graphics",
         "shortcuts",
         "shortcuts-json",
         "architecture-json",
@@ -1577,7 +1586,7 @@ fn real_main() -> Result<()> {
     if cli.native_browser {
         return native_browser_cmd(&cli);
     }
-    if cli.apps {
+    if cli.apps || cli.apps_scene_json || cli.apps_kitty {
         return apps_cmd(&cli);
     }
     if cli.list_windows {
@@ -3076,6 +3085,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "apps",
             category: "apps",
             description: "list launch candidates",
+        },
+        LocalCommandEntry {
+            command: "apps-scene-json",
+            category: "apps",
+            description: "launcher candidates kittui scene",
+        },
+        LocalCommandEntry {
+            command: "apps-kitty",
+            category: "apps",
+            description: "launcher candidates kitty graphics",
         },
         LocalCommandEntry {
             command: "launcher",
@@ -4889,6 +4908,18 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
     let mac_apps = filter_candidates(macos_apps(5000), query, limit);
     #[cfg(not(target_os = "macos"))]
     let mac_apps: Vec<String> = Vec::new();
+    if cli.apps_scene_json || cli.apps_kitty {
+        let summary = AppsSummary {
+            default_cmd: default_cmd.clone(),
+            default_resolved: default_path.as_ref().map(|p| p.display().to_string()),
+            filter: query.map(str::to_string),
+            limit,
+            path_commands: path_cmds.clone(),
+            macos_apps: mac_apps.clone(),
+        };
+        let scene = apps_scene(&summary);
+        return print_scene_or_kitty(&scene, cli.apps_kitty, 20);
+    }
     if cli.apps_first || cli.apps_launch_first {
         let selected = first_app_candidate(&path_cmds, &mac_apps)
             .ok_or_else(|| anyhow!("no app candidates matched"))?;
@@ -4943,6 +4974,104 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct AppsSummary {
+    default_cmd: String,
+    default_resolved: Option<String>,
+    filter: Option<String>,
+    limit: usize,
+    path_commands: Vec<String>,
+    macos_apps: Vec<String>,
+}
+
+fn apps_scene(summary: &AppsSummary) -> Scene {
+    let cols = info_scene_cols();
+    let rows = (summary.path_commands.len() as u16 + summary.macos_apps.len() as u16 + 7)
+        .clamp(8, 30);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let resolved = summary.default_resolved.as_deref().unwrap_or("<not found>");
+    let filter = summary.filter.as_deref().unwrap_or("<none>");
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-apps-backdrop:path_count={}:macos_count={}:limit={}:filter={filter}:default={}:resolved={resolved}",
+                summary.path_commands.len(),
+                summary.macos_apps.len(),
+                summary.limit,
+                summary.default_cmd
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(163, 190, 140, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some("kittwm-apps-heading:launcher-candidates".to_string()),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    let mut row = 2usize;
+    for cmd in summary.path_commands.iter().take(16) {
+        let y = row as f32 * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!("kittwm-app-row:path:{cmd}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(163, 190, 140, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+        row += 1;
+    }
+    for app in summary.macos_apps.iter().take(8) {
+        let y = row as f32 * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!("kittwm-app-row:macos:{app}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(235, 203, 139, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+        row += 1;
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn find_on_path(program: &str) -> Option<std::path::PathBuf> {
@@ -5566,6 +5695,11 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "status-kitty" && entry["category"] == "inspect" }));
+        assert!(json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "apps-kitty" && entry["category"] == "apps" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "architecture-json" && entry["category"] == "diagnostics"
         }));
@@ -5595,6 +5729,42 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn apps_scene_labels_launcher_candidates() {
+        let summary = AppsSummary {
+            default_cmd: "xterm".to_string(),
+            default_resolved: Some("/usr/bin/xterm".to_string()),
+            filter: Some("term".to_string()),
+            limit: 5,
+            path_commands: vec!["xterm".to_string(), "alacritty".to_string()],
+            macos_apps: vec!["Terminal".to_string()],
+        };
+        let scene = apps_scene(&summary);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-apps-backdrop:path_count=2:macos_count=1:limit=5:filter=term:default=xterm:resolved=/usr/bin/xterm"
+            )),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-app-row:path:xterm")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-app-row:macos:Terminal")),
+            "{labels:?}"
+        );
     }
 
     #[test]
