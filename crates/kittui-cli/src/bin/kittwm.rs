@@ -107,6 +107,8 @@ struct Cli {
     commands_scene_json: bool,
     commands_kitty: bool,
     architecture_json: bool,
+    architecture_scene_json: bool,
+    architecture_kitty: bool,
     native_surfaces: bool,
     native_surfaces_json: bool,
     native_surfaces_scene_json: bool,
@@ -208,6 +210,13 @@ fn parse_args() -> Result<Cli> {
             "commands-scene-json" => out.commands_scene_json = true,
             "commands-kitty" | "commands-graphics" => out.commands_kitty = true,
             "architecture-json" | "platform-contract-json" => out.architecture_json = true,
+            "architecture-scene-json" | "platform-contract-scene-json" => {
+                out.architecture_scene_json = true
+            }
+            "architecture-kitty"
+            | "architecture-graphics"
+            | "platform-contract-kitty"
+            | "platform-contract-graphics" => out.architecture_kitty = true,
             "native-surfaces" | "surface-coverage" => out.native_surfaces = true,
             "native-surfaces-json" | "surface-coverage-json" => out.native_surfaces_json = true,
             "native-surfaces-scene-json" | "surface-coverage-scene-json" => {
@@ -840,6 +849,8 @@ USAGE
   kittwm commands-scene-json     Emit local command catalog as a kittui Scene
   kittwm commands-kitty          Render local command catalog with kitty graphics
   kittwm architecture-json       Emit WM architecture/separation contract JSON
+  kittwm architecture-scene-json Emit architecture contract as a kittui Scene
+  kittwm architecture-kitty      Render architecture contract with kitty graphics
   kittwm native-surfaces         Show first-party native surface coverage
   kittwm native-surfaces-json    Emit first-party native surface coverage JSON
   kittwm native-surfaces-scene-json Emit coverage as a kittui Scene
@@ -1130,6 +1141,10 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "apps",
         "shortcuts",
         "shortcuts-json",
+        "architecture-json",
+        "architecture-scene-json",
+        "architecture-kitty",
+        "architecture-graphics",
         "native-surfaces",
         "native-surfaces-json",
         "native-surfaces-scene-json",
@@ -1463,6 +1478,9 @@ fn real_main() -> Result<()> {
     }
     if cli.architecture_json {
         return architecture_json_cmd();
+    }
+    if cli.architecture_scene_json || cli.architecture_kitty {
+        return architecture_graphical_cmd(cli.architecture_kitty);
     }
     if cli.native_surfaces {
         return native_surfaces_cmd();
@@ -2820,6 +2838,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "WM architecture/separation contract JSON",
         },
         LocalCommandEntry {
+            command: "architecture-scene-json",
+            category: "diagnostics",
+            description: "WM architecture contract kittui scene",
+        },
+        LocalCommandEntry {
+            command: "architecture-kitty",
+            category: "diagnostics",
+            description: "WM architecture contract kitty graphics",
+        },
+        LocalCommandEntry {
             command: "native-surfaces",
             category: "diagnostics",
             description: "first-party SDK/kitty-native surface coverage",
@@ -3155,6 +3183,133 @@ fn architecture_contract_json_text() -> String {
 fn architecture_json_cmd() -> Result<()> {
     print!("{}", architecture_contract_json_text());
     Ok(())
+}
+
+fn architecture_graphical_cmd(kitty: bool) -> Result<()> {
+    let contract = kittwm_sdk::ArchitectureContract::current();
+    let scene = architecture_scene(&contract);
+    print_scene_or_kitty(&scene, kitty, 20)
+}
+
+fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
+    let cols = info_scene_cols();
+    let rows = (contract.layers.len() as u16
+        + contract.composition_order.len() as u16
+        + contract.first_party_native_surfaces.len() as u16
+        + 6)
+    .clamp(10, 30);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-architecture-backdrop:layers={}:planes={}:surfaces={}:schema={}",
+                contract.layers.len(),
+                contract.composition_order.len(),
+                contract.first_party_native_surfaces.len(),
+                contract.schema_version
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(180, 142, 173, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some(format!("kittwm-architecture-heading:{}", contract.kind)),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    let mut row = 2usize;
+    for layer in contract.layers.iter().take(8) {
+        let y = row as f32 * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-architecture-layer:{}:owner={}:responsibilities={}:must_not={}:native_contracts={}",
+                layer.id,
+                layer.owner,
+                layer.responsibilities.len(),
+                layer.must_not.len(),
+                layer.native_contracts.len()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(136, 192, 208, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+        row += 1;
+    }
+    for plane in contract.composition_order.iter().take(6) {
+        let y = row as f32 * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-architecture-plane:{}:z={}",
+                plane.plane, plane.z_index
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(235, 203, 139, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+        row += 1;
+    }
+    for surface in contract.first_party_native_surfaces.iter().take(6) {
+        let y = row as f32 * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-architecture-surface:{}:kind={}:sdk={}:kitty={}:kittui={}",
+                surface.name,
+                surface.surface_kind,
+                surface.sdk_backed,
+                surface.kitty_graphics_native,
+                surface.kittui_entry
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(163, 190, 140, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+        row += 1;
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn native_surfaces_json_text() -> String {
@@ -5101,6 +5256,9 @@ mod tests {
             entry["command"] == "architecture-json" && entry["category"] == "diagnostics"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "architecture-kitty" && entry["category"] == "diagnostics"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "native-surfaces" && entry["category"] == "diagnostics"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -5246,6 +5404,41 @@ mod tests {
             labels
                 .iter()
                 .any(|label| label.contains("open_launcher:C-a g")),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn architecture_scene_labels_layers_planes_and_surfaces() {
+        let contract = kittwm_sdk::ArchitectureContract::current();
+        let scene = architecture_scene(&contract);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-architecture-backdrop:layers=")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-architecture-layer:tiling-engine")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-architecture-plane:decorations:z=20")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-architecture-surface:kittwm-bar:kind=chrome")),
             "{labels:?}"
         );
     }
