@@ -826,6 +826,27 @@ impl ArchitectureContract {
             .collect()
     }
 
+    /// Build placement/readiness contracts that are present but not fully
+    /// native-ready.
+    pub fn not_ready_placement_contracts(&self) -> Vec<SurfacePlacementContract> {
+        self.placement_contracts()
+            .into_iter()
+            .filter(|contract| !contract.native_ready)
+            .collect()
+    }
+
+    /// First-party native surfaces that do not currently produce a placement
+    /// contract, typically because a plane or z-index is missing from the
+    /// architecture contract.
+    pub fn missing_placement_contract_surfaces(&self) -> Vec<&NativeSurfaceContract> {
+        self.first_party_native_surfaces
+            .iter()
+            .filter(|surface| {
+                SurfacePlacementContract::from_native_surface(surface, self).is_none()
+            })
+            .collect()
+    }
+
     /// Build placement/readiness contracts sorted in compositor z-index order.
     pub fn placement_contracts_in_composition_order(&self) -> Vec<SurfacePlacementContract> {
         let mut contracts = self.placement_contracts();
@@ -3220,6 +3241,8 @@ mod tests {
             ]
         );
         assert_eq!(contract.ready_placement_contracts(), placement_contracts);
+        assert!(contract.not_ready_placement_contracts().is_empty());
+        assert!(contract.missing_placement_contract_surfaces().is_empty());
         assert_eq!(
             contract
                 .placement_contracts_in_composition_order()
