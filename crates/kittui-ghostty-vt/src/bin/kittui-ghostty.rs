@@ -16,6 +16,7 @@ struct Args {
     timelapse_demo: bool,
     command: Option<String>,
     pty_command: Option<String>,
+    pty_timelapse_command: Option<String>,
     scroll: ScrollMode,
 }
 
@@ -30,6 +31,9 @@ fn main() -> anyhow::Result<()> {
     let args = parse_args()?;
     if args.timelapse_demo {
         return render_timelapse_demo(&args);
+    }
+    if let Some(command) = &args.pty_timelapse_command {
+        return render_pty_timelapse_command(&args, command);
     }
 
     let input = input_bytes(&args)?;
@@ -52,11 +56,22 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn render_timelapse_demo(args: &Args) -> anyhow::Result<()> {
+    let chunks = timelapse_demo_steps().iter().copied().collect::<Vec<_>>();
+    render_timelapse_chunks(args, chunks)
+}
+
+fn render_pty_timelapse_command(args: &Args, command: &str) -> anyhow::Result<()> {
+    let bytes = pty_command_bytes(command, args.cols, args.rows)?;
+    let chunks = line_chunks(&bytes);
+    render_timelapse_chunks(args, chunks)
+}
+
+fn render_timelapse_chunks(args: &Args, chunks: Vec<&[u8]>) -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.out_dir)?;
     let mut terminal = GhosttyVtTerminal::new(args.cols, args.rows, 1_000)?;
     let mut frames = Vec::new();
-    for (idx, bytes) in timelapse_demo_steps().iter().enumerate() {
-        terminal.write(*bytes);
+    for (idx, bytes) in chunks.iter().enumerate() {
+        terminal.write(bytes);
         let snapshot = terminal.render_snapshot()?;
         let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
         let path = args.out_dir.join(format!("frame-{idx:03}.png"));
@@ -81,6 +96,7 @@ fn parse_args() -> anyhow::Result<Args> {
     let mut timelapse_demo = false;
     let mut command = None;
     let mut pty_command = None;
+    let mut pty_timelapse_command = None;
     let mut scroll = ScrollMode::Current;
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
@@ -123,6 +139,12 @@ fn parse_args() -> anyhow::Result<Args> {
                         .ok_or_else(|| anyhow::anyhow!("--pty-command COMMAND"))?,
                 );
             }
+            "--pty-timelapse-command" => {
+                pty_timelapse_command = Some(
+                    iter.next()
+                        .ok_or_else(|| anyhow::anyhow!("--pty-timelapse-command COMMAND"))?,
+                );
+            }
             "--scroll" => {
                 scroll = parse_scroll(
                     &iter
@@ -146,6 +168,7 @@ fn parse_args() -> anyhow::Result<Args> {
         timelapse_demo,
         command,
         pty_command,
+        pty_timelapse_command,
         scroll,
     })
 }
@@ -229,6 +252,24 @@ fn pty_command_bytes(command: &str, cols: u16, rows: u16) -> anyhow::Result<Vec<
     Ok(bytes)
 }
 
+fn line_chunks(bytes: &[u8]) -> Vec<&[u8]> {
+    if bytes.is_empty() {
+        return vec![b""];
+    }
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    for (idx, byte) in bytes.iter().enumerate() {
+        if *byte == b'\n' {
+            chunks.push(&bytes[start..=idx]);
+            start = idx + 1;
+        }
+    }
+    if start < bytes.len() {
+        chunks.push(&bytes[start..]);
+    }
+    chunks
+}
+
 fn parse_scroll(value: &str) -> anyhow::Result<ScrollMode> {
     match value {
         "current" => Ok(ScrollMode::Current),
@@ -253,10 +294,12 @@ fn print_help() {
            kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo] [--scroll top|bottom|current]\n\
            kittui-ghostty --command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --pty-command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
+           kittui-ghostty --pty-timelapse-command COMMAND [--out-dir DIR] [--cols N] [--rows N]\n\
            kittui-ghostty --timelapse-demo [--out-dir DIR] [--cols N] [--rows N]\n\n\
          Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
          --command/-c runs COMMAND through sh -c and renders stdout/stderr.\n\
          --pty-command runs COMMAND in a PTY sized by --cols/--rows and renders captured VT bytes.\n\
+         --pty-timelapse-command replays captured PTY bytes into frame-*.png plus manifest.json.\n\
          --timelapse-demo emits frame-*.png plus manifest.json into --out-dir."
     );
 }

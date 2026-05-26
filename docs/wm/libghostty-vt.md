@@ -79,3 +79,5 @@ The `--scroll top` option is useful for long command output such as `kittwm help
 `kittui-ghostty --command/-c COMMAND` runs a command with `sh -c`, captures stdout/stderr, feeds the bytes through libghostty-vt, and writes the same deterministic PNG preview. It composes with `--scroll top` for long command output.
 
 `kittui-ghostty --pty-command COMMAND` runs a command in a pseudo-terminal sized by `--cols`/`--rows`, captures the VT byte stream, then renders it through the same libghostty-vt PNG path. Use it for command evidence that depends on terminal dimensions, colors, or TTY detection.
+
+`kittui-ghostty --pty-timelapse-command COMMAND --out-dir DIR` captures a PTY command once, replays the captured VT bytes into libghostty-vt in line-sized chunks, and emits `frame-*.png` plus `manifest.json` for deterministic command-output timelapses.
