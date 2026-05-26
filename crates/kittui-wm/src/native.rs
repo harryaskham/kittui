@@ -10,13 +10,15 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, OnceLock};
+use std::sync::{mpsc, Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use kittui::Scene;
+use kittui_core::geom::CellSize;
+use kittui_ghostty_vt::{render_snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
 use kittui_xvfb::{XButton, XCapture, XPointerEvent, XServer, XWindow, XWindowId};
 use kittwm_sdk::{
     ActionKind, ComponentAction, ComponentNode, ComponentRole, ComponentState, ComponentValue,
@@ -32,6 +34,11 @@ use tungstenite::{connect, Message, WebSocket};
 use vte::{Params, Parser, Perform};
 
 const SCROLLBACK_MAX_LINES: usize = 10_000;
+const DEFAULT_TERMINAL_SCROLLBACK: usize = 1_000;
+
+fn default_virtual_cell_size() -> CellSize {
+    CellSize::default()
+}
 
 /// Terminal mouse reporting modes requested by a native PTY application.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -969,6 +976,19 @@ pub struct PtyTerminalApp {
     surface: TerminalSurface,
 }
 
+/// A nested PTY terminal parsed by libghostty-vt and rendered into PNG frames.
+pub struct GhosttyTerminalApp {
+    title: String,
+    child: Box<dyn PtyChild + Send + Sync>,
+    master: Box<dyn MasterPty + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    output: mpsc::Receiver<Vec<u8>>,
+    terminal: GhosttyVtTerminal,
+    cols: u16,
+    rows: u16,
+    last_text_snapshot: String,
+}
+
 impl TerminalSurface {
     /// Attach to an already-spawned PTY master and start parsing output.
     pub fn from_master(
@@ -1114,6 +1134,219 @@ impl TerminalSurface {
     }
 }
 
+impl GhosttyTerminalApp {
+    /// Spawn a shell command in a PTY rendered by libghostty-vt.
+    pub fn spawn(command: &str, cols: u16, rows: u16) -> Result<Self> {
+        Self::spawn_with_env(command, cols, rows, std::iter::empty::<(&str, &str)>())
+    }
+
+    /// Spawn a shell command in a PTY rendered by libghostty-vt with extra environment variables.
+    pub fn spawn_with_env<'a, I, K, V>(command: &str, cols: u16, rows: u16, envs: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<std::ffi::OsStr> + 'a,
+        V: AsRef<std::ffi::OsStr> + 'a,
+    {
+        let cols = cols.max(1);
+        let rows = rows.max(1);
+        let cell = default_virtual_cell_size();
+        let pty_system = NativePtySystem::default();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: cols.saturating_mul(cell.width_px),
+                pixel_height: rows.saturating_mul(cell.height_px),
+            })
+            .context("open libghostty PTY")?;
+        let mut builder = CommandBuilder::new(default_pty_shell());
+        builder.arg("-lc");
+        builder.arg(command);
+        for (key, value) in envs {
+            builder.env(key, value);
+        }
+        let child = pair
+            .slave
+            .spawn_command(builder)
+            .context("spawn libghostty PTY child")?;
+        drop(pair.slave);
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .context("clone libghostty PTY reader")?;
+        let writer = Arc::new(Mutex::new(
+            pair.master
+                .take_writer()
+                .context("take libghostty PTY writer")?,
+        ));
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            loop {
+                let Ok(n) = reader.read(&mut buf) else { break };
+                if n == 0 {
+                    break;
+                }
+                if tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(Self {
+            title: command.to_string(),
+            child,
+            master: pair.master,
+            writer,
+            output: rx,
+            terminal: GhosttyVtTerminal::new(cols, rows, DEFAULT_TERMINAL_SCROLLBACK)?,
+            cols,
+            rows,
+            last_text_snapshot: String::new(),
+        })
+    }
+
+    fn drain_output(&mut self) {
+        while let Ok(bytes) = self.output.try_recv() {
+            self.terminal.write(bytes);
+        }
+    }
+
+    /// Return the latest text snapshot captured from libghostty-vt.
+    pub fn text_snapshot(&self) -> String {
+        self.last_text_snapshot.clone()
+    }
+
+    /// Return whether bracketed paste is known to be enabled.
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        false
+    }
+
+    /// Return whether application cursor keys are known to be enabled.
+    pub fn application_cursor_keys_enabled(&self) -> bool {
+        false
+    }
+
+    /// Mouse reporting modes requested by the terminal application.
+    pub fn mouse_reporting_modes(&self) -> MouseReportingModes {
+        MouseReportingModes::default()
+    }
+
+    /// Return the PTY child process id when the backend exposes one.
+    pub fn process_id(&self) -> Option<u32> {
+        self.child.process_id()
+    }
+
+    /// Whether the PTY child has exited.
+    pub fn exited(&mut self) -> Result<Option<u32>> {
+        Ok(self.child.try_wait()?.map(|status| status.exit_code()))
+    }
+
+    /// Terminate the PTY child process.
+    pub fn terminate(&mut self) -> Result<()> {
+        self.child.kill()?;
+        Ok(())
+    }
+
+    /// Send raw bytes to the PTY, preserving control sequences.
+    pub fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        let mut writer = self.writer.lock();
+        writer.write_all(bytes)?;
+        writer.flush()?;
+        Ok(())
+    }
+}
+
+impl NativeApp for GhosttyTerminalApp {
+    fn title(&self) -> String {
+        self.title.clone()
+    }
+
+    fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
+        self.resize_surface(cols, rows)
+    }
+
+    fn send_text(&mut self, text: &str) -> Result<()> {
+        self.send_surface_text(text)
+    }
+
+    fn capture(&mut self) -> Result<NativeFrame> {
+        Ok(self.capture_surface()?.frame)
+    }
+}
+
+impl NativeSurface for GhosttyTerminalApp {
+    fn metadata(&self) -> SurfaceMetadata {
+        let mut capabilities = SurfaceCapabilities::interactive_capture();
+        capabilities.exact_byte_input = true;
+        SurfaceMetadata {
+            id: SurfaceId::new(format!(
+                "ghostty-pty:{}",
+                self.process_id()
+                    .map(|pid| pid.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            )),
+            kind: SurfaceKind::Terminal,
+            title: self.title.clone(),
+            capabilities,
+            frame_size: Some((
+                u32::from(self.cols) * u32::from(default_virtual_cell_size().width_px),
+                u32::from(self.rows) * u32::from(default_virtual_cell_size().height_px),
+            )),
+        }
+    }
+
+    fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()> {
+        let cols = cols.max(1);
+        let rows = rows.max(1);
+        let cell = default_virtual_cell_size();
+        self.master.resize(PtySize {
+            rows,
+            cols,
+            pixel_width: cols.saturating_mul(cell.width_px),
+            pixel_height: rows.saturating_mul(cell.height_px),
+        })?;
+        // libghostty-vt does not expose a resize wrapper yet; recreate the
+        // backing terminal so future output uses the new virtual app size.
+        self.terminal = GhosttyVtTerminal::new(cols, rows, DEFAULT_TERMINAL_SCROLLBACK)?;
+        self.cols = cols;
+        self.rows = rows;
+        self.last_text_snapshot.clear();
+        Ok(())
+    }
+
+    fn send_surface_text(&mut self, text: &str) -> Result<()> {
+        self.send_bytes(text.as_bytes())
+    }
+
+    fn send_surface_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        self.send_bytes(bytes)
+    }
+
+    fn capture_surface(&mut self) -> Result<SurfaceFrame> {
+        self.drain_output();
+        let snapshot = self.terminal.render_snapshot()?;
+        self.last_text_snapshot = snapshot
+            .cells
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|cell| cell.text.as_str())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
+        let frame = NativeFrame::Png {
+            width: u32::from(snapshot.cols) * u32::from(default_virtual_cell_size().width_px),
+            height: u32::from(snapshot.rows) * u32::from(default_virtual_cell_size().height_px),
+            bytes: png,
+        };
+        let mut metadata = self.metadata();
+        metadata.frame_size = Some(frame.size());
+        Ok(SurfaceFrame { metadata, frame })
+    }
+}
+
 impl PtyTerminalApp {
     /// Spawn a shell command in a real PTY.
     pub fn spawn(command: &str, cols: u16, rows: u16) -> Result<Self> {
@@ -1144,13 +1377,14 @@ impl PtyTerminalApp {
         K: AsRef<std::ffi::OsStr> + 'a,
         V: AsRef<std::ffi::OsStr> + 'a,
     {
+        let cell = default_virtual_cell_size();
         let pty_system = NativePtySystem::default();
         let pair = pty_system
             .openpty(PtySize {
                 rows,
                 cols,
-                pixel_width: cols.saturating_mul(8),
-                pixel_height: rows.saturating_mul(16),
+                pixel_width: cols.saturating_mul(cell.width_px),
+                pixel_height: rows.saturating_mul(cell.height_px),
             })
             .context("open PTY")?;
         let mut builder = CommandBuilder::new(program);
@@ -1165,7 +1399,13 @@ impl PtyTerminalApp {
             .spawn_command(builder)
             .with_context(|| format!("spawn PTY child program {program}"))?;
         drop(pair.slave);
-        let surface = TerminalSurface::from_master(pair.master, cols, rows, 8, 16)?;
+        let surface = TerminalSurface::from_master(
+            pair.master,
+            cols,
+            rows,
+            u32::from(cell.width_px),
+            u32::from(cell.height_px),
+        )?;
         Ok(Self {
             title: program.to_string(),
             child,
@@ -1180,13 +1420,14 @@ impl PtyTerminalApp {
         K: AsRef<std::ffi::OsStr> + 'a,
         V: AsRef<std::ffi::OsStr> + 'a,
     {
+        let cell = default_virtual_cell_size();
         let pty_system = NativePtySystem::default();
         let pair = pty_system
             .openpty(PtySize {
                 rows,
                 cols,
-                pixel_width: cols.saturating_mul(8),
-                pixel_height: rows.saturating_mul(16),
+                pixel_width: cols.saturating_mul(cell.width_px),
+                pixel_height: rows.saturating_mul(cell.height_px),
             })
             .context("open PTY")?;
         let mut builder = CommandBuilder::new(default_pty_shell());
@@ -1200,7 +1441,13 @@ impl PtyTerminalApp {
             .spawn_command(builder)
             .context("spawn PTY child")?;
         drop(pair.slave);
-        let surface = TerminalSurface::from_master(pair.master, cols, rows, 8, 16)?;
+        let surface = TerminalSurface::from_master(
+            pair.master,
+            cols,
+            rows,
+            u32::from(cell.width_px),
+            u32::from(cell.height_px),
+        )?;
         Ok(Self {
             title: command.to_string(),
             child,

@@ -30,7 +30,8 @@ use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
 use kittui_wm::native::{
-    MouseReportingModes, NativeApp, NativeFrame, NativeSurface, PtyTerminalApp,
+    GhosttyTerminalApp, MouseReportingModes, NativeFrame, NativeSurface, PtyTerminalApp,
+    SurfaceFrame, SurfaceMetadata,
 };
 use kittui_xvfb::XServer;
 
@@ -53,9 +54,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         .to_string_lossy()
         .to_string();
     let queue = crate::daemon::NativeSpawnQueue::bind(crate::daemon::default_socket_path())?;
-    let cmd = std::env::var("KITTWM_TERMINAL_CMD")
-        .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
-        .unwrap_or_else(|_| "/bin/sh -l".to_string());
+    let cmd = native_terminal_command();
     let mut last_chrome_reservation = queue.chrome_reservation();
     let mut panes = if native_startup_terminal_enabled() {
         vec![spawn_native_pane(
@@ -652,7 +651,54 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         },
                     );
                 }
-                NativeFrame::Png { .. } => {}
+                NativeFrame::Png {
+                    width,
+                    height,
+                    bytes,
+                } => {
+                    if layout.app_cols == 0 || layout.app_rows == 0 {
+                        pane.dirty_frame = None;
+                        continue;
+                    }
+                    let footprint = native_app_frame_footprint(layout);
+                    let mut placement_options = kittui_kitty::PlacementOptions::unicode();
+                    placement_options.z_index = NATIVE_APP_Z_INDEX;
+                    let p = runtime.place_png_frame_with_options(
+                        pane.image_id,
+                        &bytes,
+                        footprint,
+                        &placement_options,
+                    );
+                    handle.write_all(p.upload.as_bytes())?;
+                    handle.write_all(p.placement.as_bytes())?;
+                    handle.write_all(p.embed.as_bytes())?;
+                    pane.dirty_frame = Some(NativeDirtyFrameMetrics {
+                        changed_tiles: 0,
+                        total_tiles: 0,
+                        changed_fraction: 1.0,
+                        skipped_upload: false,
+                    });
+                    queue.publish_frame_presented(
+                        pane.window.clone(),
+                        crate::daemon::NativeFramePresented {
+                            renderer: "kitty".to_string(),
+                            format: "png".to_string(),
+                            pixel_width: width,
+                            pixel_height: height,
+                            app_x: Some(layout.app_x),
+                            app_y: Some(layout.app_y),
+                            app_cols: Some(layout.app_cols),
+                            app_rows: Some(layout.app_rows),
+                            uploaded: true,
+                            skipped_upload: false,
+                            changed_tiles: None,
+                            total_tiles: None,
+                            elapsed_us: Some(
+                                frame_start.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                            ),
+                        },
+                    );
+                }
             }
         }
         if affordance_scene_chrome {
@@ -687,8 +733,165 @@ struct NativePane {
     pid: Option<u32>,
     display_title: Option<String>,
     weight: u16,
-    app: PtyTerminalApp,
+    app: NativeTerminalApp,
     dirty_frame: Option<NativeDirtyFrameMetrics>,
+}
+
+#[allow(clippy::large_enum_variant)]
+enum NativeTerminalApp {
+    Pty(PtyTerminalApp),
+    Ghostty(GhosttyTerminalApp),
+}
+
+impl NativeTerminalApp {
+    fn title(&self) -> String {
+        match self {
+            Self::Pty(app) => NativeSurface::metadata(app).title,
+            Self::Ghostty(app) => NativeSurface::metadata(app).title,
+        }
+    }
+
+    fn text_snapshot(&self) -> String {
+        match self {
+            Self::Pty(app) => app.text_snapshot(),
+            Self::Ghostty(app) => app.text_snapshot(),
+        }
+    }
+
+    fn scrollback_snapshot(&self) -> String {
+        match self {
+            Self::Pty(app) => app.scrollback_snapshot(),
+            Self::Ghostty(_) => String::new(),
+        }
+    }
+
+    fn take_host_sequences(&self) -> Vec<u8> {
+        match self {
+            Self::Pty(app) => app.take_host_sequences(),
+            Self::Ghostty(_) => Vec::new(),
+        }
+    }
+
+    fn take_surface_events(&self) -> Vec<kittui_wm::native::SurfaceEvent> {
+        match self {
+            Self::Pty(app) => app.take_surface_events(),
+            Self::Ghostty(_) => Vec::new(),
+        }
+    }
+
+    fn cursor_position(&self) -> (u16, u16) {
+        match self {
+            Self::Pty(app) => app.cursor_position(),
+            Self::Ghostty(_) => (0, 0),
+        }
+    }
+
+    fn cursor_visible(&self) -> bool {
+        match self {
+            Self::Pty(app) => app.cursor_visible(),
+            Self::Ghostty(_) => true,
+        }
+    }
+
+    fn focus_reporting_enabled(&self) -> bool {
+        match self {
+            Self::Pty(app) => app.focus_reporting_enabled(),
+            Self::Ghostty(_) => false,
+        }
+    }
+
+    fn bracketed_paste_enabled(&self) -> bool {
+        match self {
+            Self::Pty(app) => app.bracketed_paste_enabled(),
+            Self::Ghostty(app) => app.bracketed_paste_enabled(),
+        }
+    }
+
+    fn application_cursor_keys_enabled(&self) -> bool {
+        match self {
+            Self::Pty(app) => app.application_cursor_keys_enabled(),
+            Self::Ghostty(app) => app.application_cursor_keys_enabled(),
+        }
+    }
+
+    fn mouse_reporting_modes(&self) -> MouseReportingModes {
+        match self {
+            Self::Pty(app) => app.mouse_reporting_modes(),
+            Self::Ghostty(app) => app.mouse_reporting_modes(),
+        }
+    }
+
+    fn process_id(&self) -> Option<u32> {
+        match self {
+            Self::Pty(app) => app.process_id(),
+            Self::Ghostty(app) => app.process_id(),
+        }
+    }
+
+    fn exited(&mut self) -> Result<Option<u32>> {
+        match self {
+            Self::Pty(app) => app.exited(),
+            Self::Ghostty(app) => app.exited(),
+        }
+    }
+
+    fn terminate(&mut self) -> Result<()> {
+        match self {
+            Self::Pty(app) => app.terminate(),
+            Self::Ghostty(app) => app.terminate(),
+        }
+    }
+
+    fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        match self {
+            Self::Pty(app) => app.send_bytes(bytes),
+            Self::Ghostty(app) => app.send_bytes(bytes),
+        }
+    }
+}
+
+impl NativeSurface for NativeTerminalApp {
+    fn metadata(&self) -> SurfaceMetadata {
+        match self {
+            Self::Pty(app) => app.metadata(),
+            Self::Ghostty(app) => app.metadata(),
+        }
+    }
+
+    fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()> {
+        match self {
+            Self::Pty(app) => app.resize_surface(cols, rows),
+            Self::Ghostty(app) => app.resize_surface(cols, rows),
+        }
+    }
+
+    fn send_surface_text(&mut self, text: &str) -> Result<()> {
+        match self {
+            Self::Pty(app) => app.send_surface_text(text),
+            Self::Ghostty(app) => app.send_surface_text(text),
+        }
+    }
+
+    fn send_surface_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        match self {
+            Self::Pty(app) => app.send_surface_bytes(bytes),
+            Self::Ghostty(app) => app.send_surface_bytes(bytes),
+        }
+    }
+
+    fn send_surface_focus(&mut self, focused: bool) -> Result<()> {
+        match self {
+            Self::Pty(app) => app.send_surface_focus(focused),
+            Self::Ghostty(app) => app.send_surface_focus(focused),
+        }
+    }
+
+    fn capture_surface(&mut self) -> Result<SurfaceFrame> {
+        match self {
+            Self::Pty(app) => app.capture_surface(),
+            Self::Ghostty(app) => app.capture_surface(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1078,6 +1281,34 @@ impl NativeCtrlCExitGuard {
     }
 }
 
+fn native_terminal_command() -> String {
+    std::env::var("KITTWM_TERMINAL_CMD")
+        .or_else(|_| std::env::var("KITTWM_TERMINAL_BINARY"))
+        .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
+        .unwrap_or_else(|_| "/bin/sh -l".to_string())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeTerminalBackend {
+    Pty,
+    Ghostty,
+}
+
+fn native_terminal_backend() -> NativeTerminalBackend {
+    let configured = std::env::var("KITTWM_TERMINAL_BACKEND")
+        .or_else(|_| std::env::var("KITTWM_TERMINAL_APP"))
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if matches!(
+        configured.as_str(),
+        "ghostty" | "libghostty" | "ghostty-vt" | "kittui-ghostty"
+    ) {
+        NativeTerminalBackend::Ghostty
+    } else {
+        NativeTerminalBackend::Pty
+    }
+}
+
 fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Result<NativePane> {
     let window = format!("native-{id}");
     let envs = vec![
@@ -1087,7 +1318,17 @@ fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Re
         ("KITTWM_DISPLAY".to_string(), sock.to_string()),
         ("KITTWM_WINDOW".to_string(), window.clone()),
     ];
-    let app = PtyTerminalApp::spawn_with_env(cmd, cols.max(1), rows.max(1), envs)?;
+    let app = match native_terminal_backend() {
+        NativeTerminalBackend::Pty => NativeTerminalApp::Pty(PtyTerminalApp::spawn_with_env(
+            cmd,
+            cols.max(1),
+            rows.max(1),
+            envs,
+        )?),
+        NativeTerminalBackend::Ghostty => NativeTerminalApp::Ghostty(
+            GhosttyTerminalApp::spawn_with_env(cmd, cols.max(1), rows.max(1), envs)?,
+        ),
+    };
     let pid = app.process_id();
     Ok(NativePane {
         window,
@@ -3066,6 +3307,36 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_terminal_command_honors_config_env_precedence() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_TERMINAL_CMD");
+        std::env::remove_var("KITTWM_TERMINAL_BINARY");
+        std::env::set_var("SHELL", "/bin/test-shell");
+        assert_eq!(native_terminal_command(), "/bin/test-shell -l");
+        std::env::set_var("KITTWM_TERMINAL_BINARY", "kittui-ghostty --app");
+        assert_eq!(native_terminal_command(), "kittui-ghostty --app");
+        std::env::set_var("KITTWM_TERMINAL_CMD", "htop");
+        assert_eq!(native_terminal_command(), "htop");
+        std::env::remove_var("KITTWM_TERMINAL_CMD");
+        std::env::remove_var("KITTWM_TERMINAL_BINARY");
+        std::env::remove_var("SHELL");
+    }
+
+    #[test]
+    fn native_terminal_backend_selects_libghostty_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_TERMINAL_BACKEND");
+        std::env::remove_var("KITTWM_TERMINAL_APP");
+        assert_eq!(native_terminal_backend(), NativeTerminalBackend::Pty);
+        std::env::set_var("KITTWM_TERMINAL_BACKEND", "libghostty");
+        assert_eq!(native_terminal_backend(), NativeTerminalBackend::Ghostty);
+        std::env::remove_var("KITTWM_TERMINAL_BACKEND");
+        std::env::set_var("KITTWM_TERMINAL_APP", "kittui-ghostty");
+        assert_eq!(native_terminal_backend(), NativeTerminalBackend::Ghostty);
+        std::env::remove_var("KITTWM_TERMINAL_APP");
+    }
+
+    #[test]
     fn native_startup_terminal_is_opt_in() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_STARTUP_TERMINAL");
@@ -4882,9 +5153,9 @@ mod native_pane_tests {
         assert!(statuses[1].app_cols.unwrap() < statuses[1].cols.unwrap());
     }
 
-    fn dummy_native_pane_app() -> PtyTerminalApp {
+    fn dummy_native_pane_app() -> NativeTerminalApp {
         let program = resolve_test_program("true").unwrap_or_else(|| "true".to_string());
-        PtyTerminalApp::spawn_program(&program, &[], 1, 1).unwrap()
+        NativeTerminalApp::Pty(PtyTerminalApp::spawn_program(&program, &[], 1, 1).unwrap())
     }
 
     fn resolve_test_program(name: &str) -> Option<String> {

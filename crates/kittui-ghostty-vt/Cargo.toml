@@ -8,6 +8,7 @@ authors.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+kittui-core = { workspace = true }
 font8x8 = "0.3"
 image = { version = "0.25", default-features = false, features = ["png"] }
 portable-pty = "0.8"

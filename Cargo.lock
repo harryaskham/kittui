@@ -1353,6 +1353,7 @@ dependencies = [
  "anyhow",
  "font8x8",
  "image",
+ "kittui-core",
  "pkg-config",
  "portable-pty",
 ]
@@ -1467,6 +1468,7 @@ dependencies = [
  "kittui",
  "kittui-affordances",
  "kittui-core",
+ "kittui-ghostty-vt",
  "kittui-input",
  "kittui-kitty",
  "kittui-render-cpu",

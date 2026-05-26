@@ -104,7 +104,7 @@ a flag, env var, YAML, or a built-in default.
 v0.3: kittwm now includes backend-independent native app foundations:
 
 - `kittwm` with no backend flags starts a native PTY terminal sized to the host terminal; `Ctrl-A %` creates side-by-side panes, `Ctrl-A -` creates stacked panes, `Ctrl-A +/-` resizes the focused pane weight, `Ctrl-A [`/`]` (or `,`/`.`) moves the focused pane, `Ctrl-A b` / socket `BALANCE_PANES` balances pane weights, `Ctrl-A Tab` cycles focus, and `Ctrl-A x` closes the focused pane. Native PTY rendering handles scroll regions, DEC origin mode, and application cursor-key mode for TUI body/status/input layouts.
-- PTY children inherit `KITTWM_SOCKET`, `KITTWM_DISPLAY`, `KITTUI_WM_DISPLAY`, and `KITTWM_WINDOW`.
+- PTY children inherit `KITTWM_SOCKET`, `KITTWM_DISPLAY`, `KITTUI_WM_DISPLAY`, and `KITTWM_WINDOW`. `KITTWM_TERMINAL_CMD` (or `KITTWM_TERMINAL_BINARY` for config-system handoff) selects what `Ctrl-A t` launches; set `KITTWM_TERMINAL_BACKEND=ghostty` or `KITTWM_TERMINAL_APP=ghostty` to render that terminal through the libghostty-backed surface while keeping the normal kittwm chrome/layout.
 - `kittwm replace ...` can exec in the current window context or ask a socket context to spawn.
 - `kittwm-browser` is a first-class native browser app backed by local headless Chrome screenshots and DevTools input.
 - X backends include FakeServer, Xvfb, Quartz/SCK, and XQuartz wrapper support.
@@ -126,6 +126,7 @@ nix run .#kittwm-launch -- --terminal --title monitor -- htop
 
 cargo run -p kittui-cli --bin kittwm
 KITTWM_TERMINAL_CMD=htop cargo run -p kittui-cli --bin kittwm
+KITTWM_TERMINAL_BACKEND=ghostty KITTWM_TERMINAL_CMD='zsh -l' cargo run -p kittui-cli --bin kittwm
 cargo run -p kittui-cli --bin kittwm-browser -- https://example.com
 # From another shell while native kittwm is running:
 kittwm --spawn-pty htop

@@ -755,9 +755,10 @@ pub struct PreviewOptions {
 
 impl Default for PreviewOptions {
     fn default() -> Self {
+        let cell = kittui_core::geom::CellSize::default();
         Self {
-            cell_width: 8,
-            cell_height: 12,
+            cell_width: u32::from(cell.width_px),
+            cell_height: u32::from(cell.height_px),
             background: [7, 17, 31, 255],
             foreground: [216, 222, 233, 255],
             cursor: [235, 203, 139, 255],

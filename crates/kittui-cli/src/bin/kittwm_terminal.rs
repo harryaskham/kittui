@@ -161,6 +161,7 @@ where
 
 fn default_terminal_command() -> String {
     env::var("KITTWM_TERMINAL_CMD")
+        .or_else(|_| env::var("KITTWM_TERMINAL_BINARY"))
         .or_else(|_| env::var("SHELL").map(|shell| format!("{shell} -l")))
         .unwrap_or_else(|_| "/bin/sh -l".to_string())
 }

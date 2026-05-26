@@ -78,9 +78,18 @@ impl CellRect {
     }
 }
 
-/// Pixel dimensions of a single terminal cell. Defaults reflect a typical
-/// monospace metric (8×16) but kittui hosts are expected to either probe the
-/// terminal or override via API.
+/// Default virtual cell width used for kittui/kittwm surfaces that do not
+/// have a host-probed pixel metric yet.
+pub const DEFAULT_CELL_WIDTH_PX: u16 = 8;
+
+/// Default virtual cell height used for kittui/kittwm surfaces that do not
+/// have a host-probed pixel metric yet.
+pub const DEFAULT_CELL_HEIGHT_PX: u16 = 16;
+
+/// Pixel dimensions of a single terminal cell. Defaults reflect kittwm's
+/// shared virtual surface metric (8×16) so PTY, libghostty, browser, X11, and
+/// Quartz adapters have a consistent scale baseline until the host provides a
+/// measured cell size.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CellSize {
     /// Width of a cell in pixels.
@@ -92,7 +101,10 @@ pub struct CellSize {
 impl CellSize {
     /// Construct an explicit cell size.
     pub const fn new(width_px: u16, height_px: u16) -> Self {
-        Self { width_px, height_px }
+        Self {
+            width_px,
+            height_px,
+        }
     }
 
     /// Total pixels in a cell.
@@ -103,7 +115,7 @@ impl CellSize {
 
 impl Default for CellSize {
     fn default() -> Self {
-        Self::new(8, 16)
+        Self::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX)
     }
 }
 
