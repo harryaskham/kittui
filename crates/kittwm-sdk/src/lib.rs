@@ -340,6 +340,25 @@ impl NativeSurfaceContract {
     pub fn is_native_ready(&self) -> bool {
         self.sdk_backed && self.kitty_graphics_native && !self.kittui_entry.trim().is_empty()
     }
+
+    /// Composition plane used by this first-party surface kind.
+    ///
+    /// Terminal and browser surfaces are app content, while chrome surfaces are
+    /// decorations. Unknown/future surface kinds intentionally return `None`
+    /// until the architecture contract names their plane.
+    pub fn composition_plane(&self) -> Option<&'static str> {
+        match self.surface_kind.as_str() {
+            "terminal" | "browser" => Some("app-surfaces"),
+            "chrome" => Some("decorations"),
+            _ => None,
+        }
+    }
+
+    /// Resolve this surface's current z-index from an architecture contract.
+    pub fn z_index(&self, contract: &ArchitectureContract) -> Option<i32> {
+        self.composition_plane()
+            .and_then(|plane| contract.z_index_for_plane(plane))
+    }
 }
 
 impl ArchitectureContract {
@@ -2790,6 +2809,8 @@ mod tests {
         assert_eq!(browser.sdk_entry, "SurfaceSpec::browser");
         assert!(browser.sdk_backed);
         assert!(browser.kitty_graphics_native);
+        assert_eq!(browser.composition_plane(), Some("app-surfaces"));
+        assert_eq!(browser.z_index(&contract), Some(0));
         assert_eq!(
             browser.kittui_entry,
             "HeadlessBrowserApp -> Runtime::place_png_frame_with_options"
@@ -2807,13 +2828,18 @@ mod tests {
             contract.native_surface_by_kind("browser").unwrap().name,
             "kittwm-browser"
         );
+        let chrome_surfaces = contract
+            .native_surfaces_by_kind("chrome")
+            .collect::<Vec<_>>();
         assert_eq!(
-            contract
-                .native_surfaces_by_kind("chrome")
+            chrome_surfaces
+                .iter()
                 .map(|surface| surface.name.as_str())
                 .collect::<Vec<_>>(),
             ["kittwm-bar"]
         );
+        assert_eq!(chrome_surfaces[0].composition_plane(), Some("decorations"));
+        assert_eq!(chrome_surfaces[0].z_index(&contract), Some(20));
         assert_eq!(
             contract
                 .native_surface_for_spec(&SurfaceSpec::terminal("htop"))
