@@ -14,9 +14,10 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 #[cfg(test)]
 use kittui::Transport;
-use kittui::{CellRect, Runtime, TerminalInfo};
+use kittui::{CellRect, CellSize, Runtime, TerminalInfo};
 use kittui_kitty as kitty;
 use kittui_wm::native::{HeadlessBrowserApp, NativeApp, NativeFrame};
+use kittui_wm::semantic::render_sdk_semantic_surface;
 use kittwm_sdk::{Kittwm, SemanticSurfaceSnapshot};
 
 const DEFAULT_URL: &str =
@@ -29,6 +30,8 @@ const BROWSER_IMAGE_Z_INDEX: i32 = 0;
 struct BrowserArgs {
     url: String,
     semantic_snapshot: bool,
+    semantic_scene_json: bool,
+    semantic_kitty: bool,
     compact_json: bool,
     help: bool,
 }
@@ -41,6 +44,8 @@ impl BrowserArgs {
     {
         let mut url = None;
         let mut semantic_snapshot = false;
+        let mut semantic_scene_json = false;
+        let mut semantic_kitty = false;
         let mut compact_json = true;
         let mut help = false;
         let mut iter = args.into_iter().map(Into::into);
@@ -48,6 +53,8 @@ impl BrowserArgs {
             match arg.as_str() {
                 "--help" | "-h" => help = true,
                 "--semantic-snapshot" | "--print-semantic" => semantic_snapshot = true,
+                "--semantic-scene-json" => semantic_scene_json = true,
+                "--semantic-kitty" | "--semantic-graphics" => semantic_kitty = true,
                 "--pretty" | "--pretty-json" => compact_json = false,
                 "--compact" | "--compact-json" => compact_json = true,
                 "--" => {
@@ -78,6 +85,8 @@ impl BrowserArgs {
         Ok(Self {
             url: url.unwrap_or_else(|| DEFAULT_URL.to_string()),
             semantic_snapshot,
+            semantic_scene_json,
+            semantic_kitty,
             compact_json,
             help,
         })
@@ -87,7 +96,7 @@ impl BrowserArgs {
 fn help_text() -> String {
     "kittwm-browser — first-party kittwm-native browser app\n\n\
 Usage:\n  kittwm-browser [OPTIONS] [URL]\n\n\
-Options:\n  --semantic-snapshot, --print-semantic  load URL, print DOM/ARIA semantic snapshot JSON, and exit\n  --pretty, --pretty-json                pretty-print semantic snapshot JSON\n  --compact, --compact-json              compact semantic snapshot JSON (default)\n  -h, --help                             show this help\n\n\
+Options:\n  --semantic-snapshot, --print-semantic  load URL, print DOM/ARIA semantic snapshot JSON, and exit\n  --semantic-scene-json                  load URL, render semantic snapshot as kittui scene JSON, and exit\n  --semantic-kitty, --semantic-graphics  load URL, render semantic snapshot as kitty graphics, and exit\n  --pretty, --pretty-json                pretty-print semantic snapshot JSON\n  --compact, --compact-json              compact semantic snapshot JSON (default)\n  -h, --help                             show this help\n\n\
 Default mode renders the browser surface in the terminal and publishes semantic snapshots to kittwm when KITTWM_SOCKET is set.\n"
         .to_string()
 }
@@ -110,6 +119,12 @@ fn real_main() -> Result<()> {
     }
     if args.semantic_snapshot {
         return print_semantic_snapshot(&args.url, args.compact_json);
+    }
+    if args.semantic_scene_json {
+        return print_semantic_scene_json(&args.url);
+    }
+    if args.semantic_kitty {
+        return print_semantic_kitty(&args.url);
     }
     let url = args.url;
     let mut viewport = BrowserViewport::from_terminal_cells(terminal_cells().unwrap_or((80, 24)));
@@ -206,6 +221,44 @@ fn print_semantic_snapshot(url: &str, compact: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&snapshot)?);
     }
     Ok(())
+}
+
+fn print_semantic_scene_json(url: &str) -> Result<()> {
+    let mut browser = HeadlessBrowserApp::launch(url, 1024, 768)?;
+    let snapshot = browser.semantic_snapshot()?;
+    let scene = browser_semantic_scene(&snapshot);
+    println!("{}", serde_json::to_string(&scene)?);
+    Ok(())
+}
+
+fn print_semantic_kitty(url: &str) -> Result<()> {
+    let mut browser = HeadlessBrowserApp::launch(url, 1024, 768)?;
+    let snapshot = browser.semantic_snapshot()?;
+    let scene = browser_semantic_scene(&snapshot);
+    let runtime = Runtime::builder()
+        .terminal(TerminalInfo::detect())
+        .build()?;
+    let placement = runtime.place_at_with_options(
+        &scene,
+        scene.footprint,
+        &browser_semantic_scene_placement_options(),
+    )?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    handle.write_all(placement.upload.as_bytes())?;
+    handle.write_all(placement.placement.as_bytes())?;
+    handle.flush()?;
+    Ok(())
+}
+
+fn browser_semantic_scene(snapshot: &SemanticSurfaceSnapshot) -> kittui::Scene {
+    render_sdk_semantic_surface(snapshot, CellSize::default())
+}
+
+fn browser_semantic_scene_placement_options() -> kitty::PlacementOptions {
+    let mut options = kitty::PlacementOptions::absolute();
+    options.z_index = BROWSER_IMAGE_Z_INDEX;
+    options
 }
 
 struct BrowserSemanticPublisher {
@@ -416,6 +469,24 @@ mod tests {
     }
 
     #[test]
+    fn parses_semantic_scene_and_kitty_modes() {
+        let scene =
+            BrowserArgs::parse_from(["--semantic-scene-json", "https://example.com"]).unwrap();
+        assert_eq!(scene.url, "https://example.com");
+        assert!(scene.semantic_scene_json);
+        assert!(!scene.semantic_kitty);
+
+        let kitty = BrowserArgs::parse_from(["--semantic-graphics"]).unwrap();
+        assert_eq!(kitty.url, DEFAULT_URL);
+        assert!(kitty.semantic_kitty);
+        assert!(!kitty.semantic_scene_json);
+
+        let help = help_text();
+        assert!(help.contains("--semantic-scene-json"), "{help}");
+        assert!(help.contains("--semantic-kitty"), "{help}");
+    }
+
+    #[test]
     fn rejects_unknown_browser_option() {
         let err = BrowserArgs::parse_from(["--bogus"]).unwrap_err();
         assert!(err.contains("unknown option --bogus"));
@@ -444,6 +515,37 @@ mod tests {
         assert!(placement.contains("c=80"), "{placement:?}");
         assert!(placement.contains("r=22"), "{placement:?}");
         assert!(!placement.contains("U=1"), "{placement:?}");
+    }
+
+    #[test]
+    fn browser_semantic_scene_renders_snapshot_through_kittui_affordances() {
+        let snapshot = SemanticSurfaceSnapshot::new(
+            "browser-1",
+            7,
+            kittwm_sdk::ComponentNode::new("root", kittwm_sdk::ComponentRole::Group).children(
+                vec![kittwm_sdk::ComponentNode::new(
+                    "search",
+                    kittwm_sdk::ComponentRole::TextInput,
+                )
+                .labeled("Search")
+                .valued(kittwm_sdk::ComponentValue::Text("kittwm".to_string()))
+                .state(kittwm_sdk::ComponentState {
+                    focused: true,
+                    focusable: true,
+                    ..kittwm_sdk::ComponentState::default()
+                })],
+            ),
+        )
+        .focused("search");
+        let scene = browser_semantic_scene(&snapshot);
+        assert!(scene.footprint.cols > 0);
+        assert!(scene.footprint.rows > 0);
+        assert!(!scene.layers.is_empty());
+        let scene_json = serde_json::to_string(&scene).unwrap();
+        assert!(scene_json.contains("control"), "{scene_json}");
+        let opts = browser_semantic_scene_placement_options();
+        assert!(!opts.unicode_placeholder);
+        assert_eq!(opts.z_index, BROWSER_IMAGE_Z_INDEX);
     }
 
     #[test]
