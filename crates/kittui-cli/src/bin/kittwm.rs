@@ -109,6 +109,8 @@ struct Cli {
     architecture_json: bool,
     native_surfaces: bool,
     native_surfaces_json: bool,
+    native_surfaces_scene_json: bool,
+    native_surfaces_kitty: bool,
     panes_scene_json: bool,
     panes_kitty: bool,
     events_scene_json: Option<u64>,
@@ -208,6 +210,13 @@ fn parse_args() -> Result<Cli> {
             "architecture-json" | "platform-contract-json" => out.architecture_json = true,
             "native-surfaces" | "surface-coverage" => out.native_surfaces = true,
             "native-surfaces-json" | "surface-coverage-json" => out.native_surfaces_json = true,
+            "native-surfaces-scene-json" | "surface-coverage-scene-json" => {
+                out.native_surfaces_scene_json = true
+            }
+            "native-surfaces-kitty"
+            | "native-surfaces-graphics"
+            | "surface-coverage-kitty"
+            | "surface-coverage-graphics" => out.native_surfaces_kitty = true,
             "showcase-scene-json" | "shell-scene-json" => out.showcase_scene_json = true,
             "showcase-metrics-json" | "shell-metrics-json" => out.showcase_metrics_json = true,
             "showcase-composition-json" | "shell-composition-json" => {
@@ -833,6 +842,8 @@ USAGE
   kittwm architecture-json       Emit WM architecture/separation contract JSON
   kittwm native-surfaces         Show first-party native surface coverage
   kittwm native-surfaces-json    Emit first-party native surface coverage JSON
+  kittwm native-surfaces-scene-json Emit coverage as a kittui Scene
+  kittwm native-surfaces-kitty   Render coverage with kitty graphics
   kittwm showcase-scene-json     Emit a representative graphical WM scene artifact
   kittwm showcase-metrics-json   Emit scene/layer/pixel metrics for that artifact
   kittwm showcase-composition-json Emit ordered app/chrome/overlay composition graph
@@ -1119,6 +1130,11 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "apps",
         "shortcuts",
         "shortcuts-json",
+        "native-surfaces",
+        "native-surfaces-json",
+        "native-surfaces-scene-json",
+        "native-surfaces-kitty",
+        "native-surfaces-graphics",
         "doctor",
         "config",
         "config-scene-json",
@@ -1453,6 +1469,9 @@ fn real_main() -> Result<()> {
     }
     if cli.native_surfaces_json {
         return native_surfaces_json_cmd();
+    }
+    if cli.native_surfaces_scene_json || cli.native_surfaces_kitty {
+        return native_surfaces_graphical_cmd(cli.native_surfaces_kitty);
     }
     if cli.showcase_scene_json {
         return showcase_scene_json_cmd();
@@ -2811,6 +2830,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "first-party SDK/kitty-native surface coverage JSON",
         },
         LocalCommandEntry {
+            command: "native-surfaces-scene-json",
+            category: "diagnostics",
+            description: "first-party native surface coverage kittui scene",
+        },
+        LocalCommandEntry {
+            command: "native-surfaces-kitty",
+            category: "diagnostics",
+            description: "first-party native surface coverage kitty graphics",
+        },
+        LocalCommandEntry {
             command: "completions SHELL",
             category: "help",
             description: "shell completions for bash, zsh, or fish",
@@ -3179,6 +3208,97 @@ fn native_surfaces_text() -> String {
 fn native_surfaces_cmd() -> Result<()> {
     print!("{}", native_surfaces_text());
     Ok(())
+}
+
+fn native_surfaces_graphical_cmd(kitty: bool) -> Result<()> {
+    let contract = kittwm_sdk::ArchitectureContract::current();
+    let scene = native_surfaces_scene(&contract);
+    print_scene_or_kitty(&scene, kitty, 20)
+}
+
+fn native_surfaces_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
+    let cols = info_scene_cols();
+    let surfaces = &contract.first_party_native_surfaces;
+    let rows = (surfaces.len() as u16 + 5).clamp(8, 22);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let all_ready = contract.all_native_surfaces_ready();
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-native-surfaces-backdrop:count={}:all_ready={all_ready}",
+                surfaces.len()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(163, 190, 140, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some("kittwm-native-surfaces-heading:sdk-kittui-kitty-coverage".to_string()),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, surface) in surfaces.iter().take(16).enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        let plane = surface.composition_plane().unwrap_or("unknown");
+        let z_index = surface
+            .z_index(contract)
+            .map(|z| z.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-native-surface-row:{}:{}:kind={}:ready={}:sdk={}:kitty={}:plane={plane}:z={z_index}:kittui={}",
+                idx,
+                surface.name,
+                surface.surface_kind,
+                surface.is_native_ready(),
+                surface.sdk_backed,
+                surface.kitty_graphics_native,
+                surface.kittui_entry
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: if surface.is_native_ready() {
+                        Rgba::rgba(163, 190, 140, 255)
+                    } else {
+                        Rgba::rgba(191, 97, 106, 255)
+                    },
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn completion_words() -> Vec<String> {
@@ -4987,6 +5107,9 @@ mod tests {
             entry["command"] == "native-surfaces-json" && entry["category"] == "diagnostics"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "native-surfaces-kitty" && entry["category"] == "diagnostics"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "keymap-kitty" && entry["category"] == "diagnostics"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -5142,6 +5265,35 @@ mod tests {
         );
         assert!(text.contains("kittwm-bar"), "{text}");
         assert!(text.contains("BarModel::scene"), "{text}");
+    }
+
+    #[test]
+    fn native_surfaces_scene_labels_sdk_kittui_kitty_coverage() {
+        let contract = kittwm_sdk::ArchitectureContract::current();
+        let scene = native_surfaces_scene(&contract);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label
+                    .contains("kittwm-native-surfaces-backdrop:count=3:all_ready=true")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label
+                .contains("kittwm-native-surface-row:0:kittwm-terminal:kind=terminal:ready=true")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-bar:kind=chrome") && label.contains("z=20")),
+            "{labels:?}"
+        );
     }
 
     #[test]
