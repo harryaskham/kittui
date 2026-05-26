@@ -27,6 +27,9 @@ mod ffi {
 
     pub type GhosttyTerminal = *mut c_void;
     pub type GhosttyFormatter = *mut c_void;
+    pub type GhosttyRenderState = *mut c_void;
+    pub type GhosttyRenderStateRowIterator = *mut c_void;
+    pub type GhosttyRenderStateRowCells = *mut c_void;
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -82,11 +85,26 @@ mod ffi {
         pub len: usize,
     }
 
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
+    pub struct GhosttyColorRgb {
+        pub r: u8,
+        pub g: u8,
+        pub b: u8,
+    }
+
     pub const GHOSTTY_TERMINAL_DATA_COLS: i32 = 1;
     pub const GHOSTTY_TERMINAL_DATA_ROWS: i32 = 2;
     pub const GHOSTTY_TERMINAL_DATA_CURSOR_X: i32 = 3;
     pub const GHOSTTY_TERMINAL_DATA_CURSOR_Y: i32 = 4;
     pub const GHOSTTY_TERMINAL_DATA_TITLE: i32 = 12;
+
+    pub const GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR: i32 = 4;
+    pub const GHOSTTY_RENDER_STATE_ROW_DATA_CELLS: i32 = 3;
+    pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN: i32 = 3;
+    pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF: i32 = 4;
+    pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR: i32 = 5;
+    pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR: i32 = 6;
 
     extern "C" {
         pub fn ghostty_terminal_new(
@@ -115,6 +133,45 @@ mod ffi {
             out_written: *mut usize,
         ) -> GhosttyResult;
         pub fn ghostty_formatter_free(formatter: GhosttyFormatter);
+
+        pub fn ghostty_render_state_new(
+            allocator: *const GhosttyAllocator,
+            state: *mut GhosttyRenderState,
+        ) -> GhosttyResult;
+        pub fn ghostty_render_state_free(state: GhosttyRenderState);
+        pub fn ghostty_render_state_update(
+            state: GhosttyRenderState,
+            terminal: GhosttyTerminal,
+        ) -> GhosttyResult;
+        pub fn ghostty_render_state_get(
+            state: GhosttyRenderState,
+            data: i32,
+            out: *mut c_void,
+        ) -> GhosttyResult;
+        pub fn ghostty_render_state_row_iterator_new(
+            allocator: *const GhosttyAllocator,
+            out_iterator: *mut GhosttyRenderStateRowIterator,
+        ) -> GhosttyResult;
+        pub fn ghostty_render_state_row_iterator_free(iterator: GhosttyRenderStateRowIterator);
+        pub fn ghostty_render_state_row_iterator_next(
+            iterator: GhosttyRenderStateRowIterator,
+        ) -> bool;
+        pub fn ghostty_render_state_row_get(
+            iterator: GhosttyRenderStateRowIterator,
+            data: i32,
+            out: *mut c_void,
+        ) -> GhosttyResult;
+        pub fn ghostty_render_state_row_cells_new(
+            allocator: *const GhosttyAllocator,
+            out_cells: *mut GhosttyRenderStateRowCells,
+        ) -> GhosttyResult;
+        pub fn ghostty_render_state_row_cells_free(cells: GhosttyRenderStateRowCells);
+        pub fn ghostty_render_state_row_cells_next(cells: GhosttyRenderStateRowCells) -> bool;
+        pub fn ghostty_render_state_row_cells_get(
+            cells: GhosttyRenderStateRowCells,
+            data: i32,
+            out: *mut c_void,
+        ) -> GhosttyResult;
     }
 }
 
@@ -135,6 +192,32 @@ pub struct GhosttyVtSnapshot {
     pub plain_text: String,
     /// VT-formatted active screen, preserving SGR/style state where possible.
     pub vt_text: String,
+}
+
+/// One terminal cell extracted from libghostty-vt render state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GhosttyCellSnapshot {
+    /// Text grapheme for this cell, if any.
+    pub text: String,
+    /// Resolved foreground color when libghostty-vt reports one.
+    pub fg: Option<[u8; 3]>,
+    /// Resolved background color when libghostty-vt reports one.
+    pub bg: Option<[u8; 3]>,
+}
+
+/// Render-state rows/cells extracted from libghostty-vt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GhosttyRenderSnapshot {
+    /// Terminal width in cells.
+    pub cols: u16,
+    /// Terminal height in cells.
+    pub rows: u16,
+    /// Cursor x position in cells.
+    pub cursor_x: u16,
+    /// Cursor y position in cells.
+    pub cursor_y: u16,
+    /// Row-major cell data.
+    pub cells: Vec<Vec<GhosttyCellSnapshot>>,
 }
 
 /// Owned libghostty-vt terminal.
@@ -174,6 +257,79 @@ impl GhosttyVtTerminal {
             return;
         }
         unsafe { ffi::ghostty_terminal_vt_write(self.raw, bytes.as_ptr(), bytes.len()) };
+    }
+
+    /// Extract rows/cells from libghostty-vt render state.
+    pub fn render_snapshot(&self) -> Result<GhosttyRenderSnapshot> {
+        let mut state = ptr::null_mut();
+        check(
+            unsafe { ffi::ghostty_render_state_new(ptr::null(), &mut state) },
+            "ghostty_render_state_new",
+        )?;
+        if state.is_null() {
+            bail!("ghostty_render_state_new returned a null state");
+        }
+        let state = RenderStateGuard(state);
+        check(
+            unsafe { ffi::ghostty_render_state_update(state.0, self.raw) },
+            "ghostty_render_state_update",
+        )?;
+
+        let mut rows_iter = ptr::null_mut();
+        check(
+            unsafe { ffi::ghostty_render_state_row_iterator_new(ptr::null(), &mut rows_iter) },
+            "ghostty_render_state_row_iterator_new",
+        )?;
+        if rows_iter.is_null() {
+            bail!("ghostty_render_state_row_iterator_new returned null");
+        }
+        let mut rows_iter = RowIteratorGuard(rows_iter);
+        check(
+            unsafe {
+                ffi::ghostty_render_state_get(
+                    state.0,
+                    ffi::GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR,
+                    (&mut rows_iter.0 as *mut ffi::GhosttyRenderStateRowIterator).cast::<c_void>(),
+                )
+            },
+            "ghostty_render_state_get(row_iterator)",
+        )?;
+
+        let mut rows = Vec::new();
+        while unsafe { ffi::ghostty_render_state_row_iterator_next(rows_iter.0) } {
+            let mut cells = ptr::null_mut();
+            check(
+                unsafe { ffi::ghostty_render_state_row_cells_new(ptr::null(), &mut cells) },
+                "ghostty_render_state_row_cells_new",
+            )?;
+            if cells.is_null() {
+                bail!("ghostty_render_state_row_cells_new returned null");
+            }
+            let mut cells = RowCellsGuard(cells);
+            check(
+                unsafe {
+                    ffi::ghostty_render_state_row_get(
+                        rows_iter.0,
+                        ffi::GHOSTTY_RENDER_STATE_ROW_DATA_CELLS,
+                        (&mut cells.0 as *mut ffi::GhosttyRenderStateRowCells).cast::<c_void>(),
+                    )
+                },
+                "ghostty_render_state_row_get(cells)",
+            )?;
+            let mut row = Vec::new();
+            while unsafe { ffi::ghostty_render_state_row_cells_next(cells.0) } {
+                row.push(read_render_cell(cells.0)?);
+            }
+            rows.push(row);
+        }
+
+        Ok(GhosttyRenderSnapshot {
+            cols: self.get_u16(ffi::GHOSTTY_TERMINAL_DATA_COLS, "cols")?,
+            rows: self.get_u16(ffi::GHOSTTY_TERMINAL_DATA_ROWS, "rows")?,
+            cursor_x: self.get_u16(ffi::GHOSTTY_TERMINAL_DATA_CURSOR_X, "cursor_x")?,
+            cursor_y: self.get_u16(ffi::GHOSTTY_TERMINAL_DATA_CURSOR_Y, "cursor_y")?,
+            cells: rows,
+        })
     }
 
     /// Capture a text/style snapshot via libghostty-vt's formatter APIs.
@@ -267,6 +423,78 @@ impl Drop for FormatterGuard {
     }
 }
 
+struct RenderStateGuard(ffi::GhosttyRenderState);
+
+impl Drop for RenderStateGuard {
+    fn drop(&mut self) {
+        unsafe { ffi::ghostty_render_state_free(self.0) };
+    }
+}
+
+struct RowIteratorGuard(ffi::GhosttyRenderStateRowIterator);
+
+impl Drop for RowIteratorGuard {
+    fn drop(&mut self) {
+        unsafe { ffi::ghostty_render_state_row_iterator_free(self.0) };
+    }
+}
+
+struct RowCellsGuard(ffi::GhosttyRenderStateRowCells);
+
+impl Drop for RowCellsGuard {
+    fn drop(&mut self) {
+        unsafe { ffi::ghostty_render_state_row_cells_free(self.0) };
+    }
+}
+
+fn read_render_cell(cells: ffi::GhosttyRenderStateRowCells) -> Result<GhosttyCellSnapshot> {
+    let mut len = 0u32;
+    check(
+        unsafe {
+            ffi::ghostty_render_state_row_cells_get(
+                cells,
+                ffi::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN,
+                (&mut len as *mut u32).cast::<c_void>(),
+            )
+        },
+        "ghostty_render_state_row_cells_get(graphemes_len)",
+    )?;
+    let mut graphemes = vec![0u32; len as usize];
+    if len > 0 {
+        check(
+            unsafe {
+                ffi::ghostty_render_state_row_cells_get(
+                    cells,
+                    ffi::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
+                    graphemes.as_mut_ptr().cast::<c_void>(),
+                )
+            },
+            "ghostty_render_state_row_cells_get(graphemes_buf)",
+        )?;
+    }
+    let text = graphemes
+        .into_iter()
+        .filter_map(char::from_u32)
+        .collect::<String>();
+    Ok(GhosttyCellSnapshot {
+        text,
+        fg: read_cell_color(cells, ffi::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR),
+        bg: read_cell_color(cells, ffi::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR),
+    })
+}
+
+fn read_cell_color(cells: ffi::GhosttyRenderStateRowCells, data: i32) -> Option<[u8; 3]> {
+    let mut color = ffi::GhosttyColorRgb { r: 0, g: 0, b: 0 };
+    let result = unsafe {
+        ffi::ghostty_render_state_row_cells_get(
+            cells,
+            data,
+            (&mut color as *mut ffi::GhosttyColorRgb).cast::<c_void>(),
+        )
+    };
+    (result == ffi::GHOSTTY_SUCCESS).then_some([color.r, color.g, color.b])
+}
+
 fn formatter_options(emit: i32, unwrap: bool, trim: bool) -> ffi::GhosttyFormatterTerminalOptions {
     ffi::GhosttyFormatterTerminalOptions {
         size: std::mem::size_of::<ffi::GhosttyFormatterTerminalOptions>(),
@@ -327,6 +555,31 @@ mod tests {
         assert!(GhosttyVtTerminal::new(0, 24, 0).is_err());
         assert!(GhosttyVtTerminal::new(80, 0, 0).is_err());
     }
+
+    #[test]
+    fn extracts_render_state_cells_and_colors() {
+        let mut term = GhosttyVtTerminal::new(20, 4, 100).unwrap();
+        term.write(b"hello\n\x1b[31mred\x1b[0m");
+        let render = term.render_snapshot().unwrap();
+        assert_eq!(render.cols, 20);
+        assert_eq!(render.rows, 4);
+        let text = render
+            .cells
+            .iter()
+            .flat_map(|row| row.iter())
+            .map(|cell| cell.text.as_str())
+            .collect::<String>();
+        assert!(text.contains("hello"), "{text:?}");
+        assert!(text.contains("red"), "{text:?}");
+        assert!(
+            render
+                .cells
+                .iter()
+                .flat_map(|row| row.iter())
+                .any(|cell| cell.text == "r" && cell.fg.is_some()),
+            "{render:?}"
+        );
+    }
 }
 
 /// Styling options for deterministic PNG previews produced from a
@@ -359,11 +612,47 @@ impl Default for PreviewOptions {
 
 /// Render the snapshot's plain-text screen into a deterministic PNG preview.
 ///
-/// This is an interim evidence renderer: it visualizes the terminal text/state
-/// driven by libghostty-vt, but it does not yet consume Ghostty render-state
-/// cell colors/styles or kitty image placement metadata.
+/// This compatibility helper uses formatter text. Prefer
+/// [`render_snapshot_preview_png`] when render-state cells are available.
 pub fn snapshot_preview_png(
     snapshot: &GhosttyVtSnapshot,
+    options: &PreviewOptions,
+) -> Result<Vec<u8>> {
+    let cells = snapshot
+        .plain_text
+        .lines()
+        .take(snapshot.rows as usize)
+        .map(|line| {
+            line.chars()
+                .take(snapshot.cols as usize)
+                .map(|ch| GhosttyCellSnapshot {
+                    text: ch.to_string(),
+                    fg: None,
+                    bg: None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    render_snapshot_preview_png(
+        &GhosttyRenderSnapshot {
+            cols: snapshot.cols,
+            rows: snapshot.rows,
+            cursor_x: snapshot.cursor_x,
+            cursor_y: snapshot.cursor_y,
+            cells,
+        },
+        options,
+    )
+}
+
+/// Render libghostty-vt render-state cells into a deterministic PNG preview.
+///
+/// This uses Ghostty's extracted row/cell/grapheme data and honors per-cell
+/// foreground/background colors when libghostty-vt reports them. It still uses a
+/// bundled bitmap font rather than platform text APIs, keeping the artifact
+/// portable and suitable for CI/headless evidence.
+pub fn render_snapshot_preview_png(
+    snapshot: &GhosttyRenderSnapshot,
     options: &PreviewOptions,
 ) -> Result<Vec<u8>> {
     use image::{ImageBuffer, ImageEncoder, Rgba};
@@ -371,14 +660,23 @@ pub fn snapshot_preview_png(
     let width = u32::from(snapshot.cols).max(1) * options.cell_width;
     let height = u32::from(snapshot.rows).max(1) * options.cell_height;
     let mut img = ImageBuffer::from_pixel(width, height, Rgba(options.background));
-    for (row, line) in snapshot
-        .plain_text
-        .lines()
+    for (row, cells) in snapshot
+        .cells
+        .iter()
         .take(snapshot.rows as usize)
         .enumerate()
     {
-        for (col, ch) in line.chars().take(snapshot.cols as usize).enumerate() {
-            draw_ascii_cell(&mut img, col as u32, row as u32, ch, options);
+        for (col, cell) in cells.iter().take(snapshot.cols as usize).enumerate() {
+            if let Some(bg) = cell.bg {
+                fill_cell(&mut img, col as u32, row as u32, rgba3(bg), options);
+            }
+            let mut cell_options = options.clone();
+            if let Some(fg) = cell.fg {
+                cell_options.foreground = rgba3(fg);
+            }
+            for ch in cell.text.chars().take(1) {
+                draw_ascii_cell(&mut img, col as u32, row as u32, ch, &cell_options);
+            }
         }
     }
     draw_cursor(&mut img, snapshot.cursor_x, snapshot.cursor_y, options);
@@ -391,6 +689,26 @@ pub fn snapshot_preview_png(
         image::ExtendedColorType::Rgba8,
     )?;
     Ok(bytes)
+}
+
+fn rgba3(rgb: [u8; 3]) -> [u8; 4] {
+    [rgb[0], rgb[1], rgb[2], 255]
+}
+
+fn fill_cell(
+    img: &mut image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    col: u32,
+    row: u32,
+    color: [u8; 4],
+    options: &PreviewOptions,
+) {
+    let x0 = col * options.cell_width;
+    let y0 = row * options.cell_height;
+    for y in y0..(y0 + options.cell_height).min(img.height()) {
+        for x in x0..(x0 + options.cell_width).min(img.width()) {
+            img.put_pixel(x, y, image::Rgba(color));
+        }
+    }
 }
 
 fn draw_ascii_cell(

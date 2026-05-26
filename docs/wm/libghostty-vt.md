@@ -45,3 +45,10 @@ This keeps the architecture clean: libghostty-vt handles terminal semantics, kit
 ## Interim headless preview
 
 `snapshot_preview_png` and `examples/headless_preview.rs` emit a deterministic PNG from the libghostty-vt formatter snapshot. This uses a tiny bundled bitmap font and avoids platform text APIs, so it is suitable as a first CI/headless proof artifact. It proves Ghostty-owned VT state can drive an image artifact without desktop capture. It is not yet pixel-identical to Ghostty because it does not consume render-state cell style/color data.
+
+
+## Render-state extraction
+
+`GhosttyVtTerminal::render_snapshot` now updates a `GhosttyRenderState` and extracts rows/cells/graphemes plus resolved foreground/background colors where libghostty-vt reports them. `render_snapshot_preview_png` uses those cells for a deterministic PNG artifact. This moves the proof beyond formatter text while staying portable and independent of desktop capture.
+
+The preview is still a kittui-owned bitmap-font renderer. It is not intended to match Ghostty's GPU text shaping pixel-for-pixel yet. The next step is to carry more render-state metadata (style flags, cursor style, dirty rows, kitty image placements) and map that to kittui scene/RGBA primitives.

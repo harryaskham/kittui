@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use kittui_ghostty_vt::{snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
+use kittui_ghostty_vt::{render_snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
 
 fn main() -> anyhow::Result<()> {
     let out = std::env::args()
@@ -14,8 +14,8 @@ fn main() -> anyhow::Result<()> {
           \x1b[32mVT state is Ghostty-owned\x1b[0m\n\
           kittui/kittwm can render the surface\n",
     );
-    let snapshot = term.snapshot()?;
-    let png = snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
+    let snapshot = term.render_snapshot()?;
+    let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
     std::fs::write(&out, png)?;
     println!("wrote {}", out.display());
     Ok(())
