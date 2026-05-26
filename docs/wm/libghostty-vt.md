@@ -62,3 +62,14 @@ The preview is still a kittui-owned bitmap-font renderer. It is not intended to 
 ## Timelapse artifacts
 
 `examples/headless_timelapse.rs` demonstrates deterministic frame-sequence evidence. It feeds VT bytes into one libghostty-vt terminal over several steps, extracts render-state after each step, writes PNG frames, and emits a small manifest. This gives us a portable substitute for flaky desktop screenshots while we build toward a full `kittui-ghostty` terminal-surface runner.
+
+
+## `kittui-ghostty` CLI
+
+The `kittui-ghostty` binary in `kittui-ghostty-vt` is a portable headless preview utility. It reads VT bytes from stdin (or `--demo` content), feeds libghostty-vt, extracts render-state cells/styles, and writes a PNG via the kittui-owned preview renderer:
+
+```sh
+printf 'hello\n\033[32mgreen\033[0m\n' | kittui-ghostty --out /tmp/frame.png --cols 64 --rows 12
+```
+
+This is the first reusable command-line path for deterministic headless Ghostty evidence.
