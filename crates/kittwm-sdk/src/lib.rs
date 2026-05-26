@@ -318,6 +318,14 @@ pub struct NativeSurfaceContract {
     pub rendering: String,
 }
 
+impl NativeSurfaceContract {
+    /// Whether this first-party surface is fully represented by the current
+    /// SDK + kitty-graphics-native contract.
+    pub fn is_native_ready(&self) -> bool {
+        self.sdk_backed && self.kitty_graphics_native && !self.kittui_entry.trim().is_empty()
+    }
+}
+
 impl ArchitectureContract {
     /// Return the current built-in kittwm platform contract.
     pub fn current() -> Self {
@@ -480,6 +488,21 @@ impl ArchitectureContract {
     /// Look up a layer by stable id.
     pub fn layer(&self, id: &str) -> Option<&ArchitectureLayer> {
         self.layers.iter().find(|layer| layer.id == id)
+    }
+
+    /// Look up a first-party native surface by binary/surface name.
+    pub fn native_surface(&self, name: &str) -> Option<&NativeSurfaceContract> {
+        self.first_party_native_surfaces
+            .iter()
+            .find(|surface| surface.name == name)
+    }
+
+    /// Iterate first-party surfaces currently represented as SDK-backed,
+    /// kitty-graphics-native paths.
+    pub fn native_ready_surfaces(&self) -> impl Iterator<Item = &NativeSurfaceContract> {
+        self.first_party_native_surfaces
+            .iter()
+            .filter(|surface| surface.is_native_ready())
     }
 }
 
@@ -2671,11 +2694,7 @@ mod tests {
             .composition_order
             .iter()
             .any(|plane| { plane.plane == "decorations" && plane.z_index == 20 }));
-        let browser = contract
-            .first_party_native_surfaces
-            .iter()
-            .find(|surface| surface.name == "kittwm-browser")
-            .unwrap();
+        let browser = contract.native_surface("kittwm-browser").unwrap();
         assert_eq!(browser.sdk_entry, "SurfaceSpec::browser");
         assert!(browser.sdk_backed);
         assert!(browser.kitty_graphics_native);
@@ -2686,7 +2705,16 @@ mod tests {
         assert!(contract
             .first_party_native_surfaces
             .iter()
-            .all(|surface| surface.sdk_backed && surface.kitty_graphics_native));
+            .all(NativeSurfaceContract::is_native_ready));
+        let ready_names = contract
+            .native_ready_surfaces()
+            .map(|surface| surface.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ready_names,
+            ["kittwm-terminal", "kittwm-browser", "kittwm-bar"]
+        );
+        assert!(contract.native_surface("missing").is_none());
         let roundtrip: ArchitectureContract =
             serde_json::from_str(&serde_json::to_string(&contract).unwrap()).unwrap();
         assert_eq!(roundtrip, contract);
