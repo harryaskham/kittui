@@ -16,13 +16,26 @@ enum StatusMode {
     Kitty,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventsMode {
+    Text,
+    SceneJson,
+    Kitty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EventsRequest {
+    ms: u64,
+    mode: EventsMode,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TerminalArgs {
     replace: bool,
     title: Option<String>,
     command: String,
     status: StatusMode,
-    events_ms: Option<u64>,
+    events: Option<EventsRequest>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -31,6 +44,13 @@ struct TerminalStatusModel {
     focus: String,
     layout: String,
     details: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct TerminalEventsModel {
+    ms: u64,
+    count: usize,
+    kinds: Vec<String>,
 }
 
 impl TerminalArgs {
@@ -43,7 +63,7 @@ impl TerminalArgs {
         let mut title = None;
         let mut command = None;
         let mut status = StatusMode::None;
-        let mut events_ms = None;
+        let mut events = None;
         let mut iter = args.into_iter().map(Into::into).peekable();
         while let Some(arg) = iter.next() {
             match arg.as_str() {
@@ -61,14 +81,31 @@ impl TerminalArgs {
                     return Err("choose only one status output mode".to_string())
                 }
                 "--events-ms" => {
-                    let value = iter
-                        .next()
-                        .ok_or_else(|| "--events-ms requires milliseconds".to_string())?;
-                    events_ms = Some(
-                        value
-                            .parse()
-                            .map_err(|_| "--events-ms expects an integer".to_string())?,
-                    );
+                    if events.is_some() {
+                        return Err("choose only one events output mode".to_string());
+                    }
+                    events = Some(EventsRequest {
+                        ms: parse_events_ms(&mut iter, "--events-ms")?,
+                        mode: EventsMode::Text,
+                    });
+                }
+                "--events-scene-json" => {
+                    if events.is_some() {
+                        return Err("choose only one events output mode".to_string());
+                    }
+                    events = Some(EventsRequest {
+                        ms: parse_events_ms(&mut iter, "--events-scene-json")?,
+                        mode: EventsMode::SceneJson,
+                    });
+                }
+                "--events-kitty" | "--events-graphics" => {
+                    if events.is_some() {
+                        return Err("choose only one events output mode".to_string());
+                    }
+                    events = Some(EventsRequest {
+                        ms: parse_events_ms(&mut iter, arg.as_str())?,
+                        mode: EventsMode::Kitty,
+                    });
                 }
                 "--title" => {
                     let value = iter
@@ -105,9 +142,21 @@ impl TerminalArgs {
             title,
             command: command.unwrap_or_else(default_terminal_command),
             status,
-            events_ms,
+            events,
         })
     }
+}
+
+fn parse_events_ms<I>(iter: &mut std::iter::Peekable<I>, flag: &str) -> Result<u64, String>
+where
+    I: Iterator<Item = String>,
+{
+    let value = iter
+        .next()
+        .ok_or_else(|| format!("{flag} requires milliseconds"))?;
+    value
+        .parse()
+        .map_err(|_| format!("{flag} expects an integer"))
 }
 
 fn default_terminal_command() -> String {
@@ -134,12 +183,13 @@ fn shell_words(args: &[String]) -> String {
 
 fn help_text() -> String {
     "kittwm-terminal — first-party terminal client for kittwm\n\n\
-Usage:\n  kittwm-terminal [--replace|--new-window] [--title TITLE] [--command CMD]\n  kittwm-terminal [--replace|--new-window] [--title TITLE] -- PROGRAM [ARGS...]\n  kittwm-terminal --status\n  kittwm-terminal --status-scene-json\n  kittwm-terminal --status-kitty\n  kittwm-terminal --events-ms MS\n\n\
+Usage:\n  kittwm-terminal [--replace|--new-window] [--title TITLE] [--command CMD]\n  kittwm-terminal [--replace|--new-window] [--title TITLE] -- PROGRAM [ARGS...]\n  kittwm-terminal --status\n  kittwm-terminal --status-scene-json\n  kittwm-terminal --status-kitty\n  kittwm-terminal --events-ms MS\n  kittwm-terminal --events-scene-json MS\n  kittwm-terminal --events-kitty MS\n\n\
 Connects through KITTWM_SOCKET/KITTWM_DISPLAY using kittwm-sdk and asks the\n\
 running kittwm instance to spawn or replace a native terminal surface.\n\
 --status prints typed SDK status/pane detail; --status-scene-json and\n\
 --status-kitty render the same model as a kittui/kitty-native status card;\n\
---events-ms prints a bounded event batch for lifecycle/debugging.\n"
+--events-ms prints a bounded event batch for lifecycle/debugging;\n\
+--events-scene-json and --events-kitty render that batch as a kittui card.\n"
         .to_string()
 }
 
@@ -237,15 +287,112 @@ fn terminal_status_scene_cols() -> u16 {
 }
 
 fn render_status_kitty(model: &TerminalStatusModel) -> Result<String, String> {
+    render_scene_kitty(&terminal_status_scene(model))
+}
+
+fn terminal_events_model(ms: u64, kinds: Vec<String>) -> TerminalEventsModel {
+    TerminalEventsModel {
+        ms: ms.clamp(1, 60_000),
+        count: kinds.len(),
+        kinds,
+    }
+}
+
+fn render_events_text(model: &TerminalEventsModel) -> String {
+    let mut out = format!("events count={} ms={}\n", model.count, model.ms);
+    for kind in &model.kinds {
+        out.push_str(kind);
+        out.push('\n');
+    }
+    out
+}
+
+fn terminal_events_scene(model: &TerminalEventsModel) -> Scene {
+    let cols = terminal_status_scene_cols();
+    let rows = 5;
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let summary = model
+        .kinds
+        .iter()
+        .take(5)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(",");
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers: vec![
+            Layer {
+                label: Some("kittwm-terminal-events-backdrop".to_string()),
+                root: Node::Rect {
+                    rect: PxRect::new(0.0, 0.0, width, height),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(17, 25, 44, 238),
+                    },
+                    stroke: Some(Stroke::inside(
+                        1.5,
+                        Paint::Solid {
+                            color: Rgba::rgba(180, 142, 173, 255),
+                        },
+                    )),
+                    corners: Corners::uniform(8.0),
+                },
+            },
+            Layer {
+                label: Some(format!(
+                    "kittwm-terminal-events-heading:count={} ms={}",
+                    model.count, model.ms
+                )),
+                root: Node::Rect {
+                    rect: PxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(94, 129, 172, 210),
+                    },
+                    stroke: None,
+                    corners: Corners {
+                        tl: 8.0,
+                        tr: 8.0,
+                        bl: 0.0,
+                        br: 0.0,
+                    },
+                },
+            },
+            Layer {
+                label: Some(format!("kittwm-terminal-events-kinds:{summary}")),
+                root: Node::Rect {
+                    rect: PxRect::new(
+                        10.0,
+                        cell.height_px as f32 * 2.2,
+                        (width - 20.0).max(1.0),
+                        2.0,
+                    ),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(235, 203, 139, 255),
+                    },
+                    stroke: None,
+                    corners: Corners::uniform(1.0),
+                },
+            },
+        ],
+        animation: None,
+    }
+}
+
+fn render_events_kitty(model: &TerminalEventsModel) -> Result<String, String> {
+    render_scene_kitty(&terminal_events_scene(model))
+}
+
+fn render_scene_kitty(scene: &Scene) -> Result<String, String> {
     let runtime = Runtime::builder()
         .terminal(TerminalInfo::detect())
         .build()
         .map_err(|err| err.to_string())?;
-    let scene = terminal_status_scene(model);
     let mut options = kittui_kitty::PlacementOptions::unicode();
     options.z_index = 20;
     runtime
-        .place_at_with_options(&scene, scene.footprint, &options)
+        .place_at_with_options(scene, scene.footprint, &options)
         .map(|placement| placement.to_bytes())
         .map_err(|err| err.to_string())
 }
@@ -265,16 +412,24 @@ fn run(args: TerminalArgs) -> Result<String, String> {
             StatusMode::None => unreachable!(),
         };
     }
-    if let Some(ms) = args.events_ms {
+    if let Some(request) = args.events {
         let events = wm
-            .events_ms(ms)
+            .events_ms(request.ms)
             .map_err(|err| format!("read events: {err}"))?;
-        let mut out = format!("events count={} ms={}\n", events.len(), ms.clamp(1, 60_000));
-        for event in events {
-            out.push_str(event.kind());
-            out.push('\n');
-        }
-        return Ok(out);
+        let model = terminal_events_model(
+            request.ms,
+            events
+                .into_iter()
+                .map(|event| event.kind().to_string())
+                .collect(),
+        );
+        return match request.mode {
+            EventsMode::Text => Ok(render_events_text(&model)),
+            EventsMode::SceneJson => serde_json::to_string(&terminal_events_scene(&model))
+                .map(|json| format!("{json}\n"))
+                .map_err(|err| format!("encode events scene: {err}")),
+            EventsMode::Kitty => render_events_kitty(&model),
+        };
     }
     if args.replace {
         wm.replace_current(&WindowSpec {
@@ -334,7 +489,7 @@ mod tests {
                 title: Some("dev shell".to_string()),
                 command: "zsh -l".to_string(),
                 status: StatusMode::None,
-                events_ms: None,
+                events: None,
             }
         );
     }
@@ -349,15 +504,40 @@ mod tests {
     fn parses_status_and_events_modes() {
         let status = TerminalArgs::parse_from(["--status"]).unwrap();
         assert_eq!(status.status, StatusMode::Text);
-        assert_eq!(status.events_ms, None);
+        assert_eq!(status.events, None);
         let scene = TerminalArgs::parse_from(["--status-scene-json"]).unwrap();
         assert_eq!(scene.status, StatusMode::SceneJson);
         let kitty = TerminalArgs::parse_from(["--status-kitty"]).unwrap();
         assert_eq!(kitty.status, StatusMode::Kitty);
         let events = TerminalArgs::parse_from(["--events-ms", "250"]).unwrap();
         assert_eq!(events.status, StatusMode::None);
-        assert_eq!(events.events_ms, Some(250));
+        assert_eq!(
+            events.events,
+            Some(EventsRequest {
+                ms: 250,
+                mode: EventsMode::Text,
+            })
+        );
+        let event_scene = TerminalArgs::parse_from(["--events-scene-json", "500"]).unwrap();
+        assert_eq!(
+            event_scene.events,
+            Some(EventsRequest {
+                ms: 500,
+                mode: EventsMode::SceneJson,
+            })
+        );
+        let event_kitty = TerminalArgs::parse_from(["--events-kitty", "750"]).unwrap();
+        assert_eq!(
+            event_kitty.events,
+            Some(EventsRequest {
+                ms: 750,
+                mode: EventsMode::Kitty,
+            })
+        );
         let err = TerminalArgs::parse_from(["--status", "--status-kitty"]).unwrap_err();
+        assert!(err.contains("choose only one"), "{err}");
+        let err =
+            TerminalArgs::parse_from(["--events-ms", "10", "--events-kitty", "10"]).unwrap_err();
         assert!(err.contains("choose only one"), "{err}");
     }
 
@@ -427,6 +607,42 @@ mod tests {
             labels
                 .iter()
                 .any(|label| label.contains("panes=2 focus=native-2 layout=rows details=1")),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn events_model_scene_contains_bounded_event_summary() {
+        let model = terminal_events_model(
+            250,
+            vec![
+                "status".to_string(),
+                "pane_opened".to_string(),
+                "pane_frame_presented".to_string(),
+            ],
+        );
+        assert_eq!(
+            render_events_text(&model),
+            "events count=3 ms=250\nstatus\npane_opened\npane_frame_presented\n"
+        );
+        let scene = terminal_events_scene(&model);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.contains(&"kittwm-terminal-events-backdrop"),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains("count=3 ms=250")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("status,pane_opened,pane_frame_presented")),
             "{labels:?}"
         );
     }
