@@ -1,5 +1,6 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use kittui_ghostty_vt::{render_snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
 
@@ -11,6 +12,7 @@ struct Args {
     rows: u16,
     demo: bool,
     timelapse_demo: bool,
+    command: Option<String>,
     scroll: ScrollMode,
 }
 
@@ -27,11 +29,7 @@ fn main() -> anyhow::Result<()> {
         return render_timelapse_demo(&args);
     }
 
-    let mut input = Vec::new();
-    std::io::stdin().read_to_end(&mut input)?;
-    if args.demo || input.is_empty() {
-        input = demo_bytes();
-    }
+    let input = input_bytes(&args)?;
 
     let mut terminal = GhosttyVtTerminal::new(args.cols, args.rows, 1_000)?;
     terminal.write(&input);
@@ -78,6 +76,7 @@ fn parse_args() -> anyhow::Result<Args> {
     let mut rows = 12u16;
     let mut demo = false;
     let mut timelapse_demo = false;
+    let mut command = None;
     let mut scroll = ScrollMode::Current;
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
@@ -108,6 +107,12 @@ fn parse_args() -> anyhow::Result<Args> {
             }
             "--demo" => demo = true,
             "--timelapse-demo" => timelapse_demo = true,
+            "--command" | "-c" => {
+                command = Some(
+                    iter.next()
+                        .ok_or_else(|| anyhow::anyhow!("--command COMMAND"))?,
+                );
+            }
             "--scroll" => {
                 scroll = parse_scroll(
                     &iter
@@ -129,8 +134,39 @@ fn parse_args() -> anyhow::Result<Args> {
         rows,
         demo,
         timelapse_demo,
+        command,
         scroll,
     })
+}
+
+fn input_bytes(args: &Args) -> anyhow::Result<Vec<u8>> {
+    if let Some(command) = &args.command {
+        return command_bytes(command);
+    }
+
+    let mut input = Vec::new();
+    std::io::stdin().read_to_end(&mut input)?;
+    if args.demo || input.is_empty() {
+        input = demo_bytes();
+    }
+    Ok(input)
+}
+
+fn command_bytes(command: &str) -> anyhow::Result<Vec<u8>> {
+    let output = Command::new("sh").arg("-c").arg(command).output()?;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"$ ");
+    bytes.extend_from_slice(command.as_bytes());
+    bytes.extend_from_slice(b"\n");
+    bytes.extend_from_slice(&output.stdout);
+    if !output.stderr.is_empty() {
+        bytes.extend_from_slice(b"\n[stderr]\n");
+        bytes.extend_from_slice(&output.stderr);
+    }
+    if !output.status.success() {
+        bytes.extend_from_slice(format!("\n[exit {:?}]\n", output.status.code()).as_bytes());
+    }
+    Ok(bytes)
 }
 
 fn parse_scroll(value: &str) -> anyhow::Result<ScrollMode> {
@@ -155,8 +191,10 @@ fn print_help() {
         "kittui-ghostty — portable headless libghostty-vt PNG preview\n\n\
          Usage:\n\
            kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo] [--scroll top|bottom|current]\n\
+           kittui-ghostty --command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --timelapse-demo [--out-dir DIR] [--cols N] [--rows N]\n\n\
          Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
+         --command/-c runs COMMAND through sh -c and renders stdout/stderr.\n\
          --timelapse-demo emits frame-*.png plus manifest.json into --out-dir."
     );
 }

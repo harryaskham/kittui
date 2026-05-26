@@ -75,3 +75,5 @@ printf 'hello\n\033[32mgreen\033[0m\n' | kittui-ghostty --out /tmp/frame.png --c
 This is the first reusable command-line path for deterministic headless Ghostty evidence. It also supports `--timelapse-demo --out-dir DIR` to emit `frame-*.png` plus `manifest.json` directly from the CLI.
 
 The `--scroll top` option is useful for long command output such as `kittwm help` because libghostty-vt otherwise leaves the viewport at the active bottom.
+
+`kittui-ghostty --command/-c COMMAND` runs a command with `sh -c`, captures stdout/stderr, feeds the bytes through libghostty-vt, and writes the same deterministic PNG preview. It composes with `--scroll top` for long command output.
