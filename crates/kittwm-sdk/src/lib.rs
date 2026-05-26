@@ -803,6 +803,21 @@ impl ArchitectureContract {
             .collect()
     }
 
+    /// Build placement/readiness contracts sorted in compositor z-index order.
+    pub fn placement_contracts_in_composition_order(&self) -> Vec<SurfacePlacementContract> {
+        let mut contracts = self.placement_contracts();
+        contracts.sort_by_key(|contract| contract.z_index);
+        contracts
+    }
+
+    /// Build ready placement/readiness contracts sorted in compositor z-index
+    /// order.
+    pub fn ready_placement_contracts_in_composition_order(&self) -> Vec<SurfacePlacementContract> {
+        let mut contracts = self.ready_placement_contracts();
+        contracts.sort_by_key(|contract| contract.z_index);
+        contracts
+    }
+
     /// Build placement/readiness contracts for first-party surfaces that belong
     /// to a typed placement role.
     pub fn placement_contracts_for_role(
@@ -3152,6 +3167,22 @@ mod tests {
             ]
         );
         assert_eq!(contract.ready_placement_contracts(), placement_contracts);
+        assert_eq!(
+            contract
+                .placement_contracts_in_composition_order()
+                .iter()
+                .map(|placement| (placement.surface.as_str(), placement.z_index))
+                .collect::<Vec<_>>(),
+            [
+                ("kittwm-terminal", 0),
+                ("kittwm-browser", 0),
+                ("kittwm-bar", 20)
+            ]
+        );
+        assert_eq!(
+            contract.ready_placement_contracts_in_composition_order(),
+            contract.placement_contracts_in_composition_order()
+        );
         assert_eq!(
             contract
                 .placement_contracts_for_role(SurfacePlacementRole::AppSurface)
