@@ -92,6 +92,8 @@ struct Cli {
     apps_launch_first: bool,
     status_scene_json: bool,
     status_kitty: bool,
+    chrome_scene_json: bool,
+    chrome_kitty: bool,
     keymap: bool,
     keymap_scene_json: bool,
     keymap_kitty: bool,
@@ -313,6 +315,14 @@ fn parse_args() -> Result<Cli> {
             }
             "status-kitty" | "status-graphics" => {
                 out.status_kitty = true;
+                break;
+            }
+            "chrome-scene-json" => {
+                out.chrome_scene_json = true;
+                break;
+            }
+            "chrome-kitty" | "chrome-graphics" => {
+                out.chrome_kitty = true;
                 break;
             }
             "panes" => {
@@ -717,6 +727,8 @@ fn parse_args() -> Result<Cli> {
             "--status-kitty" | "--status-graphics" => out.status_kitty = true,
             "--help-json" => out.automation_request = Some("HELP_JSON".to_string()),
             "--chrome-json" => out.automation_request = Some("CHROME_JSON".to_string()),
+            "--chrome-scene-json" => out.chrome_scene_json = true,
+            "--chrome-kitty" | "--chrome-graphics" => out.chrome_kitty = true,
             "--clipboard-json" => out.automation_request = Some("CLIPBOARD_JSON".to_string()),
             "--panes" => out.automation_request = Some("PANES".to_string()),
             "--panes-json" => out.automation_request = Some("PANES_JSON".to_string()),
@@ -1293,6 +1305,9 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "status-scene-json",
         "status-kitty",
         "status-graphics",
+        "chrome-scene-json",
+        "chrome-kitty",
+        "chrome-graphics",
         "panes",
         "panes-json",
         "events",
@@ -1734,6 +1749,9 @@ fn real_main() -> Result<()> {
     }
     if cli.status_scene_json || cli.status_kitty {
         return status_graphical_cmd(cli.status_kitty);
+    }
+    if cli.chrome_scene_json || cli.chrome_kitty {
+        return chrome_graphical_cmd(cli.chrome_kitty);
     }
     if let Some(request) = &cli.automation_request {
         return automation_cmd(request);
@@ -3135,6 +3153,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "daemon status kitty graphics",
         },
         LocalCommandEntry {
+            command: "chrome-scene-json",
+            category: "inspect",
+            description: "chrome reservation kittui scene",
+        },
+        LocalCommandEntry {
+            command: "chrome-kitty",
+            category: "inspect",
+            description: "chrome reservation kitty graphics",
+        },
+        LocalCommandEntry {
             command: "panes",
             category: "inspect",
             description: "human-readable pane list",
@@ -4497,6 +4525,130 @@ fn panes_scene(panes: &serde_json::Value) -> Scene {
                     } else {
                         Rgba::rgba(136, 192, 208, 255)
                     },
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
+}
+
+fn chrome_graphical_cmd(kitty: bool) -> Result<()> {
+    let chrome = load_chrome_snapshot()?;
+    let scene = chrome_scene(&chrome);
+    print_scene_or_kitty(&scene, kitty, 20)
+}
+
+fn load_chrome_snapshot() -> Result<serde_json::Value> {
+    use kittui_cli::daemon::{client_request_multi, default_socket_path};
+    let path = default_socket_path();
+    let chrome = client_request_multi(&path, "CHROME_JSON")
+        .map_err(|err| anyhow!("connect {}: {err}", path.display()))?;
+    Ok(serde_json::from_str(&chrome)?)
+}
+
+fn chrome_scene(chrome: &serde_json::Value) -> Scene {
+    let cols = info_scene_cols();
+    let rows = 10;
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let workspace = chrome
+        .get("workspace")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let owner = chrome
+        .get("owner")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let top = chrome
+        .get("top_bar_rows")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let bottom = chrome
+        .get("bottom_bar_rows")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let left = chrome
+        .get("left_cols")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let right = chrome
+        .get("right_cols")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let gap_cols = chrome
+        .get("gap_cols")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let gap_rows = chrome
+        .get("gap_rows")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let tilable_rows = chrome
+        .get("tilable_rows")
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "null".to_string());
+    let rows_data = [
+        format!("workspace={workspace}"),
+        format!("owner={owner}"),
+        format!("top_bar_rows={top}"),
+        format!("bottom_bar_rows={bottom}"),
+        format!("left_cols={left}"),
+        format!("right_cols={right}"),
+        format!("gap_cols={gap_cols}"),
+        format!("gap_rows={gap_rows}"),
+    ];
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-chrome-backdrop:workspace={workspace}:owner={owner}:top={top}:bottom={bottom}:left={left}:right={right}:gap_cols={gap_cols}:gap_rows={gap_rows}:tilable_rows={tilable_rows}"
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(136, 192, 208, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some("kittwm-chrome-heading:drawable-reservation".to_string()),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, row) in rows_data.iter().enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!("kittwm-chrome-row:{idx}:{row}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(136, 192, 208, 255),
                 },
                 stroke: None,
                 corners: Corners::uniform(1.0),
@@ -5934,6 +6086,11 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
+            .any(|entry| { entry["command"] == "chrome-kitty" && entry["category"] == "inspect" }));
+        assert!(json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
             .any(|entry| { entry["command"] == "apps-kitty" && entry["category"] == "apps" }));
         assert!(json["commands"]
             .as_array()
@@ -5969,6 +6126,45 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn chrome_scene_labels_reservation_contract() {
+        let chrome = serde_json::json!({
+            "workspace": "dev",
+            "top_bar_rows": 2,
+            "bottom_bar_rows": 1,
+            "left_cols": 4,
+            "right_cols": 3,
+            "gap_cols": 1,
+            "gap_rows": 2,
+            "owner": "bar",
+            "tilable_rows": 19
+        });
+        let scene = chrome_scene(&chrome);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-chrome-backdrop:workspace=dev:owner=bar:top=2:bottom=1:left=4:right=3:gap_cols=1:gap_rows=2:tilable_rows=19"
+            )),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-chrome-row:2:top_bar_rows=2")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-chrome-row:7:gap_rows=2")),
+            "{labels:?}"
+        );
     }
 
     #[test]
