@@ -46,6 +46,7 @@ use kittui_wm::compositor::{Compositor, Layout, WindowMode};
 #[cfg(all(target_os = "macos", feature = "quartz"))]
 use kittui_xvfb::XServer;
 use kittui_xvfb::{FakeServer, XWindowId};
+use kittwm_sdk::{default_config_path as default_kittwm_config_path, KittwmConfig};
 
 #[derive(Debug, Default)]
 struct Cli {
@@ -5976,6 +5977,14 @@ fn native_browser_cmd(cli: &Cli) -> Result<()> {
 
 #[derive(Clone, Debug)]
 struct ConfigSummary {
+    config_path: String,
+    background_color: String,
+    background_opacity: f32,
+    background_effects: usize,
+    colorscheme_name: String,
+    colorscheme_fg: String,
+    colorscheme_bg: String,
+    colorscheme_colors: usize,
     keymap_path: String,
     launch_cmd: String,
     launch_query: String,
@@ -5994,6 +6003,14 @@ fn config_cmd(cli: &Cli) -> Result<()> {
     }
     println!("kittwm config");
     println!("============");
+    println!("config_path            : {}", summary.config_path);
+    println!("background.color       : {}", summary.background_color);
+    println!("background.opacity     : {:.2}", summary.background_opacity);
+    println!("background.effects     : {}", summary.background_effects);
+    println!("colorscheme.name       : {}", summary.colorscheme_name);
+    println!("colorscheme.fg         : {}", summary.colorscheme_fg);
+    println!("colorscheme.bg         : {}", summary.colorscheme_bg);
+    println!("colorscheme.colors     : {}", summary.colorscheme_colors);
     println!("KITTUI_WM_KEYMAP       : {}", summary.keymap_path);
     println!("KITTUI_WM_LAUNCH_CMD   : {}", summary.launch_cmd);
     println!("KITTUI_WM_LAUNCH_QUERY : {}", summary.launch_query);
@@ -6014,7 +6031,16 @@ fn config_summary(cli: &Cli) -> Result<ConfigSummary> {
         kittui_cli::keymap::default_keymap()
     };
     let duplicate_chords = keymap_duplicate_count(&keymap);
+    let kittwm_config = KittwmConfig::load_default()?;
     Ok(ConfigSummary {
+        config_path: default_kittwm_config_path().display().to_string(),
+        background_color: kittwm_config.background.color,
+        background_opacity: kittwm_config.background.opacity,
+        background_effects: kittwm_config.background.effects.len(),
+        colorscheme_name: kittwm_config.colorscheme.name,
+        colorscheme_fg: kittwm_config.colorscheme.fg,
+        colorscheme_bg: kittwm_config.colorscheme.bg,
+        colorscheme_colors: kittwm_config.colorscheme.colors.len(),
         keymap_path: keymap_path.unwrap_or_else(|| "<default>".to_string()),
         launch_cmd: std::env::var("KITTUI_WM_LAUNCH_CMD")
             .unwrap_or_else(|_| "<default: xterm>".to_string()),
@@ -6039,11 +6065,19 @@ fn config_summary(cli: &Cli) -> Result<ConfigSummary> {
 
 fn config_scene(summary: &ConfigSummary) -> Scene {
     let cols = info_scene_cols();
-    let rows = 10;
+    let rows = 18;
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
     let rows_data = [
+        format!("config_path={}", summary.config_path),
+        format!("background.color={}", summary.background_color),
+        format!("background.opacity={:.2}", summary.background_opacity),
+        format!("background.effects={}", summary.background_effects),
+        format!("colorscheme.name={}", summary.colorscheme_name),
+        format!("colorscheme.fg={}", summary.colorscheme_fg),
+        format!("colorscheme.bg={}", summary.colorscheme_bg),
+        format!("colorscheme.colors={}", summary.colorscheme_colors),
         format!("keymap={}", summary.keymap_path),
         format!("launch_cmd={}", summary.launch_cmd),
         format!("launch_query={}", summary.launch_query),
@@ -6534,6 +6568,14 @@ mod tests {
     #[test]
     fn config_scene_labels_readiness_summary() {
         let summary = ConfigSummary {
+            config_path: "/tmp/kittwm/config.yaml".to_string(),
+            background_color: "nord0".to_string(),
+            background_opacity: 0.6,
+            background_effects: 1,
+            colorscheme_name: "nord".to_string(),
+            colorscheme_fg: "#d8dee9".to_string(),
+            colorscheme_bg: "#2e3440".to_string(),
+            colorscheme_colors: 16,
             keymap_path: "<default>".to_string(),
             launch_cmd: "<default: xterm>".to_string(),
             launch_query: "<unset>".to_string(),
@@ -6558,13 +6600,25 @@ mod tests {
         assert!(
             labels
                 .iter()
-                .any(|label| label.contains("kittwm-config-row:4:prefix=C-a")),
+                .any(|label| label.contains("kittwm-config-row:1:background.color=nord0")),
             "{labels:?}"
         );
         assert!(
             labels
                 .iter()
-                .any(|label| label.contains("kittwm-config-row:7:status=ok")),
+                .any(|label| label.contains("kittwm-config-row:4:colorscheme.name=nord")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-config-row:12:prefix=C-a")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-config-row:15:status=ok")),
             "{labels:?}"
         );
     }

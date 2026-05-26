@@ -20,6 +20,9 @@ use serde_json::Value;
 /// Result alias for kittwm SDK calls.
 pub type Result<T> = std::result::Result<T, Error>;
 
+const NORD0: &str = "#2e3440";
+const NORD4: &str = "#d8dee9";
+
 /// Errors returned by the kittwm SDK skeleton.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -32,6 +35,9 @@ pub enum Error {
     /// JSON decoding failed.
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    /// YAML decoding/encoding failed.
+    #[error("yaml error: {0}")]
+    Yaml(#[from] serde_yaml::Error),
     /// The daemon returned an error line.
     #[error("kittwm daemon error: {0}")]
     Daemon(String),
@@ -72,6 +78,180 @@ pub enum Capability {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientCapabilities {
     allowed: Vec<Capability>,
+}
+
+/// Top-level kittwm YAML configuration loaded from
+/// `~/.config/kittwm/config.yaml`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct KittwmConfig {
+    /// Config schema version.
+    pub schema_version: u32,
+    /// Background surface defaults.
+    pub background: BackgroundConfig,
+    /// Terminal/app colorscheme exported to SDK apps.
+    pub colorscheme: ColorScheme,
+}
+
+/// Background surface configuration.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BackgroundConfig {
+    /// Base background color. Named colors such as `nord0` are accepted by
+    /// higher-level renderers and preserved here.
+    pub color: String,
+    /// Background opacity from 0.0 to 1.0.
+    pub opacity: f32,
+    /// Declarative background effects in render order.
+    pub effects: Vec<BackgroundEffectConfig>,
+}
+
+/// One declarative background effect entry.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BackgroundEffectConfig {
+    /// Effect kind, for example `lens_flare`.
+    pub kind: String,
+    /// Palette/preset used by the effect, for example `nord_aurora`.
+    pub palette: String,
+    /// Effect opacity from 0.0 to 1.0.
+    pub opacity: f32,
+}
+
+/// SDK-visible terminal/app colorscheme.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ColorScheme {
+    /// Scheme name.
+    pub name: String,
+    /// Default foreground color.
+    pub fg: String,
+    /// Default background color.
+    pub bg: String,
+    /// ANSI colors 0 through 15.
+    pub colors: [String; 16],
+}
+
+impl KittwmConfig {
+    /// Built-in sane default config. Today this is Nord with a nord0 base
+    /// background and a Nord Aurora lens-flare background effect at 0.6 opacity.
+    pub fn nord_default() -> Self {
+        Self {
+            schema_version: 1,
+            background: BackgroundConfig::nord_default(),
+            colorscheme: ColorScheme::nord(),
+        }
+    }
+
+    /// Load config from the default kittwm config path, returning Nord defaults
+    /// when no file exists.
+    pub fn load_default() -> Result<Self> {
+        Self::load_path(default_config_path())
+    }
+
+    /// Load config from a specific path, returning Nord defaults when the file
+    /// does not exist.
+    pub fn load_path(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Ok(Self::nord_default());
+        }
+        let bytes = std::fs::read(path)?;
+        Ok(serde_yaml::from_slice(&bytes)?)
+    }
+
+    /// Render this config as YAML suitable for `~/.config/kittwm/config.yaml`.
+    pub fn to_yaml_string(&self) -> Result<String> {
+        Ok(serde_yaml::to_string(self)?)
+    }
+}
+
+impl Default for KittwmConfig {
+    fn default() -> Self {
+        Self::nord_default()
+    }
+}
+
+impl Default for BackgroundConfig {
+    fn default() -> Self {
+        Self::nord_default()
+    }
+}
+
+impl Default for BackgroundEffectConfig {
+    fn default() -> Self {
+        Self {
+            kind: "lens_flare".to_string(),
+            palette: "nord_aurora".to_string(),
+            opacity: 0.6,
+        }
+    }
+}
+
+impl Default for ColorScheme {
+    fn default() -> Self {
+        Self::nord()
+    }
+}
+
+impl BackgroundConfig {
+    /// Nord default background config: nord0 plus aurora lens flare at 0.6.
+    pub fn nord_default() -> Self {
+        Self {
+            color: "nord0".to_string(),
+            opacity: 0.6,
+            effects: vec![BackgroundEffectConfig {
+                kind: "lens_flare".to_string(),
+                palette: "nord_aurora".to_string(),
+                opacity: 0.6,
+            }],
+        }
+    }
+}
+
+impl ColorScheme {
+    /// Built-in Nord colorscheme.
+    pub fn nord() -> Self {
+        Self {
+            name: "nord".to_string(),
+            fg: NORD4.to_string(),
+            bg: NORD0.to_string(),
+            colors: [
+                "#3b4252".to_string(),
+                "#bf616a".to_string(),
+                "#a3be8c".to_string(),
+                "#ebcb8b".to_string(),
+                "#81a1c1".to_string(),
+                "#b48ead".to_string(),
+                "#88c0d0".to_string(),
+                "#e5e9f0".to_string(),
+                "#4c566a".to_string(),
+                "#bf616a".to_string(),
+                "#a3be8c".to_string(),
+                "#ebcb8b".to_string(),
+                "#81a1c1".to_string(),
+                "#b48ead".to_string(),
+                "#8fbcbb".to_string(),
+                "#eceff4".to_string(),
+            ],
+        }
+    }
+
+    /// ANSI color by index 0 through 15.
+    pub fn ansi_color(&self, index: usize) -> Option<&str> {
+        self.colors.get(index).map(String::as_str)
+    }
+}
+
+/// Default kittwm YAML config path.
+pub fn default_config_path() -> PathBuf {
+    if let Some(xdg) = env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(xdg).join("kittwm/config.yaml");
+    }
+    if let Some(home) = env::var_os("HOME") {
+        return PathBuf::from(home).join(".config/kittwm/config.yaml");
+    }
+    PathBuf::from("kittwm/config.yaml")
 }
 
 impl ClientCapabilities {
@@ -3142,6 +3322,46 @@ mod tests {
     use std::thread;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn kittwm_config_defaults_to_nord_background_and_colorscheme() {
+        let config = KittwmConfig::nord_default();
+        assert_eq!(config.schema_version, 1);
+        assert_eq!(config.background.color, "nord0");
+        assert_eq!(config.background.opacity, 0.6);
+        assert_eq!(config.background.effects.len(), 1);
+        assert_eq!(config.background.effects[0].kind, "lens_flare");
+        assert_eq!(config.background.effects[0].palette, "nord_aurora");
+        assert_eq!(config.colorscheme.name, "nord");
+        assert_eq!(config.colorscheme.fg, "#d8dee9");
+        assert_eq!(config.colorscheme.bg, "#2e3440");
+        assert_eq!(config.colorscheme.ansi_color(0), Some("#3b4252"));
+        assert_eq!(config.colorscheme.ansi_color(15), Some("#eceff4"));
+        assert_eq!(config.colorscheme.ansi_color(16), None);
+        let roundtrip: KittwmConfig =
+            serde_yaml::from_str(&config.to_yaml_string().unwrap()).unwrap();
+        assert_eq!(roundtrip, config);
+    }
+
+    #[test]
+    fn kittwm_config_loads_partial_yaml_over_nord_defaults() {
+        let path = env::temp_dir().join(format!(
+            "kittwm-config-test-{}-{}.yaml",
+            std::process::id(),
+            "partial"
+        ));
+        std::fs::write(
+            &path,
+            "background:\n  opacity: 0.5\ncolorscheme:\n  name: nord\n",
+        )
+        .unwrap();
+        let config = KittwmConfig::load_path(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(config.background.color, "nord0");
+        assert_eq!(config.background.opacity, 0.5);
+        assert_eq!(config.colorscheme.name, "nord");
+        assert_eq!(config.colorscheme.colors.len(), 16);
+    }
 
     #[test]
     fn display_tokens_map_to_socket_paths() {
