@@ -207,6 +207,19 @@ impl PlacementOptions {
             ..Self::default()
         }
     }
+
+    /// Construct cursor-anchored absolute placement with an explicit stable
+    /// placement id (`p=`). Window-manager renderers should prefer this when
+    /// repeatedly moving/redrawing the same logical surface so kitty updates a
+    /// known placement instead of relying on implicit/default placement
+    /// semantics.
+    pub fn absolute_with_id(placement_id: u32) -> Self {
+        Self {
+            placement_id: Some(placement_id),
+            unicode_placeholder: false,
+            ..Self::default()
+        }
+    }
 }
 
 /// Upload medium selection. Mirrors the kitty `t=` field.
@@ -1184,6 +1197,14 @@ mod tests {
         };
         let cmd = placement_command_ex(1, CellRect::new(0, 0, 8, 4), &opts, Transport::Direct);
         assert_eq!(cmd, "\x1b_Ga=p,i=1,c=8,r=4,p=7,X=4,Y=2,z=-1,q=2\x1b\\");
+    }
+
+    #[test]
+    fn absolute_with_id_sets_stable_id_without_unicode_placeholder() {
+        let opts = PlacementOptions::absolute_with_id(99);
+        let cmd = placement_command_ex(1, CellRect::new(0, 0, 8, 4), &opts, Transport::Direct);
+        assert!(cmd.contains("p=99"), "{cmd}");
+        assert!(!cmd.contains("U=1"), "{cmd}");
     }
 
     #[test]
