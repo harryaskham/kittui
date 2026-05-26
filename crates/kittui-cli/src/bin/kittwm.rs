@@ -86,6 +86,8 @@ struct Cli {
     apps_filter: Option<String>,
     apps_first: bool,
     apps_launch_first: bool,
+    status_scene_json: bool,
+    status_kitty: bool,
     keymap: bool,
     keymap_scene_json: bool,
     keymap_kitty: bool,
@@ -277,6 +279,14 @@ fn parse_args() -> Result<Cli> {
                 out.automation_request =
                     parse_inspection_alias("status", args.next(), args.next())?;
                 out.mode = Mode::Status;
+                break;
+            }
+            "status-scene-json" => {
+                out.status_scene_json = true;
+                break;
+            }
+            "status-kitty" | "status-graphics" => {
+                out.status_kitty = true;
                 break;
             }
             "panes" => {
@@ -675,6 +685,8 @@ fn parse_args() -> Result<Cli> {
                 )?);
             }
             "--status-json" => out.automation_request = Some("STATUS_JSON".to_string()),
+            "--status-scene-json" => out.status_scene_json = true,
+            "--status-kitty" | "--status-graphics" => out.status_kitty = true,
             "--help-json" => out.automation_request = Some("HELP_JSON".to_string()),
             "--chrome-json" => out.automation_request = Some("CHROME_JSON".to_string()),
             "--clipboard-json" => out.automation_request = Some("CLIPBOARD_JSON".to_string()),
@@ -861,6 +873,7 @@ USAGE
   kittwm --help                  Show this overview
   kittwm help <topic>            Show focused help (when available)
   kittwm info                    Show friendly running-WM overview
+  kittwm status-kitty            Render daemon status with kitty graphics
   kittwm quickstart              Show first-run daily-driver checklist
   kittwm quickstart-kitty        Render quickstart with kitty graphics
   kittwm examples                Show copy-paste daily-driver workflows
@@ -1152,6 +1165,9 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "info",
         "help",
         "status",
+        "status-scene-json",
+        "status-kitty",
+        "status-graphics",
         "panes",
         "panes-json",
         "events",
@@ -1578,6 +1594,9 @@ fn real_main() -> Result<()> {
     }
     if let Some((window, json)) = &cli.semantic_publish {
         return semantic_publish_cmd(window, json);
+    }
+    if cli.status_scene_json || cli.status_kitty {
+        return status_graphical_cmd(cli.status_kitty);
     }
     if let Some(request) = &cli.automation_request {
         return automation_cmd(request);
@@ -2959,6 +2978,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "daemon status",
         },
         LocalCommandEntry {
+            command: "status-scene-json",
+            category: "inspect",
+            description: "daemon status kittui scene",
+        },
+        LocalCommandEntry {
+            command: "status-kitty",
+            category: "inspect",
+            description: "daemon status kitty graphics",
+        },
+        LocalCommandEntry {
             command: "panes",
             category: "inspect",
             description: "human-readable pane list",
@@ -4315,6 +4344,127 @@ fn panes_scene(panes: &serde_json::Value) -> Scene {
     }
 }
 
+fn status_graphical_cmd(kitty: bool) -> Result<()> {
+    let status = load_status_snapshot()?;
+    let scene = status_scene(&status);
+    print_scene_or_kitty(&scene, kitty, 20)
+}
+
+fn load_status_snapshot() -> Result<serde_json::Value> {
+    use kittui_cli::daemon::{client_request_multi, default_socket_path};
+    let path = default_socket_path();
+    let status = client_request_multi(&path, "STATUS_JSON")
+        .map_err(|err| anyhow!("connect {}: {err}", path.display()))?;
+    Ok(serde_json::from_str(&status)?)
+}
+
+fn status_scene(status: &serde_json::Value) -> Scene {
+    let cols = info_scene_cols();
+    let rows = 9;
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let pid = status
+        .get("pid")
+        .and_then(serde_json::Value::as_u64)
+        .map(|pid| pid.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let uptime = status
+        .get("uptime_s")
+        .and_then(serde_json::Value::as_u64)
+        .map(|seconds| seconds.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let panes = status
+        .get("panes")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let pending = status
+        .get("pending")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let focus = status
+        .get("focus")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let layout = status
+        .get("layout")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let workspace = status
+        .get("workspace")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let sock = status
+        .get("sock")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let rows_data = [
+        format!("pid={pid}"),
+        format!("uptime_s={uptime}"),
+        format!("workspace={workspace}"),
+        format!("layout={layout}"),
+        format!("focus={focus}"),
+        format!("panes={panes}"),
+        format!("pending={pending}"),
+    ];
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-status-backdrop:pid={pid}:panes={panes}:pending={pending}:focus={focus}:layout={layout}:workspace={workspace}"
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(163, 190, 140, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some(format!("kittwm-status-heading:sock={sock}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, row) in rows_data.iter().enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!("kittwm-status-row:{idx}:{row}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(163, 190, 140, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
+}
+
 fn status_cmd() -> Result<()> {
     use kittui_cli::daemon::{client_request, default_socket_path};
     let path = default_socket_path();
@@ -5411,6 +5561,11 @@ mod tests {
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "wait [WINDOW] TEXT" && entry["category"] == "action"
         }));
+        assert!(json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "status-kitty" && entry["category"] == "inspect" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "architecture-json" && entry["category"] == "diagnostics"
         }));
@@ -5440,6 +5595,44 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn status_scene_labels_daemon_snapshot() {
+        let status = serde_json::json!({
+            "pid": 1234,
+            "uptime_s": 55,
+            "sock": "/tmp/kittwm.sock",
+            "panes": 2,
+            "pending": 1,
+            "focus": "native-2",
+            "layout": "rows",
+            "workspace": "dev"
+        });
+        let scene = status_scene(&status);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-status-backdrop:pid=1234:panes=2:pending=1:focus=native-2:layout=rows:workspace=dev"
+            )),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-status-heading:sock=/tmp/kittwm.sock")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-status-row:4:focus=native-2")),
+            "{labels:?}"
+        );
     }
 
     #[test]
