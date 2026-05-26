@@ -398,6 +398,14 @@ impl NativeSpawnQueue {
             publish_native_layout_event(&mut state, layout.into());
         }
     }
+
+    /// Current drawable-area reservation requested by chrome/bar apps.
+    pub fn chrome_reservation(&self) -> NativeChromeReservationConfig {
+        self.pending
+            .lock()
+            .map(|state| state.chrome_reservation.clone())
+            .unwrap_or_default()
+    }
 }
 
 impl Drop for NativeSpawnQueue {

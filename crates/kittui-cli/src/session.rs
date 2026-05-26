@@ -56,21 +56,35 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let cmd = std::env::var("KITTWM_TERMINAL_CMD")
         .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
         .unwrap_or_else(|_| "/bin/sh -l".to_string());
+    let mut last_chrome_reservation = queue.chrome_reservation();
     let mut panes = if native_startup_terminal_enabled() {
         vec![spawn_native_pane(
             1,
             &cmd,
             &sock,
             cols,
-            native_tilable_rows(rows),
+            native_tilable_rows_with_reservation(rows, &last_chrome_reservation),
         )?]
     } else {
         Vec::new()
     };
     let mut focused = 0usize;
     let mut layout_axis = NativePaneLayoutAxis::Columns;
-    resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
-    let initial_layouts = native_layouts_for_panes(cols, rows, &panes, layout_axis);
+    resize_native_panes_for_layout_with_reservation(
+        &mut panes,
+        cols,
+        rows,
+        layout_axis,
+        &last_chrome_reservation,
+    )?;
+    let initial_layouts = native_layouts_for_panes_with_reservation(
+        cols,
+        rows,
+        &panes,
+        layout_axis,
+        &last_chrome_reservation,
+    );
+    let mut last_resized_layouts = initial_layouts.clone();
     queue.update_panes(native_pane_statuses(&panes, focused, &initial_layouts));
     queue.update_layout(layout_axis.label());
 
@@ -423,7 +437,40 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             ));
         }
 
-        let layouts = native_layouts_for_panes(cols, rows, &panes, layout_axis);
+        let chrome_reservation = queue.chrome_reservation();
+        if chrome_reservation != last_chrome_reservation {
+            resize_native_panes_for_layout_with_reservation(
+                &mut panes,
+                cols,
+                rows,
+                layout_axis,
+                &chrome_reservation,
+            )?;
+            clear = true;
+            dbg.log(&format!(
+                "native chrome reservation changed: top={} bottom={} left={} right={} gap={}x{} owner={}",
+                chrome_reservation.top_bar_rows,
+                chrome_reservation.bottom_bar_rows,
+                chrome_reservation.left_cols,
+                chrome_reservation.right_cols,
+                chrome_reservation.gap_cols,
+                chrome_reservation.gap_rows,
+                chrome_reservation.owner.as_deref().unwrap_or("-")
+            ));
+            last_chrome_reservation = chrome_reservation.clone();
+        }
+        let layouts = native_layouts_for_panes_with_reservation(
+            cols,
+            rows,
+            &panes,
+            layout_axis,
+            &last_chrome_reservation,
+        );
+        if layouts != last_resized_layouts {
+            resize_native_panes(&mut panes, layouts.clone())?;
+            last_resized_layouts = layouts.clone();
+            clear = true;
+        }
         let shell_view = native_shell_view(
             rows,
             &panes,
@@ -892,6 +939,7 @@ impl NativeDirtyFrameMetrics {
     }
 }
 
+#[cfg(test)]
 const NATIVE_TOP_BAR_ROWS: u16 = 1;
 const NATIVE_PANE_TITLE_ROWS: u16 = 1;
 const NATIVE_PANE_BORDER_COLS: u16 = 1;
@@ -1316,30 +1364,105 @@ fn native_layouts_for_panes(
     panes: &[NativePane],
     axis: NativePaneLayoutAxis,
 ) -> Vec<NativePaneLayout> {
+    native_layouts_for_panes_with_reservation(
+        cols,
+        rows,
+        panes,
+        axis,
+        &crate::daemon::NativeChromeReservationConfig::default(),
+    )
+}
+
+fn native_layouts_for_panes_with_reservation(
+    cols: u16,
+    rows: u16,
+    panes: &[NativePane],
+    axis: NativePaneLayoutAxis,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
+) -> Vec<NativePaneLayout> {
     if panes.is_empty() {
         return Vec::new();
     }
-    reserve_native_top_bar(native_pane_layouts_weighted(
-        cols,
-        native_tilable_rows(rows),
+    let count = panes.len().min(u16::MAX as usize);
+    let left = reservation.left_cols.min(cols.saturating_sub(1));
+    let right = reservation
+        .right_cols
+        .min(cols.saturating_sub(left).saturating_sub(1));
+    let content_cols = cols.saturating_sub(left).saturating_sub(right).max(1);
+    let tilable_rows = native_tilable_rows_with_reservation(rows, reservation);
+    let gap_cols = if matches!(axis, NativePaneLayoutAxis::Columns) {
+        reservation.gap_cols
+    } else {
+        0
+    };
+    let gap_rows = if matches!(axis, NativePaneLayoutAxis::Rows) {
+        reservation.gap_rows
+    } else {
+        0
+    };
+    let total_gap_cols = gap_cols.saturating_mul(count.saturating_sub(1) as u16);
+    let total_gap_rows = gap_rows.saturating_mul(count.saturating_sub(1) as u16);
+    let weighted_cols = content_cols.saturating_sub(total_gap_cols).max(1);
+    let weighted_rows = tilable_rows.saturating_sub(total_gap_rows).max(1);
+    native_pane_layouts_weighted(
+        weighted_cols,
+        weighted_rows,
         &panes.iter().map(|pane| pane.weight).collect::<Vec<_>>(),
         axis,
-    ))
+    )
+    .into_iter()
+    .enumerate()
+    .map(|(idx, mut layout)| {
+        let idx = idx.min(u16::MAX as usize) as u16;
+        layout.x = layout
+            .x
+            .saturating_add(left)
+            .saturating_add(idx.saturating_mul(gap_cols));
+        layout.app_x = layout
+            .app_x
+            .saturating_add(left)
+            .saturating_add(idx.saturating_mul(gap_cols));
+        layout.y = layout
+            .y
+            .saturating_add(reservation.top_bar_rows)
+            .saturating_add(idx.saturating_mul(gap_rows));
+        layout.app_y = layout
+            .app_y
+            .saturating_add(reservation.top_bar_rows)
+            .saturating_add(idx.saturating_mul(gap_rows));
+        layout
+    })
+    .collect()
 }
 
+#[cfg(test)]
 fn reserve_native_top_bar(layouts: Vec<NativePaneLayout>) -> Vec<NativePaneLayout> {
+    let reservation = crate::daemon::NativeChromeReservationConfig::default();
     layouts
         .into_iter()
         .map(|mut layout| {
-            layout.y = layout.y.saturating_add(NATIVE_TOP_BAR_ROWS);
-            layout.app_y = layout.app_y.saturating_add(NATIVE_TOP_BAR_ROWS);
+            layout.y = layout.y.saturating_add(reservation.top_bar_rows);
+            layout.app_y = layout.app_y.saturating_add(reservation.top_bar_rows);
             layout
         })
         .collect()
 }
 
+#[cfg(test)]
 fn native_tilable_rows(rows: u16) -> u16 {
-    rows.saturating_sub(NATIVE_TOP_BAR_ROWS).max(1)
+    native_tilable_rows_with_reservation(
+        rows,
+        &crate::daemon::NativeChromeReservationConfig::default(),
+    )
+}
+
+fn native_tilable_rows_with_reservation(
+    rows: u16,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
+) -> u16 {
+    rows.saturating_sub(reservation.top_bar_rows)
+        .saturating_sub(reservation.bottom_bar_rows)
+        .max(1)
 }
 
 fn native_weighted_spans(total: u16, weights: &[u16], min_span: u16) -> Vec<u16> {
@@ -1462,6 +1585,17 @@ fn resize_native_panes_for_layout(
     axis: NativePaneLayoutAxis,
 ) -> Result<()> {
     let layouts = native_layouts_for_panes(cols, rows, panes, axis);
+    resize_native_panes(panes, layouts)
+}
+
+fn resize_native_panes_for_layout_with_reservation(
+    panes: &mut [NativePane],
+    cols: u16,
+    rows: u16,
+    axis: NativePaneLayoutAxis,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
+) -> Result<()> {
+    let layouts = native_layouts_for_panes_with_reservation(cols, rows, panes, axis, reservation);
     resize_native_panes(panes, layouts)
 }
 
@@ -4105,6 +4239,69 @@ mod native_pane_tests {
                 .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS)
         );
         assert_eq!(native_tilable_rows(1), 1);
+    }
+
+    #[test]
+    fn native_layouts_apply_chrome_reservation_bands_and_gaps() {
+        let reservation = crate::daemon::NativeChromeReservationConfig {
+            top_bar_rows: 2,
+            bottom_bar_rows: 1,
+            left_cols: 3,
+            right_cols: 5,
+            gap_cols: 2,
+            gap_rows: 1,
+            owner: Some("bar".to_string()),
+        };
+        let panes = vec![
+            NativePane {
+                window: "native-1".to_string(),
+                image_id: 1,
+                command: "one".to_string(),
+                pid: None,
+                display_title: None,
+                weight: 1,
+                app: dummy_native_pane_app(),
+                dirty_frame: None,
+            },
+            NativePane {
+                window: "native-2".to_string(),
+                image_id: 2,
+                command: "two".to_string(),
+                pid: None,
+                display_title: None,
+                weight: 1,
+                app: dummy_native_pane_app(),
+                dirty_frame: None,
+            },
+        ];
+        let columns = native_layouts_for_panes_with_reservation(
+            80,
+            24,
+            &panes,
+            NativePaneLayoutAxis::Columns,
+            &reservation,
+        );
+        assert_eq!(columns[0].x, 3);
+        assert_eq!(columns[0].y, 2);
+        assert_eq!(columns[1].x, 40);
+        assert_eq!(columns[0].cols, 35);
+        assert_eq!(columns[1].cols, 35);
+        assert_eq!(columns[0].app_y, 3);
+        assert_eq!(columns[0].app_rows, 19);
+        assert!(columns[0].app_x + columns[0].app_cols < columns[1].app_x);
+
+        let rows = native_layouts_for_panes_with_reservation(
+            80,
+            24,
+            &panes,
+            NativePaneLayoutAxis::Rows,
+            &reservation,
+        );
+        assert_eq!(rows[0].x, 3);
+        assert_eq!(rows[0].cols, 72);
+        assert_eq!(rows[0].y, 2);
+        assert_eq!(rows[1].y, 13);
+        assert!(rows[0].app_y + rows[0].app_rows < rows[1].app_y);
     }
 
     #[test]
