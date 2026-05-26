@@ -100,8 +100,14 @@ struct Cli {
     info_scene_json: bool,
     info_kitty: bool,
     quickstart: bool,
+    quickstart_scene_json: bool,
+    quickstart_kitty: bool,
     examples: bool,
+    examples_scene_json: bool,
+    examples_kitty: bool,
     cheat: bool,
+    cheat_scene_json: bool,
+    cheat_kitty: bool,
     commands: bool,
     commands_json: bool,
     commands_scene_json: bool,
@@ -203,8 +209,21 @@ fn parse_args() -> Result<Cli> {
             "panes-scene-json" => out.panes_scene_json = true,
             "panes-kitty" | "panes-graphics" => out.panes_kitty = true,
             "quickstart" => out.quickstart = true,
+            "quickstart-scene-json" => out.quickstart_scene_json = true,
+            "quickstart-kitty" | "quickstart-graphics" => out.quickstart_kitty = true,
             "examples" => out.examples = true,
+            "examples-scene-json" => out.examples_scene_json = true,
+            "examples-kitty" | "examples-graphics" => out.examples_kitty = true,
             "cheat" | "cheatsheet" | "cheat-sheet" => out.cheat = true,
+            "cheat-scene-json" | "cheatsheet-scene-json" | "cheat-sheet-scene-json" => {
+                out.cheat_scene_json = true
+            }
+            "cheat-kitty"
+            | "cheat-graphics"
+            | "cheatsheet-kitty"
+            | "cheatsheet-graphics"
+            | "cheat-sheet-kitty"
+            | "cheat-sheet-graphics" => out.cheat_kitty = true,
             "commands" => out.commands = true,
             "commands-json" => out.commands_json = true,
             "commands-scene-json" => out.commands_scene_json = true,
@@ -843,7 +862,9 @@ USAGE
   kittwm help <topic>            Show focused help (when available)
   kittwm info                    Show friendly running-WM overview
   kittwm quickstart              Show first-run daily-driver checklist
+  kittwm quickstart-kitty        Render quickstart with kitty graphics
   kittwm examples                Show copy-paste daily-driver workflows
+  kittwm examples-kitty          Render examples with kitty graphics
   kittwm commands                Show grouped local CLI command catalog
   kittwm commands-json           Show local CLI command catalog JSON
   kittwm commands-scene-json     Emit local command catalog as a kittui Scene
@@ -863,6 +884,7 @@ USAGE
   kittwm mcp                     Expose shared update tools over MCP stdio
   kittwm completions SHELL       Print shell completions (bash|zsh|fish)
   kittwm cheat                   Show compact daily-driver cheat sheet
+  kittwm cheat-kitty             Render cheat sheet with kitty graphics
 
 DAILY DRIVER BASICS
   Quickstart:      kittwm quickstart
@@ -1118,6 +1140,15 @@ fn known_help_topics() -> &'static [&'static str] {
 fn known_kittwm_commands() -> &'static [&'static str] {
     &[
         "quickstart",
+        "quickstart-scene-json",
+        "quickstart-kitty",
+        "quickstart-graphics",
+        "examples-scene-json",
+        "examples-kitty",
+        "examples-graphics",
+        "cheat-scene-json",
+        "cheat-kitty",
+        "cheat-graphics",
         "info",
         "help",
         "status",
@@ -1458,14 +1489,14 @@ fn real_main() -> Result<()> {
     if let Some(ms) = cli.events_kitty {
         return events_graphical_cmd(ms, true);
     }
-    if cli.quickstart {
-        return quickstart_cmd();
+    if cli.quickstart || cli.quickstart_scene_json || cli.quickstart_kitty {
+        return quickstart_cmd(cli.quickstart_scene_json, cli.quickstart_kitty);
     }
-    if cli.examples {
-        return examples_cmd();
+    if cli.examples || cli.examples_scene_json || cli.examples_kitty {
+        return examples_cmd(cli.examples_scene_json, cli.examples_kitty);
     }
-    if cli.cheat {
-        return cheat_cmd();
+    if cli.cheat || cli.cheat_scene_json || cli.cheat_kitty {
+        return cheat_cmd(cli.cheat_scene_json, cli.cheat_kitty);
     }
     if cli.commands {
         return commands_cmd();
@@ -2803,14 +2834,44 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "first-run daily-driver checklist",
         },
         LocalCommandEntry {
+            command: "quickstart-scene-json",
+            category: "help",
+            description: "first-run checklist kittui scene",
+        },
+        LocalCommandEntry {
+            command: "quickstart-kitty",
+            category: "help",
+            description: "first-run checklist kitty graphics",
+        },
+        LocalCommandEntry {
             command: "cheat",
             category: "help",
             description: "compact daily reference",
         },
         LocalCommandEntry {
+            command: "cheat-scene-json",
+            category: "help",
+            description: "compact daily reference kittui scene",
+        },
+        LocalCommandEntry {
+            command: "cheat-kitty",
+            category: "help",
+            description: "compact daily reference kitty graphics",
+        },
+        LocalCommandEntry {
             command: "examples",
             category: "help",
             description: "copy-paste workflows",
+        },
+        LocalCommandEntry {
+            command: "examples-scene-json",
+            category: "help",
+            description: "copy-paste workflows kittui scene",
+        },
+        LocalCommandEntry {
+            command: "examples-kitty",
+            category: "help",
+            description: "copy-paste workflows kitty graphics",
         },
         LocalCommandEntry {
             command: "commands",
@@ -3560,9 +3621,8 @@ More help
 "#
 }
 
-fn quickstart_cmd() -> Result<()> {
-    print!("{}", quickstart_text());
-    Ok(())
+fn quickstart_cmd(scene_json: bool, kitty: bool) -> Result<()> {
+    daily_help_cmd("quickstart", quickstart_text(), scene_json, kitty)
 }
 
 fn examples_text() -> &'static str {
@@ -3617,9 +3677,8 @@ HELP
 "#
 }
 
-fn examples_cmd() -> Result<()> {
-    print!("{}", examples_text());
-    Ok(())
+fn examples_cmd(scene_json: bool, kitty: bool) -> Result<()> {
+    daily_help_cmd("examples", examples_text(), scene_json, kitty)
 }
 
 fn cheat_text() -> &'static str {
@@ -3651,9 +3710,96 @@ MORE
 "#
 }
 
-fn cheat_cmd() -> Result<()> {
-    print!("{}", cheat_text());
+fn cheat_cmd(scene_json: bool, kitty: bool) -> Result<()> {
+    daily_help_cmd("cheat", cheat_text(), scene_json, kitty)
+}
+
+fn daily_help_cmd(kind: &str, text: &str, scene_json: bool, kitty: bool) -> Result<()> {
+    if scene_json || kitty {
+        let scene = daily_help_scene(kind, text);
+        return print_scene_or_kitty(&scene, kitty, 20);
+    }
+    print!("{text}");
     Ok(())
+}
+
+fn daily_help_scene(kind: &str, text: &str) -> Scene {
+    let cols = info_scene_cols();
+    let content_lines = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    let rows = (content_lines.len() as u16 + 4).clamp(8, 30);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let heading = content_lines.first().copied().unwrap_or(kind);
+    let command_count = content_lines
+        .iter()
+        .filter(|line| line.trim_start().starts_with("kittwm "))
+        .count();
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-daily-help-backdrop:{kind}:lines={}:commands={command_count}",
+                content_lines.len()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(136, 192, 208, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some(format!("kittwm-daily-help-heading:{kind}:{heading}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, line) in content_lines.iter().skip(1).take(20).enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        let trimmed = line.trim();
+        layers.push(Layer {
+            label: Some(format!("kittwm-daily-help-row:{kind}:{idx}:{trimmed}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: if trimmed.starts_with("kittwm ") {
+                        Rgba::rgba(163, 190, 140, 255)
+                    } else {
+                        Rgba::rgba(136, 192, 208, 255)
+                    },
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn info_cmd(scene_json: bool, kitty: bool) -> Result<()> {
@@ -5250,6 +5396,19 @@ mod tests {
             .iter()
             .any(|entry| { entry["command"] == "quickstart" && entry["category"] == "help" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "quickstart-kitty" && entry["category"] == "help"
+        }));
+        assert!(json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "examples-kitty" && entry["category"] == "help" }));
+        assert!(json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "cheat-kitty" && entry["category"] == "help" }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "wait [WINDOW] TEXT" && entry["category"] == "action"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -5281,6 +5440,39 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn daily_help_scenes_label_existing_quickstart_examples_and_cheat() {
+        let cases = [
+            ("quickstart", quickstart_text(), "open a terminal pane"),
+            ("examples", examples_text(), "kittwm spawn htop"),
+            ("cheat", cheat_text(), "kittwm line focused 'cargo test'"),
+        ];
+        for (kind, text, needle) in cases {
+            let scene = daily_help_scene(kind, text);
+            let labels = scene
+                .layers
+                .iter()
+                .filter_map(|layer| layer.label.as_deref())
+                .collect::<Vec<_>>();
+            assert!(
+                labels
+                    .iter()
+                    .any(|label| label.starts_with(&format!("kittwm-daily-help-backdrop:{kind}:"))),
+                "{kind}: {labels:?}"
+            );
+            assert!(
+                labels
+                    .iter()
+                    .any(|label| label.contains(&format!("kittwm-daily-help-heading:{kind}:"))),
+                "{kind}: {labels:?}"
+            );
+            assert!(
+                labels.iter().any(|label| label.contains(needle)),
+                "{kind}: {labels:?}"
+            );
+        }
     }
 
     #[test]
