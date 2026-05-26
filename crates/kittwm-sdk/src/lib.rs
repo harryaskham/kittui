@@ -673,6 +673,19 @@ impl ArchitectureContract {
         self.composition_plane(plane).map(|entry| entry.z_index)
     }
 
+    /// Look up the compositor plane for a typed placement role.
+    pub fn composition_plane_for_role(
+        &self,
+        role: SurfacePlacementRole,
+    ) -> Option<&CompositionPlane> {
+        self.composition_plane(role.plane_name())
+    }
+
+    /// Return the z-index for a typed placement role.
+    pub fn z_index_for_role(&self, role: SurfacePlacementRole) -> Option<i32> {
+        self.z_index_for_plane(role.plane_name())
+    }
+
     /// Iterate compositor plane names in the contract's intended composition
     /// order, from lower app/content planes to higher overlay planes.
     pub fn ordered_plane_names(&self) -> impl Iterator<Item = &str> {
@@ -2950,6 +2963,25 @@ mod tests {
         assert_eq!(contract.decoration_z_index(), Some(20));
         assert_eq!(contract.overlay_z_index(), Some(30));
         assert_eq!(contract.z_index_for_plane("decorations"), Some(20));
+        assert_eq!(
+            contract.z_index_for_role(SurfacePlacementRole::AppSurface),
+            Some(0)
+        );
+        assert_eq!(
+            contract.z_index_for_role(SurfacePlacementRole::Decoration),
+            Some(20)
+        );
+        assert_eq!(
+            contract.z_index_for_role(SurfacePlacementRole::Overlay),
+            Some(30)
+        );
+        assert_eq!(
+            contract
+                .composition_plane_for_role(SurfacePlacementRole::Decoration)
+                .unwrap()
+                .plane,
+            "decorations"
+        );
         assert_eq!(
             contract.composition_plane("overlays").unwrap().plane,
             "overlays"
