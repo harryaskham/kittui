@@ -328,6 +328,18 @@ pub struct CompositionPlane {
     pub z_index: i32,
 }
 
+impl CompositionPlane {
+    /// Whether this plane is above another plane in kitty/kittui z-order.
+    pub fn is_above(&self, other: &CompositionPlane) -> bool {
+        self.z_index > other.z_index
+    }
+
+    /// Whether this plane is below another plane in kitty/kittui z-order.
+    pub fn is_below(&self, other: &CompositionPlane) -> bool {
+        self.z_index < other.z_index
+    }
+}
+
 /// First-party native surface contract exposed through the SDK/platform.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeSurfaceContract {
@@ -552,6 +564,21 @@ impl ArchitectureContract {
     /// Return the z-index for a named compositor plane.
     pub fn z_index_for_plane(&self, plane: &str) -> Option<i32> {
         self.composition_plane(plane).map(|entry| entry.z_index)
+    }
+
+    /// Iterate compositor plane names in the contract's intended composition
+    /// order, from lower app/content planes to higher overlay planes.
+    pub fn ordered_plane_names(&self) -> impl Iterator<Item = &str> {
+        self.composition_order
+            .iter()
+            .map(|plane| plane.plane.as_str())
+    }
+
+    /// Whether `upper` is above `lower` in kitty/kittui z-order.
+    pub fn plane_is_above(&self, upper: &str, lower: &str) -> Option<bool> {
+        let upper = self.composition_plane(upper)?;
+        let lower = self.composition_plane(lower)?;
+        Some(upper.is_above(lower))
     }
 
     /// Current z-index for app surface placements.
@@ -2820,6 +2847,27 @@ mod tests {
             contract.composition_plane("overlays").unwrap().plane,
             "overlays"
         );
+        assert_eq!(
+            contract.ordered_plane_names().collect::<Vec<_>>(),
+            ["app-surfaces", "decorations", "overlays"]
+        );
+        assert_eq!(
+            contract.plane_is_above("decorations", "app-surfaces"),
+            Some(true)
+        );
+        assert_eq!(
+            contract.plane_is_above("app-surfaces", "decorations"),
+            Some(false)
+        );
+        assert_eq!(
+            contract.plane_is_above("overlays", "decorations"),
+            Some(true)
+        );
+        assert_eq!(contract.plane_is_above("missing", "decorations"), None);
+        assert!(contract
+            .composition_plane("app-surfaces")
+            .unwrap()
+            .is_below(contract.composition_plane("decorations").unwrap()));
         assert!(contract.z_index_for_plane("missing").is_none());
         let browser = contract.native_surface("kittwm-browser").unwrap();
         assert_eq!(browser.sdk_entry, "SurfaceSpec::browser");
