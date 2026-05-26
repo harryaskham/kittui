@@ -72,4 +72,4 @@ The `kittui-ghostty` binary in `kittui-ghostty-vt` is a portable headless previe
 printf 'hello\n\033[32mgreen\033[0m\n' | kittui-ghostty --out /tmp/frame.png --cols 64 --rows 12
 ```
 
-This is the first reusable command-line path for deterministic headless Ghostty evidence.
+This is the first reusable command-line path for deterministic headless Ghostty evidence. It also supports `--timelapse-demo --out-dir DIR` to emit `frame-*.png` plus `manifest.json` directly from the CLI.

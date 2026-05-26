@@ -1,18 +1,24 @@
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use kittui_ghostty_vt::{render_snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
 
 #[derive(Debug)]
 struct Args {
     out: PathBuf,
+    out_dir: PathBuf,
     cols: u16,
     rows: u16,
     demo: bool,
+    timelapse_demo: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = parse_args()?;
+    if args.timelapse_demo {
+        return render_timelapse_demo(&args);
+    }
+
     let mut input = Vec::new();
     std::io::stdin().read_to_end(&mut input)?;
     if args.demo || input.is_empty() {
@@ -35,11 +41,34 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn render_timelapse_demo(args: &Args) -> anyhow::Result<()> {
+    std::fs::create_dir_all(&args.out_dir)?;
+    let mut terminal = GhosttyVtTerminal::new(args.cols, args.rows, 1_000)?;
+    let mut frames = Vec::new();
+    for (idx, bytes) in timelapse_demo_steps().iter().enumerate() {
+        terminal.write(*bytes);
+        let snapshot = terminal.render_snapshot()?;
+        let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
+        let path = args.out_dir.join(format!("frame-{idx:03}.png"));
+        std::fs::write(&path, png)?;
+        frames.push((idx, path, snapshot.cursor_x, snapshot.cursor_y));
+    }
+    write_manifest(&args.out_dir, &frames)?;
+    println!(
+        "kittui-ghostty wrote {} timelapse frames to {}",
+        frames.len(),
+        args.out_dir.display()
+    );
+    Ok(())
+}
+
 fn parse_args() -> anyhow::Result<Args> {
     let mut out = PathBuf::from("/tmp/kittui-ghostty.png");
+    let mut out_dir = PathBuf::from("/tmp/kittui-ghostty-timelapse");
     let mut cols = 64u16;
     let mut rows = 12u16;
     let mut demo = false;
+    let mut timelapse_demo = false;
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -48,6 +77,12 @@ fn parse_args() -> anyhow::Result<Args> {
                     .next()
                     .map(PathBuf::from)
                     .ok_or_else(|| anyhow::anyhow!("--out PATH"))?;
+            }
+            "--out-dir" => {
+                out_dir = iter
+                    .next()
+                    .map(PathBuf::from)
+                    .ok_or_else(|| anyhow::anyhow!("--out-dir DIR"))?;
             }
             "--cols" => {
                 cols = iter
@@ -62,6 +97,7 @@ fn parse_args() -> anyhow::Result<Args> {
                     .parse()?;
             }
             "--demo" => demo = true,
+            "--timelapse-demo" => timelapse_demo = true,
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -71,17 +107,22 @@ fn parse_args() -> anyhow::Result<Args> {
     }
     Ok(Args {
         out,
+        out_dir,
         cols,
         rows,
         demo,
+        timelapse_demo,
     })
 }
 
 fn print_help() {
     println!(
         "kittui-ghostty — portable headless libghostty-vt PNG preview\n\n\
-         Usage: kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo]\n\n\
-         Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content."
+         Usage:\n\
+           kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo]\n\
+           kittui-ghostty --timelapse-demo [--out-dir DIR] [--cols N] [--rows N]\n\n\
+         Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
+         --timelapse-demo emits frame-*.png plus manifest.json into --out-dir."
     );
 }
 
@@ -91,4 +132,35 @@ fn demo_bytes() -> Vec<u8> {
       stdin -> Ghostty VT state -> kittui-owned PNG\n\
       \x1b[1mbold\x1b[0m \x1b[3mitalic\x1b[0m \x1b[4munderline\x1b[0m \x1b[36mcolor\x1b[0m\n"
         .to_vec()
+}
+
+fn timelapse_demo_steps() -> &'static [&'static [u8]] {
+    &[
+        b"kittui-ghostty CLI timelapse\n",
+        b"\x1b[32mstep 1:\x1b[0m stdin and demo bytes feed Ghostty VT state\n",
+        b"\x1b[33mstep 2:\x1b[0m render-state rows/cells become PNG frames\n",
+        b"\x1b[1mstep 3:\x1b[0m styles: \x1b[3mitalic\x1b[0m \x1b[4munderline\x1b[0m \x1b[36mcolor\x1b[0m\n",
+        b"\x1b[35mstep 4:\x1b[0m deterministic artifacts for agents and CI\n",
+    ]
+}
+
+fn write_manifest(out_dir: &Path, frames: &[(usize, PathBuf, u16, u16)]) -> anyhow::Result<()> {
+    let files = frames
+        .iter()
+        .map(|(idx, path, cursor_x, cursor_y)| {
+            format!(
+                "{{\"index\":{idx},\"path\":{:?},\"cursor_x\":{cursor_x},\"cursor_y\":{cursor_y}}}",
+                path.display().to_string()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n  ");
+    std::fs::write(
+        out_dir.join("manifest.json"),
+        format!(
+            "{{\n  \"kind\": \"kittui-ghostty-cli-timelapse\",\n  \"frame_count\": {},\n  \"frames\": [\n  {}\n  ]\n}}\n",
+            frames.len(), files
+        ),
+    )?;
+    Ok(())
 }
