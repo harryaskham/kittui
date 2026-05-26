@@ -339,24 +339,38 @@ fn timelapse_demo_steps() -> &'static [&'static [u8]] {
 
 fn write_montage(path: &Path, frames: &[(usize, PathBuf, u16, u16)]) -> anyhow::Result<()> {
     let selected = montage_frame_indices(frames.len());
-    let mut images = Vec::new();
+    let mut entries = Vec::new();
     for idx in selected {
-        let bytes = std::fs::read(&frames[idx].1)?;
-        images.push(image::load_from_memory(&bytes)?.to_rgba8());
+        let (frame_idx, frame_path, cursor_x, cursor_y) = &frames[idx];
+        let bytes = std::fs::read(frame_path)?;
+        let image = image::load_from_memory(&bytes)?.to_rgba8();
+        let label = format!("frame-{frame_idx:03}.png cursor={cursor_x},{cursor_y}");
+        entries.push((label, image));
     }
-    if images.is_empty() {
+    if entries.is_empty() {
         anyhow::bail!("cannot build montage without frames");
     }
 
     let pad = 14u32;
     let gap = 18u32;
-    let width = images.iter().map(RgbaImage::width).max().unwrap_or(1) + pad * 2;
-    let height = images.iter().map(RgbaImage::height).sum::<u32>()
-        + gap * (images.len().saturating_sub(1) as u32)
+    let label_height = 14u32;
+    let width = entries
+        .iter()
+        .map(|(_, image)| image.width())
+        .max()
+        .unwrap_or(1)
+        + pad * 2;
+    let height = entries
+        .iter()
+        .map(|(_, image)| label_height + image.height())
+        .sum::<u32>()
+        + gap * (entries.len().saturating_sub(1) as u32)
         + pad * 2;
     let mut montage = RgbaImage::from_pixel(width, height, Rgba([16, 24, 32, 255]));
     let mut y = pad;
-    for image in images {
+    for (label, image) in entries {
+        draw_text(&mut montage, pad, y, &label, Rgba([216, 222, 233, 255]));
+        y += label_height;
         imageops::overlay(&mut montage, &image, pad.into(), y.into());
         y += image.height() + gap;
     }
@@ -365,6 +379,34 @@ fn write_montage(path: &Path, frames: &[(usize, PathBuf, u16, u16)]) -> anyhow::
     }
     montage.save(path)?;
     Ok(())
+}
+
+fn draw_text(img: &mut RgbaImage, x: u32, y: u32, text: &str, color: Rgba<u8>) {
+    use font8x8::UnicodeFonts;
+
+    let mut cursor_x = x;
+    for ch in text.chars() {
+        if ch == ' ' {
+            cursor_x += 8;
+            continue;
+        }
+        let Some(glyph) = font8x8::BASIC_FONTS.get(ch) else {
+            cursor_x += 8;
+            continue;
+        };
+        for (gy, row_bits) in glyph.iter().enumerate() {
+            for gx in 0..8u32 {
+                if (row_bits >> gx) & 1 == 1 {
+                    let px = cursor_x + gx;
+                    let py = y + gy as u32;
+                    if px < img.width() && py < img.height() {
+                        img.put_pixel(px, py, color);
+                    }
+                }
+            }
+        }
+        cursor_x += 8;
+    }
 }
 
 fn montage_frame_indices(len: usize) -> Vec<usize> {

@@ -82,4 +82,4 @@ The `--scroll top` option is useful for long command output such as `kittwm help
 
 `kittui-ghostty --pty-timelapse-command COMMAND --out-dir DIR` captures a PTY command once, replays the captured VT bytes into libghostty-vt in line-sized chunks, and emits `frame-*.png` plus `manifest.json` for deterministic command-output timelapses.
 
-The `--montage PATH` option works with `--timelapse-demo` and `--pty-timelapse-command` to stitch a representative set of emitted frames into one PNG directly from the Rust CLI. This keeps preview evidence generation self-contained.
+The `--montage PATH` option works with `--timelapse-demo` and `--pty-timelapse-command` to stitch a representative set of emitted frames into one PNG directly from the Rust CLI. The montage includes frame/cursor labels so preview evidence remains readable outside the output directory. This keeps preview evidence generation self-contained.
