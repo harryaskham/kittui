@@ -32,7 +32,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Result};
 use base64::Engine;
 
-use kittui::{CellSize, Runtime, TerminalInfo, TransportDiagnostics};
+use kittui::{
+    CellRect, CellSize, Corners, Layer, Node, Paint, PxRect as KittuiPxRect, Rgba, Runtime, Scene,
+    Stroke, TerminalInfo, TransportDiagnostics,
+};
 use kittui_cli::update::{self as cli_update, UpdateAction, UpdateOptions};
 use kittui_core::geom::PxRect;
 use kittui_core::terminal::{
@@ -54,6 +57,8 @@ struct Cli {
     capture: Option<String>,
     fps: Option<u32>,
     doctor: bool,
+    doctor_scene_json: bool,
+    doctor_kitty: bool,
     probe_kitty: bool,
     json: bool,
     config: bool,
@@ -138,6 +143,8 @@ fn parse_args() -> Result<Cli> {
     while let Some(a) = args.next() {
         match a.as_str() {
             "doctor" => out.doctor = true,
+            "doctor-scene-json" => out.doctor_scene_json = true,
+            "doctor-kitty" | "doctor-graphics" => out.doctor_kitty = true,
             "config" => out.config = true,
             "record" => out.record = true,
             "bench" => out.bench = true,
@@ -1306,8 +1313,13 @@ fn real_main() -> Result<()> {
     }
 
     // Inspection flags run cooked, never enter raw mode.
-    if cli.doctor {
-        return doctor_cmd(cli.json, cli.probe_kitty || kitty_probe_env_enabled());
+    if cli.doctor || cli.doctor_scene_json || cli.doctor_kitty {
+        return doctor_cmd(
+            cli.json,
+            cli.doctor_scene_json,
+            cli.doctor_kitty,
+            cli.probe_kitty || kitty_probe_env_enabled(),
+        );
     }
     if cli.config {
         return config_cmd(&cli);
@@ -1692,7 +1704,7 @@ fn resolve_capture_spec(spec: &str) -> Result<kittui_quartz::CaptureTarget> {
     ))
 }
 
-fn doctor_cmd(json: bool, probe_kitty: bool) -> Result<()> {
+fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
@@ -1723,7 +1735,18 @@ fn doctor_cmd(json: bool, probe_kitty: bool) -> Result<()> {
     }
     let kitty_graphics = transport_diagnostics.supports_kitty;
 
-    if json {
+    if scene_json || kitty {
+        let scene = doctor_scene(&transport_diagnostics, log_present, display_count as u64);
+        if scene_json {
+            println!("{}", serde_json::to_string(&scene)?);
+        } else {
+            let runtime = Runtime::builder().terminal(terminal_info).build()?;
+            let mut options = kittui_kitty::PlacementOptions::unicode();
+            options.z_index = 20;
+            let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
+            print!("{}", placement.to_bytes());
+        }
+    } else if json {
         let mut buf = String::new();
         buf.push_str("{\n");
         buf.push_str(&format!("  \"version\": {:?},\n", version));
@@ -1826,6 +1849,101 @@ fn doctor_cmd(json: bool, probe_kitty: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn doctor_scene(transport: &TransportDiagnostics, log_present: bool, display_count: u64) -> Scene {
+    let cols = doctor_scene_cols();
+    let rows = 6;
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let readiness = if transport.tmux {
+        "tmux-terminal-fallback"
+    } else if transport.supports_kitty {
+        "kitty-ready"
+    } else {
+        "graphics-unknown"
+    };
+    let log_state = if log_present {
+        "log-present"
+    } else {
+        "log-missing"
+    };
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers: vec![
+            Layer {
+                label: Some(format!("kittwm-doctor-backdrop:{readiness}")),
+                root: Node::Rect {
+                    rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(7, 17, 31, 238),
+                    },
+                    stroke: Some(Stroke::inside(
+                        1.5,
+                        Paint::Solid {
+                            color: Rgba::rgba(136, 192, 208, 255),
+                        },
+                    )),
+                    corners: Corners::uniform(8.0),
+                },
+            },
+            Layer {
+                label: Some(format!(
+                    "kittwm-doctor-heading:transport={:?}:compression={:?}",
+                    transport.selected_transport, transport.compression_mode
+                )),
+                root: Node::Rect {
+                    rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(94, 129, 172, 210),
+                    },
+                    stroke: None,
+                    corners: Corners {
+                        tl: 8.0,
+                        tr: 8.0,
+                        bl: 0.0,
+                        br: 0.0,
+                    },
+                },
+            },
+            Layer {
+                label: Some(format!(
+                    "kittwm-doctor-readiness:{readiness}:tmux={}:remote={}:displays={display_count}:{log_state}",
+                    transport.tmux, transport.remote
+                )),
+                root: Node::Rect {
+                    rect: KittuiPxRect::new(
+                        10.0,
+                        cell.height_px as f32 * 2.2,
+                        (width - 20.0).max(1.0),
+                        2.0,
+                    ),
+                    fill: Paint::Solid {
+                        color: if transport.supports_kitty {
+                            Rgba::rgba(163, 190, 140, 255)
+                        } else {
+                            Rgba::rgba(235, 203, 139, 255)
+                        },
+                    },
+                    stroke: None,
+                    corners: Corners::uniform(1.0),
+                },
+            },
+        ],
+        animation: None,
+    }
+}
+
+fn doctor_scene_cols() -> u16 {
+    std::env::var("KITTWM_DOCTOR_COLS")
+        .or_else(|_| std::env::var("COLUMNS"))
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|cols| *cols > 0)
+        .unwrap_or(64)
+        .clamp(32, 120)
 }
 
 fn doctor_daily_driver_text(transport: &TransportDiagnostics, log_present: bool) -> String {
@@ -4115,6 +4233,42 @@ mod tests {
         assert!(text.contains("kittwm quickstart"), "{text}");
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("KITTWM_NATIVE_RENDERER="), "{text}");
+    }
+
+    #[test]
+    fn doctor_scene_labels_transport_readiness_for_graphical_inspection() {
+        let diagnostics = TransportDiagnostics::detect(&TerminalInfo::override_with(
+            Some(80),
+            Some(24),
+            CellSize::new(8, 16),
+            true,
+            true,
+            kittui::Transport::Direct,
+        ));
+        let scene = doctor_scene(&diagnostics, true, 2);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("kittwm-doctor-backdrop:")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("transport=Direct")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("displays=2:log-present")),
+            "{labels:?}"
+        );
     }
 
     #[test]
