@@ -35,7 +35,7 @@ use kittui_wm::native::{
     SurfaceFrame, SurfaceMetadata,
 };
 use kittui_xvfb::XServer;
-use kittwm_sdk::{KittwmConfig, LibghosttyConfig};
+use kittwm_sdk::{ArchitectureContract, KittwmConfig, LibghosttyConfig, SurfacePlacementRole};
 
 use crate::keymap::{Action, KeyMods, KeySpec, Keymap};
 use crate::top_bar::{workspace_label, BarModel};
@@ -656,7 +656,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     let decision = dirty_frames.decide(pane.image_id, width, height, &rgba);
                     pane.dirty_frame = Some(decision.metrics.clone());
                     let mut placement_options = kittui_kitty::PlacementOptions::absolute();
-                    placement_options.z_index = NATIVE_APP_Z_INDEX;
+                    placement_options.z_index = native_app_z_index();
                     let p = if decision.upload {
                         runtime.place_raw_frame_with_options(
                             pane.image_id,
@@ -708,7 +708,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     }
                     let footprint = native_app_frame_footprint(layout);
                     let mut placement_options = kittui_kitty::PlacementOptions::absolute();
-                    placement_options.z_index = NATIVE_APP_Z_INDEX;
+                    placement_options.z_index = native_app_z_index();
                     let p = runtime.place_png_frame_with_options(
                         pane.image_id,
                         &bytes,
@@ -1243,8 +1243,19 @@ const NATIVE_PANE_BORDER_COLS: u16 = 1;
 const NATIVE_PANE_BOTTOM_BORDER_ROWS: u16 = 1;
 const NATIVE_CELL_WIDTH_PX: u32 = 8;
 const NATIVE_CELL_HEIGHT_PX: u32 = 16;
-const NATIVE_APP_Z_INDEX: i32 = 0;
-const NATIVE_CHROME_Z_INDEX: i32 = 20;
+fn native_z_index(role: SurfacePlacementRole) -> i32 {
+    ArchitectureContract::current()
+        .z_index_for_role(role)
+        .expect("current kittwm architecture contract defines all placement roles")
+}
+
+fn native_app_z_index() -> i32 {
+    native_z_index(SurfacePlacementRole::AppSurface)
+}
+
+fn native_chrome_z_index() -> i32 {
+    native_z_index(SurfacePlacementRole::Decoration)
+}
 const NATIVE_FRAME_BG_RGBA: [u8; 4] = [0x08, 0x0d, 0x14, 0xff];
 
 fn native_cell_size() -> CellSize {
@@ -3359,7 +3370,7 @@ fn write_native_shell_affordance_chrome<W: Write>(
             chrome.scene.footprint.rows,
         );
         let mut placement_options = kittui_kitty::PlacementOptions::absolute();
-        placement_options.z_index = NATIVE_CHROME_Z_INDEX;
+        placement_options.z_index = native_chrome_z_index();
         let p = runtime.place_at_with_options(&chrome.scene, placement, &placement_options)?;
         out.write_all(p.upload.as_bytes())?;
         out.write_all(p.placement.as_bytes())?;
@@ -4770,6 +4781,20 @@ mod native_pane_tests {
         assert_eq!(rows[0].y, 2);
         assert_eq!(rows[1].y, 13);
         assert!(rows[0].app_y + rows[0].app_rows < rows[1].app_y);
+    }
+
+    #[test]
+    fn native_z_indices_follow_architecture_contract_roles() {
+        let contract = ArchitectureContract::current();
+        assert_eq!(
+            native_app_z_index(),
+            contract.app_surface_z_index().unwrap()
+        );
+        assert_eq!(
+            native_chrome_z_index(),
+            contract.decoration_z_index().unwrap()
+        );
+        assert!(native_chrome_z_index() > native_app_z_index());
     }
 
     #[test]

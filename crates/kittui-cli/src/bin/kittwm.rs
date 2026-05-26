@@ -1086,7 +1086,7 @@ fn help_topic_cmd(topic: &str) -> Result<()> {
 fn help_topic_graphical_cmd(topic: &str, kitty: bool) -> Result<()> {
     let text = help_topic_text(topic)?;
     let scene = help_topic_scene(topic, text);
-    print_scene_or_kitty(&scene, kitty, 20)
+    print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration)
 }
 
 fn help_topic_scene(topic: &str, text: &str) -> Scene {
@@ -2091,7 +2091,7 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
         } else {
             let runtime = Runtime::builder().terminal(terminal_info).build()?;
             let mut options = kittui_kitty::PlacementOptions::unicode();
-            options.z_index = 20;
+            options.z_index = kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Decoration);
             let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
             print!("{}", placement.to_bytes());
         }
@@ -3406,7 +3406,7 @@ fn commands_json_cmd() -> Result<()> {
 
 fn commands_graphical_cmd(kitty: bool) -> Result<()> {
     let scene = commands_scene();
-    print_scene_or_kitty(&scene, kitty, 20)
+    print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration)
 }
 
 fn commands_scene() -> Scene {
@@ -3502,7 +3502,7 @@ fn architecture_json_cmd() -> Result<()> {
 fn architecture_graphical_cmd(kitty: bool) -> Result<()> {
     let contract = kittwm_sdk::ArchitectureContract::current();
     let scene = architecture_scene(&contract);
-    print_scene_or_kitty(&scene, kitty, 20)
+    print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration)
 }
 
 fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
@@ -3682,7 +3682,7 @@ fn native_surfaces_cmd() -> Result<()> {
 fn native_surfaces_graphical_cmd(kitty: bool) -> Result<()> {
     let contract = kittwm_sdk::ArchitectureContract::current();
     let scene = native_surfaces_scene(&contract);
-    print_scene_or_kitty(&scene, kitty, 20)
+    print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration)
 }
 
 fn native_surfaces_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
@@ -3970,7 +3970,7 @@ fn cheat_cmd(scene_json: bool, kitty: bool) -> Result<()> {
 fn daily_help_cmd(kind: &str, text: &str, scene_json: bool, kitty: bool) -> Result<()> {
     if scene_json || kitty {
         let scene = daily_help_scene(kind, text);
-        return print_scene_or_kitty(&scene, kitty, 20);
+        return print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration);
     }
     print!("{text}");
     Ok(())
@@ -4066,7 +4066,7 @@ fn info_cmd(scene_json: bool, kitty: bool) -> Result<()> {
                 .terminal(TerminalInfo::detect())
                 .build()?;
             let mut options = kittui_kitty::PlacementOptions::unicode();
-            options.z_index = 20;
+            options.z_index = kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Decoration);
             let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
             print!("{}", placement.to_bytes());
         }
@@ -4346,22 +4346,32 @@ fn info_scene_cols() -> u16 {
 fn panes_graphical_cmd(kitty: bool) -> Result<()> {
     let panes = load_panes_snapshot()?;
     let scene = panes_scene(&panes);
-    print_scene_or_kitty(&scene, kitty, 20)
+    print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration)
 }
 
 fn events_graphical_cmd(ms: u64, kitty: bool) -> Result<()> {
     let events = load_events_snapshot(ms)?;
     let scene = events_scene(ms, &events);
-    print_scene_or_kitty(&scene, kitty, 20)
+    print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration)
 }
 
-fn print_scene_or_kitty(scene: &Scene, kitty: bool, z_index: i32) -> Result<()> {
+fn kittwm_z_index(role: kittwm_sdk::SurfacePlacementRole) -> i32 {
+    kittwm_sdk::ArchitectureContract::current()
+        .z_index_for_role(role)
+        .expect("current kittwm architecture contract defines all placement roles")
+}
+
+fn print_scene_or_kitty(
+    scene: &Scene,
+    kitty: bool,
+    role: kittwm_sdk::SurfacePlacementRole,
+) -> Result<()> {
     if kitty {
         let runtime = Runtime::builder()
             .terminal(TerminalInfo::detect())
             .build()?;
         let mut options = kittui_kitty::PlacementOptions::unicode();
-        options.z_index = z_index;
+        options.z_index = kittwm_z_index(role);
         let placement = runtime.place_at_with_options(scene, scene.footprint, &options)?;
         print!("{}", placement.to_bytes());
     } else {
@@ -4571,7 +4581,7 @@ fn panes_scene(panes: &serde_json::Value) -> Scene {
 fn session_graphical_cmd(kitty: bool) -> Result<()> {
     let session = load_session_snapshot()?;
     let scene = session_scene(&session);
-    print_scene_or_kitty(&scene, kitty, 20)
+    print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration)
 }
 
 fn load_session_snapshot() -> Result<serde_json::Value> {
@@ -4699,7 +4709,7 @@ fn session_scene(session: &serde_json::Value) -> Scene {
 fn chrome_graphical_cmd(kitty: bool) -> Result<()> {
     let chrome = load_chrome_snapshot()?;
     let scene = chrome_scene(&chrome);
-    print_scene_or_kitty(&scene, kitty, 20)
+    print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration)
 }
 
 fn load_chrome_snapshot() -> Result<serde_json::Value> {
@@ -4823,7 +4833,7 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
 fn status_graphical_cmd(kitty: bool) -> Result<()> {
     let status = load_status_snapshot()?;
     let scene = status_scene(&status);
-    print_scene_or_kitty(&scene, kitty, 20)
+    print_scene_or_kitty(&scene, kitty, kittwm_sdk::SurfacePlacementRole::Decoration)
 }
 
 fn load_status_snapshot() -> Result<serde_json::Value> {
@@ -5075,7 +5085,7 @@ fn shortcuts_kitty_cmd() -> Result<()> {
         .terminal(TerminalInfo::detect())
         .build()?;
     let mut options = kittui_kitty::PlacementOptions::unicode();
-    options.z_index = 30;
+    options.z_index = kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Overlay);
     let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
     print!("{}", placement.to_bytes());
     Ok(())
@@ -5198,7 +5208,11 @@ fn keymap_cmd(cli: &Cli) -> Result<()> {
     }
     if cli.keymap_scene_json || cli.keymap_kitty {
         let scene = keymap_scene(&km);
-        return print_scene_or_kitty(&scene, cli.keymap_kitty, 20);
+        return print_scene_or_kitty(
+            &scene,
+            cli.keymap_kitty,
+            kittwm_sdk::SurfacePlacementRole::Decoration,
+        );
     }
     print!("{}", km.render_table());
     Ok(())
@@ -5375,7 +5389,11 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
             macos_apps: mac_apps.clone(),
         };
         let scene = apps_scene(&summary);
-        return print_scene_or_kitty(&scene, cli.apps_kitty, 20);
+        return print_scene_or_kitty(
+            &scene,
+            cli.apps_kitty,
+            kittwm_sdk::SurfacePlacementRole::Decoration,
+        );
     }
     if cli.apps_first || cli.apps_launch_first {
         let selected = first_app_candidate(&path_cmds, &mac_apps)
@@ -5804,7 +5822,11 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
     }
     if cli.launcher_scene_json || cli.launcher_kitty {
         let scene = launcher_scene(query, selected_idx, &candidates);
-        return print_scene_or_kitty(&scene, cli.launcher_kitty, 20);
+        return print_scene_or_kitty(
+            &scene,
+            cli.launcher_kitty,
+            kittwm_sdk::SurfacePlacementRole::Overlay,
+        );
     }
 
     let width = 62usize;
@@ -6005,7 +6027,11 @@ fn config_cmd(cli: &Cli) -> Result<()> {
     let summary = config_summary(cli)?;
     if cli.config_scene_json || cli.config_kitty {
         let scene = config_scene(&summary);
-        return print_scene_or_kitty(&scene, cli.config_kitty, 20);
+        return print_scene_or_kitty(
+            &scene,
+            cli.config_kitty,
+            kittwm_sdk::SurfacePlacementRole::Decoration,
+        );
     }
     println!("kittwm config");
     println!("============");
