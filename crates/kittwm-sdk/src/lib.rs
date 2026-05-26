@@ -204,6 +204,39 @@ pub struct SurfaceSpec {
     pub title: Option<String>,
 }
 
+/// Typed placement role derived from a composition plane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SurfacePlacementRole {
+    /// App/content surface plane.
+    AppSurface,
+    /// Decoration/chrome plane.
+    Decoration,
+    /// Overlay plane.
+    Overlay,
+}
+
+impl SurfacePlacementRole {
+    /// Convert a composition plane name into a typed role.
+    pub fn from_plane(plane: &str) -> Option<Self> {
+        match plane {
+            "app-surfaces" => Some(Self::AppSurface),
+            "decorations" => Some(Self::Decoration),
+            "overlays" => Some(Self::Overlay),
+            _ => None,
+        }
+    }
+
+    /// Return the canonical composition plane name for this role.
+    pub fn plane_name(self) -> &'static str {
+        match self {
+            Self::AppSurface => "app-surfaces",
+            Self::Decoration => "decorations",
+            Self::Overlay => "overlays",
+        }
+    }
+}
+
 /// Placement/readiness metadata for a typed surface request, derived from the
 /// current architecture contract.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,19 +262,24 @@ pub struct SurfacePlacementContract {
 }
 
 impl SurfacePlacementContract {
+    /// Typed role for this placement contract.
+    pub fn role(&self) -> Option<SurfacePlacementRole> {
+        SurfacePlacementRole::from_plane(&self.composition_plane)
+    }
+
     /// Whether this placement belongs to the app/content plane.
     pub fn is_app_surface(&self) -> bool {
-        self.composition_plane == "app-surfaces"
+        self.role() == Some(SurfacePlacementRole::AppSurface)
     }
 
     /// Whether this placement belongs to the decoration/chrome plane.
     pub fn is_decoration(&self) -> bool {
-        self.composition_plane == "decorations"
+        self.role() == Some(SurfacePlacementRole::Decoration)
     }
 
     /// Whether this placement belongs to the overlay plane.
     pub fn is_overlay(&self) -> bool {
-        self.composition_plane == "overlays"
+        self.role() == Some(SurfacePlacementRole::Overlay)
     }
 
     /// Whether this placement is above another placement by z-index.
@@ -3014,6 +3052,14 @@ mod tests {
         assert_eq!(terminal_placement.composition_plane, "app-surfaces");
         assert_eq!(terminal_placement.z_index, 0);
         assert!(terminal_placement.native_ready);
+        assert_eq!(
+            terminal_placement.role(),
+            Some(SurfacePlacementRole::AppSurface)
+        );
+        assert_eq!(
+            SurfacePlacementRole::AppSurface.plane_name(),
+            "app-surfaces"
+        );
         assert!(terminal_placement.is_app_surface());
         assert!(!terminal_placement.is_decoration());
         assert!(!terminal_placement.is_overlay());
@@ -3047,6 +3093,11 @@ mod tests {
             z_index: 20,
             kittui_entry: "BarModel::scene -> Runtime::place_at_with_options".to_string(),
         };
+        assert_eq!(
+            decoration_placement.role(),
+            Some(SurfacePlacementRole::Decoration)
+        );
+        assert_eq!(SurfacePlacementRole::Decoration.plane_name(), "decorations");
         assert!(decoration_placement.is_decoration());
         assert!(decoration_placement.is_above(&browser_placement));
         assert!(browser_placement.is_below(&decoration_placement));
@@ -3064,6 +3115,11 @@ mod tests {
         assert_eq!(other.composition_plane(), None);
         assert_eq!(other.z_index(), None);
         assert!(other.placement_contract().is_none());
+        assert_eq!(
+            SurfacePlacementRole::from_plane("overlays"),
+            Some(SurfacePlacementRole::Overlay)
+        );
+        assert_eq!(SurfacePlacementRole::from_plane("unknown"), None);
     }
 
     #[test]
