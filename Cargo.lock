@@ -1309,6 +1309,7 @@ dependencies = [
  "kittui-affordances",
  "kittui-cache",
  "kittui-core",
+ "kittui-ghostty-vt",
  "kittui-input",
  "kittui-kitty",
  "kittui-quartz",

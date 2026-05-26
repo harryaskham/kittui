@@ -984,6 +984,7 @@ pub struct GhosttyTerminalApp {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     output: mpsc::Receiver<Vec<u8>>,
     terminal: GhosttyVtTerminal,
+    preview_options: PreviewOptions,
     cols: u16,
     rows: u16,
     last_text_snapshot: String,
@@ -1147,6 +1148,22 @@ impl GhosttyTerminalApp {
         K: AsRef<std::ffi::OsStr> + 'a,
         V: AsRef<std::ffi::OsStr> + 'a,
     {
+        Self::spawn_with_env_and_preview(command, cols, rows, envs, PreviewOptions::default())
+    }
+
+    /// Spawn a shell command in a PTY rendered by libghostty-vt with explicit preview styling.
+    pub fn spawn_with_env_and_preview<'a, I, K, V>(
+        command: &str,
+        cols: u16,
+        rows: u16,
+        envs: I,
+        preview_options: PreviewOptions,
+    ) -> Result<Self>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<std::ffi::OsStr> + 'a,
+        V: AsRef<std::ffi::OsStr> + 'a,
+    {
         let cols = cols.max(1);
         let rows = rows.max(1);
         let cell = default_virtual_cell_size();
@@ -1199,6 +1216,7 @@ impl GhosttyTerminalApp {
             writer,
             output: rx,
             terminal: GhosttyVtTerminal::new(cols, rows, DEFAULT_TERMINAL_SCROLLBACK)?,
+            preview_options,
             cols,
             rows,
             last_text_snapshot: String::new(),
@@ -1335,7 +1353,7 @@ impl NativeSurface for GhosttyTerminalApp {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
+        let png = render_snapshot_preview_png(&snapshot, &self.preview_options)?;
         let frame = NativeFrame::Png {
             width: u32::from(snapshot.cols) * u32::from(default_virtual_cell_size().width_px),
             height: u32::from(snapshot.rows) * u32::from(default_virtual_cell_size().height_px),

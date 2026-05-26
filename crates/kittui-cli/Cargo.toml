@@ -47,6 +47,7 @@ kittui-render-cpu = { workspace = true }
 kittui-input = { path = "../kittui-input", version = "0.1.0" }
 kittui-xvfb = { path = "../kittui-xvfb", version = "0.1.0" }
 kittui-wm = { path = "../kittui-wm", version = "0.1.0" }
+kittui-ghostty-vt = { path = "../kittui-ghostty-vt", version = "0.1.0" }
 kittwm-sdk = { path = "../kittwm-sdk", version = "0.1.0" }
 kittui-quartz = { path = "../kittui-quartz", version = "0.1.0" }
 kittui-affordances = { path = "../kittui-affordances", version = "0.1.0" }

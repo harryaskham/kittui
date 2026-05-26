@@ -5,7 +5,7 @@ use kittui::{
     CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Runtime, Scene, Stroke,
     TerminalInfo,
 };
-use kittwm_sdk::{Kittwm, PanesStatus, Status, SurfaceSpec, WindowSpec};
+use kittwm_sdk::{Kittwm, KittwmConfig, PanesStatus, Status, SurfaceSpec, WindowSpec};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,8 +160,10 @@ where
 }
 
 fn default_terminal_command() -> String {
+    let config = KittwmConfig::load_default().unwrap_or_default();
     env::var("KITTWM_TERMINAL_CMD")
         .or_else(|_| env::var("KITTWM_TERMINAL_BINARY"))
+        .or_else(|_| config.terminal.command.ok_or(env::VarError::NotPresent))
         .or_else(|_| env::var("SHELL").map(|shell| format!("{shell} -l")))
         .unwrap_or_else(|_| "/bin/sh -l".to_string())
 }

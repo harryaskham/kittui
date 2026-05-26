@@ -26,6 +26,7 @@ use kittui::{
 use kittui_affordances::{
     button, text_input, ControlState, InlineChipColors, InlineStyle, InlineTheme,
 };
+use kittui_ghostty_vt::PreviewOptions;
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
@@ -34,6 +35,7 @@ use kittui_wm::native::{
     SurfaceFrame, SurfaceMetadata,
 };
 use kittui_xvfb::XServer;
+use kittwm_sdk::{KittwmConfig, LibghosttyConfig};
 
 use crate::keymap::{Action, KeyMods, KeySpec, Keymap};
 use crate::top_bar::{workspace_label, BarModel};
@@ -54,7 +56,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         .to_string_lossy()
         .to_string();
     let queue = crate::daemon::NativeSpawnQueue::bind(crate::daemon::default_socket_path())?;
-    let cmd = native_terminal_command();
+    let kittwm_config = KittwmConfig::load_default().unwrap_or_default();
+    let cmd = native_terminal_command(&kittwm_config);
     let mut last_chrome_reservation = queue.chrome_reservation();
     let mut panes = if native_startup_terminal_enabled() {
         vec![spawn_native_pane(
@@ -1297,9 +1300,16 @@ impl NativeCtrlCExitGuard {
     }
 }
 
-fn native_terminal_command() -> String {
+fn native_terminal_command(config: &KittwmConfig) -> String {
     std::env::var("KITTWM_TERMINAL_CMD")
         .or_else(|_| std::env::var("KITTWM_TERMINAL_BINARY"))
+        .or_else(|_| {
+            config
+                .terminal
+                .command
+                .clone()
+                .ok_or(std::env::VarError::NotPresent)
+        })
         .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
         .unwrap_or_else(|_| "/bin/sh -l".to_string())
 }
@@ -1310,10 +1320,10 @@ enum NativeTerminalBackend {
     Ghostty,
 }
 
-fn native_terminal_backend() -> NativeTerminalBackend {
+fn native_terminal_backend(config: &KittwmConfig) -> NativeTerminalBackend {
     let configured = std::env::var("KITTWM_TERMINAL_BACKEND")
         .or_else(|_| std::env::var("KITTWM_TERMINAL_APP"))
-        .unwrap_or_default()
+        .unwrap_or_else(|_| config.terminal.backend.clone())
         .to_ascii_lowercase();
     if matches!(
         configured.as_str(),
@@ -1325,25 +1335,79 @@ fn native_terminal_backend() -> NativeTerminalBackend {
     }
 }
 
+fn nord_or_hex_rgba(value: &str, alpha: u8) -> [u8; 4] {
+    let lower = value.to_ascii_lowercase();
+    let hex = match lower.as_str() {
+        "nord0" => "#2e3440",
+        "nord1" => "#3b4252",
+        "nord2" => "#434c5e",
+        "nord3" => "#4c566a",
+        "nord4" => "#d8dee9",
+        "nord5" => "#e5e9f0",
+        "nord6" => "#eceff4",
+        "nord7" => "#8fbcbb",
+        "nord8" => "#88c0d0",
+        "nord9" => "#81a1c1",
+        "nord10" => "#5e81ac",
+        "nord11" => "#bf616a",
+        "nord12" => "#d08770",
+        "nord13" => "#ebcb8b",
+        "nord14" => "#a3be8c",
+        "nord15" => "#b48ead",
+        other => other,
+    };
+    let parsed = Rgba::parse(hex).unwrap_or(Rgba(0x2e, 0x34, 0x40, alpha));
+    [parsed.0, parsed.1, parsed.2, alpha]
+}
+
+fn libghostty_preview_options(config: &LibghosttyConfig) -> PreviewOptions {
+    let mut options = PreviewOptions::default();
+    let bg_alpha = (config.background_opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+    options.background = nord_or_hex_rgba(&config.background, bg_alpha);
+    options.foreground = nord_or_hex_rgba(&config.foreground, 255);
+    options.cursor = nord_or_hex_rgba(&config.cursor, 255);
+    options
+}
+
 fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Result<NativePane> {
+    let config = KittwmConfig::load_default().unwrap_or_default();
     let window = format!("native-{id}");
-    let envs = vec![
+    let mut envs = vec![
         ("KITTWM_SOCKET".to_string(), sock.to_string()),
         ("KITTWM_SOCK".to_string(), sock.to_string()),
         ("KITTUI_WM_DISPLAY".to_string(), sock.to_string()),
         ("KITTWM_DISPLAY".to_string(), sock.to_string()),
         ("KITTWM_WINDOW".to_string(), window.clone()),
     ];
-    let app = match native_terminal_backend() {
+    if config.libghostty.enable_ghostty_features {
+        envs.extend([
+            ("TERM".to_string(), "xterm-ghostty".to_string()),
+            ("COLORTERM".to_string(), "truecolor".to_string()),
+        ]);
+    }
+    if config.libghostty.kitty_graphics {
+        envs.extend([
+            ("TERM_PROGRAM".to_string(), "ghostty".to_string()),
+            ("KITTY_WINDOW_ID".to_string(), window.clone()),
+            ("KITTWM_INNER_KITTY_GRAPHICS".to_string(), "1".to_string()),
+        ]);
+    }
+    let app = match native_terminal_backend(&config) {
         NativeTerminalBackend::Pty => NativeTerminalApp::Pty(PtyTerminalApp::spawn_with_env(
             cmd,
             cols.max(1),
             rows.max(1),
             envs,
         )?),
-        NativeTerminalBackend::Ghostty => NativeTerminalApp::Ghostty(
-            GhosttyTerminalApp::spawn_with_env(cmd, cols.max(1), rows.max(1), envs)?,
-        ),
+        NativeTerminalBackend::Ghostty => {
+            NativeTerminalApp::Ghostty(GhosttyTerminalApp::spawn_with_env_and_preview(
+                cmd,
+                cols.max(1),
+                rows.max(1),
+                envs,
+                libghostty_preview_options(&config.libghostty),
+            )?)
+        }
     };
     let pid = app.process_id();
     Ok(NativePane {
@@ -3339,11 +3403,15 @@ mod native_pane_tests {
         std::env::remove_var("KITTWM_TERMINAL_CMD");
         std::env::remove_var("KITTWM_TERMINAL_BINARY");
         std::env::set_var("SHELL", "/bin/test-shell");
-        assert_eq!(native_terminal_command(), "/bin/test-shell -l");
+        let mut config = KittwmConfig::default();
+        config.terminal.command = Some("config-shell".to_string());
+        assert_eq!(native_terminal_command(&config), "config-shell");
+        config.terminal.command = None;
+        assert_eq!(native_terminal_command(&config), "/bin/test-shell -l");
         std::env::set_var("KITTWM_TERMINAL_BINARY", "kittui-ghostty --app");
-        assert_eq!(native_terminal_command(), "kittui-ghostty --app");
+        assert_eq!(native_terminal_command(&config), "kittui-ghostty --app");
         std::env::set_var("KITTWM_TERMINAL_CMD", "htop");
-        assert_eq!(native_terminal_command(), "htop");
+        assert_eq!(native_terminal_command(&config), "htop");
         std::env::remove_var("KITTWM_TERMINAL_CMD");
         std::env::remove_var("KITTWM_TERMINAL_BINARY");
         std::env::remove_var("SHELL");
@@ -3354,12 +3422,25 @@ mod native_pane_tests {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_TERMINAL_BACKEND");
         std::env::remove_var("KITTWM_TERMINAL_APP");
-        assert_eq!(native_terminal_backend(), NativeTerminalBackend::Pty);
+        let mut config = KittwmConfig::default();
+        config.terminal.backend = "pty".to_string();
+        assert_eq!(native_terminal_backend(&config), NativeTerminalBackend::Pty);
+        config.terminal.backend = "ghostty".to_string();
+        assert_eq!(
+            native_terminal_backend(&config),
+            NativeTerminalBackend::Ghostty
+        );
         std::env::set_var("KITTWM_TERMINAL_BACKEND", "libghostty");
-        assert_eq!(native_terminal_backend(), NativeTerminalBackend::Ghostty);
+        assert_eq!(
+            native_terminal_backend(&config),
+            NativeTerminalBackend::Ghostty
+        );
         std::env::remove_var("KITTWM_TERMINAL_BACKEND");
         std::env::set_var("KITTWM_TERMINAL_APP", "kittui-ghostty");
-        assert_eq!(native_terminal_backend(), NativeTerminalBackend::Ghostty);
+        assert_eq!(
+            native_terminal_backend(&config),
+            NativeTerminalBackend::Ghostty
+        );
         std::env::remove_var("KITTWM_TERMINAL_APP");
     }
 

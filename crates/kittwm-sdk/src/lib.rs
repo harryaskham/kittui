@@ -91,6 +91,10 @@ pub struct KittwmConfig {
     pub background: BackgroundConfig,
     /// Terminal/app colorscheme exported to SDK apps.
     pub colorscheme: ColorScheme,
+    /// Default terminal launch/rendering policy.
+    pub terminal: TerminalConfig,
+    /// Libghostty-backed terminal renderer options.
+    pub libghostty: LibghosttyConfig,
 }
 
 /// Background surface configuration.
@@ -132,6 +136,36 @@ pub struct ColorScheme {
     pub colors: [String; 16],
 }
 
+/// Default terminal launch configuration.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TerminalConfig {
+    /// Backend selector: `pty` or `ghostty`.
+    pub backend: String,
+    /// Command launched by Ctrl-A t / Ctrl-A Enter.
+    pub command: Option<String>,
+}
+
+/// Libghostty-backed terminal renderer configuration.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LibghosttyConfig {
+    /// Renderer/theme preset name. `nord` is the current built-in preset.
+    pub theme: String,
+    /// Background color as hex or a known Nord name.
+    pub background: String,
+    /// Background alpha from 0.0 to 1.0.
+    pub background_opacity: f32,
+    /// Foreground color as hex or a known Nord name.
+    pub foreground: String,
+    /// Cursor/accent color as hex or a known Nord name.
+    pub cursor: String,
+    /// Prefer Ghostty/libghostty feature support such as kitty graphics when the linked libghostty-vt exposes it.
+    pub enable_ghostty_features: bool,
+    /// Prefer/advertise kitty graphics support for the inner libghostty terminal where available.
+    pub kitty_graphics: bool,
+}
+
 impl KittwmConfig {
     /// Built-in sane default config. Today this is Nord with a nord0 base
     /// background and a Nord Aurora lens-flare background effect at 0.6 opacity.
@@ -140,6 +174,8 @@ impl KittwmConfig {
             schema_version: 1,
             background: BackgroundConfig::nord_default(),
             colorscheme: ColorScheme::nord(),
+            terminal: TerminalConfig::default(),
+            libghostty: LibghosttyConfig::default(),
         }
     }
 
@@ -191,6 +227,29 @@ impl Default for BackgroundEffectConfig {
 impl Default for ColorScheme {
     fn default() -> Self {
         Self::nord()
+    }
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            backend: "ghostty".to_string(),
+            command: None,
+        }
+    }
+}
+
+impl Default for LibghosttyConfig {
+    fn default() -> Self {
+        Self {
+            theme: "nord".to_string(),
+            background: "nord0".to_string(),
+            background_opacity: 0.72,
+            foreground: NORD4.to_string(),
+            cursor: "nord13".to_string(),
+            enable_ghostty_features: true,
+            kitty_graphics: true,
+        }
     }
 }
 
@@ -3338,6 +3397,13 @@ mod tests {
         assert_eq!(config.colorscheme.ansi_color(0), Some("#3b4252"));
         assert_eq!(config.colorscheme.ansi_color(15), Some("#eceff4"));
         assert_eq!(config.colorscheme.ansi_color(16), None);
+        assert_eq!(config.terminal.backend, "ghostty");
+        assert_eq!(config.terminal.command, None);
+        assert_eq!(config.libghostty.theme, "nord");
+        assert_eq!(config.libghostty.background, "nord0");
+        assert_eq!(config.libghostty.background_opacity, 0.72);
+        assert!(config.libghostty.enable_ghostty_features);
+        assert!(config.libghostty.kitty_graphics);
         let roundtrip: KittwmConfig =
             serde_yaml::from_str(&config.to_yaml_string().unwrap()).unwrap();
         assert_eq!(roundtrip, config);
@@ -3361,6 +3427,8 @@ mod tests {
         assert_eq!(config.background.opacity, 0.5);
         assert_eq!(config.colorscheme.name, "nord");
         assert_eq!(config.colorscheme.colors.len(), 16);
+        assert_eq!(config.terminal.backend, "ghostty");
+        assert_eq!(config.libghostty.background_opacity, 0.72);
     }
 
     #[test]

@@ -5985,6 +5985,12 @@ struct ConfigSummary {
     colorscheme_fg: String,
     colorscheme_bg: String,
     colorscheme_colors: usize,
+    terminal_backend: String,
+    terminal_command: String,
+    libghostty_theme: String,
+    libghostty_background: String,
+    libghostty_opacity: f32,
+    libghostty_kitty_graphics: bool,
     keymap_path: String,
     launch_cmd: String,
     launch_query: String,
@@ -6011,6 +6017,15 @@ fn config_cmd(cli: &Cli) -> Result<()> {
     println!("colorscheme.fg         : {}", summary.colorscheme_fg);
     println!("colorscheme.bg         : {}", summary.colorscheme_bg);
     println!("colorscheme.colors     : {}", summary.colorscheme_colors);
+    println!("terminal.backend       : {}", summary.terminal_backend);
+    println!("terminal.command       : {}", summary.terminal_command);
+    println!("libghostty.theme       : {}", summary.libghostty_theme);
+    println!("libghostty.background  : {}", summary.libghostty_background);
+    println!("libghostty.opacity     : {:.2}", summary.libghostty_opacity);
+    println!(
+        "libghostty.kitty_graphics: {}",
+        summary.libghostty_kitty_graphics
+    );
     println!("KITTUI_WM_KEYMAP       : {}", summary.keymap_path);
     println!("KITTUI_WM_LAUNCH_CMD   : {}", summary.launch_cmd);
     println!("KITTUI_WM_LAUNCH_QUERY : {}", summary.launch_query);
@@ -6041,6 +6056,15 @@ fn config_summary(cli: &Cli) -> Result<ConfigSummary> {
         colorscheme_fg: kittwm_config.colorscheme.fg,
         colorscheme_bg: kittwm_config.colorscheme.bg,
         colorscheme_colors: kittwm_config.colorscheme.colors.len(),
+        terminal_backend: kittwm_config.terminal.backend,
+        terminal_command: kittwm_config
+            .terminal
+            .command
+            .unwrap_or_else(|| "<shell>".to_string()),
+        libghostty_theme: kittwm_config.libghostty.theme,
+        libghostty_background: kittwm_config.libghostty.background,
+        libghostty_opacity: kittwm_config.libghostty.background_opacity,
+        libghostty_kitty_graphics: kittwm_config.libghostty.kitty_graphics,
         keymap_path: keymap_path.unwrap_or_else(|| "<default>".to_string()),
         launch_cmd: std::env::var("KITTUI_WM_LAUNCH_CMD")
             .unwrap_or_else(|_| "<default: xterm>".to_string()),
@@ -6065,7 +6089,7 @@ fn config_summary(cli: &Cli) -> Result<ConfigSummary> {
 
 fn config_scene(summary: &ConfigSummary) -> Scene {
     let cols = info_scene_cols();
-    let rows = 18;
+    let rows = 21;
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -6078,6 +6102,9 @@ fn config_scene(summary: &ConfigSummary) -> Scene {
         format!("colorscheme.fg={}", summary.colorscheme_fg),
         format!("colorscheme.bg={}", summary.colorscheme_bg),
         format!("colorscheme.colors={}", summary.colorscheme_colors),
+        format!("terminal.backend={}", summary.terminal_backend),
+        format!("libghostty.theme={}", summary.libghostty_theme),
+        format!("libghostty.opacity={:.2}", summary.libghostty_opacity),
         format!("keymap={}", summary.keymap_path),
         format!("launch_cmd={}", summary.launch_cmd),
         format!("launch_query={}", summary.launch_query),
@@ -6576,6 +6603,12 @@ mod tests {
             colorscheme_fg: "#d8dee9".to_string(),
             colorscheme_bg: "#2e3440".to_string(),
             colorscheme_colors: 16,
+            terminal_backend: "ghostty".to_string(),
+            terminal_command: "<shell>".to_string(),
+            libghostty_theme: "nord".to_string(),
+            libghostty_background: "nord0".to_string(),
+            libghostty_opacity: 0.72,
+            libghostty_kitty_graphics: true,
             keymap_path: "<default>".to_string(),
             launch_cmd: "<default: xterm>".to_string(),
             launch_query: "<unset>".to_string(),
@@ -6612,13 +6645,25 @@ mod tests {
         assert!(
             labels
                 .iter()
-                .any(|label| label.contains("kittwm-config-row:12:prefix=C-a")),
+                .any(|label| label.contains("kittwm-config-row:8:terminal.backend=ghostty")),
             "{labels:?}"
         );
         assert!(
             labels
                 .iter()
-                .any(|label| label.contains("kittwm-config-row:15:status=ok")),
+                .any(|label| label.contains("kittwm-config-row:10:libghostty.opacity=0.72")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-config-row:15:prefix=C-a")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-config-row:18:status=ok")),
             "{labels:?}"
         );
     }
