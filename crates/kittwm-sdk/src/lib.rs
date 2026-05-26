@@ -305,6 +305,15 @@ pub struct NativeSurfaceContract {
     pub surface_kind: String,
     /// SDK entry point apps should use.
     pub sdk_entry: String,
+    /// Whether normal apps can request/control this surface through typed SDK
+    /// APIs rather than raw socket strings.
+    pub sdk_backed: bool,
+    /// Whether the current first-party path is kitty-graphics-native instead of
+    /// a pure text placeholder/fallback.
+    pub kitty_graphics_native: bool,
+    /// kittui/kittwm rendering entry point responsible for the native graphics
+    /// path.
+    pub kittui_entry: String,
     /// Current rendering path summary.
     pub rendering: String,
 }
@@ -432,19 +441,28 @@ impl ArchitectureContract {
                     name: "kittwm-terminal".to_string(),
                     surface_kind: "terminal".to_string(),
                     sdk_entry: "SurfaceSpec::terminal".to_string(),
+                    sdk_backed: true,
+                    kitty_graphics_native: true,
+                    kittui_entry: "PtyTerminalApp -> Runtime::place_raw_frame_with_options".to_string(),
                     rendering: "PTY NativeSurface -> fitted app frame -> kitty graphics".to_string(),
                 },
                 NativeSurfaceContract {
                     name: "kittwm-browser".to_string(),
                     surface_kind: "browser".to_string(),
                     sdk_entry: "SurfaceSpec::browser".to_string(),
+                    sdk_backed: true,
+                    kitty_graphics_native: true,
+                    kittui_entry: "HeadlessBrowserApp -> Runtime::place_png_frame_with_options".to_string(),
                     rendering: "HeadlessBrowserApp frame -> absolute kitty graphics placement".to_string(),
                 },
                 NativeSurfaceContract {
                     name: "kittwm-bar".to_string(),
                     surface_kind: "chrome".to_string(),
                     sdk_entry: "Kittwm::chrome / ChromeReservationRequest".to_string(),
-                    rendering: "BarModel -> kittui Scene JSON".to_string(),
+                    sdk_backed: true,
+                    kitty_graphics_native: true,
+                    kittui_entry: "BarModel::scene -> Runtime::place_at_with_options".to_string(),
+                    rendering: "BarModel -> kittui Scene JSON / kitty graphics chrome".to_string(),
                 },
             ],
             inspection_artifacts: strings(&[
@@ -2653,9 +2671,22 @@ mod tests {
             .composition_order
             .iter()
             .any(|plane| { plane.plane == "decorations" && plane.z_index == 20 }));
-        assert!(contract.first_party_native_surfaces.iter().any(|surface| {
-            surface.name == "kittwm-browser" && surface.sdk_entry == "SurfaceSpec::browser"
-        }));
+        let browser = contract
+            .first_party_native_surfaces
+            .iter()
+            .find(|surface| surface.name == "kittwm-browser")
+            .unwrap();
+        assert_eq!(browser.sdk_entry, "SurfaceSpec::browser");
+        assert!(browser.sdk_backed);
+        assert!(browser.kitty_graphics_native);
+        assert_eq!(
+            browser.kittui_entry,
+            "HeadlessBrowserApp -> Runtime::place_png_frame_with_options"
+        );
+        assert!(contract
+            .first_party_native_surfaces
+            .iter()
+            .all(|surface| surface.sdk_backed && surface.kitty_graphics_native));
         let roundtrip: ArchitectureContract =
             serde_json::from_str(&serde_json::to_string(&contract).unwrap()).unwrap();
         assert_eq!(roundtrip, contract);
