@@ -506,6 +506,34 @@ impl ArchitectureContract {
         self.layers.iter().find(|layer| layer.id == id)
     }
 
+    /// Look up a compositor plane by stable plane name, such as
+    /// `app-surfaces`, `decorations`, or `overlays`.
+    pub fn composition_plane(&self, plane: &str) -> Option<&CompositionPlane> {
+        self.composition_order
+            .iter()
+            .find(|entry| entry.plane == plane)
+    }
+
+    /// Return the z-index for a named compositor plane.
+    pub fn z_index_for_plane(&self, plane: &str) -> Option<i32> {
+        self.composition_plane(plane).map(|entry| entry.z_index)
+    }
+
+    /// Current z-index for app surface placements.
+    pub fn app_surface_z_index(&self) -> Option<i32> {
+        self.z_index_for_plane("app-surfaces")
+    }
+
+    /// Current z-index for WM decoration/chrome placements.
+    pub fn decoration_z_index(&self) -> Option<i32> {
+        self.z_index_for_plane("decorations")
+    }
+
+    /// Current z-index for overlay placements.
+    pub fn overlay_z_index(&self) -> Option<i32> {
+        self.z_index_for_plane("overlays")
+    }
+
     /// Look up a first-party native surface by binary/surface name.
     pub fn native_surface(&self, name: &str) -> Option<&NativeSurfaceContract> {
         self.first_party_native_surfaces
@@ -2749,6 +2777,15 @@ mod tests {
             .composition_order
             .iter()
             .any(|plane| { plane.plane == "decorations" && plane.z_index == 20 }));
+        assert_eq!(contract.app_surface_z_index(), Some(0));
+        assert_eq!(contract.decoration_z_index(), Some(20));
+        assert_eq!(contract.overlay_z_index(), Some(30));
+        assert_eq!(contract.z_index_for_plane("decorations"), Some(20));
+        assert_eq!(
+            contract.composition_plane("overlays").unwrap().plane,
+            "overlays"
+        );
+        assert!(contract.z_index_for_plane("missing").is_none());
         let browser = contract.native_surface("kittwm-browser").unwrap();
         assert_eq!(browser.sdk_entry, "SurfaceSpec::browser");
         assert!(browser.sdk_backed);
