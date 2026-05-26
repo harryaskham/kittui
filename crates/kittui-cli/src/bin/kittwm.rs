@@ -87,6 +87,8 @@ struct Cli {
     apps_first: bool,
     apps_launch_first: bool,
     keymap: bool,
+    keymap_scene_json: bool,
+    keymap_kitty: bool,
     shortcuts: bool,
     shortcuts_json: bool,
     shortcuts_scene_json: bool,
@@ -172,6 +174,8 @@ fn parse_args() -> Result<Cli> {
             "start" => out.mode = lifecycle_alias_mode("start")?,
             "stop" => out.mode = lifecycle_alias_mode("stop")?,
             "keymap" => out.keymap = true,
+            "keymap-scene-json" => out.keymap_scene_json = true,
+            "keymap-kitty" | "keymap-graphics" => out.keymap_kitty = true,
             "shortcuts" => out.shortcuts = true,
             "shortcuts-json" => out.shortcuts_json = true,
             "shortcuts-scene-json" => out.shortcuts_scene_json = true,
@@ -926,6 +930,8 @@ DIAGNOSTICS AND BACKENDS
   doctor [--json] [--probe-kitty]   Diagnostics; kitty probing is opt-in
   config [--keymap PATH] [--check]  Config/keymap inspection
   keymap [--keymap PATH] [--check]  Print resolved keymap
+  keymap-scene-json [--keymap PATH] Emit resolved keymap as a kittui Scene
+  keymap-kitty [--keymap PATH]      Render resolved keymap with kitty graphics
   record / bench                    Capture-pipeline tooling
   native-terminal / native-browser  Backend-independent proofs
   --backend fake|quartz|xvfb        Force capture backend
@@ -1110,6 +1116,9 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "doctor",
         "config",
         "keymap",
+        "keymap-scene-json",
+        "keymap-kitty",
+        "keymap-graphics",
         "completions",
     ]
 }
@@ -1391,7 +1400,7 @@ fn real_main() -> Result<()> {
     if cli.launcher_preview {
         return launcher_preview_cmd(&cli);
     }
-    if cli.keymap {
+    if cli.keymap || cli.keymap_scene_json || cli.keymap_kitty {
         return keymap_cmd(&cli);
     }
     if let Some(topic) = &cli.help_topic {
@@ -2947,6 +2956,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             category: "diagnostics",
             description: "resolved keybindings",
         },
+        LocalCommandEntry {
+            command: "keymap-scene-json",
+            category: "diagnostics",
+            description: "resolved keybindings kittui scene",
+        },
+        LocalCommandEntry {
+            command: "keymap-kitty",
+            category: "diagnostics",
+            description: "resolved keybindings kitty graphics",
+        },
     ]
 }
 
@@ -4107,16 +4126,100 @@ fn shortcuts_json_cmd() -> Result<()> {
 }
 
 fn keymap_cmd(cli: &Cli) -> Result<()> {
-    let km = if let Some(path) = &cli.keymap_path {
-        kittui_cli::keymap::Keymap::load(std::path::Path::new(path))?
-    } else {
-        kittui_cli::keymap::default_keymap()
-    };
+    let km = load_keymap(cli)?;
     if cli.keymap_check {
         return keymap_check_cmd(&km);
     }
+    if cli.keymap_scene_json || cli.keymap_kitty {
+        let scene = keymap_scene(&km);
+        return print_scene_or_kitty(&scene, cli.keymap_kitty, 20);
+    }
     print!("{}", km.render_table());
     Ok(())
+}
+
+fn load_keymap(cli: &Cli) -> Result<kittui_cli::keymap::Keymap> {
+    if let Some(path) = &cli.keymap_path {
+        kittui_cli::keymap::Keymap::load(std::path::Path::new(path))
+    } else {
+        Ok(kittui_cli::keymap::default_keymap())
+    }
+}
+
+fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
+    let cols = info_scene_cols();
+    let rows = (km.bindings.len() as u16 + 5).clamp(8, 28);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let prefix = km
+        .prefix
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "<none>".to_string());
+    let duplicates = keymap_duplicate_count(km);
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-keymap-backdrop:bindings={}:prefix={prefix}:duplicates={duplicates}",
+                km.bindings.len()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(235, 203, 139, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some("kittwm-keymap-heading:resolved-keymap".to_string()),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, binding) in km.bindings.iter().take(20).enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-keymap-row:{}:{}:{}",
+                idx,
+                binding.chord_string(),
+                binding.action
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(235, 203, 139, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
@@ -4774,6 +4877,9 @@ mod tests {
             entry["command"] == "native-surfaces-json" && entry["category"] == "diagnostics"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "keymap-kitty" && entry["category"] == "diagnostics"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "commands-scene-json" && entry["category"] == "help"
         }));
         assert!(json["commands"]
@@ -4781,6 +4887,33 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn keymap_scene_labels_prefix_bindings_and_actions() {
+        let km = kittui_cli::keymap::default_keymap();
+        let scene = keymap_scene(&km);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-keymap-backdrop:bindings=")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains("prefix=C-a")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("launch") || label.contains("split.vertical.launcher")),
+            "{labels:?}"
+        );
     }
 
     #[test]
