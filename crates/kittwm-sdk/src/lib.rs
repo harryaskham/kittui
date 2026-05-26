@@ -516,6 +516,18 @@ impl ArchitectureContract {
             .filter(move |surface| surface.surface_kind == kind)
     }
 
+    /// Look up the first-party native surface contract that backs a typed
+    /// surface request. Terminal and browser specs are first-class in the
+    /// current architecture contract; unsupported `Other` specs intentionally
+    /// return `None`.
+    pub fn native_surface_for_spec(&self, spec: &SurfaceSpec) -> Option<&NativeSurfaceContract> {
+        match &spec.kind {
+            SurfaceKind::Terminal => self.native_surface_by_kind("terminal"),
+            SurfaceKind::Browser => self.native_surface_by_kind("browser"),
+            SurfaceKind::Other(_) => None,
+        }
+    }
+
     /// Iterate first-party surfaces currently represented as SDK-backed,
     /// kitty-graphics-native paths.
     pub fn native_ready_surfaces(&self) -> impl Iterator<Item = &NativeSurfaceContract> {
@@ -2749,6 +2761,27 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["kittwm-bar"]
         );
+        assert_eq!(
+            contract
+                .native_surface_for_spec(&SurfaceSpec::terminal("htop"))
+                .unwrap()
+                .name,
+            "kittwm-terminal"
+        );
+        assert_eq!(
+            contract
+                .native_surface_for_spec(&SurfaceSpec::browser("https://example.com"))
+                .unwrap()
+                .name,
+            "kittwm-browser"
+        );
+        assert!(contract
+            .native_surface_for_spec(&SurfaceSpec {
+                kind: SurfaceKind::Other("canvas".to_string()),
+                command: "canvas".to_string(),
+                title: None,
+            })
+            .is_none());
         assert!(contract.native_surface("missing").is_none());
         assert!(contract.native_surface_by_kind("missing").is_none());
         let roundtrip: ArchitectureContract =
