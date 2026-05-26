@@ -253,6 +253,22 @@ impl SurfaceSpec {
             .unwrap_or(false)
     }
 
+    /// Composition plane for this typed surface request in the current kittwm
+    /// architecture contract.
+    pub fn composition_plane(&self) -> Option<&'static str> {
+        self.native_surface_contract()
+            .and_then(|surface| surface.composition_plane())
+    }
+
+    /// Kitty/kittui placement z-index for this typed surface request in the
+    /// current kittwm architecture contract.
+    pub fn z_index(&self) -> Option<i32> {
+        let contract = ArchitectureContract::current();
+        contract
+            .native_surface_for_spec(self)
+            .and_then(|surface| surface.z_index(&contract))
+    }
+
     /// Attach a display title.
     pub fn titled(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
@@ -2874,12 +2890,16 @@ mod tests {
         let terminal_contract = terminal.native_surface_contract().unwrap();
         assert_eq!(terminal_contract.name, "kittwm-terminal");
         assert!(terminal.is_native_ready());
+        assert_eq!(terminal.composition_plane(), Some("app-surfaces"));
+        assert_eq!(terminal.z_index(), Some(0));
 
         let browser = SurfaceSpec::browser("https://example.com");
         let browser_contract = browser.native_surface_contract().unwrap();
         assert_eq!(browser_contract.name, "kittwm-browser");
         assert_eq!(browser_contract.surface_kind, "browser");
         assert!(browser.is_native_ready());
+        assert_eq!(browser.composition_plane(), Some("app-surfaces"));
+        assert_eq!(browser.z_index(), Some(0));
 
         let other = SurfaceSpec {
             kind: SurfaceKind::Other("canvas".to_string()),
@@ -2888,6 +2908,8 @@ mod tests {
         };
         assert!(other.native_surface_contract().is_none());
         assert!(!other.is_native_ready());
+        assert_eq!(other.composition_plane(), None);
+        assert_eq!(other.z_index(), None);
     }
 
     #[test]
