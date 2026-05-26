@@ -497,12 +497,39 @@ impl ArchitectureContract {
             .find(|surface| surface.name == name)
     }
 
+    /// Look up the first first-party native surface with the given SDK/control
+    /// plane surface kind, such as `terminal`, `browser`, or `chrome`.
+    pub fn native_surface_by_kind(&self, kind: &str) -> Option<&NativeSurfaceContract> {
+        self.first_party_native_surfaces
+            .iter()
+            .find(|surface| surface.surface_kind == kind)
+    }
+
+    /// Iterate all first-party native surfaces with the given SDK/control-plane
+    /// surface kind.
+    pub fn native_surfaces_by_kind<'a>(
+        &'a self,
+        kind: &'a str,
+    ) -> impl Iterator<Item = &'a NativeSurfaceContract> + 'a {
+        self.first_party_native_surfaces
+            .iter()
+            .filter(move |surface| surface.surface_kind == kind)
+    }
+
     /// Iterate first-party surfaces currently represented as SDK-backed,
     /// kitty-graphics-native paths.
     pub fn native_ready_surfaces(&self) -> impl Iterator<Item = &NativeSurfaceContract> {
         self.first_party_native_surfaces
             .iter()
             .filter(|surface| surface.is_native_ready())
+    }
+
+    /// Whether every listed first-party native surface is SDK-backed,
+    /// kitty-graphics-native, and has a kittui entry point.
+    pub fn all_native_surfaces_ready(&self) -> bool {
+        self.first_party_native_surfaces
+            .iter()
+            .all(NativeSurfaceContract::is_native_ready)
     }
 }
 
@@ -2702,10 +2729,7 @@ mod tests {
             browser.kittui_entry,
             "HeadlessBrowserApp -> Runtime::place_png_frame_with_options"
         );
-        assert!(contract
-            .first_party_native_surfaces
-            .iter()
-            .all(NativeSurfaceContract::is_native_ready));
+        assert!(contract.all_native_surfaces_ready());
         let ready_names = contract
             .native_ready_surfaces()
             .map(|surface| surface.name.as_str())
@@ -2714,7 +2738,19 @@ mod tests {
             ready_names,
             ["kittwm-terminal", "kittwm-browser", "kittwm-bar"]
         );
+        assert_eq!(
+            contract.native_surface_by_kind("browser").unwrap().name,
+            "kittwm-browser"
+        );
+        assert_eq!(
+            contract
+                .native_surfaces_by_kind("chrome")
+                .map(|surface| surface.name.as_str())
+                .collect::<Vec<_>>(),
+            ["kittwm-bar"]
+        );
         assert!(contract.native_surface("missing").is_none());
+        assert!(contract.native_surface_by_kind("missing").is_none());
         let roundtrip: ArchitectureContract =
             serde_json::from_str(&serde_json::to_string(&contract).unwrap()).unwrap();
         assert_eq!(roundtrip, contract);
