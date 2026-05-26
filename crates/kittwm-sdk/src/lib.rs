@@ -785,6 +785,24 @@ impl ArchitectureContract {
         SurfacePlacementContract::from_native_surface(surface, self)
     }
 
+    /// Build placement/readiness contracts for all first-party native surfaces
+    /// named by this architecture contract.
+    pub fn placement_contracts(&self) -> Vec<SurfacePlacementContract> {
+        self.first_party_native_surfaces
+            .iter()
+            .filter_map(|surface| SurfacePlacementContract::from_native_surface(surface, self))
+            .collect()
+    }
+
+    /// Build placement/readiness contracts for first-party surfaces that are
+    /// currently SDK-backed, kitty-graphics-native, and have a kittui entry.
+    pub fn ready_placement_contracts(&self) -> Vec<SurfacePlacementContract> {
+        self.placement_contracts()
+            .into_iter()
+            .filter(|contract| contract.native_ready)
+            .collect()
+    }
+
     /// Iterate first-party surfaces currently represented as SDK-backed,
     /// kitty-graphics-native paths.
     pub fn native_ready_surfaces(&self) -> impl Iterator<Item = &NativeSurfaceContract> {
@@ -3087,6 +3105,26 @@ mod tests {
                 .surface,
             "kittwm-browser"
         );
+        let placement_contracts = contract.placement_contracts();
+        assert_eq!(
+            placement_contracts
+                .iter()
+                .map(|placement| placement.surface.as_str())
+                .collect::<Vec<_>>(),
+            ["kittwm-terminal", "kittwm-browser", "kittwm-bar"]
+        );
+        assert_eq!(
+            placement_contracts
+                .iter()
+                .map(|placement| placement.role().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                SurfacePlacementRole::AppSurface,
+                SurfacePlacementRole::AppSurface,
+                SurfacePlacementRole::Decoration
+            ]
+        );
+        assert_eq!(contract.ready_placement_contracts(), placement_contracts);
         assert_eq!(
             contract
                 .native_surface_for_spec(&SurfaceSpec::terminal("htop"))
