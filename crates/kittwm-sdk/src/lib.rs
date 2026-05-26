@@ -285,6 +285,20 @@ pub struct SurfacePlacementCoverage {
 }
 
 impl SurfacePlacementCoverage {
+    /// Number of placement contracts for a typed role.
+    pub fn count_for_role(&self, role: SurfacePlacementRole) -> usize {
+        match role {
+            SurfacePlacementRole::AppSurface => self.app_surfaces,
+            SurfacePlacementRole::Decoration => self.decorations,
+            SurfacePlacementRole::Overlay => self.overlays,
+        }
+    }
+
+    /// Whether at least one placement contract exists for a typed role.
+    pub fn has_role(&self, role: SurfacePlacementRole) -> bool {
+        self.count_for_role(role) > 0
+    }
+
     /// Number of first-party surfaces that did not produce a placement contract.
     pub fn missing_placement_contracts(&self) -> usize {
         self.total_surfaces.saturating_sub(self.placement_contracts)
@@ -3328,6 +3342,21 @@ mod tests {
                 all_placement_contracts_ready: true,
             }
         );
+        assert_eq!(
+            placement_coverage.count_for_role(SurfacePlacementRole::AppSurface),
+            2
+        );
+        assert_eq!(
+            placement_coverage.count_for_role(SurfacePlacementRole::Decoration),
+            1
+        );
+        assert_eq!(
+            placement_coverage.count_for_role(SurfacePlacementRole::Overlay),
+            0
+        );
+        assert!(placement_coverage.has_role(SurfacePlacementRole::AppSurface));
+        assert!(placement_coverage.has_role(SurfacePlacementRole::Decoration));
+        assert!(!placement_coverage.has_role(SurfacePlacementRole::Overlay));
         assert_eq!(placement_coverage.missing_placement_contracts(), 0);
         assert_eq!(placement_coverage.not_ready_placement_contracts(), 0);
         assert_eq!(placement_coverage.placement_gap_count(), 0);
