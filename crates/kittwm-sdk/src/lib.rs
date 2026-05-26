@@ -261,6 +261,29 @@ pub struct SurfacePlacementContract {
     pub kittui_entry: String,
 }
 
+/// Aggregate coverage counts for first-party native surface placement.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfacePlacementCoverage {
+    /// Number of first-party native surfaces named by the architecture contract.
+    pub total_surfaces: usize,
+    /// Number of first-party surfaces with a complete placement contract.
+    pub placement_contracts: usize,
+    /// Number of placement contracts that are SDK-backed, kitty-native, and
+    /// have a kittui entry point.
+    pub ready_placement_contracts: usize,
+    /// Number of app/content surface placement contracts.
+    pub app_surfaces: usize,
+    /// Number of decoration/chrome placement contracts.
+    pub decorations: usize,
+    /// Number of overlay placement contracts.
+    pub overlays: usize,
+    /// Whether every first-party native surface is SDK-backed and kitty-native.
+    pub all_native_surfaces_ready: bool,
+    /// Whether every complete placement contract is native-ready and all
+    /// first-party native surfaces have placement contracts.
+    pub all_placement_contracts_ready: bool,
+}
+
 impl SurfacePlacementContract {
     /// Build placement/readiness metadata from a native surface contract and
     /// architecture contract.
@@ -843,6 +866,36 @@ impl ArchitectureContract {
     /// Build placement/readiness contracts for overlay surfaces.
     pub fn overlay_placement_contracts(&self) -> Vec<SurfacePlacementContract> {
         self.placement_contracts_for_role(SurfacePlacementRole::Overlay)
+    }
+
+    /// Summarize first-party native surface placement coverage.
+    pub fn placement_coverage(&self) -> SurfacePlacementCoverage {
+        let contracts = self.placement_contracts();
+        let ready_placement_contracts = contracts
+            .iter()
+            .filter(|contract| contract.native_ready)
+            .count();
+        SurfacePlacementCoverage {
+            total_surfaces: self.first_party_native_surfaces.len(),
+            placement_contracts: contracts.len(),
+            ready_placement_contracts,
+            app_surfaces: contracts
+                .iter()
+                .filter(|contract| contract.is_app_surface())
+                .count(),
+            decorations: contracts
+                .iter()
+                .filter(|contract| contract.is_decoration())
+                .count(),
+            overlays: contracts
+                .iter()
+                .filter(|contract| contract.is_overlay())
+                .count(),
+            all_native_surfaces_ready: self.all_native_surfaces_ready(),
+            all_placement_contracts_ready: contracts.len()
+                == self.first_party_native_surfaces.len()
+                && ready_placement_contracts == contracts.len(),
+        }
     }
 
     /// Iterate first-party surfaces currently represented as SDK-backed,
@@ -3208,6 +3261,19 @@ mod tests {
             ["kittwm-bar"]
         );
         assert!(contract.overlay_placement_contracts().is_empty());
+        assert_eq!(
+            contract.placement_coverage(),
+            SurfacePlacementCoverage {
+                total_surfaces: 3,
+                placement_contracts: 3,
+                ready_placement_contracts: 3,
+                app_surfaces: 2,
+                decorations: 1,
+                overlays: 0,
+                all_native_surfaces_ready: true,
+                all_placement_contracts_ready: true,
+            }
+        );
         assert_eq!(
             contract
                 .native_surface_for_spec(&SurfaceSpec::terminal("htop"))
