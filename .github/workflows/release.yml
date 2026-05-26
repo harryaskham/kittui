@@ -2,17 +2,12 @@ name: release
 
 on:
   push:
-    branches: [main]
-    paths:
-      - Cargo.toml
-      - Cargo.lock
-      - .github/workflows/release.yml
     tags:
-      - 'v*'
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to publish assets to (defaults to current ref or workspace version on main)'
+        description: 'Release tag to publish assets to (defaults to current ref or workspace version)'
         required: false
         type: string
 
@@ -43,54 +38,37 @@ jobs:
         shell: bash
         env:
           INPUT_TAG: ${{ inputs.tag || '' }}
-          BEFORE_SHA: ${{ github.event.before || '' }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          should_release=false
-          checkout_ref="${GITHUB_REF}"
-
           current_version="$(sed -n '/^\[workspace.package\]/,/^\[/{ s/^version = "\([^"]*\)"$/\1/p; }' Cargo.toml | head -n 1)"
           if [ -z "$current_version" ]; then
             echo "::error::failed to read workspace package version from Cargo.toml" >&2
             exit 1
           fi
-          tag="v${current_version}"
 
+          tag="v${current_version}"
+          checkout_ref="${GITHUB_REF}"
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             tag="${GITHUB_REF_NAME}"
             checkout_ref="${GITHUB_REF_NAME}"
-            should_release=true
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${INPUT_TAG}" ]]; then
             tag="${INPUT_TAG}"
             checkout_ref="${INPUT_TAG}"
-            should_release=true
-          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            should_release=true
-          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            previous_version=""
-            if [[ -n "${BEFORE_SHA}" ]] && git cat-file -e "${BEFORE_SHA}:Cargo.toml" 2>/dev/null; then
-              previous_version="$(git show "${BEFORE_SHA}:Cargo.toml" | sed -n '/^\[workspace.package\]/,/^\[/{ s/^version = "\([^"]*\)"$/\1/p; }' | head -n 1 || true)"
-            fi
-            if [[ -z "${previous_version}" || "${previous_version}" != "${current_version}" ]]; then
-              if gh release view "${tag}" >/dev/null 2>&1; then
-                echo "Release ${tag} already exists; skipping duplicate version-bump release."
-              else
-                should_release=true
-              fi
-            else
-              echo "Workspace version did not change (${current_version}); skipping release."
-            fi
+          fi
+
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release tag ${tag} is not a semver patch/minor/major tag like v1.2.3" >&2
+            exit 1
           fi
 
           version="${tag#v}"
           {
-            echo "should_release=${should_release}"
+            echo "should_release=true"
             echo "tag=${tag}"
             echo "version=${version}"
             echo "checkout_ref=${checkout_ref}"
           } >> "$GITHUB_OUTPUT"
-          echo "should_release=${should_release} tag=${tag} version=${version} checkout_ref=${checkout_ref}"
+          echo "should_release=true tag=${tag} version=${version} checkout_ref=${checkout_ref}"
 
   build-cli:
     name: build ${{ matrix.target }}
