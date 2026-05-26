@@ -1679,10 +1679,26 @@ fn native_layouts_for_panes_with_reservation(
     axis: NativePaneLayoutAxis,
     reservation: &crate::daemon::NativeChromeReservationConfig,
 ) -> Vec<NativePaneLayout> {
-    if panes.is_empty() {
+    native_layouts_for_weights_with_reservation(
+        cols,
+        rows,
+        &panes.iter().map(|pane| pane.weight).collect::<Vec<_>>(),
+        axis,
+        reservation,
+    )
+}
+
+fn native_layouts_for_weights_with_reservation(
+    cols: u16,
+    rows: u16,
+    weights: &[u16],
+    axis: NativePaneLayoutAxis,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
+) -> Vec<NativePaneLayout> {
+    if weights.is_empty() {
         return Vec::new();
     }
-    let count = panes.len().min(u16::MAX as usize);
+    let count = weights.len().min(u16::MAX as usize);
     let left = reservation.left_cols.min(cols.saturating_sub(1));
     let right = reservation
         .right_cols
@@ -1703,35 +1719,30 @@ fn native_layouts_for_panes_with_reservation(
     let total_gap_rows = gap_rows.saturating_mul(count.saturating_sub(1) as u16);
     let weighted_cols = content_cols.saturating_sub(total_gap_cols).max(1);
     let weighted_rows = tilable_rows.saturating_sub(total_gap_rows).max(1);
-    native_pane_layouts_weighted(
-        weighted_cols,
-        weighted_rows,
-        &panes.iter().map(|pane| pane.weight).collect::<Vec<_>>(),
-        axis,
-    )
-    .into_iter()
-    .enumerate()
-    .map(|(idx, mut layout)| {
-        let idx = idx.min(u16::MAX as usize) as u16;
-        layout.x = layout
-            .x
-            .saturating_add(left)
-            .saturating_add(idx.saturating_mul(gap_cols));
-        layout.app_x = layout
-            .app_x
-            .saturating_add(left)
-            .saturating_add(idx.saturating_mul(gap_cols));
-        layout.y = layout
-            .y
-            .saturating_add(reservation.top_bar_rows)
-            .saturating_add(idx.saturating_mul(gap_rows));
-        layout.app_y = layout
-            .app_y
-            .saturating_add(reservation.top_bar_rows)
-            .saturating_add(idx.saturating_mul(gap_rows));
-        layout
-    })
-    .collect()
+    native_pane_layouts_weighted(weighted_cols, weighted_rows, weights, axis)
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut layout)| {
+            let idx = idx.min(u16::MAX as usize) as u16;
+            layout.x = layout
+                .x
+                .saturating_add(left)
+                .saturating_add(idx.saturating_mul(gap_cols));
+            layout.app_x = layout
+                .app_x
+                .saturating_add(left)
+                .saturating_add(idx.saturating_mul(gap_cols));
+            layout.y = layout
+                .y
+                .saturating_add(reservation.top_bar_rows)
+                .saturating_add(idx.saturating_mul(gap_rows));
+            layout.app_y = layout
+                .app_y
+                .saturating_add(reservation.top_bar_rows)
+                .saturating_add(idx.saturating_mul(gap_rows));
+            layout
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -4552,32 +4563,11 @@ mod native_pane_tests {
             gap_rows: 1,
             owner: Some("bar".to_string()),
         };
-        let panes = vec![
-            NativePane {
-                window: "native-1".to_string(),
-                image_id: 1,
-                command: "one".to_string(),
-                pid: None,
-                display_title: None,
-                weight: 1,
-                app: dummy_native_pane_app(),
-                dirty_frame: None,
-            },
-            NativePane {
-                window: "native-2".to_string(),
-                image_id: 2,
-                command: "two".to_string(),
-                pid: None,
-                display_title: None,
-                weight: 1,
-                app: dummy_native_pane_app(),
-                dirty_frame: None,
-            },
-        ];
-        let columns = native_layouts_for_panes_with_reservation(
+        let weights = [1, 1];
+        let columns = native_layouts_for_weights_with_reservation(
             80,
             24,
-            &panes,
+            &weights,
             NativePaneLayoutAxis::Columns,
             &reservation,
         );
@@ -4590,10 +4580,10 @@ mod native_pane_tests {
         assert_eq!(columns[0].app_rows, 19);
         assert!(columns[0].app_x + columns[0].app_cols < columns[1].app_x);
 
-        let rows = native_layouts_for_panes_with_reservation(
+        let rows = native_layouts_for_weights_with_reservation(
             80,
             24,
-            &panes,
+            &weights,
             NativePaneLayoutAxis::Rows,
             &reservation,
         );
@@ -4639,42 +4629,11 @@ mod native_pane_tests {
             gap_rows: 2,
             owner: Some("bar".to_string()),
         };
-        let panes = vec![
-            NativePane {
-                window: "native-1".to_string(),
-                image_id: 1,
-                command: "one".to_string(),
-                pid: None,
-                display_title: None,
-                weight: 1,
-                app: dummy_native_pane_app(),
-                dirty_frame: None,
-            },
-            NativePane {
-                window: "native-2".to_string(),
-                image_id: 2,
-                command: "two".to_string(),
-                pid: None,
-                display_title: None,
-                weight: 2,
-                app: dummy_native_pane_app(),
-                dirty_frame: None,
-            },
-            NativePane {
-                window: "native-3".to_string(),
-                image_id: 3,
-                command: "three".to_string(),
-                pid: None,
-                display_title: None,
-                weight: 3,
-                app: dummy_native_pane_app(),
-                dirty_frame: None,
-            },
-        ];
+        let weights = [1, 2, 3];
 
         for axis in [NativePaneLayoutAxis::Columns, NativePaneLayoutAxis::Rows] {
             let layouts =
-                native_layouts_for_panes_with_reservation(80, 24, &panes, axis, &reservation);
+                native_layouts_for_weights_with_reservation(80, 24, &weights, axis, &reservation);
             assert_native_layout_invariants(&layouts, 80, 24);
             for layout in &layouts {
                 assert!(layout.x >= reservation.left_cols, "{axis:?}: {layouts:?}");
