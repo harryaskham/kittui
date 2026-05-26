@@ -803,6 +803,33 @@ impl ArchitectureContract {
             .collect()
     }
 
+    /// Build placement/readiness contracts for first-party surfaces that belong
+    /// to a typed placement role.
+    pub fn placement_contracts_for_role(
+        &self,
+        role: SurfacePlacementRole,
+    ) -> Vec<SurfacePlacementContract> {
+        self.placement_contracts()
+            .into_iter()
+            .filter(|contract| contract.role() == Some(role))
+            .collect()
+    }
+
+    /// Build placement/readiness contracts for app/content surfaces.
+    pub fn app_surface_placement_contracts(&self) -> Vec<SurfacePlacementContract> {
+        self.placement_contracts_for_role(SurfacePlacementRole::AppSurface)
+    }
+
+    /// Build placement/readiness contracts for decoration/chrome surfaces.
+    pub fn decoration_placement_contracts(&self) -> Vec<SurfacePlacementContract> {
+        self.placement_contracts_for_role(SurfacePlacementRole::Decoration)
+    }
+
+    /// Build placement/readiness contracts for overlay surfaces.
+    pub fn overlay_placement_contracts(&self) -> Vec<SurfacePlacementContract> {
+        self.placement_contracts_for_role(SurfacePlacementRole::Overlay)
+    }
+
     /// Iterate first-party surfaces currently represented as SDK-backed,
     /// kitty-graphics-native paths.
     pub fn native_ready_surfaces(&self) -> impl Iterator<Item = &NativeSurfaceContract> {
@@ -3125,6 +3152,31 @@ mod tests {
             ]
         );
         assert_eq!(contract.ready_placement_contracts(), placement_contracts);
+        assert_eq!(
+            contract
+                .placement_contracts_for_role(SurfacePlacementRole::AppSurface)
+                .iter()
+                .map(|placement| placement.surface.as_str())
+                .collect::<Vec<_>>(),
+            ["kittwm-terminal", "kittwm-browser"]
+        );
+        assert_eq!(
+            contract
+                .app_surface_placement_contracts()
+                .iter()
+                .map(|placement| placement.surface.as_str())
+                .collect::<Vec<_>>(),
+            ["kittwm-terminal", "kittwm-browser"]
+        );
+        assert_eq!(
+            contract
+                .decoration_placement_contracts()
+                .iter()
+                .map(|placement| placement.surface.as_str())
+                .collect::<Vec<_>>(),
+            ["kittwm-bar"]
+        );
+        assert!(contract.overlay_placement_contracts().is_empty());
         assert_eq!(
             contract
                 .native_surface_for_spec(&SurfaceSpec::terminal("htop"))
