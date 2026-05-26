@@ -105,6 +105,8 @@ struct Cli {
     native_surfaces_json: bool,
     panes_scene_json: bool,
     panes_kitty: bool,
+    events_scene_json: Option<u64>,
+    events_kitty: Option<u64>,
     showcase_scene_json: bool,
     showcase_metrics_json: bool,
     showcase_composition_json: bool,
@@ -240,6 +242,24 @@ fn parse_args() -> Result<Cli> {
             "events" => {
                 out.automation_request =
                     parse_inspection_alias("events", args.next(), args.next())?;
+                break;
+            }
+            "events-scene-json" => {
+                out.events_scene_json = Some(parse_optional_events_ms(args.next())?);
+                if let Some(extra) = args.next() {
+                    return Err(anyhow!(
+                        "kittwm events-scene-json accepts at most one timeout, got {extra:?}"
+                    ));
+                }
+                break;
+            }
+            "events-kitty" | "events-graphics" => {
+                out.events_kitty = Some(parse_optional_events_ms(args.next())?);
+                if let Some(extra) = args.next() {
+                    return Err(anyhow!(
+                        "kittwm events-kitty accepts at most one timeout, got {extra:?}"
+                    ));
+                }
                 break;
             }
             "spawn" => {
@@ -618,6 +638,16 @@ fn parse_args() -> Result<Cli> {
             "--events-ms" => {
                 let ms = args.next().ok_or_else(|| anyhow!("--events-ms MS"))?;
                 out.automation_request = Some(events_request(&ms)?);
+            }
+            "--events-scene-json" => {
+                let ms = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--events-scene-json MS"))?;
+                out.events_scene_json = Some(parse_optional_events_ms(Some(ms))?);
+            }
+            "--events-kitty" | "--events-graphics" => {
+                let ms = args.next().ok_or_else(|| anyhow!("--events-kitty MS"))?;
+                out.events_kitty = Some(parse_optional_events_ms(Some(ms))?);
             }
             "--spawn-pty" => {
                 let cmd = args.next().ok_or_else(|| anyhow!("--spawn-pty CMD"))?;
@@ -1366,6 +1396,12 @@ fn real_main() -> Result<()> {
     }
     if cli.panes_scene_json || cli.panes_kitty {
         return panes_graphical_cmd(cli.panes_kitty);
+    }
+    if let Some(ms) = cli.events_scene_json {
+        return events_graphical_cmd(ms, false);
+    }
+    if let Some(ms) = cli.events_kitty {
+        return events_graphical_cmd(ms, true);
     }
     if cli.quickstart {
         return quickstart_cmd();
@@ -2549,13 +2585,26 @@ fn rename_pane_request(window: &str, title: &str) -> Result<String> {
     protocol_payload_request("RENAME_PANE", &format!("{window} {title}"))
 }
 
-fn events_request(ms: &str) -> Result<String> {
+fn parse_optional_events_ms(ms: Option<String>) -> Result<u64> {
+    match ms {
+        Some(ms) => parse_events_ms_value(&ms),
+        None => Ok(1000),
+    }
+}
+
+fn parse_events_ms_value(ms: &str) -> Result<u64> {
     let parsed: u64 = ms
         .parse()
-        .map_err(|_| anyhow!("--events-ms expects integer milliseconds"))?;
+        .map_err(|_| anyhow!("events timeout expects integer milliseconds"))?;
     if parsed == 0 || parsed > 60_000 {
-        return Err(anyhow!("--events-ms expects 1..=60000"));
+        return Err(anyhow!("events timeout expects 1..=60000"));
     }
+    Ok(parsed)
+}
+
+fn events_request(ms: &str) -> Result<String> {
+    let parsed = parse_events_ms_value(ms)
+        .map_err(|_| anyhow!("--events-ms expects integer milliseconds in 1..=60000"))?;
     Ok(format!("EVENTS {parsed}"))
 }
 
@@ -3483,16 +3532,26 @@ fn info_scene_cols() -> u16 {
 fn panes_graphical_cmd(kitty: bool) -> Result<()> {
     let panes = load_panes_snapshot()?;
     let scene = panes_scene(&panes);
+    print_scene_or_kitty(&scene, kitty, 20)
+}
+
+fn events_graphical_cmd(ms: u64, kitty: bool) -> Result<()> {
+    let events = load_events_snapshot(ms)?;
+    let scene = events_scene(ms, &events);
+    print_scene_or_kitty(&scene, kitty, 20)
+}
+
+fn print_scene_or_kitty(scene: &Scene, kitty: bool, z_index: i32) -> Result<()> {
     if kitty {
         let runtime = Runtime::builder()
             .terminal(TerminalInfo::detect())
             .build()?;
         let mut options = kittui_kitty::PlacementOptions::unicode();
-        options.z_index = 20;
-        let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
+        options.z_index = z_index;
+        let placement = runtime.place_at_with_options(scene, scene.footprint, &options)?;
         print!("{}", placement.to_bytes());
     } else {
-        println!("{}", serde_json::to_string(&scene)?);
+        println!("{}", serde_json::to_string(scene)?);
     }
     Ok(())
 }
@@ -3503,6 +3562,89 @@ fn load_panes_snapshot() -> Result<serde_json::Value> {
     let panes = client_request_multi(&path, "PANES_JSON")
         .map_err(|err| anyhow!("connect {}: {err}", path.display()))?;
     Ok(serde_json::from_str(&panes)?)
+}
+
+fn load_events_snapshot(ms: u64) -> Result<Vec<String>> {
+    use kittui_cli::daemon::{client_request_multi, default_socket_path};
+    let path = default_socket_path();
+    let reply = client_request_multi(&path, &format!("EVENTS {ms}"))
+        .map_err(|err| anyhow!("connect {}: {err}", path.display()))?;
+    Ok(event_kinds_from_lines(&reply))
+}
+
+fn event_kinds_from_lines(lines: &str) -> Vec<String> {
+    lines
+        .lines()
+        .filter(|line| *line != "END" && !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter_map(|value| value.get("kind")?.as_str().map(str::to_string))
+        .collect()
+}
+
+fn events_scene(ms: u64, kinds: &[String]) -> Scene {
+    let cols = info_scene_cols();
+    let rows = (kinds.len() as u16 + 4).clamp(5, 18);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let summary = kinds.iter().take(6).cloned().collect::<Vec<_>>().join(",");
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-events-backdrop:count={}:ms={ms}",
+                kinds.len()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(180, 142, 173, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some(format!("kittwm-events-heading:{summary}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, kind) in kinds.iter().take(12).enumerate() {
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!("kittwm-event-row:{idx}:{kind}")),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(235, 203, 139, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
 }
 
 fn panes_scene(panes: &serde_json::Value) -> Scene {
@@ -4791,6 +4933,39 @@ mod tests {
             labels
                 .iter()
                 .any(|label| label.contains("kittwm-info-pane:native-2:focused=true:title=editor")),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn events_scene_labels_bounded_event_kinds() {
+        let lines = r#"{"kind":"status"}
+{"kind":"pane_opened"}
+{"kind":"pane_frame_presented"}
+END
+"#;
+        let kinds = event_kinds_from_lines(lines);
+        assert_eq!(kinds, vec!["status", "pane_opened", "pane_frame_presented"]);
+        let scene = events_scene(250, &kinds);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.iter().any(|label| label.contains("count=3:ms=250")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("status,pane_opened,pane_frame_presented")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-event-row:2:pane_frame_presented")),
             "{labels:?}"
         );
     }
