@@ -54,7 +54,7 @@
     "x": 0,
     "y": 23,
     "layers": [
-      "status-bar-backdrop: C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase",
+      "status-bar-backdrop: C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase",
       "status-chip-help",
       "status-chip-terminal",
       "status-chip-close"
@@ -62,13 +62,13 @@
   },
   {
     "id": "toast",
-    "x": 7,
+    "x": 2,
     "y": 19,
     "layers": [
-      "toast-backdrop:C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase",
+      "toast-backdrop:C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showca",
       "toast-accent-rail",
       "toast-highlight",
-      "toast-text:C-a ? help · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase"
+      "toast-text:C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: sh"
     ]
   },
   {
@@ -98,8 +98,10 @@
       "help-overlay-row-9",
       "help-overlay-key-chip-10",
       "help-overlay-row-10",
+      "help-overlay-key-chip-11",
       "help-overlay-row-11",
       "help-overlay-row-12",
+      "help-overlay-row-13",
       "help-overlay-control-button:toggle-help:0:control_background",
       "help-overlay-control-text-input:filter-placeholder:0:control_background",
       "help-overlay-control-action:toggle-help:C-a ?"

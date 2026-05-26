@@ -124,6 +124,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         cols,
                         rows,
                         layout_axis,
+                        &last_chrome_reservation,
                         &mut clear,
                     )? {
                         offset += consumed;
@@ -150,6 +151,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             &sock,
                             cols,
                             rows,
+                            &last_chrome_reservation,
                             &mut clear,
                             &mut help_overlay,
                             &mut ctrl_c_exit_guard,
@@ -170,6 +172,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         &sock,
                         cols,
                         rows,
+                        &last_chrome_reservation,
                         &mut clear,
                         &mut help_overlay,
                         &mut ctrl_c_exit_guard,
@@ -190,7 +193,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     panes.push(spawn_native_pane(id, &spawn_cmd, &sock, 1, 1)?);
                     let new_focus = panes.len() - 1;
                     native_set_focus(&mut panes, &mut focused, new_focus)?;
-                    resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                    resize_native_panes_for_layout_with_reservation(
+                        &mut panes,
+                        cols,
+                        rows,
+                        layout_axis,
+                        &last_chrome_reservation,
+                    )?;
                     clear = true;
                     dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
                 }
@@ -240,11 +249,12 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 if closing_focused {
                                     native_send_focus_event(&mut panes[focused], true)?;
                                 }
-                                resize_native_panes_for_layout(
+                                resize_native_panes_for_layout_with_reservation(
                                     &mut panes,
                                     cols,
                                     rows,
                                     layout_axis,
+                                    &last_chrome_reservation,
                                 )?;
                             }
                             clear = true;
@@ -255,7 +265,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 crate::daemon::NativePaneCommand::Layout(axis) => {
                     if let Some(axis) = NativePaneLayoutAxis::parse(&axis) {
                         layout_axis = axis;
-                        resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                        resize_native_panes_for_layout_with_reservation(
+                            &mut panes,
+                            cols,
+                            rows,
+                            layout_axis,
+                            &last_chrome_reservation,
+                        )?;
                         clear = true;
                         dbg.log(&format!(
                             "native terminal socket layout: {}",
@@ -271,7 +287,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             panes.insert(to, pane);
                         }
                         focused = to;
-                        resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                        resize_native_panes_for_layout_with_reservation(
+                            &mut panes,
+                            cols,
+                            rows,
+                            layout_axis,
+                            &last_chrome_reservation,
+                        )?;
                         clear = true;
                         dbg.log(&format!(
                             "native terminal socket move: {window} {direction} -> {to}"
@@ -281,7 +303,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 crate::daemon::NativePaneCommand::Resize { window, delta } => {
                     if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         panes[idx].weight = native_adjust_weight(panes[idx].weight, delta);
-                        resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                        resize_native_panes_for_layout_with_reservation(
+                            &mut panes,
+                            cols,
+                            rows,
+                            layout_axis,
+                            &last_chrome_reservation,
+                        )?;
                         clear = true;
                         dbg.log(&format!(
                             "native terminal socket resize: {window} delta={delta} weight={}",
@@ -291,7 +319,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 }
                 crate::daemon::NativePaneCommand::Balance => {
                     balance_native_pane_weights(&mut panes);
-                    resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+                    resize_native_panes_for_layout_with_reservation(
+                        &mut panes,
+                        cols,
+                        rows,
+                        layout_axis,
+                        &last_chrome_reservation,
+                    )?;
                     clear = true;
                     dbg.log("native terminal socket balance pane weights");
                 }
@@ -331,9 +365,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             if restored.is_empty() {
                                 return Err(anyhow!("restore session contains no panes"));
                             }
-                            if let Err(err) =
-                                resize_native_panes_for_layout(&mut restored, cols, rows, new_axis)
-                            {
+                            if let Err(err) = resize_native_panes_for_layout_with_reservation(
+                                &mut restored,
+                                cols,
+                                rows,
+                                new_axis,
+                                &last_chrome_reservation,
+                            ) {
                                 terminate_native_panes(&mut restored);
                                 return Err(err);
                             }
@@ -429,7 +467,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
             rows = new_rows;
-            resize_native_panes_for_layout(&mut panes, cols, rows, layout_axis)?;
+            resize_native_panes_for_layout_with_reservation(
+                &mut panes,
+                cols,
+                rows,
+                layout_axis,
+                &last_chrome_reservation,
+            )?;
             clear = true;
             dbg.log(&format!(
                 "native terminal resized to {cols}x{rows} panes={}",
@@ -551,6 +595,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     height,
                     rgba,
                 } => {
+                    if layout.app_cols == 0 || layout.app_rows == 0 {
+                        pane.dirty_frame = None;
+                        continue;
+                    }
                     let footprint = native_app_frame_footprint(layout);
                     let (rgba, width, height) = fit_rgba_frame_to_cells(
                         rgba,
@@ -680,6 +728,7 @@ struct NativePaneLayout {
     x: u16,
     y: u16,
     cols: u16,
+    rows: u16,
     app_x: u16,
     app_y: u16,
     app_cols: u16,
@@ -752,10 +801,7 @@ fn native_shell_view(
                 app_cols: layout.app_cols,
                 app_rows: layout.app_rows,
                 cols: layout.cols,
-                rows: layout
-                    .app_y
-                    .saturating_sub(layout.y)
-                    .saturating_add(layout.app_rows),
+                rows: layout.rows,
                 text_snapshot: pane.app.text_snapshot(),
             })
         })
@@ -1074,6 +1120,7 @@ fn process_native_terminal_byte(
     sock: &str,
     cols: u16,
     rows: u16,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
     clear: &mut bool,
     help_overlay: &mut bool,
     ctrl_c_exit_guard: &mut NativeCtrlCExitGuard,
@@ -1100,6 +1147,7 @@ fn process_native_terminal_byte(
                     sock,
                     cols,
                     rows,
+                    reservation,
                     clear,
                     dbg,
                 )?;
@@ -1115,6 +1163,7 @@ fn process_native_terminal_byte(
                         sock,
                         cols,
                         rows,
+                        reservation,
                         clear,
                         dbg,
                     )?;
@@ -1127,6 +1176,7 @@ fn process_native_terminal_byte(
                         sock,
                         cols,
                         rows,
+                        reservation,
                         clear,
                         dbg,
                     )?;
@@ -1143,6 +1193,7 @@ fn process_native_terminal_byte(
                         sock,
                         cols,
                         rows,
+                        reservation,
                         clear,
                         dbg,
                     )?;
@@ -1155,6 +1206,7 @@ fn process_native_terminal_byte(
                         sock,
                         cols,
                         rows,
+                        reservation,
                         clear,
                         dbg,
                     )?;
@@ -1181,7 +1233,13 @@ fn process_native_terminal_byte(
                     } else {
                         *focused = focus_after_remove(*focused, *focused, panes.len() + 1);
                         native_send_focus_event(&mut panes[*focused], true)?;
-                        resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                        resize_native_panes_for_layout_with_reservation(
+                            panes,
+                            cols,
+                            rows,
+                            *layout_axis,
+                            reservation,
+                        )?;
                     }
                     *clear = true;
                     dbg.log(&format!("native terminal close: panes={}", panes.len()));
@@ -1190,7 +1248,13 @@ fn process_native_terminal_byte(
             b'+' | b'=' => {
                 if !panes.is_empty() {
                     panes[*focused].weight = native_adjust_weight(panes[*focused].weight, 1);
-                    resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                    resize_native_panes_for_layout_with_reservation(
+                        panes,
+                        cols,
+                        rows,
+                        *layout_axis,
+                        reservation,
+                    )?;
                     *clear = true;
                     dbg.log(&format!(
                         "native terminal resize grow: {} weight={}",
@@ -1201,7 +1265,13 @@ fn process_native_terminal_byte(
             b'_' | b'<' => {
                 if !panes.is_empty() {
                     panes[*focused].weight = native_adjust_weight(panes[*focused].weight, -1);
-                    resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                    resize_native_panes_for_layout_with_reservation(
+                        panes,
+                        cols,
+                        rows,
+                        *layout_axis,
+                        reservation,
+                    )?;
                     *clear = true;
                     dbg.log(&format!(
                         "native terminal resize shrink: {} weight={}",
@@ -1211,7 +1281,13 @@ fn process_native_terminal_byte(
             }
             b'b' | b'B' => {
                 balance_native_pane_weights(panes);
-                resize_native_panes_for_layout(panes, cols, rows, *layout_axis)?;
+                resize_native_panes_for_layout_with_reservation(
+                    panes,
+                    cols,
+                    rows,
+                    *layout_axis,
+                    reservation,
+                )?;
                 *clear = true;
                 dbg.log("native terminal balance pane weights");
             }
@@ -1223,6 +1299,7 @@ fn process_native_terminal_byte(
                         *layout_axis,
                         cols,
                         rows,
+                        reservation,
                         "left",
                         clear,
                         dbg,
@@ -1237,6 +1314,7 @@ fn process_native_terminal_byte(
                         *layout_axis,
                         cols,
                         rows,
+                        reservation,
                         "right",
                         clear,
                         dbg,
@@ -1280,6 +1358,7 @@ fn native_launch_terminal_pane(
     sock: &str,
     cols: u16,
     rows: u16,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
     clear: &mut bool,
     dbg: &Debugger,
 ) -> Result<()> {
@@ -1287,7 +1366,7 @@ fn native_launch_terminal_pane(
     panes.push(spawn_native_pane(id, cmd, sock, 1, 1)?);
     let new_focus = panes.len() - 1;
     native_set_focus(panes, focused, new_focus)?;
-    resize_native_panes_for_layout(panes, cols, rows, axis)?;
+    resize_native_panes_for_layout_with_reservation(panes, cols, rows, axis, reservation)?;
     *clear = true;
     dbg.log(&format!(
         "native terminal launch: {} panes={}",
@@ -1306,6 +1385,7 @@ fn native_split_focused(
     sock: &str,
     cols: u16,
     rows: u16,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
     clear: &mut bool,
     dbg: &Debugger,
 ) -> Result<()> {
@@ -1314,7 +1394,7 @@ fn native_split_focused(
         panes.push(spawn_native_pane(id, cmd, sock, 1, 1)?);
         let new_focus = panes.len() - 1;
         native_set_focus(panes, focused, new_focus)?;
-        resize_native_panes_for_layout(panes, cols, rows, axis)?;
+        resize_native_panes_for_layout_with_reservation(panes, cols, rows, axis, reservation)?;
         *clear = true;
         dbg.log(&format!(
             "native terminal split {:?}: panes={}",
@@ -1332,6 +1412,7 @@ fn native_move_focused(
     axis: NativePaneLayoutAxis,
     cols: u16,
     rows: u16,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
     direction: &str,
     clear: &mut bool,
     dbg: &Debugger,
@@ -1341,7 +1422,7 @@ fn native_move_focused(
         let pane = panes.remove(*focused);
         panes.insert(to, pane);
         *focused = to;
-        resize_native_panes_for_layout(panes, cols, rows, axis)?;
+        resize_native_panes_for_layout_with_reservation(panes, cols, rows, axis, reservation)?;
         *clear = true;
     }
     dbg.log(&format!("native terminal move {direction} -> {focused}"));
@@ -1356,21 +1437,6 @@ fn native_pane_layouts(
     axis: NativePaneLayoutAxis,
 ) -> Vec<NativePaneLayout> {
     native_pane_layouts_weighted(cols, rows, &vec![1; count], axis)
-}
-
-fn native_layouts_for_panes(
-    cols: u16,
-    rows: u16,
-    panes: &[NativePane],
-    axis: NativePaneLayoutAxis,
-) -> Vec<NativePaneLayout> {
-    native_layouts_for_panes_with_reservation(
-        cols,
-        rows,
-        panes,
-        axis,
-        &crate::daemon::NativeChromeReservationConfig::default(),
-    )
 }
 
 fn native_layouts_for_panes_with_reservation(
@@ -1519,7 +1585,8 @@ fn native_pane_layouts_weighted(
     };
     match axis {
         NativePaneLayoutAxis::Columns => {
-            let pane_rows = rows.max(NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1);
+            let pane_rows = rows;
+            let title_rows = NATIVE_PANE_TITLE_ROWS.min(pane_rows);
             let spans = native_weighted_spans(cols, &weights, 1);
             let mut x = 0u16;
             let mut layouts = Vec::with_capacity(count);
@@ -1528,15 +1595,15 @@ fn native_pane_layouts_weighted(
                     x,
                     y: 0,
                     cols: pane_cols,
+                    rows: pane_rows,
                     app_x: x
                         .saturating_add(NATIVE_PANE_BORDER_COLS)
                         .min(x.saturating_add(pane_cols.saturating_sub(1))),
-                    app_y: NATIVE_PANE_TITLE_ROWS,
-                    app_cols: pane_cols.saturating_sub(NATIVE_PANE_BORDER_COLS * 2).max(1),
+                    app_y: title_rows,
+                    app_cols: pane_cols.saturating_sub(NATIVE_PANE_BORDER_COLS * 2),
                     app_rows: pane_rows
                         .saturating_sub(NATIVE_PANE_TITLE_ROWS)
-                        .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS)
-                        .max(1),
+                        .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS),
                 });
                 x = x.saturating_add(pane_cols);
             }
@@ -1548,17 +1615,18 @@ fn native_pane_layouts_weighted(
             let mut y = 0u16;
             let mut layouts = Vec::with_capacity(count);
             for pane_rows in spans {
+                let title_rows = NATIVE_PANE_TITLE_ROWS.min(pane_rows);
                 layouts.push(NativePaneLayout {
                     x: 0,
                     y,
                     cols,
+                    rows: pane_rows,
                     app_x: NATIVE_PANE_BORDER_COLS.min(cols.saturating_sub(1)),
-                    app_y: y.saturating_add(NATIVE_PANE_TITLE_ROWS),
-                    app_cols: cols.saturating_sub(NATIVE_PANE_BORDER_COLS * 2).max(1),
+                    app_y: y.saturating_add(title_rows),
+                    app_cols: cols.saturating_sub(NATIVE_PANE_BORDER_COLS * 2),
                     app_rows: pane_rows
                         .saturating_sub(NATIVE_PANE_TITLE_ROWS)
-                        .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS)
-                        .max(1),
+                        .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS),
                 });
                 y = y.saturating_add(pane_rows);
             }
@@ -1573,19 +1641,13 @@ fn native_app_frame_footprint(layout: NativePaneLayout) -> CellRect {
 
 fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>) -> Result<()> {
     for (pane, layout) in panes.iter_mut().zip(layouts) {
-        NativeSurface::resize_surface(&mut pane.app, layout.app_cols, layout.app_rows)?;
+        NativeSurface::resize_surface(
+            &mut pane.app,
+            layout.app_cols.max(1),
+            layout.app_rows.max(1),
+        )?;
     }
     Ok(())
-}
-
-fn resize_native_panes_for_layout(
-    panes: &mut [NativePane],
-    cols: u16,
-    rows: u16,
-    axis: NativePaneLayoutAxis,
-) -> Result<()> {
-    let layouts = native_layouts_for_panes(cols, rows, panes, axis);
-    resize_native_panes(panes, layouts)
 }
 
 fn resize_native_panes_for_layout_with_reservation(
@@ -1660,13 +1722,14 @@ fn native_route_mouse_event(
     cols: u16,
     rows: u16,
     axis: NativePaneLayoutAxis,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
     clear: &mut bool,
 ) -> Result<bool> {
     let Some((event_name, col, row, should_focus)) = native_mouse_event_name_and_position(&event)
     else {
         return Ok(false);
     };
-    let layouts = native_layouts_for_panes(cols, rows, panes, axis);
+    let layouts = native_layouts_for_panes_with_reservation(cols, rows, panes, axis, reservation);
     let Some((idx, local_col, local_row)) = native_pane_at_host_cell(&layouts, col, row) else {
         if should_focus {
             if let Some(idx) = native_pane_chrome_at_host_cell(&layouts, col, row) {
@@ -1723,12 +1786,8 @@ fn native_pane_chrome_at_host_cell(
     let col0 = host_col.checked_sub(1)?;
     let row0 = host_row.checked_sub(1)?;
     layouts.iter().enumerate().find_map(|(idx, layout)| {
-        let pane_rows = NATIVE_PANE_TITLE_ROWS
-            .saturating_add(layout.app_rows)
-            .saturating_add(NATIVE_PANE_BOTTOM_BORDER_ROWS)
-            .max(1);
         let within_cols = col0 >= layout.x && col0 < layout.x.saturating_add(layout.cols);
-        let within_rows = row0 >= layout.y && row0 < layout.y.saturating_add(pane_rows);
+        let within_rows = row0 >= layout.y && row0 < layout.y.saturating_add(layout.rows);
         (within_cols && within_rows).then_some(idx)
     })
 }
@@ -1991,19 +2050,21 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
             title_style,
             pane.text
         ));
-        for (line_idx, line) in pane
-            .text_snapshot
-            .lines()
-            .take(pane.app_rows as usize)
-            .enumerate()
-        {
-            let clipped = clip_and_pad(line, pane.app_cols as usize);
-            out.push_str(&format!(
-                "\x1b[{};{}H{}",
-                pane.app_y + line_idx as u16 + 1,
-                pane.app_x + 1,
-                clipped
-            ));
+        if pane.app_cols > 0 && pane.app_rows > 0 {
+            for (line_idx, line) in pane
+                .text_snapshot
+                .lines()
+                .take(pane.app_rows as usize)
+                .enumerate()
+            {
+                let clipped = clip_and_pad(line, pane.app_cols as usize);
+                out.push_str(&format!(
+                    "\x1b[{};{}H{}",
+                    pane.app_y + line_idx as u16 + 1,
+                    pane.app_x + 1,
+                    clipped
+                ));
+            }
         }
     }
     if view.help_overlay {
@@ -2979,12 +3040,7 @@ fn clip_and_pad(text: &str, width: usize) -> String {
 fn native_pane_title_key_from_text(text: &str, layout: NativePaneLayout, focused: bool) -> String {
     format!(
         "{},{},{}x{}:{}:{}",
-        layout.x,
-        layout.y,
-        layout.cols,
-        layout.app_rows.saturating_add(1),
-        focused,
-        text
+        layout.x, layout.y, layout.cols, layout.rows, focused, text
     )
 }
 
@@ -3143,6 +3199,7 @@ mod native_pane_tests {
             x: 0,
             y: 0,
             cols: 10,
+            rows: 6,
             app_x: 0,
             app_y: 1,
             app_cols: 10,
@@ -3212,6 +3269,7 @@ mod native_pane_tests {
                 x: 0,
                 y: 0,
                 cols: 20,
+                rows: 11,
                 app_x: 0,
                 app_y: 1,
                 app_cols: 20,
@@ -3221,6 +3279,7 @@ mod native_pane_tests {
                 x: 20,
                 y: 0,
                 cols: 20,
+                rows: 11,
                 app_x: 20,
                 app_y: 1,
                 app_cols: 20,
@@ -4197,13 +4256,14 @@ mod native_pane_tests {
             x: 0,
             y: 0,
             cols: 12,
+            rows: 7,
             app_x: 0,
             app_y: 1,
             app_cols: 12,
             app_rows: 5,
         };
         let key = native_pane_title_key_from_text("* native-1 sh", layout, true);
-        assert!(key.contains("0,0,12x6:true:* native-1 sh"));
+        assert!(key.contains("0,0,12x7:true:* native-1 sh"));
         let view = native_shell_view(
             10,
             &[],
@@ -4302,6 +4362,145 @@ mod native_pane_tests {
         assert_eq!(rows[0].y, 2);
         assert_eq!(rows[1].y, 13);
         assert!(rows[0].app_y + rows[0].app_rows < rows[1].app_y);
+    }
+
+    #[test]
+    fn native_layouts_cover_empty_and_small_counts_without_overlap() {
+        let empty: Vec<NativePane> = Vec::new();
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        assert!(native_layouts_for_panes_with_reservation(
+            80,
+            24,
+            &empty,
+            NativePaneLayoutAxis::Columns,
+            &reservation,
+        )
+        .is_empty());
+
+        for axis in [NativePaneLayoutAxis::Columns, NativePaneLayoutAxis::Rows] {
+            for (cols, rows) in [(80, 24), (13, 7), (2, 2), (1, 1)] {
+                for weights in [vec![1], vec![1, 1], vec![1, 2, 3], vec![4, 1, 1, 2]] {
+                    let layouts = native_pane_layouts_weighted(cols, rows, &weights, axis);
+                    assert_eq!(layouts.len(), weights.len(), "{axis:?} {cols}x{rows}");
+                    assert_native_layout_invariants(&layouts, cols, rows);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_layouts_keep_reserved_chrome_and_gaps_out_of_pane_bounds() {
+        let reservation = crate::daemon::NativeChromeReservationConfig {
+            top_bar_rows: 2,
+            bottom_bar_rows: 2,
+            left_cols: 4,
+            right_cols: 3,
+            gap_cols: 1,
+            gap_rows: 2,
+            owner: Some("bar".to_string()),
+        };
+        let panes = vec![
+            NativePane {
+                window: "native-1".to_string(),
+                image_id: 1,
+                command: "one".to_string(),
+                pid: None,
+                display_title: None,
+                weight: 1,
+                app: dummy_native_pane_app(),
+                dirty_frame: None,
+            },
+            NativePane {
+                window: "native-2".to_string(),
+                image_id: 2,
+                command: "two".to_string(),
+                pid: None,
+                display_title: None,
+                weight: 2,
+                app: dummy_native_pane_app(),
+                dirty_frame: None,
+            },
+            NativePane {
+                window: "native-3".to_string(),
+                image_id: 3,
+                command: "three".to_string(),
+                pid: None,
+                display_title: None,
+                weight: 3,
+                app: dummy_native_pane_app(),
+                dirty_frame: None,
+            },
+        ];
+
+        for axis in [NativePaneLayoutAxis::Columns, NativePaneLayoutAxis::Rows] {
+            let layouts =
+                native_layouts_for_panes_with_reservation(80, 24, &panes, axis, &reservation);
+            assert_native_layout_invariants(&layouts, 80, 24);
+            for layout in &layouts {
+                assert!(layout.x >= reservation.left_cols, "{axis:?}: {layouts:?}");
+                assert!(
+                    layout.y >= reservation.top_bar_rows,
+                    "{axis:?}: {layouts:?}"
+                );
+                assert!(
+                    layout.x.saturating_add(layout.cols)
+                        <= 80u16.saturating_sub(reservation.right_cols),
+                    "{axis:?}: {layouts:?}"
+                );
+                assert!(
+                    layout.y.saturating_add(layout.rows)
+                        <= 24u16.saturating_sub(reservation.bottom_bar_rows),
+                    "{axis:?}: {layouts:?}"
+                );
+            }
+        }
+    }
+
+    fn assert_native_layout_invariants(layouts: &[NativePaneLayout], cols: u16, rows: u16) {
+        for layout in layouts {
+            assert!(layout.x.saturating_add(layout.cols) <= cols, "{layouts:?}");
+            assert!(layout.y.saturating_add(layout.rows) <= rows, "{layouts:?}");
+            assert!(layout.app_x >= layout.x, "{layouts:?}");
+            assert!(layout.app_y >= layout.y, "{layouts:?}");
+            assert!(
+                layout.app_x.saturating_add(layout.app_cols)
+                    <= layout.x.saturating_add(layout.cols),
+                "app cols escape outer bounds: {layouts:?}"
+            );
+            assert!(
+                layout.app_y.saturating_add(layout.app_rows)
+                    <= layout.y.saturating_add(layout.rows),
+                "app rows escape outer bounds: {layouts:?}"
+            );
+        }
+        for (idx, a) in layouts.iter().enumerate() {
+            for b in layouts.iter().skip(idx + 1) {
+                assert!(
+                    !rects_overlap((a.x, a.y, a.cols, a.rows), (b.x, b.y, b.cols, b.rows)),
+                    "outer bounds overlap: {layouts:?}"
+                );
+                assert!(
+                    !rects_overlap(
+                        (a.app_x, a.app_y, a.app_cols, a.app_rows),
+                        (b.app_x, b.app_y, b.app_cols, b.app_rows),
+                    ),
+                    "app bounds overlap: {layouts:?}"
+                );
+            }
+        }
+    }
+
+    fn rects_overlap(a: (u16, u16, u16, u16), b: (u16, u16, u16, u16)) -> bool {
+        let (ax, ay, aw, ah) = a;
+        let (bx, by, bw, bh) = b;
+        aw > 0
+            && ah > 0
+            && bw > 0
+            && bh > 0
+            && ax < bx.saturating_add(bw)
+            && bx < ax.saturating_add(aw)
+            && ay < by.saturating_add(bh)
+            && by < ay.saturating_add(ah)
     }
 
     #[test]
@@ -4705,7 +4904,7 @@ mod native_pane_tests {
         assert_eq!(statuses[1].x, Some(layout.x));
         assert_eq!(statuses[1].y, Some(layout.y));
         assert_eq!(statuses[1].cols, Some(layout.cols));
-        assert_eq!(statuses[1].rows, Some(layout.app_rows.saturating_add(1)));
+        assert_eq!(statuses[1].rows, Some(layout.rows));
         assert_eq!(statuses[1].app_x, Some(layout.app_x));
         assert_eq!(statuses[1].app_y, Some(layout.app_y));
         assert_eq!(statuses[1].app_cols, Some(layout.app_cols));
