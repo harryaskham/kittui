@@ -1341,6 +1341,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kittui-ghostty-vt"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pkg-config",
+]
+
+[[package]]
 name = "kittui-input"
 version = "0.1.0"
 dependencies = [

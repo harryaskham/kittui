@@ -32,7 +32,8 @@
             };
           };
           strictDeps = true;
-          buildInputs = lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.libghostty-vt ] ++ lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
         };
 
         # Platform-native default features so the installed package always
@@ -194,6 +195,7 @@
               nixd
               nixfmt
               pkg-config
+              libghostty-vt
               rust-analyzer
               rustc
               rustfmt

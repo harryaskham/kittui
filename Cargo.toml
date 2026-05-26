@@ -19,6 +19,7 @@ members = [
   "crates/kittui-input",
   "crates/kittui-xvfb",
   "crates/kittui-quartz",
+  "crates/kittui-ghostty-vt",
 ]
 
 [workspace.package]
