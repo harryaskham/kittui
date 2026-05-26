@@ -284,6 +284,17 @@ pub struct SurfacePlacementCoverage {
     pub all_placement_contracts_ready: bool,
 }
 
+/// Count of placement contracts for one typed composition role.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfacePlacementRoleCoverage {
+    /// Typed role represented by this count.
+    pub role: SurfacePlacementRole,
+    /// Canonical composition plane name for the role.
+    pub composition_plane: String,
+    /// Number of placement contracts in this role.
+    pub count: usize,
+}
+
 impl SurfacePlacementCoverage {
     /// Number of placement contracts for a typed role.
     pub fn count_for_role(&self, role: SurfacePlacementRole) -> usize {
@@ -297,6 +308,22 @@ impl SurfacePlacementCoverage {
     /// Whether at least one placement contract exists for a typed role.
     pub fn has_role(&self, role: SurfacePlacementRole) -> bool {
         self.count_for_role(role) > 0
+    }
+
+    /// Serializable role-count breakdown in compositor role order.
+    pub fn role_breakdown(&self) -> Vec<SurfacePlacementRoleCoverage> {
+        [
+            SurfacePlacementRole::AppSurface,
+            SurfacePlacementRole::Decoration,
+            SurfacePlacementRole::Overlay,
+        ]
+        .into_iter()
+        .map(|role| SurfacePlacementRoleCoverage {
+            role,
+            composition_plane: role.plane_name().to_string(),
+            count: self.count_for_role(role),
+        })
+        .collect()
     }
 
     /// Number of first-party surfaces that did not produce a placement contract.
@@ -3357,6 +3384,22 @@ mod tests {
         assert!(placement_coverage.has_role(SurfacePlacementRole::AppSurface));
         assert!(placement_coverage.has_role(SurfacePlacementRole::Decoration));
         assert!(!placement_coverage.has_role(SurfacePlacementRole::Overlay));
+        assert_eq!(
+            placement_coverage
+                .role_breakdown()
+                .iter()
+                .map(|coverage| (
+                    coverage.role,
+                    coverage.composition_plane.as_str(),
+                    coverage.count
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (SurfacePlacementRole::AppSurface, "app-surfaces", 2),
+                (SurfacePlacementRole::Decoration, "decorations", 1),
+                (SurfacePlacementRole::Overlay, "overlays", 0)
+            ]
+        );
         assert_eq!(placement_coverage.missing_placement_contracts(), 0);
         assert_eq!(placement_coverage.not_ready_placement_contracts(), 0);
         assert_eq!(placement_coverage.placement_gap_count(), 0);
