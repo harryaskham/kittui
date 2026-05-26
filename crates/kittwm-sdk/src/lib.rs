@@ -284,6 +284,36 @@ pub struct SurfacePlacementCoverage {
     pub all_placement_contracts_ready: bool,
 }
 
+impl SurfacePlacementCoverage {
+    /// Number of first-party surfaces that did not produce a placement contract.
+    pub fn missing_placement_contracts(&self) -> usize {
+        self.total_surfaces.saturating_sub(self.placement_contracts)
+    }
+
+    /// Number of placement contracts that are present but not native-ready.
+    pub fn not_ready_placement_contracts(&self) -> usize {
+        self.placement_contracts
+            .saturating_sub(self.ready_placement_contracts)
+    }
+
+    /// Total count of explicit placement coverage gaps.
+    pub fn placement_gap_count(&self) -> usize {
+        self.missing_placement_contracts() + self.not_ready_placement_contracts()
+    }
+
+    /// Whether native surface and placement contract coverage is complete.
+    pub fn is_complete(&self) -> bool {
+        self.all_native_surfaces_ready
+            && self.all_placement_contracts_ready
+            && self.placement_gap_count() == 0
+    }
+
+    /// Whether the placement coverage summary identifies any gap.
+    pub fn has_gaps(&self) -> bool {
+        !self.is_complete()
+    }
+}
+
 impl SurfacePlacementContract {
     /// Build placement/readiness metadata from a native surface contract and
     /// architecture contract.
@@ -3284,8 +3314,9 @@ mod tests {
             ["kittwm-bar"]
         );
         assert!(contract.overlay_placement_contracts().is_empty());
+        let placement_coverage = contract.placement_coverage();
         assert_eq!(
-            contract.placement_coverage(),
+            placement_coverage,
             SurfacePlacementCoverage {
                 total_surfaces: 3,
                 placement_contracts: 3,
@@ -3297,6 +3328,11 @@ mod tests {
                 all_placement_contracts_ready: true,
             }
         );
+        assert_eq!(placement_coverage.missing_placement_contracts(), 0);
+        assert_eq!(placement_coverage.not_ready_placement_contracts(), 0);
+        assert_eq!(placement_coverage.placement_gap_count(), 0);
+        assert!(placement_coverage.is_complete());
+        assert!(!placement_coverage.has_gaps());
         assert_eq!(
             contract
                 .native_surface_for_spec(&SurfaceSpec::terminal("htop"))
