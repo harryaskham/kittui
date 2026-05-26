@@ -103,6 +103,8 @@ struct Cli {
     architecture_json: bool,
     native_surfaces: bool,
     native_surfaces_json: bool,
+    panes_scene_json: bool,
+    panes_kitty: bool,
     showcase_scene_json: bool,
     showcase_metrics_json: bool,
     showcase_composition_json: bool,
@@ -182,6 +184,8 @@ fn parse_args() -> Result<Cli> {
             "info" => out.info = true,
             "info-scene-json" => out.info_scene_json = true,
             "info-kitty" | "info-graphics" => out.info_kitty = true,
+            "panes-scene-json" => out.panes_scene_json = true,
+            "panes-kitty" | "panes-graphics" => out.panes_kitty = true,
             "quickstart" => out.quickstart = true,
             "examples" => out.examples = true,
             "cheat" | "cheatsheet" | "cheat-sheet" => out.cheat = true,
@@ -607,6 +611,8 @@ fn parse_args() -> Result<Cli> {
             "--clipboard-json" => out.automation_request = Some("CLIPBOARD_JSON".to_string()),
             "--panes" => out.automation_request = Some("PANES".to_string()),
             "--panes-json" => out.automation_request = Some("PANES_JSON".to_string()),
+            "--panes-scene-json" => out.panes_scene_json = true,
+            "--panes-kitty" | "--panes-graphics" => out.panes_kitty = true,
             "--session-json" => out.automation_request = Some("SESSION_JSON".to_string()),
             "--events" => out.automation_request = Some("EVENTS".to_string()),
             "--events-ms" => {
@@ -1357,6 +1363,9 @@ fn real_main() -> Result<()> {
     }
     if cli.info || cli.info_scene_json || cli.info_kitty {
         return info_cmd(cli.info_scene_json, cli.info_kitty);
+    }
+    if cli.panes_scene_json || cli.panes_kitty {
+        return panes_graphical_cmd(cli.panes_kitty);
     }
     if cli.quickstart {
         return quickstart_cmd();
@@ -3471,6 +3480,138 @@ fn info_scene_cols() -> u16 {
         .clamp(40, 140)
 }
 
+fn panes_graphical_cmd(kitty: bool) -> Result<()> {
+    let panes = load_panes_snapshot()?;
+    let scene = panes_scene(&panes);
+    if kitty {
+        let runtime = Runtime::builder()
+            .terminal(TerminalInfo::detect())
+            .build()?;
+        let mut options = kittui_kitty::PlacementOptions::unicode();
+        options.z_index = 20;
+        let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
+        print!("{}", placement.to_bytes());
+    } else {
+        println!("{}", serde_json::to_string(&scene)?);
+    }
+    Ok(())
+}
+
+fn load_panes_snapshot() -> Result<serde_json::Value> {
+    use kittui_cli::daemon::{client_request_multi, default_socket_path};
+    let path = default_socket_path();
+    let panes = client_request_multi(&path, "PANES_JSON")
+        .map_err(|err| anyhow!("connect {}: {err}", path.display()))?;
+    Ok(serde_json::from_str(&panes)?)
+}
+
+fn panes_scene(panes: &serde_json::Value) -> Scene {
+    let cols = info_scene_cols();
+    let details = panes
+        .get("panes_detail")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let pane_count = panes
+        .get("panes")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(details.len() as u64);
+    let focus = panes
+        .get("focus")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let layout = panes
+        .get("layout")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let rows = (details.len() as u16 + 4).clamp(5, 18);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-panes-backdrop:panes={pane_count}:focus={focus}:layout={layout}"
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(136, 192, 208, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some("kittwm-panes-heading:panes".to_string()),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+    ];
+    for (idx, pane) in details.iter().take(12).enumerate() {
+        let window = pane
+            .get("window")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("-");
+        let title = pane
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("-");
+        let focused = pane
+            .get("focused")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let app_cols = pane
+            .get("app_cols")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let app_rows = pane
+            .get("app_rows")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        layers.push(Layer {
+            label: Some(format!(
+                "kittwm-pane-row:{window}:focused={focused}:title={title}:app={app_cols}x{app_rows}"
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                fill: Paint::Solid {
+                    color: if focused {
+                        Rgba::rgba(235, 203, 139, 255)
+                    } else {
+                        Rgba::rgba(136, 192, 208, 255)
+                    },
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        });
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
+}
+
 fn status_cmd() -> Result<()> {
     use kittui_cli::daemon::{client_request, default_socket_path};
     let path = default_socket_path();
@@ -4650,6 +4791,36 @@ mod tests {
             labels
                 .iter()
                 .any(|label| label.contains("kittwm-info-pane:native-2:focused=true:title=editor")),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn panes_scene_labels_focus_layout_and_app_bounds() {
+        let panes = serde_json::json!({
+            "panes": 2,
+            "focus": "native-2",
+            "layout": "rows",
+            "panes_detail": [
+                {"window":"native-1","title":"shell","focused":false,"app_cols":40,"app_rows":10},
+                {"window":"native-2","title":"editor","focused":true,"app_cols":80,"app_rows":12}
+            ]
+        });
+        let scene = panes_scene(&panes);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("panes=2:focus=native-2:layout=rows")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label
+                .contains("kittwm-pane-row:native-2:focused=true:title=editor:app=80x12")),
             "{labels:?}"
         );
     }
