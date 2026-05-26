@@ -23,19 +23,19 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/harryaskham/kittui"
 authors = ["Harry Askham <harryaskham@users.noreply.github.com>"]
 
 [workspace.dependencies]
-kittui-core = { path = "crates/kittui-core", version = "0.1.0" }
-kittui-render-cpu = { path = "crates/kittui-render-cpu", version = "0.1.0" }
-kittui-render-gpu = { path = "crates/kittui-render-gpu", version = "0.1.0" }
-kittui-kitty = { path = "crates/kittui-kitty", version = "0.1.0" }
-kittui-cache = { path = "crates/kittui-cache", version = "0.1.0" }
-kittui = { path = "crates/kittui", version = "0.1.0" }
+kittui-core = { path = "crates/kittui-core", version = "0.1.1" }
+kittui-render-cpu = { path = "crates/kittui-render-cpu", version = "0.1.1" }
+kittui-render-gpu = { path = "crates/kittui-render-gpu", version = "0.1.1" }
+kittui-kitty = { path = "crates/kittui-kitty", version = "0.1.1" }
+kittui-cache = { path = "crates/kittui-cache", version = "0.1.1" }
+kittui = { path = "crates/kittui", version = "0.1.1" }
 
 anyhow = "1"
 thiserror = "2"

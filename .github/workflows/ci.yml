@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  nix-check:
+    name: nix check ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            os: Linux
+            arch: X64
+            cli_features: xvfb
+          - target: aarch64-linux
+            os: Linux
+            arch: ARM64
+            cli_features: xvfb
+          - target: aarch64-darwin
+            os: macOS
+            arch: ARM64
+            cli_features: sck
+    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.arch }}', nix]
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      NIX_BUILD_CORES: 2
+      NIX_CONFIG: cores = 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Nix is available
+        shell: bash
+        run: nix --version
+
+      - name: Format check
+        shell: bash
+        run: nix develop --command cargo fmt --all -- --check
+
+      - name: Workspace check
+        shell: bash
+        run: nix develop --command cargo check --workspace --jobs 2
+
+      - name: CLI feature check
+        shell: bash
+        run: nix develop --command cargo check -p kittui-cli --features "${{ matrix.cli_features }}" --jobs 2
+
+      - name: Focused SDK tests
+        shell: bash
+        run: nix develop --command cargo test -p kittwm-sdk --lib --jobs 2

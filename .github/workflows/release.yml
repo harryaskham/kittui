@@ -2,21 +2,100 @@ name: release
 
 on:
   push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/release.yml
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to publish assets to (defaults to current ref name)'
+        description: 'Release tag to publish assets to (defaults to current ref or workspace version on main)'
         required: false
         type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
+  resolve-release:
+    name: resolve release context
+    runs-on: [self-hosted, Linux, X64, nix]
+    timeout-minutes: 10
+    outputs:
+      should_release: ${{ steps.context.outputs.should_release }}
+      tag: ${{ steps.context.outputs.tag }}
+      version: ${{ steps.context.outputs.version }}
+      checkout_ref: ${{ steps.context.outputs.checkout_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release context
+        id: context
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag || '' }}
+          BEFORE_SHA: ${{ github.event.before || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          should_release=false
+          checkout_ref="${GITHUB_REF}"
+
+          current_version="$(sed -n '/^\[workspace.package\]/,/^\[/{ s/^version = "\([^"]*\)"$/\1/p; }' Cargo.toml | head -n 1)"
+          if [ -z "$current_version" ]; then
+            echo "::error::failed to read workspace package version from Cargo.toml" >&2
+            exit 1
+          fi
+          tag="v${current_version}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME}"
+            checkout_ref="${GITHUB_REF_NAME}"
+            should_release=true
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${INPUT_TAG}" ]]; then
+            tag="${INPUT_TAG}"
+            checkout_ref="${INPUT_TAG}"
+            should_release=true
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            should_release=true
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            previous_version=""
+            if [[ -n "${BEFORE_SHA}" ]] && git cat-file -e "${BEFORE_SHA}:Cargo.toml" 2>/dev/null; then
+              previous_version="$(git show "${BEFORE_SHA}:Cargo.toml" | sed -n '/^\[workspace.package\]/,/^\[/{ s/^version = "\([^"]*\)"$/\1/p; }' | head -n 1 || true)"
+            fi
+            if [[ -z "${previous_version}" || "${previous_version}" != "${current_version}" ]]; then
+              if gh release view "${tag}" >/dev/null 2>&1; then
+                echo "Release ${tag} already exists; skipping duplicate version-bump release."
+              else
+                should_release=true
+              fi
+            else
+              echo "Workspace version did not change (${current_version}); skipping release."
+            fi
+          fi
+
+          version="${tag#v}"
+          {
+            echo "should_release=${should_release}"
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "checkout_ref=${checkout_ref}"
+          } >> "$GITHUB_OUTPUT"
+          echo "should_release=${should_release} tag=${tag} version=${version} checkout_ref=${checkout_ref}"
+
   build-cli:
     name: build ${{ matrix.target }}
+    needs: resolve-release
+    if: needs.resolve-release.outputs.should_release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -29,20 +108,23 @@ jobs:
             os: Linux
             arch: X64
             features: xvfb
+          - target: aarch64-linux
+            os: Linux
+            arch: ARM64
+            features: xvfb
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.arch }}', nix]
+    timeout-minutes: 60
     env:
       CARGO_BUILD_JOBS: 2
+      NIX_BUILD_CORES: 2
+      NIX_CONFIG: cores = 2
     steps:
       - uses: actions/checkout@v4
-      - name: Resolve release metadata
-        id: meta
+        with:
+          ref: ${{ needs.resolve-release.outputs.checkout_ref }}
+      - name: Verify Nix is available
         shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.tag || github.ref_name }}"
-          version="${tag#v}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+        run: nix --version
       - name: Build kittui CLI binaries
         shell: bash
         run: |
@@ -53,7 +135,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${{ steps.meta.outputs.version }}"
+          version="${{ needs.resolve-release.outputs.version }}"
           target="${{ matrix.target }}"
           mkdir -p dist
           for tool in kittui kittwm; do
@@ -70,36 +152,48 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="${{ steps.meta.outputs.tag }}"
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --draft --title "$tag" --notes "kittui $tag"
+          tag="${{ needs.resolve-release.outputs.tag }}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$GITHUB_SHA" --draft --title "$tag" --notes "kittui $tag" || true
+          fi
           gh release upload "$tag" dist/* --clobber
 
   publish:
     name: publish release
-    needs: build-cli
+    needs:
+      - resolve-release
+      - build-cli
     runs-on: [self-hosted, Linux, X64, nix]
-    if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+    timeout-minutes: 15
+    if: needs.resolve-release.outputs.should_release == 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-release.outputs.checkout_ref }}
       - name: Publish draft after assets exist
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="${{ inputs.tag || github.ref_name }}"
+          tag="${{ needs.resolve-release.outputs.tag }}"
+          version="${{ needs.resolve-release.outputs.version }}"
           expected=(
-            "kittui-${tag#v}-aarch64-darwin.tar.gz"
-            "kittui-${tag#v}-aarch64-darwin.sha256"
-            "kittwm-${tag#v}-aarch64-darwin.tar.gz"
-            "kittwm-${tag#v}-aarch64-darwin.sha256"
-            "kittui-${tag#v}-x86_64-linux.tar.gz"
-            "kittui-${tag#v}-x86_64-linux.sha256"
-            "kittwm-${tag#v}-x86_64-linux.tar.gz"
-            "kittwm-${tag#v}-x86_64-linux.sha256"
+            "kittui-${version}-aarch64-darwin.tar.gz"
+            "kittui-${version}-aarch64-darwin.sha256"
+            "kittwm-${version}-aarch64-darwin.tar.gz"
+            "kittwm-${version}-aarch64-darwin.sha256"
+            "kittui-${version}-x86_64-linux.tar.gz"
+            "kittui-${version}-x86_64-linux.sha256"
+            "kittwm-${version}-x86_64-linux.tar.gz"
+            "kittwm-${version}-x86_64-linux.sha256"
+            "kittui-${version}-aarch64-linux.tar.gz"
+            "kittui-${version}-aarch64-linux.sha256"
+            "kittwm-${version}-aarch64-linux.tar.gz"
+            "kittwm-${version}-aarch64-linux.sha256"
           )
           assets="$(gh release view "$tag" --json assets --jq '.assets[].name')"
           for asset in "${expected[@]}"; do
             grep -Fxq "$asset" <<<"$assets"
           done
-          gh release edit "$tag" --draft=false
+          gh release edit "$tag" --draft=false --latest
