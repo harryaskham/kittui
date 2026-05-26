@@ -183,8 +183,13 @@ mod tests {
 
     #[test]
     fn offline_bar_model_renders_empty_workspace() {
-        let model =
-            BarModel::offline(UNIX_EPOCH + std::time::Duration::from_secs(12 * 3_600 + 34 * 60));
+        let model = BarModel::new(
+            "1",
+            0,
+            "-",
+            false,
+            UNIX_EPOCH + std::time::Duration::from_secs(12 * 3_600 + 34 * 60),
+        );
         assert_eq!(model.workspace, "1");
         assert_eq!(model.panes, 0);
         assert_eq!(model.state, "empty");
@@ -220,7 +225,7 @@ mod tests {
 
     #[test]
     fn scene_shape_carries_state_and_text_labels() {
-        let model = BarModel::offline(UNIX_EPOCH);
+        let model = BarModel::new("1", 0, "-", false, UNIX_EPOCH);
         let scene = model.scene(42);
         assert_eq!(scene.footprint.cols, 42);
         assert_eq!(scene.footprint.rows, 1);
