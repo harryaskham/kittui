@@ -93,6 +93,8 @@ struct Cli {
     shortcuts_kitty: bool,
     help_topic: Option<String>,
     info: bool,
+    info_scene_json: bool,
+    info_kitty: bool,
     quickstart: bool,
     examples: bool,
     cheat: bool,
@@ -178,6 +180,8 @@ fn parse_args() -> Result<Cli> {
                 break;
             }
             "info" => out.info = true,
+            "info-scene-json" => out.info_scene_json = true,
+            "info-kitty" | "info-graphics" => out.info_kitty = true,
             "quickstart" => out.quickstart = true,
             "examples" => out.examples = true,
             "cheat" | "cheatsheet" | "cheat-sheet" => out.cheat = true,
@@ -1351,8 +1355,8 @@ fn real_main() -> Result<()> {
     if let Some(topic) = &cli.help_topic {
         return help_topic_cmd(topic);
     }
-    if cli.info {
-        return info_cmd();
+    if cli.info || cli.info_scene_json || cli.info_kitty {
+        return info_cmd(cli.info_scene_json, cli.info_kitty);
     }
     if cli.quickstart {
         return quickstart_cmd();
@@ -3179,7 +3183,33 @@ fn cheat_cmd() -> Result<()> {
     Ok(())
 }
 
-fn info_cmd() -> Result<()> {
+fn info_cmd(scene_json: bool, kitty: bool) -> Result<()> {
+    let (path, status, chrome, panes) = load_info_snapshot()?;
+    if scene_json || kitty {
+        let scene = info_scene(&path, &status, &chrome, &panes);
+        if scene_json {
+            println!("{}", serde_json::to_string(&scene)?);
+        } else {
+            let runtime = Runtime::builder()
+                .terminal(TerminalInfo::detect())
+                .build()?;
+            let mut options = kittui_kitty::PlacementOptions::unicode();
+            options.z_index = 20;
+            let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
+            print!("{}", placement.to_bytes());
+        }
+    } else {
+        print!("{}", format_info_output(&path, &status, &chrome, &panes));
+    }
+    Ok(())
+}
+
+fn load_info_snapshot() -> Result<(
+    std::path::PathBuf,
+    serde_json::Value,
+    serde_json::Value,
+    serde_json::Value,
+)> {
     use kittui_cli::daemon::{client_request_multi, default_socket_path};
     let path = default_socket_path();
     let status = match client_request_multi(&path, "STATUS_JSON") {
@@ -3194,11 +3224,12 @@ fn info_cmd() -> Result<()> {
     };
     let chrome = client_request_multi(&path, "CHROME_JSON").unwrap_or_else(|_| "{}".to_string());
     let panes = client_request_multi(&path, "PANES_JSON").unwrap_or_else(|_| "{}".to_string());
-    let status: serde_json::Value = serde_json::from_str(&status)?;
-    let chrome: serde_json::Value = serde_json::from_str(&chrome)?;
-    let panes: serde_json::Value = serde_json::from_str(&panes)?;
-    print!("{}", format_info_output(&path, &status, &chrome, &panes));
-    Ok(())
+    Ok((
+        path,
+        serde_json::from_str(&status)?,
+        serde_json::from_str(&chrome)?,
+        serde_json::from_str(&panes)?,
+    ))
 }
 
 fn format_info_output(
@@ -3286,6 +3317,158 @@ fn format_info_output(
         "\nNext\n  kittwm help panes\n  kittwm --read-text-json focused\n  kittwm --spawn-pty 'htop'\n",
     );
     out
+}
+
+fn info_scene(
+    socket: &std::path::Path,
+    status: &serde_json::Value,
+    chrome: &serde_json::Value,
+    panes: &serde_json::Value,
+) -> Scene {
+    let cols = info_scene_cols();
+    let pane_count = status
+        .get("panes")
+        .or_else(|| panes.get("panes"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let rows = (pane_count as u16 + 5).clamp(5, 18);
+    let cell = CellSize::default();
+    let width = cols as f32 * cell.width_px as f32;
+    let height = rows as f32 * cell.height_px as f32;
+    let workspace = chrome
+        .get("workspace")
+        .or_else(|| status.get("workspace"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let focus = status
+        .get("focus")
+        .or_else(|| panes.get("focus"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let layout = status
+        .get("layout")
+        .or_else(|| panes.get("layout"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-");
+    let top_bar_rows = chrome
+        .get("top_bar_rows")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let tilable_rows = chrome
+        .get("tilable_rows")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let mut layers = vec![
+        Layer {
+            label: Some(format!(
+                "kittwm-info-backdrop:workspace={workspace}:panes={pane_count}"
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, height),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(7, 17, 31, 238),
+                },
+                stroke: Some(Stroke::inside(
+                    1.5,
+                    Paint::Solid {
+                        color: Rgba::rgba(136, 192, 208, 255),
+                    },
+                )),
+                corners: Corners::uniform(8.0),
+            },
+        },
+        Layer {
+            label: Some(format!(
+                "kittwm-info-heading:socket={}:focus={focus}:layout={layout}",
+                socket.display()
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(94, 129, 172, 210),
+                },
+                stroke: None,
+                corners: Corners {
+                    tl: 8.0,
+                    tr: 8.0,
+                    bl: 0.0,
+                    br: 0.0,
+                },
+            },
+        },
+        Layer {
+            label: Some(format!(
+                "kittwm-info-chrome:top_bar_rows={top_bar_rows}:tilable_rows={tilable_rows}"
+            )),
+            root: Node::Rect {
+                rect: KittuiPxRect::new(
+                    10.0,
+                    cell.height_px as f32 * 2.0,
+                    (width - 20.0).max(1.0),
+                    2.0,
+                ),
+                fill: Paint::Solid {
+                    color: Rgba::rgba(163, 190, 140, 255),
+                },
+                stroke: None,
+                corners: Corners::uniform(1.0),
+            },
+        },
+    ];
+    if let Some(details) = panes
+        .get("panes_detail")
+        .or_else(|| status.get("panes_detail"))
+        .and_then(serde_json::Value::as_array)
+    {
+        for (idx, pane) in details.iter().take(12).enumerate() {
+            let window = pane
+                .get("window")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("-");
+            let title = pane
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("-");
+            let focused = pane
+                .get("focused")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let y = (idx as f32 + 3.0) * cell.height_px as f32;
+            layers.push(Layer {
+                label: Some(format!(
+                    "kittwm-info-pane:{window}:focused={focused}:title={title}"
+                )),
+                root: Node::Rect {
+                    rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                    fill: Paint::Solid {
+                        color: if focused {
+                            Rgba::rgba(235, 203, 139, 255)
+                        } else {
+                            Rgba::rgba(136, 192, 208, 255)
+                        },
+                    },
+                    stroke: None,
+                    corners: Corners::uniform(1.0),
+                },
+            });
+        }
+    }
+    Scene {
+        footprint: CellRect::new(0, 0, cols, rows),
+        cell_size: cell,
+        layers,
+        animation: None,
+    }
+}
+
+fn info_scene_cols() -> u16 {
+    std::env::var("KITTWM_INFO_COLS")
+        .or_else(|_| std::env::var("COLUMNS"))
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|cols| *cols > 0)
+        .unwrap_or(72)
+        .clamp(40, 140)
 }
 
 fn status_cmd() -> Result<()> {
@@ -4437,6 +4620,38 @@ mod tests {
         );
         assert!(text.contains("* native-2  editor"), "{text}");
         assert!(text.contains("kittwm --spawn-pty 'htop'"), "{text}");
+
+        let scene = info_scene(
+            std::path::Path::new("/tmp/kittwm-test.sock"),
+            &status,
+            &chrome,
+            &panes,
+        );
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("workspace=dev:panes=2")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains("focus=native-2")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains("top_bar_rows=1")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-info-pane:native-2:focused=true:title=editor")),
+            "{labels:?}"
+        );
     }
 
     #[test]
