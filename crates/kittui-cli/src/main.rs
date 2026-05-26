@@ -16,7 +16,7 @@ use base64::Engine;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use config::{
-    BoxFlagValues, ConfigLayers, GlobalConfig, GlobalFlagValues, GlowFlagValues,
+    BoxFlagValues, ConfigLayers, ConfigSource, GlobalConfig, GlobalFlagValues, GlowFlagValues,
     GradientFlagValues, RendererArg, ResolvedBoxConfig, ResolvedGlowConfig, ResolvedGradientConfig,
 };
 use kittui::{
@@ -728,12 +728,64 @@ fn resolve_size(input: &str, axis: u16) -> Result<u16> {
     Ok(input.parse()?)
 }
 
-fn build_runtime(global: &GlobalConfig, transport_override: Option<&str>) -> Result<Runtime> {
-    let mut terminal = TerminalInfo {
+fn apply_live_terminal_defaults(global: GlobalConfig) -> GlobalConfig {
+    apply_live_terminal_defaults_with_size(global, live_terminal_size())
+}
+
+fn apply_live_terminal_defaults_with_size(
+    mut global: GlobalConfig,
+    live: Option<(u16, u16)>,
+) -> GlobalConfig {
+    if let Some((cols, rows)) = live {
+        if global.terminal_cols.source == ConfigSource::Default {
+            global.terminal_cols.value = cols;
+            global.terminal_cols.source = ConfigSource::Tty;
+        }
+        if global.terminal_rows.source == ConfigSource::Default {
+            global.terminal_rows.value = rows;
+            global.terminal_rows.source = ConfigSource::Tty;
+        }
+    }
+    global
+}
+
+fn terminal_info_from_global(global: &GlobalConfig) -> TerminalInfo {
+    TerminalInfo {
         columns: Some(global.terminal_cols.value),
         rows: Some(global.terminal_rows.value),
         ..TerminalInfo::detect()
-    };
+    }
+}
+
+#[cfg(unix)]
+fn live_terminal_size() -> Option<(u16, u16)> {
+    live_terminal_size_from_fds(&[libc::STDOUT_FILENO, libc::STDIN_FILENO, libc::STDERR_FILENO])
+}
+
+#[cfg(not(unix))]
+fn live_terminal_size() -> Option<(u16, u16)> {
+    None
+}
+
+#[cfg(unix)]
+fn live_terminal_size_from_fds(fds: &[libc::c_int]) -> Option<(u16, u16)> {
+    for &fd in fds {
+        let mut ws = libc::winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        let rc = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) };
+        if rc == 0 && ws.ws_col > 0 && ws.ws_row > 0 {
+            return Some((ws.ws_col, ws.ws_row));
+        }
+    }
+    None
+}
+
+fn build_runtime(global: &GlobalConfig, transport_override: Option<&str>) -> Result<Runtime> {
+    let mut terminal = terminal_info_from_global(global);
     if let Some(t) = transport_override {
         terminal.transport = match t.to_ascii_lowercase().as_str() {
             "direct" => kittui_core::terminal::Transport::Direct,
@@ -760,13 +812,13 @@ fn main() -> Result<()> {
         return cli_update::serve_update_mcp("kittui");
     }
     let layers = ConfigLayers::load()?;
-    let global = layers.resolve_global(GlobalFlagValues {
+    let global = apply_live_terminal_defaults(layers.resolve_global(GlobalFlagValues {
         cache_dir: cli.cache_dir.clone(),
         renderer: cli.renderer,
         terminal_cols: cli.terminal_cols,
         terminal_rows: cli.terminal_rows,
         json: cli.json,
-    });
+    }));
     let runtime = build_runtime(&global, cli.transport.as_deref())?;
     let emit_mode = EmitMode {
         upload_only: cli.upload_only,
@@ -2627,9 +2679,7 @@ fn run_probe(global: &GlobalConfig, args: &ProbeArgs) -> Result<()> {
         let probe_path = cache_root.join("probe.json");
         let _ = std::fs::remove_file(&probe_path);
     }
-    let mut terminal = TerminalInfo::detect();
-    terminal.columns = Some(global.terminal_cols.value);
-    terminal.rows = Some(global.terminal_rows.value);
+    let terminal = terminal_info_from_global(global);
     let probe = probe_payload(global, &terminal, args.force);
     println!("{}", serde_json::to_string_pretty(&probe)?);
     Ok(())
@@ -3774,6 +3824,37 @@ mod tests {
         assert_eq!(payload["upload"], "upload-bytes");
         assert_eq!(payload["placement"], "place-bytes");
         assert_eq!(payload["embed"], "embed-bytes");
+    }
+
+    #[test]
+    fn live_terminal_defaults_override_only_config_defaults() {
+        let global = config::ConfigLayers::from_parts(
+            config::FileConfig::default(),
+            config::EnvConfig::default(),
+        )
+        .resolve_global(GlobalFlagValues {
+            cache_dir: None,
+            renderer: None,
+            terminal_cols: None,
+            terminal_rows: None,
+            json: false,
+        });
+        let global = apply_live_terminal_defaults_with_size(global, Some((111, 57)));
+        let terminal = terminal_info_from_global(&global);
+        assert_eq!(terminal.columns, Some(111));
+        assert_eq!(terminal.rows, Some(57));
+        assert_eq!(global.terminal_cols.source, ConfigSource::Tty);
+        assert_eq!(global.terminal_rows.source, ConfigSource::Tty);
+    }
+
+    #[test]
+    fn explicit_terminal_flags_still_win_over_defaults() {
+        let global = apply_live_terminal_defaults_with_size(test_global(), Some((111, 57)));
+        let terminal = terminal_info_from_global(&global);
+        assert_eq!(global.terminal_cols.source, ConfigSource::Flag);
+        assert_eq!(global.terminal_rows.source, ConfigSource::Flag);
+        assert_eq!(terminal.columns, Some(132));
+        assert_eq!(terminal.rows, Some(43));
     }
 
     #[test]

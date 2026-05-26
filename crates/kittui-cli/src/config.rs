@@ -9,6 +9,7 @@ use kittui::RendererKind;
 #[serde(rename_all = "snake_case")]
 pub enum ConfigSource {
     Default,
+    Tty,
     Yaml,
     Env,
     Flag,
@@ -18,6 +19,7 @@ impl fmt::Display for ConfigSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Default => f.write_str("default"),
+            Self::Tty => f.write_str("tty"),
             Self::Yaml => f.write_str("yaml"),
             Self::Env => f.write_str("env"),
             Self::Flag => f.write_str("flag"),
