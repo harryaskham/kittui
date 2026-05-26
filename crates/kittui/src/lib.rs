@@ -237,7 +237,11 @@ impl Runtime {
             let p = kitty::placement_command_ex(image_id, placement_footprint, options, transport);
             format!("{mv}{p}")
         };
-        let embed = kitty::placeholder_text(image_id, placement_footprint);
+        let embed = if options.unicode_placeholder {
+            kitty::placeholder_text(image_id, placement_footprint)
+        } else {
+            String::new()
+        };
         self.mark_placed(image_id, placement_footprint);
 
         Ok(Placement {
@@ -430,7 +434,11 @@ impl Runtime {
             let p = kitty::placement_command_ex(image_id, footprint, options, transport);
             format!("{mv}{p}")
         };
-        let embed = kitty::placeholder_text(image_id, footprint);
+        let embed = if options.unicode_placeholder {
+            kitty::placeholder_text(image_id, footprint)
+        } else {
+            String::new()
+        };
         self.mark_placed(image_id, footprint);
         Placement {
             image_id,
@@ -1012,6 +1020,7 @@ mod tests {
             "{}",
             placement.placement
         );
+        assert!(placement.embed.is_empty());
         assert_eq!(placement.footprint, CellRect::new(2, 3, 4, 5));
     }
 
@@ -1047,6 +1056,19 @@ mod tests {
         let moved = rt.place_uploaded_image_with_options(777, CellRect::new(1, 0, 1, 1), &opts);
         assert!(moved.upload.is_empty());
         assert!(moved.placement.contains("z=-4"), "{}", moved.placement);
+        assert!(!moved.embed.is_empty());
+
+        let absolute = rt.place_uploaded_image_with_options(
+            777,
+            CellRect::new(2, 0, 1, 1),
+            &kitty::PlacementOptions::absolute(),
+        );
+        assert!(absolute.embed.is_empty());
+        assert!(
+            !absolute.placement.contains("U=1"),
+            "{}",
+            absolute.placement
+        );
     }
 
     #[test]

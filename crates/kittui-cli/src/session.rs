@@ -615,7 +615,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     );
                     let decision = dirty_frames.decide(pane.image_id, width, height, &rgba);
                     pane.dirty_frame = Some(decision.metrics.clone());
-                    let mut placement_options = kittui_kitty::PlacementOptions::unicode();
+                    let mut placement_options = kittui_kitty::PlacementOptions::absolute();
                     placement_options.z_index = NATIVE_APP_Z_INDEX;
                     let p = if decision.upload {
                         runtime.place_raw_frame_with_options(
@@ -667,7 +667,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         continue;
                     }
                     let footprint = native_app_frame_footprint(layout);
-                    let mut placement_options = kittui_kitty::PlacementOptions::unicode();
+                    let mut placement_options = kittui_kitty::PlacementOptions::absolute();
                     placement_options.z_index = NATIVE_APP_Z_INDEX;
                     let p = runtime.place_png_frame_with_options(
                         pane.image_id,
@@ -3257,7 +3257,7 @@ fn write_native_shell_affordance_chrome<W: Write>(
             chrome.scene.footprint.cols,
             chrome.scene.footprint.rows,
         );
-        let mut placement_options = kittui_kitty::PlacementOptions::unicode();
+        let mut placement_options = kittui_kitty::PlacementOptions::absolute();
         placement_options.z_index = NATIVE_CHROME_Z_INDEX;
         let p = runtime.place_at_with_options(&chrome.scene, placement, &placement_options)?;
         out.write_all(p.upload.as_bytes())?;
