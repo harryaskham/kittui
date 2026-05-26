@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 
+use image::{imageops, Rgba, RgbaImage};
 use kittui_ghostty_vt::{render_snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
@@ -10,6 +11,7 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 struct Args {
     out: PathBuf,
     out_dir: PathBuf,
+    montage: Option<PathBuf>,
     cols: u16,
     rows: u16,
     demo: bool,
@@ -79,6 +81,9 @@ fn render_timelapse_chunks(args: &Args, chunks: Vec<&[u8]>) -> anyhow::Result<()
         frames.push((idx, path, snapshot.cursor_x, snapshot.cursor_y));
     }
     write_manifest(&args.out_dir, &frames)?;
+    if let Some(path) = &args.montage {
+        write_montage(path, &frames)?;
+    }
     println!(
         "kittui-ghostty wrote {} timelapse frames to {}",
         frames.len(),
@@ -90,6 +95,7 @@ fn render_timelapse_chunks(args: &Args, chunks: Vec<&[u8]>) -> anyhow::Result<()
 fn parse_args() -> anyhow::Result<Args> {
     let mut out = PathBuf::from("/tmp/kittui-ghostty.png");
     let mut out_dir = PathBuf::from("/tmp/kittui-ghostty-timelapse");
+    let mut montage = None;
     let mut cols = 64u16;
     let mut rows = 12u16;
     let mut demo = false;
@@ -112,6 +118,13 @@ fn parse_args() -> anyhow::Result<Args> {
                     .next()
                     .map(PathBuf::from)
                     .ok_or_else(|| anyhow::anyhow!("--out-dir DIR"))?;
+            }
+            "--montage" => {
+                montage = Some(
+                    iter.next()
+                        .map(PathBuf::from)
+                        .ok_or_else(|| anyhow::anyhow!("--montage PATH"))?,
+                );
             }
             "--cols" => {
                 cols = iter
@@ -162,6 +175,7 @@ fn parse_args() -> anyhow::Result<Args> {
     Ok(Args {
         out,
         out_dir,
+        montage,
         cols,
         rows,
         demo,
@@ -294,13 +308,14 @@ fn print_help() {
            kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo] [--scroll top|bottom|current]\n\
            kittui-ghostty --command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --pty-command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
-           kittui-ghostty --pty-timelapse-command COMMAND [--out-dir DIR] [--cols N] [--rows N]\n\
-           kittui-ghostty --timelapse-demo [--out-dir DIR] [--cols N] [--rows N]\n\n\
+           kittui-ghostty --pty-timelapse-command COMMAND [--out-dir DIR] [--montage PATH] [--cols N] [--rows N]\n\
+           kittui-ghostty --timelapse-demo [--out-dir DIR] [--montage PATH] [--cols N] [--rows N]\n\n\
          Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
          --command/-c runs COMMAND through sh -c and renders stdout/stderr.\n\
          --pty-command runs COMMAND in a PTY sized by --cols/--rows and renders captured VT bytes.\n\
          --pty-timelapse-command replays captured PTY bytes into frame-*.png plus manifest.json.\n\
-         --timelapse-demo emits frame-*.png plus manifest.json into --out-dir."
+         --timelapse-demo emits frame-*.png plus manifest.json into --out-dir.\n\
+         --montage writes a representative vertical PNG montage for timelapse modes."
     );
 }
 
@@ -319,6 +334,51 @@ fn timelapse_demo_steps() -> &'static [&'static [u8]] {
         b"\x1b[33mstep 2:\x1b[0m render-state rows/cells become PNG frames\n",
         b"\x1b[1mstep 3:\x1b[0m styles: \x1b[3mitalic\x1b[0m \x1b[4munderline\x1b[0m \x1b[36mcolor\x1b[0m\n",
         b"\x1b[35mstep 4:\x1b[0m deterministic artifacts for agents and CI\n",
+    ]
+}
+
+fn write_montage(path: &Path, frames: &[(usize, PathBuf, u16, u16)]) -> anyhow::Result<()> {
+    let selected = montage_frame_indices(frames.len());
+    let mut images = Vec::new();
+    for idx in selected {
+        let bytes = std::fs::read(&frames[idx].1)?;
+        images.push(image::load_from_memory(&bytes)?.to_rgba8());
+    }
+    if images.is_empty() {
+        anyhow::bail!("cannot build montage without frames");
+    }
+
+    let pad = 14u32;
+    let gap = 18u32;
+    let width = images.iter().map(RgbaImage::width).max().unwrap_or(1) + pad * 2;
+    let height = images.iter().map(RgbaImage::height).sum::<u32>()
+        + gap * (images.len().saturating_sub(1) as u32)
+        + pad * 2;
+    let mut montage = RgbaImage::from_pixel(width, height, Rgba([16, 24, 32, 255]));
+    let mut y = pad;
+    for image in images {
+        imageops::overlay(&mut montage, &image, pad.into(), y.into());
+        y += image.height() + gap;
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    montage.save(path)?;
+    Ok(())
+}
+
+fn montage_frame_indices(len: usize) -> Vec<usize> {
+    if len <= 6 {
+        return (0..len).collect();
+    }
+    let last = len - 1;
+    vec![
+        0,
+        last / 5,
+        (last * 2) / 5,
+        (last * 3) / 5,
+        (last * 4) / 5,
+        last,
     ]
 }
 
