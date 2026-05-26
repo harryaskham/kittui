@@ -22,18 +22,15 @@ jobs:
       matrix:
         include:
           - target: x86_64-linux
-            os: Linux
-            arch: X64
+            runner: [self-hosted, linux, x86_64]
             cli_features: xvfb
           - target: aarch64-linux
-            os: Linux
-            arch: ARM64
+            runner: [self-hosted, linux, aarch64]
             cli_features: xvfb
           - target: aarch64-darwin
-            os: macOS
-            arch: ARM64
+            runner: [self-hosted, macos, aarch64]
             cli_features: sck
-    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.arch }}', nix]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
       CARGO_BUILD_JOBS: 2

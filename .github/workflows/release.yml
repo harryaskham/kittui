@@ -26,7 +26,7 @@ permissions:
 jobs:
   resolve-release:
     name: resolve release context
-    runs-on: [self-hosted, Linux, X64, nix]
+    runs-on: [self-hosted, linux]
     timeout-minutes: 10
     outputs:
       should_release: ${{ steps.context.outputs.should_release }}
@@ -101,18 +101,15 @@ jobs:
       matrix:
         include:
           - target: aarch64-darwin
-            os: macOS
-            arch: ARM64
+            runner: [self-hosted, macos, aarch64]
             features: sck
           - target: x86_64-linux
-            os: Linux
-            arch: X64
+            runner: [self-hosted, linux, x86_64]
             features: xvfb
           - target: aarch64-linux
-            os: Linux
-            arch: ARM64
+            runner: [self-hosted, linux, aarch64]
             features: xvfb
-    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.arch }}', nix]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     env:
       CARGO_BUILD_JOBS: 2
@@ -163,7 +160,7 @@ jobs:
     needs:
       - resolve-release
       - build-cli
-    runs-on: [self-hosted, Linux, X64, nix]
+    runs-on: [self-hosted, linux]
     timeout-minutes: 15
     if: needs.resolve-release.outputs.should_release == 'true'
     steps:

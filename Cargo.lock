@@ -1264,7 +1264,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "kittui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "kittui-cache",
  "kittui-core",
@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-affordances"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "kittui",
  "kittui-core",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-cache"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "fs2",
  "kittui-core",
@@ -1300,7 +1300,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64",
@@ -1328,7 +1328,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
  "serde",
@@ -1338,7 +1338,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-ffi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64",
  "kittui",
@@ -1348,7 +1348,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-ghostty-vt"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "font8x8",
@@ -1359,14 +1359,14 @@ dependencies = [
 
 [[package]]
 name = "kittui-input"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "kittui-kitty"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64",
  "flate2",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-overlay"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "kittui",
  "kittui-core",
@@ -1388,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-quartz"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "core-foundation 0.10.1",
@@ -1406,7 +1406,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-render-cpu"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -1420,7 +1420,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-render-gpu"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bytemuck",
  "flate2",
@@ -1434,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-tmux"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "kittui",
@@ -1448,7 +1448,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-watch"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-wm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64",
@@ -1484,7 +1484,7 @@ dependencies = [
 
 [[package]]
 name = "kittui-xvfb"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "kittui-core",
@@ -1496,7 +1496,7 @@ dependencies = [
 
 [[package]]
 name = "kittwm-sdk"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64",
  "serde",
@@ -2007,7 +2007,7 @@ checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
 
 [[package]]
 name = "ratakittui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "kittui",
  "kittui-core",
