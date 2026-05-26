@@ -262,6 +262,25 @@ pub struct SurfacePlacementContract {
 }
 
 impl SurfacePlacementContract {
+    /// Build placement/readiness metadata from a native surface contract and
+    /// architecture contract.
+    pub fn from_native_surface(
+        surface: &NativeSurfaceContract,
+        contract: &ArchitectureContract,
+    ) -> Option<Self> {
+        Some(Self {
+            surface: surface.name.clone(),
+            surface_kind: surface.surface_kind.clone(),
+            sdk_entry: surface.sdk_entry.clone(),
+            sdk_backed: surface.sdk_backed,
+            kitty_graphics_native: surface.kitty_graphics_native,
+            native_ready: surface.is_native_ready(),
+            composition_plane: surface.composition_plane()?.to_string(),
+            z_index: surface.z_index(contract)?,
+            kittui_entry: surface.kittui_entry.clone(),
+        })
+    }
+
     /// Typed role for this placement contract.
     pub fn role(&self) -> Option<SurfacePlacementRole> {
         SurfacePlacementRole::from_plane(&self.composition_plane)
@@ -362,18 +381,7 @@ impl SurfaceSpec {
     /// request, if the current architecture names a backing first-party surface.
     pub fn placement_contract(&self) -> Option<SurfacePlacementContract> {
         let contract = ArchitectureContract::current();
-        let surface = contract.native_surface_for_spec(self)?;
-        Some(SurfacePlacementContract {
-            surface: surface.name.clone(),
-            surface_kind: surface.surface_kind.clone(),
-            sdk_entry: surface.sdk_entry.clone(),
-            sdk_backed: surface.sdk_backed,
-            kitty_graphics_native: surface.kitty_graphics_native,
-            native_ready: surface.is_native_ready(),
-            composition_plane: surface.composition_plane()?.to_string(),
-            z_index: surface.z_index(&contract)?,
-            kittui_entry: surface.kittui_entry.clone(),
-        })
+        contract.placement_contract_for_spec(self)
     }
 
     /// Attach a display title.
@@ -752,6 +760,29 @@ impl ArchitectureContract {
             SurfaceKind::Browser => self.native_surface_by_kind("browser"),
             SurfaceKind::Other(_) => None,
         }
+    }
+
+    /// Build a placement/readiness contract for a first-party native surface
+    /// by surface name.
+    pub fn placement_contract_for_surface(&self, name: &str) -> Option<SurfacePlacementContract> {
+        let surface = self.native_surface(name)?;
+        SurfacePlacementContract::from_native_surface(surface, self)
+    }
+
+    /// Build a placement/readiness contract for the first native surface of a
+    /// given SDK/control-plane kind.
+    pub fn placement_contract_for_kind(&self, kind: &str) -> Option<SurfacePlacementContract> {
+        let surface = self.native_surface_by_kind(kind)?;
+        SurfacePlacementContract::from_native_surface(surface, self)
+    }
+
+    /// Build a placement/readiness contract for a typed surface request.
+    pub fn placement_contract_for_spec(
+        &self,
+        spec: &SurfaceSpec,
+    ) -> Option<SurfacePlacementContract> {
+        let surface = self.native_surface_for_spec(spec)?;
+        SurfacePlacementContract::from_native_surface(surface, self)
     }
 
     /// Iterate first-party surfaces currently represented as SDK-backed,
@@ -3043,6 +3074,19 @@ mod tests {
         );
         assert_eq!(chrome_surfaces[0].composition_plane(), Some("decorations"));
         assert_eq!(chrome_surfaces[0].z_index(&contract), Some(20));
+        let bar_placement = contract
+            .placement_contract_for_surface("kittwm-bar")
+            .unwrap();
+        assert_eq!(bar_placement.surface_kind, "chrome");
+        assert!(bar_placement.is_decoration());
+        assert_eq!(bar_placement.z_index, 20);
+        assert_eq!(
+            contract
+                .placement_contract_for_kind("browser")
+                .unwrap()
+                .surface,
+            "kittwm-browser"
+        );
         assert_eq!(
             contract
                 .native_surface_for_spec(&SurfaceSpec::terminal("htop"))
@@ -3066,6 +3110,8 @@ mod tests {
             .is_none());
         assert!(contract.native_surface("missing").is_none());
         assert!(contract.native_surface_by_kind("missing").is_none());
+        assert!(contract.placement_contract_for_surface("missing").is_none());
+        assert!(contract.placement_contract_for_kind("missing").is_none());
         let roundtrip: ArchitectureContract =
             serde_json::from_str(&serde_json::to_string(&contract).unwrap()).unwrap();
         assert_eq!(roundtrip, contract);
@@ -3104,6 +3150,12 @@ mod tests {
         assert_eq!(browser.composition_plane(), Some("app-surfaces"));
         assert_eq!(browser.z_index(), Some(0));
         let browser_placement = browser.placement_contract().unwrap();
+        assert_eq!(
+            ArchitectureContract::current()
+                .placement_contract_for_spec(&browser)
+                .unwrap(),
+            browser_placement
+        );
         assert_eq!(browser_placement.surface, "kittwm-browser");
         assert_eq!(browser_placement.surface_kind, "browser");
         assert_eq!(browser_placement.sdk_entry, "SurfaceSpec::browser");
