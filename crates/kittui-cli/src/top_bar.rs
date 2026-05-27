@@ -141,9 +141,10 @@ impl BarModel {
         let mut scene = title_chrome(theme.fill, theme.border)
             .to_scene(Rect::new(0, 0, cols.max(1), 1))
             .expect("title chrome produces a one-line scene");
+        let workspace = self.workspace.trim();
         for layer in &mut scene.layers {
             if layer.label.as_deref() == Some("background") {
-                layer.label = Some(format!("{label_prefix}:{}:{}", self.state, self.workspace));
+                layer.label = Some(format!("{label_prefix}:{}:{workspace}", self.state));
             }
         }
         let cell_w = scene.cell_size.width_px.max(1) as f32;
@@ -531,6 +532,21 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("workspace-chip:dev:active:action=workspace.switch.dev")));
+    }
+
+    #[test]
+    fn scene_root_label_trims_workspace_label() {
+        let model = BarModel::new(" dev ", 0, "-", false, UNIX_EPOCH);
+        let scene = model.scene(60);
+        assert!(scene
+            .layers
+            .iter()
+            .any(|layer| layer.label.as_deref() == Some("kittwm-bar:empty:dev")));
+        assert!(!scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains(" dev ")));
     }
 
     #[test]
