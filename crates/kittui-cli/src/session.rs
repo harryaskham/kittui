@@ -782,6 +782,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             skipped_upload: decision.metrics.skipped_upload,
                             changed_tiles: Some(decision.metrics.changed_tiles),
                             total_tiles: Some(decision.metrics.total_tiles),
+                            upload_bytes: if decision.upload {
+                                Some(rgba.len())
+                            } else {
+                                Some(0)
+                            },
+                            placement_bytes: Some(usize::from(placement_write.write_placement)),
+                            embed_bytes: Some(0),
                             elapsed_us: Some(
                                 frame_start.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
                             ),
@@ -850,6 +857,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             skipped_upload: !decision.upload,
                             changed_tiles: None,
                             total_tiles: None,
+                            upload_bytes: if decision.upload {
+                                Some(bytes.len())
+                            } else {
+                                Some(0)
+                            },
+                            placement_bytes: Some(usize::from(decision.placement.write_placement)),
+                            embed_bytes: Some(0),
                             elapsed_us: Some(
                                 frame_start.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
                             ),

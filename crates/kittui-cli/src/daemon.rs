@@ -123,6 +123,9 @@ pub struct NativeFramePresented {
     pub skipped_upload: bool,
     pub changed_tiles: Option<u32>,
     pub total_tiles: Option<u32>,
+    pub upload_bytes: Option<usize>,
+    pub placement_bytes: Option<usize>,
+    pub embed_bytes: Option<usize>,
     pub elapsed_us: Option<u64>,
 }
 
@@ -1119,6 +1122,18 @@ fn publish_native_frame_presented_event(
         }
         if let Some(total_tiles) = frame.total_tiles {
             obj.insert("total_tiles".to_string(), serde_json::json!(total_tiles));
+        }
+        if let Some(upload_bytes) = frame.upload_bytes {
+            obj.insert("upload_bytes".to_string(), serde_json::json!(upload_bytes));
+        }
+        if let Some(placement_bytes) = frame.placement_bytes {
+            obj.insert(
+                "placement_bytes".to_string(),
+                serde_json::json!(placement_bytes),
+            );
+        }
+        if let Some(embed_bytes) = frame.embed_bytes {
+            obj.insert("embed_bytes".to_string(), serde_json::json!(embed_bytes));
         }
         if let Some(elapsed_us) = frame.elapsed_us {
             obj.insert("elapsed_us".to_string(), serde_json::json!(elapsed_us));
@@ -3370,6 +3385,9 @@ mod tests {
                 skipped_upload: true,
                 changed_tiles: Some(0),
                 total_tiles: Some(120),
+                upload_bytes: Some(0),
+                placement_bytes: Some(12),
+                embed_bytes: Some(0),
                 elapsed_us: Some(321),
             },
         );
@@ -3385,6 +3403,9 @@ mod tests {
         assert_eq!(event["detail"]["skipped_upload"], true);
         assert_eq!(event["detail"]["changed_tiles"], 0);
         assert_eq!(event["detail"]["total_tiles"], 120);
+        assert_eq!(event["detail"]["upload_bytes"], 0);
+        assert_eq!(event["detail"]["placement_bytes"], 12);
+        assert_eq!(event["detail"]["embed_bytes"], 0);
         assert_eq!(event["detail"]["elapsed_us"], 321);
         assert!(!event.to_string().contains("rgba_bytes"));
         assert_eq!(event["schema_version"], NATIVE_EVENT_SCHEMA_VERSION);
