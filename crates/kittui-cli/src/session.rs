@@ -9677,9 +9677,8 @@ fn launcher_selection() -> LauncherSelection {
 }
 
 fn first_launcher_candidate(query: &str) -> Option<LauncherSelection> {
-    let q = query.to_ascii_lowercase();
     for cmd in path_commands(5000) {
-        if launcher_match_score(&cmd, &q).is_some() {
+        if launcher_match_score(&cmd, query).is_some() {
             return Some(LauncherSelection {
                 kind: LauncherKind::Path,
                 command: cmd,
@@ -9688,7 +9687,7 @@ fn first_launcher_candidate(query: &str) -> Option<LauncherSelection> {
     }
     #[cfg(target_os = "macos")]
     for app in macos_apps(5000) {
-        if launcher_match_score(&app, &q).is_some() {
+        if launcher_match_score(&app, query).is_some() {
             return Some(LauncherSelection {
                 kind: LauncherKind::MacOsApp,
                 command: app,
@@ -10240,10 +10239,9 @@ fn filter_launcher_candidates(
     let Some(query) = query else {
         return items.into_iter().take(limit).collect();
     };
-    let q = query.to_ascii_lowercase();
     let mut scored: Vec<(u8, String)> = items
         .into_iter()
-        .filter_map(|item| launcher_match_score(&item, &q).map(|score| (score, item)))
+        .filter_map(|item| launcher_match_score(&item, query).map(|score| (score, item)))
         .collect();
     scored.sort_by(|(a_score, a), (b_score, b)| a_score.cmp(b_score).then_with(|| a.cmp(b)));
     scored
@@ -10253,45 +10251,42 @@ fn filter_launcher_candidates(
         .collect()
 }
 
-fn launcher_match_score(item: &str, lower_query: &str) -> Option<u8> {
-    if ascii_casefold_eq_lower(item, lower_query) {
+fn launcher_match_score(item: &str, query: &str) -> Option<u8> {
+    if ascii_casefold_eq(item, query) {
         Some(0)
-    } else if ascii_casefold_starts_with_lower(item, lower_query) {
+    } else if ascii_casefold_starts_with(item, query) {
         Some(1)
-    } else if ascii_casefold_contains_lower(item, lower_query) {
+    } else if ascii_casefold_contains(item, query) {
         Some(2)
     } else {
         None
     }
 }
 
-fn ascii_casefold_eq_lower(item: &str, lower_query: &str) -> bool {
-    item.len() == lower_query.len() && ascii_casefold_starts_with_lower(item, lower_query)
+fn ascii_casefold_eq(item: &str, query: &str) -> bool {
+    item.len() == query.len() && ascii_casefold_starts_with(item, query)
 }
 
-fn ascii_casefold_starts_with_lower(item: &str, lower_query: &str) -> bool {
+fn ascii_casefold_starts_with(item: &str, query: &str) -> bool {
     let item = item.as_bytes();
-    let query = lower_query.as_bytes();
+    let query = query.as_bytes();
     item.len() >= query.len()
         && item
             .iter()
             .zip(query.iter())
-            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+            .all(|(a, b)| a.eq_ignore_ascii_case(b))
 }
 
-fn ascii_casefold_contains_lower(item: &str, lower_query: &str) -> bool {
+fn ascii_casefold_contains(item: &str, query: &str) -> bool {
     let item = item.as_bytes();
-    let query = lower_query.as_bytes();
+    let query = query.as_bytes();
     if query.is_empty() {
         return true;
     }
     item.len() >= query.len()
-        && item.windows(query.len()).any(|window| {
-            window
-                .iter()
-                .zip(query.iter())
-                .all(|(a, b)| a.to_ascii_lowercase() == *b)
-        })
+        && item
+            .windows(query.len())
+            .any(|window| window.eq_ignore_ascii_case(query))
 }
 
 fn overlay_inner_width(preferred: usize) -> usize {
@@ -10930,13 +10925,16 @@ mod launcher_overlay_tests {
     }
 
     #[test]
-    fn launcher_match_score_avoids_candidate_lowercase_allocation() {
+    fn launcher_match_score_avoids_candidate_and_query_lowercase_allocation() {
         let huge = format!("{}Needle{}", "x".repeat(10_000), "y".repeat(10_000));
+        let huge_query = format!("{}missing", "q".repeat(10_000));
         assert_eq!(launcher_match_score("Needle", "needle"), Some(0));
         assert_eq!(launcher_match_score("NeedleSuffix", "needle"), Some(1));
         assert_eq!(launcher_match_score(&huge, "needle"), Some(2));
+        assert_eq!(launcher_match_score(&huge, "NEEDLE"), Some(2));
         assert_eq!(launcher_match_score(&huge, "missing"), None);
-        assert!(ascii_casefold_contains_lower("RésuméNeedle", "needle"));
+        assert_eq!(launcher_match_score("short", &huge_query), None);
+        assert!(ascii_casefold_contains("RésuméNeedle", "needle"));
     }
 
     #[test]
