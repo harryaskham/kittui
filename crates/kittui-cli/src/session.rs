@@ -253,7 +253,8 @@ fn raw_compositor_footer_row_for_overlays(
     footer_row: u16,
     launcher_active: bool,
     picker_active: bool,
-) -> u16 {
+    terminal_rows: u16,
+) -> Option<u16> {
     let overlay_bottom = if launcher_active {
         17
     } else if picker_active {
@@ -261,7 +262,8 @@ fn raw_compositor_footer_row_for_overlays(
     } else {
         0
     };
-    footer_row.max(overlay_bottom + 1)
+    let row = footer_row.max(overlay_bottom + 1);
+    (row <= terminal_rows).then_some(row)
 }
 
 fn native_idle_frame_target(active_target: Duration) -> Duration {
@@ -4155,9 +4157,22 @@ mod native_pane_tests {
         assert!(!should_hide_raw_graphics_for_text_overlay(false, false));
         assert!(!raw_compositor_should_render_app_graphics(true || false));
         assert!(!raw_compositor_should_render_app_graphics(false || true));
-        assert_eq!(raw_compositor_footer_row_for_overlays(2, true, false), 18);
-        assert_eq!(raw_compositor_footer_row_for_overlays(2, false, true), 16);
-        assert_eq!(raw_compositor_footer_row_for_overlays(22, true, false), 22);
+        assert_eq!(
+            raw_compositor_footer_row_for_overlays(2, true, false, 24),
+            Some(18)
+        );
+        assert_eq!(
+            raw_compositor_footer_row_for_overlays(2, false, true, 24),
+            Some(16)
+        );
+        assert_eq!(
+            raw_compositor_footer_row_for_overlays(22, true, false, 24),
+            Some(22)
+        );
+        assert_eq!(
+            raw_compositor_footer_row_for_overlays(2, true, false, 17),
+            None
+        );
     }
 
     #[test]
@@ -7292,10 +7307,12 @@ pub fn run_loop_with<S: XServer>(
                 } else {
                     last_picker_overlay_key.clear();
                 }
-                footer_row = raw_compositor_footer_row_for_overlays(
+                let terminal_rows = host_terminal_cells().map(|(_, rows)| rows).unwrap_or(24);
+                let safe_footer_row = raw_compositor_footer_row_for_overlays(
                     footer_row,
                     launcher_overlay.active,
                     picker_overlay.active,
+                    terminal_rows,
                 );
                 let launch_note = last_launch_pid
                     .map(|pid| format!(" — last launch pid={pid}"))
@@ -7308,28 +7325,9 @@ pub fn run_loop_with<S: XServer>(
                         .map(|a| format!(" — action={a}"))
                         .unwrap_or_default()
                 };
-                let footer_key = format!(
-                    "row={footer_row};ws={};panes={};layout={};cfg={};focus={};swap={};mode={};windows={last_window_count};launch={launch_note};keymap={keymap_note};quit={}",
-                    workspaces.label(),
-                    split_state.label(),
-                    layout_state.label(),
-                    config_state.label(),
-                    focus_state.label(),
-                    swap_state.label(),
-                    toggle_state.label(),
-                    ctrl_c_guard.quit_hint(last_window_count > 0),
-                );
-                if should_write_compositor_footer(&last_footer_key, &footer_key, frame, 30) {
-                    if let Some(old_row) = last_footer_row {
-                        if old_row != footer_row {
-                            write!(handle, "\x1b[{};1H\x1b[K", old_row)?;
-                        }
-                    }
-                    write!(
-                        handle,
-                        "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — {} (log: {})",
-                        footer_row,
-                        frame,
+                if let Some(footer_row) = safe_footer_row {
+                    let footer_key = format!(
+                        "row={footer_row};ws={};panes={};layout={};cfg={};focus={};swap={};mode={};windows={last_window_count};launch={launch_note};keymap={keymap_note};quit={}",
                         workspaces.label(),
                         split_state.label(),
                         layout_state.label(),
@@ -7337,18 +7335,47 @@ pub fn run_loop_with<S: XServer>(
                         focus_state.label(),
                         swap_state.label(),
                         toggle_state.label(),
-                        last_window_count,
-                        live_fps,
-                        peak_fps,
-                        fps,
-                        launch_note,
-                        keymap_note,
                         ctrl_c_guard.quit_hint(last_window_count > 0),
-                        dbg.path_display()
-                    )?;
-                    wrote_frame_output = true;
-                    last_footer_key = footer_key;
-                    last_footer_row = Some(footer_row);
+                    );
+                    if should_write_compositor_footer(&last_footer_key, &footer_key, frame, 30) {
+                        if let Some(old_row) = last_footer_row {
+                            if old_row != footer_row {
+                                write!(handle, "\x1b[{};1H\x1b[K", old_row)?;
+                            }
+                        }
+                        write!(
+                            handle,
+                            "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — {} (log: {})",
+                            footer_row,
+                            frame,
+                            workspaces.label(),
+                            split_state.label(),
+                            layout_state.label(),
+                            config_state.label(),
+                            focus_state.label(),
+                            swap_state.label(),
+                            toggle_state.label(),
+                            last_window_count,
+                            live_fps,
+                            peak_fps,
+                            fps,
+                            launch_note,
+                            keymap_note,
+                            ctrl_c_guard.quit_hint(last_window_count > 0),
+                            dbg.path_display()
+                        )?;
+                        wrote_frame_output = true;
+                        last_footer_key = footer_key;
+                        last_footer_row = Some(footer_row);
+                    }
+                } else {
+                    if let Some(old_row) = last_footer_row.take() {
+                        if old_row <= terminal_rows {
+                            write!(handle, "\x1b[{};1H\x1b[K", old_row)?;
+                            wrote_frame_output = true;
+                        }
+                    }
+                    last_footer_key.clear();
                 }
                 launcher_overlay_was_active = launcher_overlay.active;
                 picker_overlay_was_active = picker_overlay.active;
