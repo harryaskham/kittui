@@ -308,6 +308,10 @@ fn update_native_idle_counter(counter: &mut u16, emitted: bool) {
     }
 }
 
+fn update_native_idle_counter_for_activity(counter: &mut u16, emitted: bool, input_activity: bool) {
+    update_native_idle_counter(counter, emitted || input_activity);
+}
+
 fn raw_compositor_current_frame_target(
     active_target: Duration,
     idle_target: Duration,
@@ -423,12 +427,14 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut affordance_chrome_keys = HashMap::<String, NativeChromePlacementMemo>::new();
     loop {
         let frame_start = Instant::now();
+        let mut input_activity = false;
         let mut chunk = [0u8; 1024];
         while poll_stdin(Duration::ZERO) {
             let n = stdin.read(&mut chunk).unwrap_or(0);
             if n == 0 {
                 break;
             }
+            input_activity = true;
             let mut offset = 0usize;
             while offset < n {
                 let remaining = &chunk[offset..n];
@@ -912,9 +918,17 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     last_terminal_render = rendered;
                 }
                 let emitted = frame_out.write_to(&mut handle)?;
-                update_native_idle_counter(&mut consecutive_idle_frames, emitted);
+                update_native_idle_counter_for_activity(
+                    &mut consecutive_idle_frames,
+                    emitted,
+                    input_activity,
+                );
             } else {
-                update_native_idle_counter(&mut consecutive_idle_frames, false);
+                update_native_idle_counter_for_activity(
+                    &mut consecutive_idle_frames,
+                    false,
+                    input_activity,
+                );
             }
             clear = false;
             let sleep_target = native_current_frame_target(
@@ -1189,7 +1203,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             last_footer = shell_view.footer.text;
         }
         let emitted = frame_out.write_to(&mut handle)?;
-        update_native_idle_counter(&mut consecutive_idle_frames, emitted);
+        update_native_idle_counter_for_activity(
+            &mut consecutive_idle_frames,
+            emitted,
+            input_activity,
+        );
         let sleep_target =
             native_current_frame_target(frame_target, idle_frame_target, consecutive_idle_frames);
         sleep_remaining_frame_budget(frame_start, sleep_target);
@@ -4768,6 +4786,11 @@ mod native_pane_tests {
         assert_eq!(counter, 2);
         update_native_idle_counter(&mut counter, true);
         assert_eq!(counter, 0);
+        update_native_idle_counter(&mut counter, false);
+        update_native_idle_counter(&mut counter, false);
+        assert_eq!(counter, 2);
+        update_native_idle_counter_for_activity(&mut counter, false, true);
+        assert_eq!(counter, 0);
     }
 
     #[test]
@@ -8016,6 +8039,7 @@ pub fn run_loop_with<S: XServer>(
 
     loop {
         let frame_start = Instant::now();
+        let mut input_activity = false;
 
         // Drain any pending stdin BEFORE the expensive compose, so q/Esc
         // takes effect even when a single frame is slow.
@@ -8025,6 +8049,7 @@ pub fn run_loop_with<S: XServer>(
             if n == 0 {
                 break;
             }
+            input_activity = true;
             input_buf.extend_from_slice(&chunk[..n]);
         }
         let mut quit = false;
@@ -8622,7 +8647,11 @@ pub fn run_loop_with<S: XServer>(
                 } else {
                     false
                 };
-                update_native_idle_counter(&mut consecutive_idle_frames, emitted);
+                update_native_idle_counter_for_activity(
+                    &mut consecutive_idle_frames,
+                    emitted,
+                    input_activity,
+                );
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -8638,10 +8667,18 @@ pub fn run_loop_with<S: XServer>(
                         dbg.path_display()
                     )?;
                     handle.flush()?;
-                    update_native_idle_counter(&mut consecutive_idle_frames, true);
+                    update_native_idle_counter_for_activity(
+                        &mut consecutive_idle_frames,
+                        true,
+                        input_activity,
+                    );
                     last_error_key = Some(error_key);
                 } else {
-                    update_native_idle_counter(&mut consecutive_idle_frames, false);
+                    update_native_idle_counter_for_activity(
+                        &mut consecutive_idle_frames,
+                        false,
+                        input_activity,
+                    );
                 }
                 launcher_overlay_was_active = launcher_overlay.active;
                 picker_overlay_was_active = picker_overlay.active;
@@ -8666,6 +8703,11 @@ pub fn run_loop_with<S: XServer>(
             if poll_budget >= Duration::from_micros(500) && poll_stdin(poll_budget) {
                 let n = stdin.read(&mut chunk).unwrap_or(0);
                 if n > 0 {
+                    update_native_idle_counter_for_activity(
+                        &mut consecutive_idle_frames,
+                        false,
+                        true,
+                    );
                     dbg.log(&format!(
                         "stdin read {n} bytes: {:02x?}",
                         &chunk[..n.min(32)]
