@@ -1820,7 +1820,8 @@ fn native_shortcuts_json_reply() -> String {
 fn native_workspace_id() -> String {
     std::env::var("KITTWM_WORKSPACE")
         .ok()
-        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "1".to_string())
 }
 
@@ -3957,7 +3958,7 @@ mod tests {
     #[test]
     fn native_chrome_json_honors_workspace_env_label() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("KITTWM_WORKSPACE", "dev");
+        std::env::set_var("KITTWM_WORKSPACE", " dev ");
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
         let chrome: serde_json::Value =
             serde_json::from_str(&native_spawn_queue_reply("CHROME_JSON", &pending)).unwrap();
@@ -3968,6 +3969,8 @@ mod tests {
             serde_json::from_str(&native_spawn_queue_reply("STATUS_JSON", &pending)).unwrap();
         assert_eq!(status["workspace"], "dev");
         assert_eq!(status["chrome"]["workspace"], "dev");
+        std::env::set_var("KITTWM_WORKSPACE", "   ");
+        assert_eq!(native_workspace_id(), "1");
         std::env::remove_var("KITTWM_WORKSPACE");
     }
 
