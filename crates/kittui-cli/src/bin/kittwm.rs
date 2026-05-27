@@ -4048,7 +4048,7 @@ fn daily_help_scene(kind: &str, text: &str) -> Scene {
         .lines()
         .filter(|line| !line.trim().is_empty())
         .collect::<Vec<_>>();
-    let rows = (content_lines.len() as u16 + 4).clamp(8, 30);
+    let rows = daily_help_scene_rows(content_lines.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -4399,6 +4399,10 @@ fn info_scene(
 
 fn daily_help_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn daily_help_scene_rows(line_count: usize) -> u16 {
+    line_count.saturating_add(4).clamp(8, 30) as u16
 }
 
 fn info_indicator_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -6385,6 +6389,13 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn daily_help_scene_rows_saturate_before_clamping() {
+        assert_eq!(daily_help_scene_rows(0), 8);
+        assert_eq!(daily_help_scene_rows(20), 24);
+        assert_eq!(daily_help_scene_rows(usize::MAX), 30);
     }
 
     #[test]
