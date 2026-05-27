@@ -5628,12 +5628,11 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
-    let prefix = km
+    let prefix_label = km
         .prefix
         .as_ref()
-        .map(ToString::to_string)
+        .map(|prefix| keymap_keyspec_label(prefix, 32))
         .unwrap_or_else(|| "<none>".to_string());
-    let prefix_label = truncate(&prefix, 32);
     let duplicates = keymap_duplicate_count(km);
     let mut layers = vec![
         Layer {
@@ -5674,8 +5673,8 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
     ];
     for (idx, binding) in km.bindings.iter().take(20).enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
-        let chord_label = truncate(&binding.chord_string(), 48);
-        let action_label = truncate(&binding.action.to_string(), 48);
+        let chord_label = keymap_chord_label(&binding.chord, 48);
+        let action_label = keymap_action_label(&binding.action, 48);
         layers.push(Layer {
             label: Some(format!(
                 "kittwm-keymap-row:{idx}:{chord_label}:{action_label}"
@@ -5700,6 +5699,57 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
 
 fn keymap_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn keymap_keyspec_label(spec: &kittui_cli::keymap::KeySpec, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    if spec.mods.ctrl {
+        out.push_str("C-");
+    }
+    if spec.mods.alt {
+        out.push_str("M-");
+    }
+    if spec.mods.shift {
+        out.push_str("S-");
+    }
+    let used = out.chars().count();
+    if used >= max {
+        return truncate(&out, max);
+    }
+    out.push_str(&truncate(&spec.key, max - used));
+    truncate(&out, max)
+}
+
+fn keymap_chord_label(chord: &[kittui_cli::keymap::KeySpec], max: usize) -> String {
+    let mut out = String::new();
+    for spec in chord {
+        if !out.is_empty() {
+            if out.chars().count() + 1 >= max {
+                out.push('…');
+                return truncate(&out, max);
+            }
+            out.push(' ');
+        }
+        let used = out.chars().count();
+        if used >= max {
+            return truncate(&out, max);
+        }
+        out.push_str(&keymap_keyspec_label(spec, max - used));
+        if out.ends_with('…') {
+            return out;
+        }
+    }
+    out
+}
+
+fn keymap_action_label(action: &kittui_cli::keymap::Action, max: usize) -> String {
+    match action {
+        kittui_cli::keymap::Action::Custom(action) => truncate(action, max),
+        action => truncate(&action.to_string(), max),
+    }
 }
 
 fn keymap_scene_rows(binding_count: usize) -> u16 {
@@ -8120,10 +8170,11 @@ mod tests {
                         alt: true,
                         shift: true,
                     },
-                    key: "binding-key-that-is-pathologically-long".to_string(),
+                    key: "binding-key-that-is-pathologically-long-and-would-bloat-labels"
+                        .to_string(),
                 }],
                 action: kittui_cli::keymap::Action::Custom(
-                    "custom.action.with.pathologically.long.name".to_string(),
+                    "custom.action.with.pathologically.long.name.and.extra.suffix".to_string(),
                 ),
             }],
         };
@@ -8147,11 +8198,11 @@ mod tests {
             .find(|label| label.starts_with("kittwm-keymap-row:0:"))
             .unwrap();
         assert!(
-            row.contains("C-M-S-binding-key-that-is-pathologically-long"),
+            row.contains("C-M-S-binding-key-that-is-pathologically-long-a…"),
             "{row}"
         );
         assert!(
-            row.contains("custom.action.with.pathologically.long.name"),
+            row.contains("custom.action.with.pathologically.long.name.and…"),
             "{row}"
         );
         assert!(row.len() < 130, "{row}");
