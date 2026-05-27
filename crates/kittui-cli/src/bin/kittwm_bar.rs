@@ -600,9 +600,9 @@ mod tests {
         };
         let overlay = kittwm_bar_kitty_text_overlay(&model, 40);
         assert!(overlay.starts_with("\x1b[0m\x1b[1;1H"), "{overlay:?}");
-        assert!(overlay.contains(" 1 "), "{overlay:?}");
+        assert!(!overlay.contains(" 1 "), "{overlay:?}");
         assert!(overlay.contains(" 2 "), "{overlay:?}");
-        assert!(overlay.contains(" 3 "), "{overlay:?}");
+        assert!(!overlay.contains(" 3 "), "{overlay:?}");
         assert!(overlay.contains(" 09:05 "), "{overlay:?}");
         assert!(overlay.contains("\x1b[38;2;"), "{overlay:?}");
         assert!(overlay.contains("\x1b[48;2;"), "{overlay:?}");
@@ -619,7 +619,7 @@ mod tests {
         };
         let overlay = kittwm_bar_kitty_text_overlay_with_config(&model, 40, &config);
         assert!(overlay.contains("\x1b[48;2;221;238;255m 2 "), "{overlay:?}");
-        assert!(overlay.contains("\x1b[48;2;17;34;51m 1 "), "{overlay:?}");
+        assert!(!overlay.contains("\x1b[48;2;17;34;51m 1 "), "{overlay:?}");
         assert!(
             overlay.contains("\x1b[48;2;17;34;51m 00:00 "),
             "{overlay:?}"
@@ -648,16 +648,10 @@ mod tests {
     #[test]
     fn kitty_bar_text_overlay_prioritizes_active_workspace_when_constrained() {
         let custom = BarModel::new("dev", 0, "-", false, UNIX_EPOCH);
-        assert_eq!(
-            kittwm_bar_overlay_labels(&custom, 60),
-            vec!["1", "2", "3", "dev"]
-        );
-        assert_eq!(
-            kittwm_bar_overlay_labels(&custom, 8),
-            vec!["dev", "1", "2", "3"]
-        );
+        assert_eq!(kittwm_bar_overlay_labels(&custom, 60), vec!["dev"]);
+        assert_eq!(kittwm_bar_overlay_labels(&custom, 8), vec!["dev"]);
         let numeric = BarModel::new("3", 0, "-", false, UNIX_EPOCH);
-        assert_eq!(kittwm_bar_overlay_labels(&numeric, 8), vec!["3", "1", "2"]);
+        assert_eq!(kittwm_bar_overlay_labels(&numeric, 8), vec!["3"]);
     }
 
     #[test]
@@ -710,14 +704,8 @@ mod tests {
             bar: BarModel::new("3", 0, "-", false, UNIX_EPOCH),
             chrome: None,
         };
-        assert_eq!(
-            kittwm_bar_overlay_labels(&model.bar, 80),
-            vec!["1", "2", "3"]
-        );
-        assert_eq!(
-            kittwm_bar_overlay_labels(&model.bar, 8),
-            vec!["3", "1", "2"]
-        );
+        assert_eq!(kittwm_bar_overlay_labels(&model.bar, 80), vec!["3"]);
+        assert_eq!(kittwm_bar_overlay_labels(&model.bar, 8), vec!["3"]);
         let overlay = kittwm_bar_kitty_text_overlay(&model, 8);
         assert!(overlay.contains(" 3 "), "{overlay:?}");
         assert!(!overlay.contains(" 1  "), "{overlay:?}");
@@ -750,6 +738,7 @@ mod tests {
         assert_eq!(json["chrome"]["gap_rows"], 1);
         assert_eq!(json["chrome"]["owner"], "bar");
         assert_eq!(json["chrome"]["tilable_rows"], 22);
-        assert!(model.render().contains("| 1 | 2 | 3 |"));
+        assert!(model.render().contains("|[dev]|"));
+        assert!(!model.render().contains("| 1 | 2 | 3 |"));
     }
 }

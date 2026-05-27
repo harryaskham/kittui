@@ -4660,16 +4660,16 @@ mod native_pane_tests {
         let model = BarModel::new("dev", 0, "-", true, std::time::UNIX_EPOCH);
         assert_eq!(
             native_graphical_top_bar_overlay_labels(&model, 80),
-            vec!["1", "2", "3", "dev"]
+            vec!["dev"]
         );
         assert_eq!(
             native_graphical_top_bar_overlay_labels(&model, 8),
-            vec!["dev", "1", "2", "3"]
+            vec!["dev"]
         );
         let numeric = BarModel::new("2", 0, "-", true, std::time::UNIX_EPOCH);
         assert_eq!(
             native_graphical_top_bar_overlay_labels(&numeric, 8),
-            vec!["2", "1", "3"]
+            vec!["2"]
         );
     }
 
@@ -4699,14 +4699,14 @@ mod native_pane_tests {
         let model = BarModel::new("dev", 0, "-", true, std::time::UNIX_EPOCH);
         let labels = model.workspace_chip_labels();
         let workspace_cols = workspace_chip_total_cols(&labels);
-        assert_eq!(labels, vec!["1", "2", "3", "dev"]);
-        assert_eq!(workspace_cols, 18);
+        assert_eq!(labels, vec!["dev"]);
+        assert_eq!(workspace_cols, 6);
         assert_eq!(
             native_graphical_top_bar_clock_col(26, workspace_cols, 7),
             Some(20)
         );
         assert_eq!(
-            native_graphical_top_bar_clock_col(25, workspace_cols, 7),
+            native_graphical_top_bar_clock_col(13, workspace_cols, 7),
             None
         );
     }
@@ -6345,7 +6345,7 @@ mod native_pane_tests {
         assert!(
             labels
                 .iter()
-                .any(|label| label.starts_with("kittwm-live-top-bar-text:|[1]| 2 | 3 |")),
+                .any(|label| label.starts_with("kittwm-live-top-bar-text:|[1]|")),
             "{labels:?}"
         );
         assert_eq!(scene.footprint.rows, 1);
@@ -6971,7 +6971,7 @@ mod native_pane_tests {
             .label
             .as_deref()
             .unwrap_or_default()
-            .contains("|[1]| 2 | 3 |")));
+            .contains("|[1]|")));
         assert!(scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
@@ -7009,7 +7009,8 @@ mod native_pane_tests {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("KITTWM_WORKSPACE", "dev");
         let text = native_top_bar_text(1, 0, "/tmp/kittwm.sock", 40);
-        assert!(text.contains("| 1 | 2 | 3 |"), "{text}");
+        assert!(text.contains("|[dev]|"), "{text}");
+        assert!(!text.contains("| 1 | 2 | 3 |"), "{text}");
         assert!(text.ends_with("00:00 ") || text.contains(":"), "{text}");
         std::env::remove_var("KITTWM_WORKSPACE");
     }

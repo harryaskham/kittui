@@ -122,16 +122,19 @@ impl BarModel {
             + "|"
     }
 
-    /// Workspace chips shown in the bar. Numeric defaults stay first; a custom
-    /// active workspace label is appended so it is visible and can carry active
-    /// action metadata.
+    /// Workspace chips shown in the bar.
+    ///
+    /// The first-launch bar should represent only existing workspace state.
+    /// Additional workspaces are created on demand by navigation/keymap actions,
+    /// so the bar starts with one active chip instead of advertising inactive
+    /// non-existent workspaces.
     pub fn workspace_chip_labels(&self) -> Vec<String> {
         let workspace = self.workspace.trim();
-        let mut labels = (1..=3).map(|idx| idx.to_string()).collect::<Vec<_>>();
-        if !workspace.is_empty() && !labels.iter().any(|label| label == workspace) {
-            labels.push(workspace.to_string());
-        }
-        labels
+        vec![if workspace.is_empty() {
+            "1".to_string()
+        } else {
+            workspace.to_string()
+        }]
     }
 
     fn workspace_chip_labels_for_scene(&self, cols: u16) -> Vec<String> {
@@ -436,7 +439,8 @@ mod tests {
         assert_eq!(model.state, "empty");
         assert!(!model.connected);
         let rendered = model.render();
-        assert!(rendered.contains("|[1]| 2 | 3 |"), "{rendered}");
+        assert!(rendered.contains("|[1]|"), "{rendered}");
+        assert!(!rendered.contains("| 2 | 3 |"), "{rendered}");
         assert!(rendered.contains("12:34"), "{rendered}");
         assert!(!rendered.contains("kittui-bar"), "{rendered}");
     }
@@ -455,7 +459,9 @@ mod tests {
     fn text_bar_marks_active_workspace() {
         let model = BarModel::new("2", 1, "native-1", true, UNIX_EPOCH);
         let rendered = model.render();
-        assert!(rendered.contains("| 1 |[2]| 3 |"), "{rendered}");
+        assert!(rendered.contains("|[2]|"), "{rendered}");
+        assert!(!rendered.contains("| 1 |"), "{rendered}");
+        assert!(!rendered.contains("| 3 |"), "{rendered}");
     }
 
     #[test]
@@ -469,10 +475,7 @@ mod tests {
         let rendered = numeric.render_i3bar(8);
         assert!(rendered.starts_with("|[3]"), "{rendered}");
         assert!(!rendered.starts_with("| 1 | 2"), "{rendered}");
-        assert_eq!(
-            numeric.workspace_chip_labels_active_first(),
-            vec!["3", "1", "2"]
-        );
+        assert_eq!(numeric.workspace_chip_labels_active_first(), vec!["3"]);
     }
 
     #[test]
@@ -481,15 +484,17 @@ mod tests {
         let full = model.render();
         let exact = model.render_i3bar(full.chars().count());
         assert_eq!(exact, full);
-        assert!(exact.contains("| 1 | 2 | 3 |[dev]|"), "{exact}");
+        assert!(exact.contains("|[dev]|"), "{exact}");
+        assert!(!exact.contains("| 1 | 2 | 3 |"), "{exact}");
     }
 
     #[test]
     fn text_bar_includes_custom_active_workspace() {
         let model = BarModel::new("dev", 1, "native-1", true, UNIX_EPOCH);
         let rendered = model.render();
-        assert!(rendered.contains("| 1 | 2 | 3 |[dev]|"), "{rendered}");
-        assert_eq!(model.workspace_chip_labels(), vec!["1", "2", "3", "dev"]);
+        assert!(rendered.contains("|[dev]|"), "{rendered}");
+        assert!(!rendered.contains("| 1 | 2 | 3 |"), "{rendered}");
+        assert_eq!(model.workspace_chip_labels(), vec!["dev"]);
     }
 
     #[test]
@@ -600,7 +605,7 @@ mod tests {
     #[test]
     fn custom_workspace_label_is_rendered_as_active_chip() {
         let model = BarModel::new("dev", 0, "-", false, UNIX_EPOCH);
-        assert_eq!(model.workspace_chip_labels(), vec!["1", "2", "3", "dev"]);
+        assert_eq!(model.workspace_chip_labels(), vec!["dev"]);
         let rendered = model.render();
         assert!(rendered.contains("|[dev]|"), "{rendered}");
         let scene = model.scene(60);
@@ -656,7 +661,7 @@ mod tests {
             .label
             .as_deref()
             .unwrap_or_default()
-            .contains("|[1]| 2 | 3 |")));
+            .contains("|[1]|")));
         assert!(scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
