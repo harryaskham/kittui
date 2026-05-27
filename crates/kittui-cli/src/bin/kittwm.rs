@@ -2273,12 +2273,7 @@ fn doctor_scene(transport: &TransportDiagnostics, log_present: bool, display_cou
                     transport.tmux, transport.remote
                 )),
                 root: Node::Rect {
-                    rect: KittuiPxRect::new(
-                        10.0,
-                        cell.height_px as f32 * 2.2,
-                        (width - 20.0).max(1.0),
-                        2.0,
-                    ),
+                    rect: doctor_readiness_rect(width, cell),
                     fill: Paint::Solid {
                         color: if transport.supports_kitty {
                             Rgba::rgba(163, 190, 140, 255)
@@ -2293,6 +2288,17 @@ fn doctor_scene(transport: &TransportDiagnostics, log_present: bool, display_cou
         ],
         animation: None,
     }
+}
+
+fn doctor_readiness_rect(width: f32, cell: CellSize) -> KittuiPxRect {
+    let inset = (width * 0.12).min(10.0).floor().max(0.0);
+    let available = (width - inset * 2.0).max(1.0).min(width.max(1.0));
+    KittuiPxRect::new(
+        inset.min((width - 1.0).max(0.0)),
+        cell.height_px as f32 * 2.2,
+        available,
+        2.0,
+    )
 }
 
 fn doctor_scene_cols() -> u16 {
@@ -6266,6 +6272,8 @@ fn keymap_duplicate_count(km: &kittui_cli::keymap::Keymap) -> usize {
 mod tests {
     use super::*;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
     }
@@ -7064,6 +7072,36 @@ mod tests {
         assert!(text.contains("kittwm quickstart"), "{text}");
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("KITTWM_NATIVE_RENDERER="), "{text}");
+    }
+
+    #[test]
+    fn doctor_scene_respects_narrow_positive_columns() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_DOCTOR_COLS", "8");
+        let diagnostics = TransportDiagnostics::detect(&TerminalInfo::override_with(
+            Some(8),
+            Some(6),
+            CellSize::new(8, 16),
+            true,
+            true,
+            kittui::Transport::Direct,
+        ));
+        let scene = doctor_scene(&diagnostics, true, 1);
+        assert_eq!(scene.footprint.cols, 8);
+        let width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = &layer.root {
+                assert!(rect.origin.0 >= 0.0, "{rect:?}");
+                assert!(rect.width >= 1.0, "{rect:?}");
+                assert!(
+                    rect.origin.0 + rect.width <= width + 0.01,
+                    "{rect:?} > {width}"
+                );
+            }
+        }
+        std::env::set_var("KITTWM_DOCTOR_COLS", "200");
+        assert_eq!(doctor_scene_cols(), 120);
+        std::env::remove_var("KITTWM_DOCTOR_COLS");
     }
 
     #[test]
