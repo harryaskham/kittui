@@ -413,18 +413,21 @@ fn kittwm_bar_kitty_options(scene: &kittui::Scene) -> kittui_kitty::PlacementOpt
 const MAX_KITTWM_BAR_COLS: u16 = 1000;
 
 fn scene_cols() -> u16 {
-    scene_cols_from_value(
+    let detected = TerminalInfo::detect().columns;
+    scene_cols_from_sources(
         std::env::var("KITTWM_BAR_COLS")
             .or_else(|_| std::env::var("COLUMNS"))
             .ok()
             .as_deref(),
+        detected,
     )
 }
 
-fn scene_cols_from_value(value: Option<&str>) -> u16 {
+fn scene_cols_from_sources(value: Option<&str>, detected_cols: Option<u16>) -> u16 {
     value
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|cols| *cols > 0)
+        .or_else(|| detected_cols.filter(|cols| *cols > 0))
         .map(|cols| cols.min(MAX_KITTWM_BAR_COLS))
         .unwrap_or(80)
 }
@@ -579,10 +582,19 @@ mod tests {
 
     #[test]
     fn scene_cols_caps_pathological_overrides() {
-        assert_eq!(scene_cols_from_value(None), 80);
-        assert_eq!(scene_cols_from_value(Some("0")), 80);
-        assert_eq!(scene_cols_from_value(Some("120")), 120);
-        assert_eq!(scene_cols_from_value(Some("65535")), MAX_KITTWM_BAR_COLS);
+        assert_eq!(scene_cols_from_sources(None, None), 80);
+        assert_eq!(scene_cols_from_sources(Some("0"), None), 80);
+        assert_eq!(scene_cols_from_sources(None, Some(132)), 132);
+        assert_eq!(scene_cols_from_sources(Some("0"), Some(132)), 132);
+        assert_eq!(scene_cols_from_sources(Some("120"), Some(132)), 120);
+        assert_eq!(
+            scene_cols_from_sources(Some("65535"), Some(132)),
+            MAX_KITTWM_BAR_COLS
+        );
+        assert_eq!(
+            scene_cols_from_sources(None, Some(u16::MAX)),
+            MAX_KITTWM_BAR_COLS
+        );
     }
 
     #[test]
