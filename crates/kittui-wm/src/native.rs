@@ -2921,6 +2921,15 @@ fn draw_terminal_glyph(
 }
 
 static TERMINAL_FONT: OnceLock<Option<TerminalFont>> = OnceLock::new();
+static TERMINAL_FONT_GLYPHS: OnceLock<
+    Mutex<std::collections::HashMap<(char, u32), TerminalFontGlyph>>,
+> = OnceLock::new();
+
+#[derive(Clone)]
+struct TerminalFontGlyph {
+    metrics: fontdue::Metrics,
+    bitmap: Vec<u8>,
+}
 
 struct TerminalFont {
     font: fontdue::Font,
@@ -3057,10 +3066,11 @@ fn draw_terminal_font_glyph(
         return false;
     };
     let px = (cell_h as f32 * 0.82).max(6.0);
-    let (metrics, bitmap) = font.font.rasterize(ch, px);
-    if metrics.width == 0 || metrics.height == 0 || bitmap.is_empty() {
+    let Some(glyph) = cached_terminal_font_glyph(font, ch, px) else {
         return false;
-    }
+    };
+    let metrics = &glyph.metrics;
+    let bitmap = &glyph.bitmap;
     let x0 = i32::from(col) * cell_w as i32;
     let y0 = i32::from(row) * cell_h as i32;
     let left = ((cell_w as i32 - metrics.width as i32) / 2).max(0) + metrics.xmin;
@@ -3081,6 +3091,36 @@ fn draw_terminal_font_glyph(
         }
     }
     true
+}
+
+fn cached_terminal_font_glyph(font: &TerminalFont, ch: char, px: f32) -> Option<TerminalFontGlyph> {
+    let px_key = (px * 64.0).round().max(0.0) as u32;
+    let cache = TERMINAL_FONT_GLYPHS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    if let Some(glyph) = cache.lock().get(&(ch, px_key)).cloned() {
+        return Some(glyph);
+    }
+    let (metrics, bitmap) = font.font.rasterize(ch, px);
+    if metrics.width == 0 || metrics.height == 0 || bitmap.is_empty() {
+        return None;
+    }
+    let glyph = TerminalFontGlyph { metrics, bitmap };
+    cache.lock().insert((ch, px_key), glyph.clone());
+    Some(glyph)
+}
+
+#[cfg(test)]
+fn clear_terminal_font_glyph_cache_for_tests() {
+    if let Some(cache) = TERMINAL_FONT_GLYPHS.get() {
+        cache.lock().clear();
+    }
+}
+
+#[cfg(test)]
+fn terminal_font_glyph_cache_len_for_tests() -> usize {
+    TERMINAL_FONT_GLYPHS
+        .get()
+        .map(|cache| cache.lock().len())
+        .unwrap_or(0)
 }
 
 fn blend_rgba_pixel(rgba: &mut [u8], width: u32, x: u32, y: u32, color: TerminalColor, alpha: u8) {
@@ -4758,6 +4798,23 @@ mod tests {
         let mut glyph = default_cell;
         glyph.ch = 'x';
         assert!(!is_blank_default_terminal_cell(&glyph));
+    }
+
+    #[test]
+    fn terminal_font_glyph_cache_reuses_character_size_entries() {
+        clear_terminal_font_glyph_cache_for_tests();
+        let Some(font) = terminal_font() else {
+            return;
+        };
+        let Some(first) = cached_terminal_font_glyph(font, 'A', 13.0) else {
+            return;
+        };
+        let second = cached_terminal_font_glyph(font, 'A', 13.0).expect("cached glyph");
+        assert_eq!(first.metrics.width, second.metrics.width);
+        assert_eq!(first.bitmap, second.bitmap);
+        assert_eq!(terminal_font_glyph_cache_len_for_tests(), 1);
+        let _ = cached_terminal_font_glyph(font, 'B', 13.0);
+        assert!(terminal_font_glyph_cache_len_for_tests() >= 1);
     }
 
     #[test]
