@@ -579,6 +579,21 @@ mod tests {
     }
 
     #[test]
+    fn kitty_bar_text_overlay_prioritizes_active_workspace_when_constrained() {
+        let custom = BarModel::new("dev", 0, "-", false, UNIX_EPOCH);
+        assert_eq!(
+            kittwm_bar_overlay_labels(&custom, 60),
+            vec!["1", "2", "3", "dev"]
+        );
+        assert_eq!(
+            kittwm_bar_overlay_labels(&custom, 8),
+            vec!["dev", "1", "2", "3"]
+        );
+        let numeric = BarModel::new("3", 0, "-", false, UNIX_EPOCH);
+        assert_eq!(kittwm_bar_overlay_labels(&numeric, 8), vec!["3", "1", "2"]);
+    }
+
+    #[test]
     fn kitty_bar_text_overlay_clips_long_workspace_labels_to_row() {
         let model = BarOutputModel {
             bar: BarModel::new("super-long-workspace-name", 0, "-", false, UNIX_EPOCH),
@@ -586,7 +601,7 @@ mod tests {
         };
         let overlay = kittwm_bar_kitty_text_overlay(&model, 18);
         assert!(overlay.starts_with("\x1b[0m\x1b[1;1H\x1b[K"), "{overlay:?}");
-        assert!(overlay.contains(" sup "), "{overlay:?}");
+        assert!(overlay.contains(" super-long-work "), "{overlay:?}");
         assert!(
             !overlay.contains("super-long-workspace-name"),
             "{overlay:?}"
@@ -611,7 +626,7 @@ mod tests {
             chrome: None,
         };
         let overlay = kittwm_bar_kitty_text_overlay(&model, 18);
-        assert!(overlay.contains(" sup "), "{overlay:?}");
+        assert!(overlay.contains(" super-long-work "), "{overlay:?}");
         assert!(
             !overlay.contains(" super-long-workspace-name "),
             "{overlay:?}"
