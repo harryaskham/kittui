@@ -214,8 +214,16 @@ fn should_write_ansi_top_bar(
     !affordance_scene_chrome && (redraw_static || current != last)
 }
 
+fn raw_compositor_app_z_index() -> i32 {
+    // The raw compositor draws pane titles/footer as ANSI text, not kittui
+    // scene text. Keep app images below that terminal text layer; graphical
+    // native chrome paths continue to use the SDK app z-index contract.
+    native_app_z_index().min(-1)
+}
+
 fn raw_compositor_app_placement_options(image_id: u32) -> kittui_kitty::PlacementOptions {
-    kittui_kitty::PlacementOptions::stable_absolute(image_id).with_z_index(native_app_z_index())
+    kittui_kitty::PlacementOptions::stable_absolute(image_id)
+        .with_z_index(raw_compositor_app_z_index())
 }
 
 fn raw_compositor_error_key(message: &str, log_path: &str) -> String {
@@ -4116,11 +4124,15 @@ mod native_pane_tests {
     }
 
     #[test]
-    fn raw_compositor_app_placement_is_stable_absolute() {
+    fn raw_compositor_app_placement_is_stable_absolute_below_text() {
         let opts = raw_compositor_app_placement_options(42);
         assert_eq!(opts.placement_id, Some(42));
         assert!(!opts.unicode_placeholder);
-        assert_eq!(opts.z_index, native_app_z_index());
+        assert_eq!(opts.z_index, raw_compositor_app_z_index());
+        assert!(
+            opts.z_index < 0,
+            "raw app images must stay below ANSI chrome text"
+        );
     }
 
     #[test]
