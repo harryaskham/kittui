@@ -391,16 +391,14 @@ fn workspace_chip_label_cols(label: &str) -> u16 {
 }
 
 fn top_bar_display_label(label: &str) -> String {
-    if label.chars().count() <= TOP_BAR_LABEL_MAX_CHARS {
-        label.to_string()
-    } else {
-        let mut out: String = label
-            .chars()
-            .take(TOP_BAR_LABEL_MAX_CHARS.saturating_sub(1))
-            .collect();
-        out.push('…');
-        out
+    let mut chars = label.chars();
+    let mut out: String = chars.by_ref().take(TOP_BAR_LABEL_MAX_CHARS).collect();
+    if chars.next().is_none() {
+        return out;
     }
+    out.pop();
+    out.push('…');
+    out
 }
 
 fn top_bar_clock_chip_x(total_width: f32, chip_end_x: f32, clock_width: f32) -> Option<f32> {
@@ -559,6 +557,12 @@ mod tests {
     #[test]
     fn text_and_scene_workspace_labels_are_bounded_for_pathological_input() {
         let long = "workspace-".repeat(10_000);
+        assert_eq!(top_bar_display_label("dev"), "dev");
+        assert_eq!(
+            top_bar_display_label(&long).chars().count(),
+            TOP_BAR_LABEL_MAX_CHARS
+        );
+        assert!(top_bar_display_label(&long).ends_with('…'));
         let model = BarModel::new(long, 1, "native-1", true, UNIX_EPOCH);
         let rendered = model.render();
         assert!(
