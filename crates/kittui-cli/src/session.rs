@@ -17,6 +17,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::{self, Read, Write};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
@@ -3054,26 +3055,38 @@ fn render_native_shell_view_affordance_scenes(
     scenes
 }
 
+static NATIVE_GLASS_CHROME_COLORS: OnceLock<InlineChipColors> = OnceLock::new();
+
 fn native_glass_chrome_colors() -> InlineChipColors {
+    NATIVE_GLASS_CHROME_COLORS
+        .get_or_init(resolve_native_glass_chrome_colors)
+        .clone()
+}
+
+fn resolve_native_glass_chrome_colors() -> InlineChipColors {
     let mut colors = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass);
     if let Ok(config) = KittwmConfig::load_default() {
-        colors.fill = config_color_rgba(
-            &config.background.color,
-            config.background.opacity,
-            colors.fill,
-        );
-        colors.border = config_color_rgba(&config.colorscheme.fg, 1.0, colors.border);
-        colors.highlight = config_color_rgba(
-            config
-                .colorscheme
-                .ansi_color(4)
-                .unwrap_or(&config.colorscheme.fg),
-            0.42,
-            colors.highlight,
-        );
-        colors.fg = config_color_rgba(&config.colorscheme.fg, 1.0, colors.fg);
+        apply_kittwm_config_to_chrome_colors(&mut colors, &config);
     }
     colors
+}
+
+fn apply_kittwm_config_to_chrome_colors(colors: &mut InlineChipColors, config: &KittwmConfig) {
+    colors.fill = config_color_rgba(
+        &config.background.color,
+        config.background.opacity,
+        colors.fill,
+    );
+    colors.border = config_color_rgba(&config.colorscheme.fg, 1.0, colors.border);
+    colors.highlight = config_color_rgba(
+        config
+            .colorscheme
+            .ansi_color(4)
+            .unwrap_or(&config.colorscheme.fg),
+        0.42,
+        colors.highlight,
+    );
+    colors.fg = config_color_rgba(&config.colorscheme.fg, 1.0, colors.fg);
 }
 
 fn config_color_rgba(value: &str, opacity: f32, fallback: Rgba) -> Rgba {
@@ -3836,6 +3849,21 @@ mod native_pane_tests {
             .unwrap());
         assert_eq!(empty_writer.writes, 0);
         assert_eq!(empty_writer.flushes, 0);
+    }
+
+    #[test]
+    fn native_chrome_colors_apply_kittwm_config_without_disk_reload() {
+        let mut colors = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Glass);
+        let mut config = KittwmConfig::default();
+        config.background.color = "#112233".to_string();
+        config.background.opacity = 0.5;
+        config.colorscheme.fg = "#abcdef".to_string();
+        config.colorscheme.colors[4] = "#445566".to_string();
+        apply_kittwm_config_to_chrome_colors(&mut colors, &config);
+        assert_eq!(colors.fill, Rgba(0x11, 0x22, 0x33, 128));
+        assert_eq!(colors.border, Rgba(0xab, 0xcd, 0xef, 255));
+        assert_eq!(colors.fg, Rgba(0xab, 0xcd, 0xef, 255));
+        assert_eq!(colors.highlight, Rgba(0x44, 0x55, 0x66, 107));
     }
 
     #[test]
