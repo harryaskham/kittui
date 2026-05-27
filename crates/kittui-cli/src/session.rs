@@ -7276,6 +7276,12 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn frame_sleep_stops_when_input_is_ready() {
+        assert!(frame_sleep_should_stop_for_input(true));
+        assert!(!frame_sleep_should_stop_for_input(false));
+    }
+
+    #[test]
     fn frame_sleep_chunk_caps_long_slack_for_responsiveness() {
         assert_eq!(
             frame_sleep_chunk(Duration::from_millis(100)),
@@ -8823,9 +8829,19 @@ fn sleep_remaining_frame_budget(frame_start: Instant, frame_target: Duration) {
     let remaining = frame_target
         .checked_sub(frame_start.elapsed())
         .unwrap_or_default();
+    sleep_frame_budget_or_input(remaining);
+}
+
+fn sleep_frame_budget_or_input(remaining: Duration) {
     for chunk in frame_sleep_chunks_for_budget(remaining) {
-        std::thread::sleep(chunk);
+        if frame_sleep_should_stop_for_input(poll_stdin(chunk)) {
+            break;
+        }
     }
+}
+
+fn frame_sleep_should_stop_for_input(input_ready: bool) -> bool {
+    input_ready
 }
 
 fn raw_frame_chrome_key(
