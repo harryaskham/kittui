@@ -1542,6 +1542,16 @@ fn terminal_visible_row(row: u16, rows: u16) -> u16 {
     row.min(rows.saturating_sub(1))
 }
 
+fn terminal_visible_row_opt(row: u16, rows: u16) -> Option<u16> {
+    (rows > 0 && row < rows).then_some(row)
+}
+
+fn terminal_visible_width(x: u16, desired: u16, cols: u16) -> Option<usize> {
+    (x < cols)
+        .then_some(cols.saturating_sub(x).min(desired) as usize)
+        .filter(|width| *width > 0)
+}
+
 fn native_status_line_text(panes: usize, log_path: &str) -> String {
     if panes == 0 {
         String::new()
@@ -2916,12 +2926,14 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
     let colors = native_glass_chrome_colors();
     let mut out = String::new();
     out.push_str("\x1b[H");
-    out.push_str(&format!(
-        "\x1b[{};1H{}{}\x1b[0m",
-        view.top_bar.row + 1,
-        ansi_fg_bg(colors.fg, colors.fill),
-        clip_and_pad(&view.top_bar.text, cols as usize)
-    ));
+    if let Some(top_bar_row) = terminal_visible_row_opt(view.top_bar.row, rows) {
+        out.push_str(&format!(
+            "\x1b[{};1H{}{}\x1b[0m",
+            top_bar_row + 1,
+            ansi_fg_bg(colors.fg, colors.fill),
+            clip_and_pad(&view.top_bar.text, cols as usize)
+        ));
+    }
     // Empty workspaces intentionally render only the top bar by default.
     for pane in &view.panes {
         let title_style = if pane.focused {
@@ -2929,13 +2941,18 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
         } else {
             ansi_fg_bg(colors.fg, rgba_with_alpha(colors.fill, 180))
         };
-        out.push_str(&format!(
-            "\x1b[{};{}H{}{}\x1b[0m",
-            pane.y + 1,
-            pane.x + 1,
-            title_style,
-            pane.text
-        ));
+        if let (Some(title_row), Some(title_width)) = (
+            terminal_visible_row_opt(pane.y, rows),
+            terminal_visible_width(pane.x, pane.cols, cols),
+        ) {
+            out.push_str(&format!(
+                "\x1b[{};{}H{}{}\x1b[0m",
+                title_row + 1,
+                pane.x + 1,
+                title_style,
+                truncate_cells(&pane.text, title_width)
+            ));
+        }
         if pane.app_cols > 0 && pane.app_rows > 0 {
             for (line_idx, line) in pane
                 .text_snapshot
@@ -2943,10 +2960,18 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
                 .take(pane.app_rows as usize)
                 .enumerate()
             {
-                let clipped = clip_and_pad(line, pane.app_cols as usize);
+                let Some(line_row) = terminal_visible_row_opt(pane.app_y + line_idx as u16, rows)
+                else {
+                    continue;
+                };
+                let Some(line_width) = terminal_visible_width(pane.app_x, pane.app_cols, cols)
+                else {
+                    continue;
+                };
+                let clipped = clip_and_pad(line, line_width);
                 out.push_str(&format!(
                     "\x1b[{};{}H{}",
-                    pane.app_y + line_idx as u16 + 1,
+                    line_row + 1,
                     pane.app_x + 1,
                     clipped
                 ));
@@ -5373,6 +5398,43 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_shell_terminal_renderer_skips_offscreen_rows_and_clips_width() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 99,
+                text: "top".to_string(),
+            },
+            panes: vec![NativePaneChrome {
+                x: 3,
+                y: 99,
+                focused: true,
+                text: "title".to_string(),
+                cache_key: "key".to_string(),
+                status: "status".to_string(),
+                app_x: 3,
+                app_y: 1,
+                app_cols: 10,
+                app_rows: 2,
+                cols: 10,
+                rows: 3,
+                text_snapshot: "abcdef\nghijkl".to_string(),
+            }],
+            footer: NativeFooterChrome {
+                row: 0,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let rendered = render_native_shell_view_terminal(&view, 5, 2);
+        assert!(!rendered.contains("top"), "{rendered:?}");
+        assert!(!rendered.contains("title"), "{rendered:?}");
+        assert!(rendered.contains("\x1b[2;4Hab"), "{rendered:?}");
+        assert!(!rendered.contains("cdef"), "{rendered:?}");
+        assert!(!rendered.contains("ghijkl"), "{rendered:?}");
+        assert!(!rendered.contains("\x1b[100;"), "{rendered:?}");
+    }
+
+    #[test]
     fn native_shell_terminal_renderer_clamps_footer_to_visible_row() {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
@@ -6329,6 +6391,17 @@ mod native_pane_tests {
         assert_eq!(terminal_visible_row(5, 0), 0);
         assert_eq!(terminal_visible_row(0, 1), 0);
         assert_eq!(terminal_visible_row(5, 3), 2);
+    }
+
+    #[test]
+    fn terminal_visible_row_and_width_skip_offscreen_writes() {
+        assert_eq!(terminal_visible_row_opt(0, 0), None);
+        assert_eq!(terminal_visible_row_opt(2, 2), None);
+        assert_eq!(terminal_visible_row_opt(1, 2), Some(1));
+        assert_eq!(terminal_visible_width(0, 10, 5), Some(5));
+        assert_eq!(terminal_visible_width(3, 10, 5), Some(2));
+        assert_eq!(terminal_visible_width(5, 10, 5), None);
+        assert_eq!(terminal_visible_width(0, 0, 5), None);
     }
 
     #[test]
