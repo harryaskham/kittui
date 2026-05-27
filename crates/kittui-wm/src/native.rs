@@ -3496,6 +3496,12 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key_with_modifiers(key, code, key_code, BROWSER_CTRL_MODIFIER)
     }
 
+    /// Dispatch an Alt+Arrow key press/release to the focused page element.
+    pub fn send_alt_arrow_key(&mut self, direction: BrowserArrowKey) -> Result<()> {
+        let (key, code, key_code) = direction.key_fields();
+        self.dispatch_browser_key_with_modifiers(key, code, key_code, BROWSER_ALT_MODIFIER)
+    }
+
     /// Dispatch a PageUp/PageDown key press/release to the focused page element.
     pub fn send_page_key(&mut self, direction: BrowserPageKey) -> Result<()> {
         let (key, code, key_code) = direction.key_fields();
@@ -3548,6 +3554,7 @@ impl HeadlessBrowserApp {
     }
 }
 
+const BROWSER_ALT_MODIFIER: u32 = 1;
 const BROWSER_CTRL_MODIFIER: u32 = 2;
 const BROWSER_SHIFT_MODIFIER: u32 = 8;
 
@@ -5622,6 +5629,17 @@ mod tests {
         assert_eq!(ctrl_arrow["windowsVirtualKeyCode"], 37);
         assert_eq!(ctrl_arrow["nativeVirtualKeyCode"], 37);
         assert_eq!(ctrl_arrow["modifiers"], BROWSER_CTRL_MODIFIER);
+        let alt_arrow = browser_key_event_params_with_modifiers(
+            arrow_key,
+            arrow_code,
+            arrow_code_num,
+            BROWSER_ALT_MODIFIER,
+        );
+        assert_eq!(alt_arrow["key"], "ArrowLeft");
+        assert_eq!(alt_arrow["code"], "ArrowLeft");
+        assert_eq!(alt_arrow["windowsVirtualKeyCode"], 37);
+        assert_eq!(alt_arrow["nativeVirtualKeyCode"], 37);
+        assert_eq!(alt_arrow["modifiers"], BROWSER_ALT_MODIFIER);
         let escape = browser_key_event_params("Escape", "Escape", 27);
         assert_eq!(escape["key"], "Escape");
         assert_eq!(escape["code"], "Escape");
