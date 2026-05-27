@@ -3675,6 +3675,8 @@ fn native_toast_colors(message: &str) -> InlineChipColors {
     colors
 }
 
+const NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS: usize = 96;
+
 fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str) -> Scene {
     let colors = native_glass_chrome_colors();
     let cols = cols.max(1);
@@ -3686,8 +3688,9 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         ("terminal", 12.5, 14.0),
         ("close", 28.0, 9.0),
     ];
+    let status_label = bounded_ellipsis(status_text, NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS);
     let mut layers = vec![Layer::new(
-        format!("status-bar-backdrop:{status_text}"),
+        format!("status-bar-backdrop:{status_label}"),
         Node::Rect {
             rect,
             fill: Paint::Solid {
@@ -6863,6 +6866,20 @@ mod native_pane_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn native_footer_status_scene_label_is_bounded() {
+        let long_status = format!("log: {}", "x".repeat(10_000));
+        let scene = native_footer_status_scene(CellSize::new(8, 16), 80, &long_status);
+        let label = scene.layers[0].label.as_deref().unwrap_or_default();
+        assert!(label.starts_with("status-bar-backdrop:log: "), "{label}");
+        assert!(label.ends_with('…'), "{label}");
+        assert!(
+            label.chars().count()
+                <= "status-bar-backdrop:".chars().count() + NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS
+        );
+        assert!(!label.contains(&"x".repeat(256)), "{label}");
     }
 
     #[test]
