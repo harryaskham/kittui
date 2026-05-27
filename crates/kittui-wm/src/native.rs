@@ -2950,16 +2950,24 @@ fn collect_fira_code_fonts(root: &Path, depth: usize, candidates: &mut Vec<(u8, 
 fn fira_code_font_score(path: &Path) -> Option<u8> {
     let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
     let is_font = name.ends_with(".ttf") || name.ends_with(".otf");
-    if !is_font || !name.contains("firacode") || !name.contains("regular") {
+    let normalized = normalize_font_filename(&name);
+    if !is_font || !normalized.contains("firacode") || !normalized.contains("regular") {
         return None;
     }
-    if name.contains("nerd") && name.contains("mono") {
+    if normalized.contains("nerd") && normalized.contains("mono") {
         Some(0)
-    } else if name.contains("nerd") {
+    } else if normalized.contains("nerd") {
         Some(1)
     } else {
         Some(2)
     }
+}
+
+fn normalize_font_filename(name: &str) -> String {
+    name.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn draw_terminal_font_glyph(
@@ -4346,6 +4354,27 @@ mod tests {
         } else {
             std::env::remove_var("XDG_DATA_HOME");
         }
+    }
+
+    #[test]
+    fn terminal_font_score_matches_spaced_fira_code_nerd_names() {
+        let root = std::env::temp_dir().join(format!(
+            "kittui-spaced-nerd-font-test-{}-{}",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let spaced = root.join("Fira Code Regular Nerd Font Complete Mono.otf");
+        let hyphenated = root.join("Fira-Code-Regular-Nerd-Font.ttf");
+        let plain = root.join("Fira Code Regular.ttf");
+        std::fs::write(&spaced, b"spaced").unwrap();
+        std::fs::write(&hyphenated, b"hyphenated").unwrap();
+        std::fs::write(&plain, b"plain").unwrap();
+        assert_eq!(fira_code_font_score(&spaced), Some(0));
+        assert_eq!(fira_code_font_score(&hyphenated), Some(1));
+        assert_eq!(fira_code_font_score(&plain), Some(2));
+        assert_eq!(find_fira_code_font(&root, 1), Some(spaced));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
