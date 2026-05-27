@@ -3546,6 +3546,8 @@ pub enum BrowserFunctionKey {
     F8,
     /// F9 function key.
     F9,
+    /// F10 function key.
+    F10,
     /// F11 / fullscreen key.
     F11,
 }
@@ -3558,6 +3560,7 @@ impl BrowserFunctionKey {
             BrowserFunctionKey::F7 => ("F7", "F7", 118),
             BrowserFunctionKey::F8 => ("F8", "F8", 119),
             BrowserFunctionKey::F9 => ("F9", "F9", 120),
+            BrowserFunctionKey::F10 => ("F10", "F10", 121),
             BrowserFunctionKey::F11 => ("F11", "F11", 122),
         }
     }
@@ -6477,6 +6480,12 @@ mod tests {
         assert_eq!(f9["code"], "F9");
         assert_eq!(f9["windowsVirtualKeyCode"], 120);
         assert_eq!(f9["nativeVirtualKeyCode"], 120);
+        let (function_key, function_code, function_code_num) = BrowserFunctionKey::F10.key_fields();
+        let f10 = browser_key_event_params(function_key, function_code, function_code_num);
+        assert_eq!(f10["key"], "F10");
+        assert_eq!(f10["code"], "F10");
+        assert_eq!(f10["windowsVirtualKeyCode"], 121);
+        assert_eq!(f10["nativeVirtualKeyCode"], 121);
         let (function_key, function_code, function_code_num) = BrowserFunctionKey::F11.key_fields();
         let f11 = browser_key_event_params(function_key, function_code, function_code_num);
         assert_eq!(f11["key"], "F11");
