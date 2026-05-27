@@ -1611,12 +1611,17 @@ fn bounded_ellipsis(text: &str, max_chars: usize) -> String {
         return String::new();
     }
     let mut chars = text.chars();
-    let mut out: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_none() {
-        return out;
+    let mut out = String::with_capacity(max_chars.min(text.len()));
+    for _ in 0..max_chars {
+        let Some(ch) = chars.next() else {
+            return out;
+        };
+        out.push(ch);
     }
-    out.pop();
-    out.push('…');
+    if chars.next().is_some() {
+        out.pop();
+        out.push('…');
+    }
     out
 }
 
@@ -6174,10 +6179,10 @@ mod native_pane_tests {
             NATIVE_PANE_STATUS_COMMAND_MAX_CHARS
         );
         assert!(bounded.ends_with('…'));
-        assert_eq!(
-            bounded_ellipsis("shell", NATIVE_PANE_STATUS_COMMAND_MAX_CHARS),
-            "shell"
-        );
+        assert!(bounded.capacity() >= NATIVE_PANE_STATUS_COMMAND_MAX_CHARS);
+        let short = bounded_ellipsis("shell", NATIVE_PANE_STATUS_COMMAND_MAX_CHARS);
+        assert_eq!(short, "shell");
+        assert!(short.capacity() >= "shell".len());
     }
 
     #[test]
