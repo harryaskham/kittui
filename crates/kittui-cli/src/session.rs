@@ -689,8 +689,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         footprint,
                         decision.upload,
                     );
-                    let mut placement_options = kittui_kitty::PlacementOptions::absolute();
-                    placement_options.z_index = native_app_z_index();
+                    let placement_options =
+                        kittui_kitty::PlacementOptions::stable_absolute(pane.image_id)
+                            .with_z_index(native_app_z_index());
                     if placement_write.write_upload {
                         let p = runtime.place_raw_frame_with_options(
                             pane.image_id,
@@ -751,8 +752,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         footprint,
                         true,
                     );
-                    let mut placement_options = kittui_kitty::PlacementOptions::absolute();
-                    placement_options.z_index = native_app_z_index();
+                    let placement_options =
+                        kittui_kitty::PlacementOptions::stable_absolute(pane.image_id)
+                            .with_z_index(native_app_z_index());
                     let p = runtime.place_png_frame_with_options(
                         pane.image_id,
                         &bytes,

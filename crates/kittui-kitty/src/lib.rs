@@ -220,6 +220,18 @@ impl PlacementOptions {
             ..Self::default()
         }
     }
+
+    /// Alias for [`Self::absolute_with_id`] with a name that emphasizes the
+    /// stable-placement contract.
+    pub fn stable_absolute(placement_id: u32) -> Self {
+        Self::absolute_with_id(placement_id)
+    }
+
+    /// Return these options with a placement z-index (`z=`).
+    pub fn with_z_index(mut self, z_index: i32) -> Self {
+        self.z_index = z_index;
+        self
+    }
 }
 
 /// Upload medium selection. Mirrors the kitty `t=` field.
@@ -1204,6 +1216,14 @@ mod tests {
         let opts = PlacementOptions::absolute_with_id(99);
         let cmd = placement_command_ex(1, CellRect::new(0, 0, 8, 4), &opts, Transport::Direct);
         assert!(cmd.contains("p=99"), "{cmd}");
+        assert!(!cmd.contains("U=1"), "{cmd}");
+    }
+
+    #[test]
+    fn stable_absolute_placement_helper_sets_id_without_placeholder() {
+        let opts = PlacementOptions::stable_absolute(77).with_z_index(4);
+        let cmd = placement_command_ex(9, CellRect::new(0, 0, 5, 2), &opts, Transport::Direct);
+        assert_eq!(cmd, "\x1b_Ga=p,i=9,c=5,r=2,p=77,z=4,q=2\x1b\\");
         assert!(!cmd.contains("U=1"), "{cmd}");
     }
 
