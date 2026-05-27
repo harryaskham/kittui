@@ -3486,12 +3486,7 @@ fn native_toast_scene(
     if trimmed.is_empty() {
         return None;
     }
-    let colors =
-        if trimmed.contains("error") || trimmed.contains("ERR") || trimmed.contains("failed") {
-            InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Chrome)
-        } else {
-            InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Neon)
-        };
+    let colors = native_toast_colors(trimmed);
     let msg_cols = native_toast_message_cols(trimmed);
     let toast_cols = msg_cols
         .saturating_add(4)
@@ -3574,6 +3569,15 @@ fn native_toast_scene(
 
 fn native_toast_message_cols(message: &str) -> u16 {
     message.chars().count().min(u16::MAX as usize) as u16
+}
+
+fn native_toast_colors(message: &str) -> InlineChipColors {
+    let mut colors = native_glass_chrome_colors();
+    if native_should_show_footer_toast(message) {
+        colors.highlight = colors.border;
+        colors.border = config_color_rgba("#bf616a", 1.0, colors.border);
+    }
+    colors
 }
 
 fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str) -> Scene {
@@ -6489,6 +6493,19 @@ mod native_pane_tests {
                 })
                 .collect::<Vec<_>>(),
         )
+    }
+
+    #[test]
+    fn native_toast_colors_follow_configured_chrome_fill() {
+        let base = native_glass_chrome_colors();
+        let normal = native_toast_colors("hello");
+        assert_eq!(normal.fill, base.fill);
+        assert_eq!(normal.fg, base.fg);
+        assert_eq!(normal.border, base.border);
+        let error = native_toast_colors("launcher.error failed");
+        assert_eq!(error.fill, base.fill);
+        assert_eq!(error.fg, base.fg);
+        assert_ne!(error.border, base.border);
     }
 
     #[test]
