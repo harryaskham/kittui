@@ -3700,9 +3700,11 @@ fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> 
         .map(|line| line.chars().count() as u16)
         .max()
         .unwrap_or(20);
+    let available_cols = cols.max(1);
     let panel_cols = max_line
         .saturating_add(4)
-        .min(cols.saturating_sub(4).max(20));
+        .min(cols.saturating_sub(4).max(20))
+        .min(available_cols);
     let panel_rows = (lines.len() as u16).saturating_add(2).max(4);
     let x = cols.saturating_sub(panel_cols).saturating_div(2);
     let y = 2;
@@ -6306,6 +6308,23 @@ mod native_pane_tests {
                 assert!(color.3 < 255, "expected translucent empty panel: {color:?}");
             }
             node => panic!("expected empty workspace backdrop rect, got {node:?}"),
+        }
+    }
+
+    #[test]
+    fn native_help_overlay_scene_width_fits_tiny_terminals() {
+        for cols in [0, 1, 8, 19] {
+            let (x, _y, scene) = native_help_overlay_scene(
+                CellSize::new(8, 16),
+                cols,
+                &["kittwm shortcuts", "C-a ? help"],
+            );
+            assert!(
+                scene.footprint.cols <= cols.max(1),
+                "cols={cols} scene={:?}",
+                scene.footprint
+            );
+            assert_eq!(x, 0);
         }
     }
 
