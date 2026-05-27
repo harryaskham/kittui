@@ -3438,6 +3438,11 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key("Tab", "Tab", 9)
     }
 
+    /// Dispatch a Shift+Tab key press/release to the focused page element.
+    pub fn send_shift_tab(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Tab", "Tab", 9, BROWSER_SHIFT_MODIFIER)
+    }
+
     /// Dispatch an Enter key press/release to the focused page element.
     pub fn send_enter(&mut self) -> Result<()> {
         self.dispatch_browser_key("Enter", "Enter", 13)
@@ -3477,6 +3482,21 @@ impl HeadlessBrowserApp {
 
     fn dispatch_browser_key(&mut self, key: &str, code: &str, key_code: u32) -> Result<()> {
         let params = browser_key_event_params(key, code, key_code);
+        self.dispatch_browser_key_params(params)
+    }
+
+    fn dispatch_browser_key_with_modifiers(
+        &mut self,
+        key: &str,
+        code: &str,
+        key_code: u32,
+        modifiers: u32,
+    ) -> Result<()> {
+        let params = browser_key_event_params_with_modifiers(key, code, key_code, modifiers);
+        self.dispatch_browser_key_params(params)
+    }
+
+    fn dispatch_browser_key_params(&mut self, params: serde_json::Value) -> Result<()> {
         let mut down = params.clone();
         down["type"] = json!("keyDown");
         self.cdp("Input.dispatchKeyEvent", down)?;
@@ -3506,12 +3526,24 @@ impl HeadlessBrowserApp {
     }
 }
 
+const BROWSER_SHIFT_MODIFIER: u32 = 8;
+
 fn browser_key_event_params(key: &str, code: &str, key_code: u32) -> serde_json::Value {
+    browser_key_event_params_with_modifiers(key, code, key_code, 0)
+}
+
+fn browser_key_event_params_with_modifiers(
+    key: &str,
+    code: &str,
+    key_code: u32,
+    modifiers: u32,
+) -> serde_json::Value {
     json!({
         "key": key,
         "code": code,
         "windowsVirtualKeyCode": key_code,
         "nativeVirtualKeyCode": key_code,
+        "modifiers": modifiers,
     })
 }
 
@@ -5569,6 +5601,13 @@ mod tests {
         assert_eq!(page_down["code"], "PageDown");
         assert_eq!(page_down["windowsVirtualKeyCode"], 34);
         assert_eq!(page_down["nativeVirtualKeyCode"], 34);
+        let shift_tab =
+            browser_key_event_params_with_modifiers("Tab", "Tab", 9, BROWSER_SHIFT_MODIFIER);
+        assert_eq!(shift_tab["key"], "Tab");
+        assert_eq!(shift_tab["code"], "Tab");
+        assert_eq!(shift_tab["windowsVirtualKeyCode"], 9);
+        assert_eq!(shift_tab["nativeVirtualKeyCode"], 9);
+        assert_eq!(shift_tab["modifiers"], BROWSER_SHIFT_MODIFIER);
     }
 
     #[test]

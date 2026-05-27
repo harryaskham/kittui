@@ -181,6 +181,7 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::Text(text) => browser.send_text(&text)?,
                     BrowserInputAction::Backspace => browser.send_backspace()?,
                     BrowserInputAction::Tab => browser.send_tab()?,
+                    BrowserInputAction::ShiftTab => browser.send_shift_tab()?,
                     BrowserInputAction::Enter => browser.send_enter()?,
                     BrowserInputAction::Insert => browser.send_insert()?,
                     BrowserInputAction::Delete => browser.send_delete()?,
@@ -268,6 +269,7 @@ enum BrowserInputAction {
     Text(String),
     Backspace,
     Tab,
+    ShiftTab,
     Enter,
     Insert,
     Delete,
@@ -288,6 +290,7 @@ fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize)
         [b'B'] => Some(BrowserInputAction::Arrow(BrowserArrowKey::Down)),
         [b'C'] => Some(BrowserInputAction::Arrow(BrowserArrowKey::Right)),
         [b'D'] => Some(BrowserInputAction::Arrow(BrowserArrowKey::Left)),
+        [b'Z'] => Some(BrowserInputAction::ShiftTab),
         [b'H'] | [b'1', b'~'] | [b'7', b'~'] => Some(BrowserInputAction::Home),
         [b'F'] | [b'4', b'~'] | [b'8', b'~'] => Some(BrowserInputAction::End),
         [b'2', b'~'] => Some(BrowserInputAction::Insert),
@@ -953,13 +956,14 @@ mod tests {
     fn browser_input_actions_preserve_text_backspace_tab_enter_page_and_arrow_order() {
         assert_eq!(
             browser_input_actions(
-                b"ab\x7fc\tde\x1b[D\x1b[2~\x1b[3~\x1b[H\x1b[F\x1b[5~\x1b[6~\x08\rfg\n"
+                b"ab\x7fc\t\x1b[Zde\x1b[D\x1b[2~\x1b[3~\x1b[H\x1b[F\x1b[5~\x1b[6~\x08\rfg\n",
             ),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
                 BrowserInputAction::Backspace,
                 BrowserInputAction::Text("c".to_string()),
                 BrowserInputAction::Tab,
+                BrowserInputAction::ShiftTab,
                 BrowserInputAction::Text("de".to_string()),
                 BrowserInputAction::Arrow(BrowserArrowKey::Left),
                 BrowserInputAction::Insert,
