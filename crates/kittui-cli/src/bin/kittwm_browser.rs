@@ -162,6 +162,7 @@ fn real_main() -> Result<()> {
     let show_status_frame = browser_status_frame_counter_enabled();
     let active_interval = browser_active_frame_interval();
     let idle_interval = browser_idle_frame_interval(active_interval);
+    let static_interval = browser_static_frame_interval(idle_interval);
     let mut consecutive_idle_frames = 0u16;
     let mut stdin = std::io::stdin();
     loop {
@@ -260,8 +261,12 @@ fn real_main() -> Result<()> {
         }
         update_browser_idle_counter(&mut consecutive_idle_frames, wrote_output || user_activity);
         frame += 1;
-        let frame_interval =
-            browser_current_frame_interval(active_interval, idle_interval, consecutive_idle_frames);
+        let frame_interval = browser_current_frame_interval(
+            active_interval,
+            idle_interval,
+            static_interval,
+            consecutive_idle_frames,
+        );
         if let Some(slack) = frame_interval.checked_sub(start.elapsed()) {
             sleep_browser_frame_or_input(slack);
         }
@@ -631,12 +636,19 @@ fn browser_idle_frame_interval(active: Duration) -> Duration {
     browser_interval_from_env("KITTWM_BROWSER_IDLE_MS", 1000).max(active)
 }
 
+fn browser_static_frame_interval(idle: Duration) -> Duration {
+    browser_interval_from_env("KITTWM_BROWSER_STATIC_MS", 3000).max(idle)
+}
+
 fn browser_current_frame_interval(
     active: Duration,
     idle: Duration,
+    static_idle: Duration,
     consecutive_idle_frames: u16,
 ) -> Duration {
-    if consecutive_idle_frames >= 2 {
+    if consecutive_idle_frames >= 10 {
+        static_idle
+    } else if consecutive_idle_frames >= 2 {
         idle
     } else {
         active
@@ -925,9 +937,23 @@ mod tests {
     fn browser_idle_capture_pacing_uses_longer_interval_after_static_frames() {
         let active = Duration::from_millis(250);
         let idle = Duration::from_millis(1000);
-        assert_eq!(browser_current_frame_interval(active, idle, 0), active);
-        assert_eq!(browser_current_frame_interval(active, idle, 1), active);
-        assert_eq!(browser_current_frame_interval(active, idle, 2), idle);
+        let static_idle = Duration::from_millis(3000);
+        assert_eq!(
+            browser_current_frame_interval(active, idle, static_idle, 0),
+            active
+        );
+        assert_eq!(
+            browser_current_frame_interval(active, idle, static_idle, 1),
+            active
+        );
+        assert_eq!(
+            browser_current_frame_interval(active, idle, static_idle, 2),
+            idle
+        );
+        assert_eq!(
+            browser_current_frame_interval(active, idle, static_idle, 10),
+            static_idle
+        );
 
         let mut idle_frames = 0u16;
         update_browser_idle_counter(&mut idle_frames, false);
@@ -939,6 +965,10 @@ mod tests {
         assert_eq!(
             browser_idle_frame_interval(Duration::from_millis(1500)),
             Duration::from_millis(1500)
+        );
+        assert_eq!(
+            browser_static_frame_interval(Duration::from_millis(4000)),
+            Duration::from_millis(4000)
         );
     }
 
@@ -959,14 +989,15 @@ mod tests {
         let active = Duration::from_millis(250);
         let idle = Duration::from_millis(1000);
         let mut idle_frames = 2u16;
+        let static_idle = Duration::from_millis(3000);
         assert_eq!(
-            browser_current_frame_interval(active, idle, idle_frames),
+            browser_current_frame_interval(active, idle, static_idle, idle_frames),
             idle
         );
         update_browser_idle_counter(&mut idle_frames, true);
         assert_eq!(idle_frames, 0);
         assert_eq!(
-            browser_current_frame_interval(active, idle, idle_frames),
+            browser_current_frame_interval(active, idle, static_idle, idle_frames),
             active
         );
     }
