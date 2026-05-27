@@ -3018,17 +3018,34 @@ fn reap_exited_native_panes(
 }
 
 fn native_pane_title_text(pane: &NativePane, layout: NativePaneLayout, focused: bool) -> String {
-    let marker = if focused { "*" } else { " " };
-    let title = format!(
-        "{marker} {} {}",
-        pane.window,
-        native_pane_display_title(pane)
-    );
-    let mut clipped = title.chars().take(layout.cols as usize).collect::<String>();
-    while clipped.chars().count() < layout.cols as usize {
-        clipped.push(' ');
+    let width = layout.cols as usize;
+    let mut out = String::new();
+    let mut count = 0usize;
+    native_pane_title_push(&mut out, &mut count, width, if focused { "*" } else { " " });
+    native_pane_title_push(&mut out, &mut count, width, " ");
+    native_pane_title_push(&mut out, &mut count, width, &pane.window);
+    native_pane_title_push(&mut out, &mut count, width, " ");
+    if count < width {
+        if let Some(title) = pane.display_title.as_deref() {
+            native_pane_title_push(&mut out, &mut count, width, title);
+        } else {
+            native_pane_title_push(&mut out, &mut count, width, &pane.app.title());
+        }
     }
-    clipped
+    if count < width {
+        out.extend(std::iter::repeat(' ').take(width - count));
+    }
+    out
+}
+
+fn native_pane_title_push(out: &mut String, count: &mut usize, width: usize, text: &str) {
+    if *count >= width {
+        return;
+    }
+    for ch in text.chars().take(width - *count) {
+        out.push(ch);
+        *count += 1;
+    }
 }
 
 fn ansi_fg_bg(fg: Rgba, bg: Rgba) -> String {
@@ -6130,6 +6147,46 @@ mod native_pane_tests {
         assert_eq!(
             bounded_ellipsis("shell", NATIVE_PANE_STATUS_COMMAND_MAX_CHARS),
             "shell"
+        );
+    }
+
+    #[test]
+    fn native_pane_title_text_builds_only_visible_prefix() {
+        let mut pane = dummy_native_pane("native-1", "sh", 1);
+        pane.display_title = Some("title-".repeat(10_000));
+        let text = native_pane_title_text(
+            &pane,
+            NativePaneLayout {
+                x: 0,
+                y: 0,
+                cols: 16,
+                rows: 4,
+                app_x: 0,
+                app_y: 1,
+                app_cols: 16,
+                app_rows: 3,
+            },
+            true,
+        );
+        assert_eq!(text, "* native-1 title");
+        assert_eq!(text.chars().count(), 16);
+        assert!(!text.contains(&"title-".repeat(2)), "{text}");
+        assert_eq!(
+            native_pane_title_text(
+                &pane,
+                NativePaneLayout {
+                    x: 0,
+                    y: 0,
+                    cols: 0,
+                    rows: 0,
+                    app_x: 0,
+                    app_y: 0,
+                    app_cols: 0,
+                    app_rows: 0,
+                },
+                true,
+            ),
+            ""
         );
     }
 
