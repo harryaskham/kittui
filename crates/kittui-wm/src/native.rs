@@ -2771,9 +2771,14 @@ fn render_terminal_rgba(state: &TerminalState, cell_w: u32, cell_h: u32) -> Vec<
         px[2] = default_bg.2;
         px[3] = 0xff;
     }
-    for row in 0..state.rows {
-        for col in 0..state.cols {
-            let cell = state.get_cell_at(col, row);
+    let cols = usize::from(state.cols);
+    if cols == 0 {
+        return rgba;
+    }
+    for (row, cells) in state.cells.chunks(cols).enumerate() {
+        let row = row as u16;
+        for (col, cell) in cells.iter().enumerate() {
+            let col = col as u16;
             let (fg, bg) = terminal_cell_colors(cell.style);
             if should_fill_terminal_cell_background(bg, default_bg) {
                 fill_cell_background(&mut rgba, width, col, row, cell_w, cell_h, bg);
@@ -4728,6 +4733,22 @@ mod tests {
             TerminalColor(0xd7, 0xf8, 0xff),
             default_bg
         ));
+    }
+
+    #[test]
+    fn terminal_renderer_handles_zero_columns_without_chunk_panic() {
+        let state = TerminalState::new(0, 1);
+        assert!(render_terminal_rgba(&state, 8, 16).is_empty());
+    }
+
+    #[test]
+    fn terminal_renderer_direct_cell_iteration_preserves_styled_backgrounds() {
+        let mut state = TerminalState::new(2, 1);
+        state.cursor_visible = false;
+        state.cells[1].style.bg = Some(TerminalColor(0x19, 0x71, 0xc2));
+        let rgba = render_terminal_rgba(&state, 2, 1);
+        assert_eq!(&rgba[0..4], &[0x08, 0x0d, 0x14, 0xff]);
+        assert_eq!(&rgba[8..12], &[0x19, 0x71, 0xc2, 0xff]);
     }
 
     #[test]
