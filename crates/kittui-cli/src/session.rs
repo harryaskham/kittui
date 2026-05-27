@@ -3637,17 +3637,24 @@ fn native_empty_workspace_scene(
     footer_row: u16,
 ) -> (u16, u16, Scene) {
     let colors = native_glass_chrome_colors();
-    let panel_cols = cols.saturating_sub(8).clamp(24, 72);
-    let available_rows = footer_row.saturating_sub(2).max(8);
-    let panel_rows = available_rows.min(10);
+    let panel_cols = cols.saturating_sub(8).clamp(24, 72).min(cols.max(1));
+    let y = 2.min(footer_row.saturating_sub(1));
+    let available_rows = footer_row.saturating_sub(y).max(1);
+    let panel_rows = available_rows.min(10).max(1);
     let x = cols.saturating_sub(panel_cols).saturating_div(2);
-    let y = 2;
     let rect = CellRect::new(0, 0, panel_cols, panel_rows).to_pixels(cell_size);
-    let cell_w = cell_size.width_px.max(1) as f32;
     let cell_h = cell_size.height_px.max(1) as f32;
-    let chip_y = (panel_rows.saturating_sub(3).max(4) as f32) * cell_h;
-    let chip_w = (panel_cols as f32 * cell_w - 36.0).max(1.0) / 3.0;
-    let chip_h = (cell_h - 4.0).max(6.0);
+    let accent_x = if rect.width > 20.0 { 10.0 } else { 0.0 };
+    let accent_w = (rect.width - accent_x * 2.0).max(1.0);
+    let accent_y = (cell_h * 2.7).min((rect.height - 1.0).max(0.0));
+    let accent_h = 2.0_f32.min((rect.height - accent_y).max(1.0));
+    let chip_y =
+        ((panel_rows.saturating_sub(3).max(1) as f32) * cell_h).min((rect.height - 1.0).max(0.0));
+    let chip_gap = if rect.width > 36.0 { 8.0 } else { 1.0 };
+    let chip_x0 = if rect.width > 20.0 { 10.0 } else { 0.0 };
+    let chip_available_w = (rect.width - chip_x0 * 2.0 - chip_gap * 2.0).max(1.0);
+    let chip_w = (chip_available_w / 3.0).max(1.0);
+    let chip_h = (cell_h - 4.0).max(6.0).min((rect.height - chip_y).max(1.0));
     let mut layers = vec![
         Layer::new(
             "empty-workspace-backdrop",
@@ -3666,7 +3673,7 @@ fn native_empty_workspace_scene(
         Layer::new(
             "empty-workspace-hero-band",
             Node::Rect {
-                rect: PxRect::new(0.0, 0.0, rect.width, cell_h * 2.2),
+                rect: PxRect::new(0.0, 0.0, rect.width, (cell_h * 2.2).min(rect.height)),
                 fill: Paint::Solid {
                     color: colors.highlight,
                 },
@@ -3677,7 +3684,7 @@ fn native_empty_workspace_scene(
         Layer::new(
             "empty-workspace-accent-rail",
             Node::Rect {
-                rect: PxRect::new(10.0, cell_h * 2.7, (rect.width - 20.0).max(1.0), 2.0),
+                rect: PxRect::new(accent_x, accent_y, accent_w, accent_h),
                 fill: Paint::Solid {
                     color: colors.border,
                 },
@@ -3690,7 +3697,13 @@ fn native_empty_workspace_scene(
         layers.push(Layer::new(
             format!("empty-workspace-action-chip-{idx}"),
             Node::Rect {
-                rect: PxRect::new(10.0 + idx as f32 * (chip_w + 8.0), chip_y, chip_w, chip_h),
+                rect: PxRect::new(
+                    (chip_x0 + idx as f32 * (chip_w + chip_gap))
+                        .min((rect.width - chip_w).max(0.0)),
+                    chip_y,
+                    chip_w,
+                    chip_h,
+                ),
                 fill: Paint::Solid {
                     color: rgba_with_alpha(colors.border, 72),
                 },
@@ -6438,6 +6451,47 @@ mod native_pane_tests {
                 })
                 .collect::<Vec<_>>(),
         )
+    }
+
+    #[test]
+    fn native_empty_workspace_scene_fits_tiny_terminals() {
+        for (cols, footer_row) in [(0, 0), (1, 1), (8, 3), (20, 4)] {
+            let (_x, y, scene) =
+                native_empty_workspace_scene(CellSize::new(8, 16), cols, footer_row);
+            assert!(
+                scene.footprint.cols <= cols.max(1),
+                "cols={cols} scene={:?}",
+                scene.footprint
+            );
+            assert!(y < footer_row.max(1), "footer_row={footer_row} y={y}");
+            assert!(
+                y.saturating_add(scene.footprint.rows) <= footer_row.max(1),
+                "footer_row={footer_row} y={y} scene={:?}",
+                scene.footprint
+            );
+            let scene_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+            let scene_height = scene.footprint.rows as f32 * scene.cell_size.height_px as f32;
+            for layer in &scene.layers {
+                let Some(rect) = (match &layer.root {
+                    Node::Rect { rect, .. } | Node::Gradient { rect, .. } => Some(rect),
+                    _ => None,
+                }) else {
+                    continue;
+                };
+                assert!(
+                    rect.origin.0 >= 0.0 && rect.origin.0 + rect.width <= scene_width,
+                    "layer {:?} escapes width {scene_width}: {:?}",
+                    layer.label,
+                    rect
+                );
+                assert!(
+                    rect.origin.1 >= 0.0 && rect.origin.1 + rect.height <= scene_height,
+                    "layer {:?} escapes height {scene_height}: {:?}",
+                    layer.label,
+                    rect
+                );
+            }
+        }
     }
 
     #[test]
