@@ -5282,7 +5282,7 @@ fn shortcuts_scene() -> Scene {
 
 fn shortcuts_scene_for_cols(cols: u16) -> Scene {
     let entries = kittui_cli::shortcuts::NATIVE_SHORTCUT_ENTRIES;
-    let rows = (entries.len() as u16 + 3).clamp(4, 18);
+    let rows = shortcuts_scene_rows(entries.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -5343,6 +5343,11 @@ fn shortcuts_scene_for_cols(cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn shortcuts_scene_rows(entry_count: usize) -> u16 {
+    let rows = entry_count.saturating_add(3).min(u16::MAX as usize) as u16;
+    rows.clamp(4, 18)
 }
 
 fn shortcuts_scene_cols() -> u16 {
@@ -7371,6 +7376,13 @@ mod tests {
                 .any(|label| label.contains("kittwm-command-row:lifecycle:start")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn shortcuts_scene_rows_saturate_large_catalog_counts() {
+        assert_eq!(shortcuts_scene_rows(0), 4);
+        assert_eq!(shortcuts_scene_rows(3), 6);
+        assert_eq!(shortcuts_scene_rows(usize::MAX), 18);
     }
 
     #[test]
