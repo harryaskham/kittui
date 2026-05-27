@@ -1946,12 +1946,23 @@ fn list_displays_cmd() -> Result<()> {
 }
 
 fn truncate(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(n.saturating_sub(1)).collect();
+    if n == 0 {
+        return String::new();
+    }
+    let mut chars = s.chars();
+    let mut out = String::new();
+    for _ in 0..n {
+        let Some(ch) = chars.next() else {
+            return s.to_string();
+        };
+        out.push(ch);
+    }
+    if chars.next().is_some() {
+        out.pop();
         out.push('…');
         out
+    } else {
+        s.to_string()
     }
 }
 
@@ -6611,6 +6622,17 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn truncate_uses_bounded_prefix_for_huge_fields() {
+        let huge = "window-title-".repeat(10_000);
+        let clipped = truncate(&huge, 12);
+        assert_eq!(clipped, "window-titl…");
+        assert_eq!(clipped.chars().count(), 12);
+        assert_eq!(truncate("short", 12), "short");
+        assert_eq!(truncate("anything", 1), "…");
+        assert_eq!(truncate("anything", 0), "");
     }
 
     #[test]
