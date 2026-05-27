@@ -141,6 +141,7 @@ struct Cli {
     update: Option<UpdateOptions>,
     mcp: bool,
     completions: Option<String>,
+    log_command: Option<LogCommand>,
     keymap_path: Option<String>,
     keymap_check: bool,
     native_terminal: bool,
@@ -174,6 +175,12 @@ enum Backend {
     Xvfb,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LogCommand {
+    Path,
+    Tail { follow: bool },
+}
+
 fn parse_args() -> Result<Cli> {
     let mut args = std::env::args().skip(1);
     let mut out = Cli::default();
@@ -190,6 +197,11 @@ fn parse_args() -> Result<Cli> {
             "launch" => {
                 out.launch = true;
                 out.launch_args = args.by_ref().collect();
+                break;
+            }
+            "log" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.log_command = Some(parse_log_command(&argv)?);
                 break;
             }
             "replace" => {
@@ -957,6 +969,8 @@ USAGE
   kittwm quickstart-kitty        Render quickstart with kitty graphics
   kittwm examples                Show copy-paste daily-driver workflows
   kittwm examples-kitty          Render examples with kitty graphics
+  kittwm log path                Print debug log path
+  kittwm log tail -f             Follow debug log from another terminal
   kittwm commands                Show grouped local CLI command catalog
   kittwm commands-json           Show local CLI command catalog JSON
   kittwm commands-scene-json     Emit local command catalog as a kittui Scene
@@ -1273,6 +1287,13 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 \
              LAYOUT, MOVE_PANE, RESIZE_PANE, BALANCE_PANES, and RENAME_PANE.
 "),
+        "logs" | "log" => Ok("kittwm help log\n\
+             ================\n\n\
+             kittwm writes debug logs to KITTUI_WM_LOG when set, otherwise /tmp/kittui-wm.log.\n\
+             Open kittwm in one terminal, then watch it from another:\n\n\
+             kittwm log path              print the active log path\n\
+             kittwm log tail              print recent log lines\n\
+             kittwm log tail -f           follow the log, like tail -f\n"),
         "input" => Ok("kittwm help input\n\
              =================\n\n\
              type [WINDOW] TEXT             short alias for --send-text\n\
@@ -1484,6 +1505,45 @@ fn lifecycle_alias_mode(alias: &str) -> Result<Mode> {
     }
 }
 
+fn debug_log_path() -> String {
+    std::env::var("KITTUI_WM_LOG").unwrap_or_else(|_| "/tmp/kittui-wm.log".to_string())
+}
+
+fn parse_log_command(argv: &[String]) -> Result<LogCommand> {
+    match argv {
+        [] => Ok(LogCommand::Path),
+        [cmd] if cmd == "path" => Ok(LogCommand::Path),
+        [cmd] if cmd == "tail" => Ok(LogCommand::Tail { follow: false }),
+        [cmd, flag] if cmd == "tail" && (flag == "-f" || flag == "--follow") => {
+            Ok(LogCommand::Tail { follow: true })
+        }
+        _ => Err(anyhow!("usage: kittwm log path | kittwm log tail [-f]")),
+    }
+}
+
+fn log_cmd(command: LogCommand) -> Result<()> {
+    let path = debug_log_path();
+    match command {
+        LogCommand::Path => {
+            println!("{path}");
+            Ok(())
+        }
+        LogCommand::Tail { follow } => {
+            let mut cmd = std::process::Command::new("tail");
+            cmd.arg("-n").arg("100");
+            if follow {
+                cmd.arg("-f");
+            }
+            let status = cmd.arg(&path).status()?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(anyhow!("tail exited with status {status}"))
+            }
+        }
+    }
+}
+
 fn spawn_alias_request(argv: &[String]) -> Result<String> {
     if argv.is_empty() {
         return Err(anyhow!("usage: kittwm spawn CMD [ARGS...]"));
@@ -1691,6 +1751,9 @@ fn real_main() -> Result<()> {
     }
     if cli.launch {
         return launch_cmd(&cli);
+    }
+    if let Some(command) = cli.log_command {
+        return log_cmd(command);
     }
     if cli.replace {
         return replace_cmd(&cli);
@@ -3173,6 +3236,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "cheat-kitty",
             category: "help",
             description: "compact daily reference kitty graphics",
+        },
+        LocalCommandEntry {
+            command: "log path",
+            category: "diagnostics",
+            description: "print debug log path",
+        },
+        LocalCommandEntry {
+            command: "log tail [-f]",
+            category: "diagnostics",
+            description: "tail debug log",
         },
         LocalCommandEntry {
             command: "examples",
@@ -6709,6 +6782,35 @@ mod tests {
     }
 
     #[test]
+    fn log_commands_parse_path_and_tail_follow() {
+        assert_eq!(parse_log_command(&[]).unwrap(), LogCommand::Path);
+        assert_eq!(
+            parse_log_command(&args(&["path"])).unwrap(),
+            LogCommand::Path
+        );
+        assert_eq!(
+            parse_log_command(&args(&["tail"])).unwrap(),
+            LogCommand::Tail { follow: false }
+        );
+        assert_eq!(
+            parse_log_command(&args(&["tail", "-f"])).unwrap(),
+            LogCommand::Tail { follow: true }
+        );
+        assert_eq!(
+            parse_log_command(&args(&["tail", "--follow"])).unwrap(),
+            LogCommand::Tail { follow: true }
+        );
+        assert!(parse_log_command(&args(&["tail", "--bad"])).is_err());
+    }
+
+    #[test]
+    fn log_help_mentions_default_path_and_follow() {
+        let help = help_topic_text("log").unwrap();
+        assert!(help.contains("/tmp/kittui-wm.log"), "{help}");
+        assert!(help.contains("kittwm log tail -f"), "{help}");
+    }
+
+    #[test]
     fn unknown_command_errors_point_to_useful_help() {
         let err = friendly_unknown_command_error("pane").to_string();
         assert!(err.contains("unknown kittwm command"), "{err}");
@@ -6775,6 +6877,9 @@ mod tests {
             .any(|entry| { entry["command"] == "cheat-kitty" && entry["category"] == "help" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "wait [WINDOW] TEXT" && entry["category"] == "action"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "log tail [-f]" && entry["category"] == "diagnostics"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "session-kitty" && entry["category"] == "session"
