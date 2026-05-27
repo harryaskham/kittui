@@ -105,37 +105,34 @@ impl DirtyGrid {
         }
         let cols = width.div_ceil(self.tile_width);
         let rows = height.div_ceil(self.tile_height);
-        let hashes = hash_tiles(
-            width,
-            height,
-            rgba,
-            self.tile_width,
-            self.tile_height,
-            cols,
-            rows,
-        );
+        let tile_count = cols.saturating_mul(rows) as usize;
         let first_frame = self.previous_width != width
             || self.previous_height != height
-            || self.previous_hashes.len() != hashes.len();
+            || self.previous_hashes.len() != tile_count;
+        if first_frame {
+            self.previous_hashes.clear();
+        }
         let mut changed_tiles = Vec::new();
-        for (idx, hash) in hashes.iter().enumerate() {
-            let changed = first_frame || self.previous_hashes.get(idx) != Some(hash);
-            if changed {
-                let col = idx as u32 % cols;
-                let row = idx as u32 / cols;
-                changed_tiles.push(tile_rect(
-                    width,
-                    height,
-                    self.tile_width,
-                    self.tile_height,
-                    col,
-                    row,
-                ));
+        self.previous_hashes
+            .reserve(tile_count.saturating_sub(self.previous_hashes.len()));
+        for row in 0..rows {
+            for col in 0..cols {
+                let idx = (row * cols + col) as usize;
+                let rect = tile_rect(width, height, self.tile_width, self.tile_height, col, row);
+                let hash = hash_tile(width, rgba, rect);
+                let changed = first_frame || self.previous_hashes.get(idx) != Some(&hash);
+                if changed {
+                    changed_tiles.push(rect);
+                }
+                if idx < self.previous_hashes.len() {
+                    self.previous_hashes[idx] = hash;
+                } else {
+                    self.previous_hashes.push(hash);
+                }
             }
         }
         self.previous_width = width;
         self.previous_height = height;
-        self.previous_hashes = hashes;
         Some(DirtyFrameDiff {
             width,
             height,
@@ -144,25 +141,6 @@ impl DirtyGrid {
             changed_tiles,
         })
     }
-}
-
-fn hash_tiles(
-    width: u32,
-    height: u32,
-    rgba: &[u8],
-    tile_width: u32,
-    tile_height: u32,
-    cols: u32,
-    rows: u32,
-) -> Vec<u64> {
-    let mut hashes = Vec::with_capacity(cols.saturating_mul(rows) as usize);
-    for row in 0..rows {
-        for col in 0..cols {
-            let rect = tile_rect(width, height, tile_width, tile_height, col, row);
-            hashes.push(hash_tile(width, rgba, rect));
-        }
-    }
-    hashes
 }
 
 fn tile_rect(
@@ -222,6 +200,17 @@ mod tests {
         assert!(!diff.first_frame);
         assert!(diff.is_clean());
         assert_eq!(diff.changed_fraction(), 0.0);
+    }
+
+    #[test]
+    fn repeated_same_size_frames_reuse_hash_buffer_capacity() {
+        let mut grid = DirtyGrid::new(2, 2);
+        let rgba = vec![0u8; 4 * 4 * 4];
+        grid.diff_rgba(4, 4, &rgba).unwrap();
+        let capacity = grid.previous_hashes.capacity();
+        grid.diff_rgba(4, 4, &rgba).unwrap();
+        assert_eq!(grid.previous_hashes.len(), 4);
+        assert_eq!(grid.previous_hashes.capacity(), capacity);
     }
 
     #[test]
