@@ -736,7 +736,13 @@ impl BrowserSemanticPublisher {
             self.unchanged_payloads = self.unchanged_payloads.saturating_add(1);
             return false;
         }
-        self.last_payload = Some(payload.to_string());
+        match self.last_payload.as_mut() {
+            Some(last_payload) => {
+                last_payload.clear();
+                last_payload.push_str(payload);
+            }
+            None => self.last_payload = Some(payload.to_string()),
+        }
         self.unchanged_payloads = 0;
         true
     }
@@ -1559,6 +1565,25 @@ mod tests {
         assert!(publisher.record_payload("{\"revision\":2}"));
         assert_eq!(publisher.unchanged_payloads, 0);
         assert_eq!(publisher.current_interval(), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn semantic_publisher_reuses_payload_string_allocation() {
+        let mut publisher = BrowserSemanticPublisher {
+            socket: Some(PathBuf::from("/tmp/unused.sock")),
+            window: "native-1".to_string(),
+            active_interval: Duration::from_millis(500),
+            idle_interval: Duration::from_millis(2000),
+            unchanged_payloads: 0,
+            last_attempt: None,
+            last_payload: None,
+        };
+        let large = "x".repeat(4096);
+        assert!(publisher.record_payload(&large));
+        let initial_capacity = publisher.last_payload.as_ref().unwrap().capacity();
+        assert!(publisher.record_payload("tiny"));
+        assert_eq!(publisher.last_payload.as_deref(), Some("tiny"));
+        assert!(publisher.last_payload.as_ref().unwrap().capacity() >= initial_capacity);
     }
 
     #[test]
