@@ -4245,6 +4245,8 @@ fn daily_help_scene(kind: &str, text: &str) -> Scene {
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
     let heading = content_lines.first().copied().unwrap_or(kind);
+    let kind_label = truncate(kind, 32);
+    let heading_label = truncate(heading, 64);
     let command_count = content_lines
         .iter()
         .filter(|line| line.trim_start().starts_with("kittwm "))
@@ -4252,7 +4254,7 @@ fn daily_help_scene(kind: &str, text: &str) -> Scene {
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-daily-help-backdrop:{kind}:lines={}:commands={command_count}",
+                "kittwm-daily-help-backdrop:{kind_label}:lines={}:commands={command_count}",
                 content_lines.len()
             )),
             root: Node::Rect {
@@ -4270,7 +4272,9 @@ fn daily_help_scene(kind: &str, text: &str) -> Scene {
             },
         },
         Layer {
-            label: Some(format!("kittwm-daily-help-heading:{kind}:{heading}")),
+            label: Some(format!(
+                "kittwm-daily-help-heading:{kind_label}:{heading_label}"
+            )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                 fill: Paint::Solid {
@@ -4289,8 +4293,11 @@ fn daily_help_scene(kind: &str, text: &str) -> Scene {
     for (idx, line) in content_lines.iter().skip(1).take(20).enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         let trimmed = line.trim();
+        let row_label = truncate(trimmed, 80);
         layers.push(Layer {
-            label: Some(format!("kittwm-daily-help-row:{kind}:{idx}:{trimmed}")),
+            label: Some(format!(
+                "kittwm-daily-help-row:{kind_label}:{idx}:{row_label}"
+            )),
             root: Node::Rect {
                 rect: daily_help_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -7727,6 +7734,42 @@ mod tests {
                 "{kind}: {labels:?}"
             );
         }
+    }
+
+    #[test]
+    fn daily_help_scene_labels_clip_pathological_payloads() {
+        let kind = "kind-".repeat(1024);
+        let text = format!(
+            "{}\n{}\n{}",
+            "heading-".repeat(1024),
+            "kittwm ".to_string() + &"row-".repeat(2048),
+            "plain text"
+        );
+        let scene = daily_help_scene(&kind, &text);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(labels.iter().any(|label| label.contains('…')), "{labels:?}");
+        assert!(
+            labels
+                .iter()
+                .all(|label| !label.contains(&"kind-".repeat(32))),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .all(|label| !label.contains(&"heading-".repeat(16))),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .all(|label| !label.contains(&"row-".repeat(32))),
+            "{labels:?}"
+        );
     }
 
     fn sample_config_summary() -> ConfigSummary {
