@@ -566,6 +566,15 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--send-bytes-b64 WINDOW BASE64"))?;
                 out.automation_request = Some(send_bytes_b64_request(&window, &encoded)?);
             }
+            "--paste-bytes-b64" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--paste-bytes-b64 WINDOW BASE64"))?;
+                let encoded = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--paste-bytes-b64 WINDOW BASE64"))?;
+                out.automation_request = Some(paste_bytes_b64_request(&window, &encoded)?);
+            }
             "--send-file" => {
                 let window = args
                     .next()
@@ -1018,6 +1027,7 @@ INPUT AND AUTOMATION
   --send-key WINDOW KEY            KEY: ctrl-c, escape, enter, arrows, ...
   --send-mouse WINDOW EVENT C R    Send terminal mouse event
   --send-bytes-b64 WINDOW BASE64   Send arbitrary bytes
+  --paste-bytes-b64 WINDOW BASE64  Paste arbitrary bytes
   --send-file WINDOW PATH|-        Read bytes from file/stdin and send
   --paste-file WINDOW PATH|-       Paste bytes; respects bracketed paste
   --read-text WINDOW               Text snapshot
@@ -1260,6 +1270,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --send-key WINDOW KEY          send named key (ctrl-c, escape, arrows)\n\
              --send-mouse WINDOW EVENT C R  send terminal mouse event if app enabled it\n\
              --send-bytes-b64 WINDOW B64    send exact bytes\n\
+             --paste-bytes-b64 WINDOW B64   paste exact bytes\n\
              --send-file WINDOW PATH|-      send bytes from file/stdin\n\
              --paste-file WINDOW PATH|-     paste bytes with bracketed-paste support\n\
              --semantic-action WINDOW COMPONENT ACTION JSON\n\
@@ -2851,15 +2862,25 @@ fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result
     automation_request("SEND_MOUSE", window, &format!("{event} {col} {row}"))
 }
 
-fn send_bytes_b64_request(window: &str, encoded: &str) -> Result<String> {
+fn validated_base64_arg<'a>(encoded: &'a str, label: &str) -> Result<&'a str> {
     let encoded = encoded.trim();
     if encoded.is_empty() {
-        return Err(anyhow!("--send-bytes-b64 BASE64 must be nonempty"));
+        return Err(anyhow!("{label} BASE64 must be nonempty"));
     }
     base64::engine::general_purpose::STANDARD
         .decode(encoded)
-        .map_err(|err| anyhow!("--send-bytes-b64 BASE64 must be valid base64: {err}"))?;
+        .map_err(|err| anyhow!("{label} BASE64 must be valid base64: {err}"))?;
+    Ok(encoded)
+}
+
+fn send_bytes_b64_request(window: &str, encoded: &str) -> Result<String> {
+    let encoded = validated_base64_arg(encoded, "--send-bytes-b64")?;
     automation_request("SEND_BYTES_B64", window, encoded)
+}
+
+fn paste_bytes_b64_request(window: &str, encoded: &str) -> Result<String> {
+    let encoded = validated_base64_arg(encoded, "--paste-bytes-b64")?;
+    automation_request("PASTE_BYTES_B64", window, encoded)
 }
 
 fn send_bytes_request(window: &str, bytes: &[u8]) -> Result<String> {
@@ -8346,8 +8367,14 @@ END
             send_bytes_b64_request("focused", " aGkKAA== ").unwrap(),
             "SEND_BYTES_B64 focused aGkKAA=="
         );
+        assert_eq!(
+            paste_bytes_b64_request("focused", " aGkKAA== ").unwrap(),
+            "PASTE_BYTES_B64 focused aGkKAA=="
+        );
         assert!(send_bytes_b64_request("focused", "").is_err());
         assert!(send_bytes_b64_request("focused", "!!!").is_err());
+        assert!(paste_bytes_b64_request("focused", "").is_err());
+        assert!(paste_bytes_b64_request("focused", "!!!").is_err());
         assert_eq!(
             send_mouse_request("focused", "press-left", "7", "9").unwrap(),
             "SEND_MOUSE focused press-left 7 9"
