@@ -443,6 +443,7 @@ mod tests {
         let numeric = BarModel::new("3", 1, "native-1", true, UNIX_EPOCH);
         let rendered = numeric.render_i3bar(8);
         assert!(rendered.starts_with("|[3]"), "{rendered}");
+        assert!(!rendered.starts_with("| 1 | 2"), "{rendered}");
         assert_eq!(
             numeric.workspace_chip_labels_active_first(),
             vec!["3", "1", "2"]

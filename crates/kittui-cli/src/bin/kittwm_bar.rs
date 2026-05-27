@@ -230,7 +230,7 @@ fn kittwm_bar_kitty_text_overlay_with_config(
     let palette = kittwm_bar_overlay_palette(config);
     let mut out = String::from("\x1b[0m\x1b[1;1H\x1b[K");
     let mut workspace_cols = 0u16;
-    for label in model.bar.workspace_chip_labels() {
+    for label in kittwm_bar_overlay_labels(&model.bar, cols) {
         let active = model.bar.workspace.trim() == label;
         let (fg, bg) = if active {
             (palette.active_fg, palette.active_bg)
@@ -266,6 +266,19 @@ fn kittwm_bar_kitty_text_overlay_with_config(
         ));
     }
     out
+}
+
+fn kittwm_bar_overlay_labels(model: &BarModel, cols: u16) -> Vec<String> {
+    let labels = model.workspace_chip_labels();
+    let total_cols = labels
+        .iter()
+        .map(|label| label.chars().count() as u16 + 3)
+        .sum::<u16>();
+    if total_cols > cols {
+        model.workspace_chip_labels_active_first()
+    } else {
+        labels
+    }
 }
 
 fn kittwm_bar_overlay_fit_chip_text(label: &str, cols: u16, used_cols: u16) -> Option<String> {
@@ -606,6 +619,25 @@ mod tests {
         assert!(!overlay.contains(" 09:05 "), "{overlay:?}");
         assert_eq!(kittwm_bar_overlay_clock_col(40, 12, 7), Some(34));
         assert_eq!(kittwm_bar_overlay_clock_col(18, 20, 7), None);
+    }
+
+    #[test]
+    fn kitty_bar_overlay_prioritizes_numeric_active_workspace_when_constrained() {
+        let model = BarOutputModel {
+            bar: BarModel::new("3", 0, "-", false, UNIX_EPOCH),
+            chrome: None,
+        };
+        assert_eq!(
+            kittwm_bar_overlay_labels(&model.bar, 80),
+            vec!["1", "2", "3"]
+        );
+        assert_eq!(
+            kittwm_bar_overlay_labels(&model.bar, 8),
+            vec!["3", "1", "2"]
+        );
+        let overlay = kittwm_bar_kitty_text_overlay(&model, 8);
+        assert!(overlay.contains(" 3 "), "{overlay:?}");
+        assert!(!overlay.contains(" 1  "), "{overlay:?}");
     }
 
     #[test]
