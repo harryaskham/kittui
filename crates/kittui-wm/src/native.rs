@@ -366,6 +366,15 @@ impl SurfaceFrame {
     }
 }
 
+fn cached_surface_frame(
+    mut metadata: SurfaceMetadata,
+    cached_frame: &Option<NativeFrame>,
+) -> Option<SurfaceFrame> {
+    let frame = cached_frame.clone()?;
+    metadata.frame_size = Some(frame.size());
+    Some(SurfaceFrame { metadata, frame })
+}
+
 /// Semantic side effects emitted by a surface while parsing/applying output.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SurfaceEvent {
@@ -988,6 +997,7 @@ pub struct GhosttyTerminalApp {
     cols: u16,
     rows: u16,
     last_text_snapshot: String,
+    last_png_frame: Option<NativeFrame>,
 }
 
 impl TerminalSurface {
@@ -1220,13 +1230,17 @@ impl GhosttyTerminalApp {
             cols,
             rows,
             last_text_snapshot: String::new(),
+            last_png_frame: None,
         })
     }
 
-    fn drain_output(&mut self) {
+    fn drain_output(&mut self) -> bool {
+        let mut drained = false;
         while let Ok(bytes) = self.output.try_recv() {
             self.terminal.write(bytes);
+            drained = true;
         }
+        drained
     }
 
     /// Return the latest text snapshot captured from libghostty-vt.
@@ -1329,6 +1343,7 @@ impl NativeSurface for GhosttyTerminalApp {
         self.cols = cols;
         self.rows = rows;
         self.last_text_snapshot.clear();
+        self.last_png_frame = None;
         Ok(())
     }
 
@@ -1341,7 +1356,12 @@ impl NativeSurface for GhosttyTerminalApp {
     }
 
     fn capture_surface(&mut self) -> Result<SurfaceFrame> {
-        self.drain_output();
+        let had_output = self.drain_output();
+        if !had_output {
+            if let Some(frame) = cached_surface_frame(self.metadata(), &self.last_png_frame) {
+                return Ok(frame);
+            }
+        }
         let snapshot = self.terminal.render_snapshot()?;
         self.last_text_snapshot = snapshot
             .cells
@@ -1359,6 +1379,7 @@ impl NativeSurface for GhosttyTerminalApp {
             height: u32::from(snapshot.rows) * u32::from(default_virtual_cell_size().height_px),
             bytes: png,
         };
+        self.last_png_frame = Some(frame.clone());
         let mut metadata = self.metadata();
         metadata.frame_size = Some(frame.size());
         Ok(SurfaceFrame { metadata, frame })
@@ -3798,6 +3819,28 @@ fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_surface_frame_reuses_payload_and_updates_metadata_size() {
+        let metadata = SurfaceMetadata {
+            id: SurfaceId::new("ghostty-test"),
+            kind: SurfaceKind::Terminal,
+            title: "ghostty-test".to_string(),
+            capabilities: SurfaceCapabilities::interactive_capture(),
+            frame_size: None,
+        };
+        let cached = Some(NativeFrame::Png {
+            width: 11,
+            height: 7,
+            bytes: vec![1, 2, 3],
+        });
+
+        let frame = cached_surface_frame(metadata, &cached).expect("cached frame");
+
+        assert_eq!(frame.metadata.frame_size, Some((11, 7)));
+        assert_eq!(frame.frame.payload_len(), 3);
+        assert!(cached_surface_frame(frame.metadata, &None).is_none());
+    }
 
     #[test]
     fn native_frame_reports_dimensions() {
