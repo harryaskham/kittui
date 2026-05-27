@@ -1865,38 +1865,64 @@ impl TerminalState {
     }
 
     fn resize(&mut self, cols: u16, rows: u16) {
-        let old = self.clone();
+        let old_cols = self.cols;
+        let old_rows = self.rows;
+        let old_cursor_col = self.cursor_col;
+        let old_cursor_row = self.cursor_row;
+        let old_saved_cursor_col = self.saved_cursor_col;
+        let old_saved_cursor_row = self.saved_cursor_row;
+        let old_scroll_top = self.scroll_top;
+        let old_scroll_bottom = self.scroll_bottom;
+        let old_revision = self.revision;
+        let old_current_style = self.current_style;
+        let old_cursor_visible = self.cursor_visible;
+        let old_origin_mode = self.origin_mode;
+        let old_auto_wrap = self.auto_wrap;
+        let old_application_cursor_keys = self.application_cursor_keys;
+        let old_insert_mode = self.insert_mode;
+        let old_dec_special_graphics = self.dec_special_graphics;
+        let old_bracketed_paste = self.bracketed_paste;
+        let old_focus_reporting = self.focus_reporting;
+        let old_mouse_modes = self.mouse_modes;
+        let old_cells = std::mem::take(&mut self.cells);
+        let old_scrollback = std::mem::take(&mut self.scrollback);
+        let old_pending_responses = std::mem::take(&mut self.pending_responses);
+        let old_pending_host_sequences = std::mem::take(&mut self.pending_host_sequences);
+        let old_pending_surface_events = std::mem::take(&mut self.pending_surface_events);
+        let old_alt_screen = self.alt_screen.take();
+        let old_title = self.title.take();
+
         *self = Self::new(cols, rows);
-        self.revision = old.revision.wrapping_add(1);
-        self.title = old.title.clone();
-        self.scrollback = old.scrollback.clone();
-        self.pending_responses = old.pending_responses;
-        self.pending_host_sequences = old.pending_host_sequences;
-        self.pending_surface_events = old.pending_surface_events;
-        self.current_style = old.current_style;
-        self.cursor_visible = old.cursor_visible;
-        self.origin_mode = old.origin_mode;
-        self.auto_wrap = old.auto_wrap;
-        self.application_cursor_keys = old.application_cursor_keys;
-        self.insert_mode = old.insert_mode;
-        self.dec_special_graphics = old.dec_special_graphics;
-        self.bracketed_paste = old.bracketed_paste;
-        self.focus_reporting = old.focus_reporting;
-        self.mouse_modes = old.mouse_modes;
-        self.cells = resize_cells(&old.cells, old.cols, old.rows, cols, rows);
-        self.alt_screen = old.alt_screen.map(|alt| AlternateScreen {
-            normal_cells: resize_cells(&alt.normal_cells, old.cols, old.rows, cols, rows),
+        self.revision = old_revision.wrapping_add(1);
+        self.title = old_title;
+        self.scrollback = old_scrollback;
+        self.pending_responses = old_pending_responses;
+        self.pending_host_sequences = old_pending_host_sequences;
+        self.pending_surface_events = old_pending_surface_events;
+        self.current_style = old_current_style;
+        self.cursor_visible = old_cursor_visible;
+        self.origin_mode = old_origin_mode;
+        self.auto_wrap = old_auto_wrap;
+        self.application_cursor_keys = old_application_cursor_keys;
+        self.insert_mode = old_insert_mode;
+        self.dec_special_graphics = old_dec_special_graphics;
+        self.bracketed_paste = old_bracketed_paste;
+        self.focus_reporting = old_focus_reporting;
+        self.mouse_modes = old_mouse_modes;
+        self.cells = resize_cells(&old_cells, old_cols, old_rows, cols, rows);
+        self.alt_screen = old_alt_screen.map(|alt| AlternateScreen {
+            normal_cells: resize_cells(&alt.normal_cells, old_cols, old_rows, cols, rows),
             normal_cursor_col: alt.normal_cursor_col.min(cols.saturating_sub(1)),
             normal_cursor_row: alt.normal_cursor_row.min(rows.saturating_sub(1)),
             normal_scroll_top: alt.normal_scroll_top.min(rows.saturating_sub(1)),
             normal_scroll_bottom: alt.normal_scroll_bottom.min(rows.saturating_sub(1)),
         });
-        self.cursor_col = old.cursor_col.min(cols.saturating_sub(1));
-        self.cursor_row = old.cursor_row.min(rows.saturating_sub(1));
-        self.saved_cursor_col = old.saved_cursor_col.min(cols.saturating_sub(1));
-        self.saved_cursor_row = old.saved_cursor_row.min(rows.saturating_sub(1));
-        self.scroll_top = old.scroll_top.min(rows.saturating_sub(1));
-        self.scroll_bottom = old.scroll_bottom.min(rows.saturating_sub(1));
+        self.cursor_col = old_cursor_col.min(cols.saturating_sub(1));
+        self.cursor_row = old_cursor_row.min(rows.saturating_sub(1));
+        self.saved_cursor_col = old_saved_cursor_col.min(cols.saturating_sub(1));
+        self.saved_cursor_row = old_saved_cursor_row.min(rows.saturating_sub(1));
+        self.scroll_top = old_scroll_top.min(rows.saturating_sub(1));
+        self.scroll_bottom = old_scroll_bottom.min(rows.saturating_sub(1));
         if self.scroll_top >= self.scroll_bottom {
             self.reset_scroll_region();
         }
@@ -4451,6 +4477,7 @@ mod tests {
                 vec![ghostty_text_cell("a"), ghostty_text_cell("b")],
                 vec![ghostty_text_cell("c"), ghostty_text_cell("d")],
             ],
+            kitty_placements: Vec::new(),
         };
 
         assert_eq!(ghostty_snapshot_text(&snapshot), "ab\ncd");
@@ -4475,6 +4502,7 @@ mod tests {
                     ghostty_text_cell("z"),
                 ],
             ],
+            kitty_placements: Vec::new(),
         };
 
         assert_eq!(ghostty_snapshot_text(&snapshot), "wide🙂\nxyz");
@@ -4512,6 +4540,33 @@ mod tests {
         assert_eq!(state.revision, 1);
         state.resize(3, 2);
         assert_eq!(state.revision, 2);
+    }
+
+    #[test]
+    fn terminal_resize_preserves_owned_buffers_without_cloning_state() {
+        let mut state = TerminalState::new(2, 2);
+        state.cells[0].ch = 'a';
+        state.push_scrollback_line("history".to_string());
+        state.queue_response(b"reply");
+        state.queue_host_sequence(b"host");
+        let bell = SurfaceEvent::Bell {
+            visual: true,
+            audible: false,
+        };
+        state.queue_surface_event(bell.clone());
+        state.title = Some("title".to_string());
+        state.cursor_col = 1;
+        state.cursor_row = 1;
+        state.resize(3, 1);
+        assert_eq!(state.revision, 1);
+        assert_eq!(state.cells[0].ch, 'a');
+        assert_eq!(state.scrollback_snapshot(), "history\n");
+        assert_eq!(state.take_pending_responses(), b"reply".to_vec());
+        assert_eq!(state.take_pending_host_sequences(), b"host".to_vec());
+        assert_eq!(state.take_pending_surface_events(), vec![bell]);
+        assert_eq!(state.title.as_deref(), Some("title"));
+        assert_eq!(state.cursor_col, 1);
+        assert_eq!(state.cursor_row, 0);
     }
 
     #[test]
