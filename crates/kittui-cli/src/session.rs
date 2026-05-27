@@ -162,6 +162,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut last_title_rows = Vec::<String>::new();
     let mut last_top_bar = String::new();
     let mut last_footer = String::new();
+    let mut last_terminal_render = String::new();
     let pure_terminal_renderer = native_should_use_pure_terminal_renderer();
     let affordance_scene_chrome = native_should_use_affordance_scene_chrome();
     let mut dirty_frames = NativeDirtyFramePolicy::from_env();
@@ -615,11 +616,14 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         let redraw_static = clear;
         if pure_terminal_renderer {
             let rendered = render_native_shell_view_terminal(&shell_view, cols, rows);
-            if redraw_static {
-                frame_out.write_all(b"\x1b[2J")?;
+            if should_write_pure_terminal_frame(&last_terminal_render, &rendered, redraw_static) {
+                if redraw_static {
+                    frame_out.write_all(b"\x1b[2J")?;
+                }
+                frame_out.write_all(rendered.as_bytes())?;
+                frame_out.write_to(&mut handle)?;
+                last_terminal_render = rendered;
             }
-            frame_out.write_all(rendered.as_bytes())?;
-            frame_out.write_to(&mut handle)?;
             clear = false;
             if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
                 std::thread::sleep(slack);
@@ -2436,6 +2440,14 @@ fn ansi_fg_bg(fg: Rgba, bg: Rgba) -> String {
         "\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m",
         fg.0, fg.1, fg.2, bg.0, bg.1, bg.2
     )
+}
+
+fn should_write_pure_terminal_frame(
+    last_rendered: &str,
+    rendered: &str,
+    redraw_static: bool,
+) -> bool {
+    redraw_static || last_rendered != rendered
 }
 
 fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u16) -> String {
@@ -4934,6 +4946,18 @@ mod native_pane_tests {
         assert_eq!(rows[0].y, 2);
         assert_eq!(rows[1].y, 13);
         assert!(rows[0].app_y + rows[0].app_rows < rows[1].app_y);
+    }
+
+    #[test]
+    fn pure_terminal_frame_write_decision_skips_unchanged_frames() {
+        assert!(should_write_pure_terminal_frame("", "frame-a", false));
+        assert!(!should_write_pure_terminal_frame(
+            "frame-a", "frame-a", false
+        ));
+        assert!(should_write_pure_terminal_frame("frame-a", "frame-a", true));
+        assert!(should_write_pure_terminal_frame(
+            "frame-a", "frame-b", false
+        ));
     }
 
     #[test]
