@@ -213,11 +213,15 @@ fn render_status_text(model: &TerminalStatusModel) -> String {
 }
 
 fn terminal_status_scene(model: &TerminalStatusModel) -> Scene {
-    let cols = terminal_status_scene_cols();
+    terminal_status_scene_for_cols(model, terminal_status_scene_cols())
+}
+
+fn terminal_status_scene_for_cols(model: &TerminalStatusModel, cols: u16) -> Scene {
     let rows = 5;
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
+    let content_rect = terminal_card_content_rect(width, cell);
     let focus = model.focus.chars().take(24).collect::<String>();
     Scene {
         footprint: CellRect::new(0, 0, cols, rows),
@@ -261,12 +265,7 @@ fn terminal_status_scene(model: &TerminalStatusModel) -> Scene {
                     model.panes, focus, model.layout, model.details
                 )),
                 root: Node::Rect {
-                    rect: PxRect::new(
-                        10.0,
-                        cell.height_px as f32 * 2.2,
-                        (width - 20.0).max(1.0),
-                        2.0,
-                    ),
+                    rect: content_rect,
                     fill: Paint::Solid {
                         color: Rgba::rgba(163, 190, 140, 255),
                     },
@@ -280,13 +279,30 @@ fn terminal_status_scene(model: &TerminalStatusModel) -> Scene {
 }
 
 fn terminal_status_scene_cols() -> u16 {
-    env::var("KITTWM_TERMINAL_STATUS_COLS")
-        .or_else(|_| env::var("COLUMNS"))
-        .ok()
+    terminal_status_scene_cols_from_value(
+        env::var("KITTWM_TERMINAL_STATUS_COLS")
+            .or_else(|_| env::var("COLUMNS"))
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn terminal_status_scene_cols_from_value(value: Option<&str>) -> u16 {
+    value
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|cols| *cols > 0)
+        .map(|cols| cols.min(120))
         .unwrap_or(56)
-        .clamp(24, 120)
+}
+
+fn terminal_card_content_rect(width: f32, cell: CellSize) -> PxRect {
+    let margin = 10.0_f32.min((width / 4.0).max(0.0));
+    PxRect::new(
+        margin,
+        cell.height_px as f32 * 2.2,
+        (width - margin * 2.0).max(1.0),
+        2.0,
+    )
 }
 
 fn render_status_kitty(model: &TerminalStatusModel) -> Result<String, String> {
@@ -311,11 +327,15 @@ fn render_events_text(model: &TerminalEventsModel) -> String {
 }
 
 fn terminal_events_scene(model: &TerminalEventsModel) -> Scene {
-    let cols = terminal_status_scene_cols();
+    terminal_events_scene_for_cols(model, terminal_status_scene_cols())
+}
+
+fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Scene {
     let rows = 5;
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
+    let content_rect = terminal_card_content_rect(width, cell);
     let summary = model
         .kinds
         .iter()
@@ -365,12 +385,7 @@ fn terminal_events_scene(model: &TerminalEventsModel) -> Scene {
             Layer {
                 label: Some(format!("kittwm-terminal-events-kinds:{summary}")),
                 root: Node::Rect {
-                    rect: PxRect::new(
-                        10.0,
-                        cell.height_px as f32 * 2.2,
-                        (width - 20.0).max(1.0),
-                        2.0,
-                    ),
+                    rect: content_rect,
                     fill: Paint::Solid {
                         color: Rgba::rgba(235, 203, 139, 255),
                     },
@@ -542,6 +557,34 @@ mod tests {
         let err =
             TerminalArgs::parse_from(["--events-ms", "10", "--events-kitty", "10"]).unwrap_err();
         assert!(err.contains("choose only one"), "{err}");
+    }
+
+    #[test]
+    fn terminal_status_scene_width_respects_narrow_columns() {
+        assert_eq!(terminal_status_scene_cols_from_value(Some("8")), 8);
+        assert_eq!(terminal_status_scene_cols_from_value(Some("0")), 56);
+        assert_eq!(terminal_status_scene_cols_from_value(Some("240")), 120);
+
+        let model = TerminalStatusModel {
+            panes: 1,
+            focus: "native-1".to_string(),
+            layout: "columns".to_string(),
+            details: 1,
+        };
+        let scene = terminal_status_scene_for_cols(&model, 1);
+        assert_eq!(scene.footprint.cols, 1);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
+        assert_eq!(
+            terminal_card_content_rect(8.0, CellSize::default())
+                .origin
+                .0,
+            2.0
+        );
     }
 
     #[test]
