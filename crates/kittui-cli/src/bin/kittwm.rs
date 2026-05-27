@@ -5371,7 +5371,7 @@ fn load_keymap(cli: &Cli) -> Result<kittui_cli::keymap::Keymap> {
 
 fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
     let cols = info_scene_cols();
-    let rows = (km.bindings.len() as u16 + 5).clamp(8, 28);
+    let rows = keymap_scene_rows(km.bindings.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -5447,6 +5447,10 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
 
 fn keymap_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn keymap_scene_rows(binding_count: usize) -> u16 {
+    binding_count.saturating_add(5).clamp(8, 28) as u16
 }
 
 fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
@@ -6372,6 +6376,13 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn keymap_scene_rows_saturate_before_clamping() {
+        assert_eq!(keymap_scene_rows(0), 8);
+        assert_eq!(keymap_scene_rows(20), 25);
+        assert_eq!(keymap_scene_rows(usize::MAX), 28);
     }
 
     #[test]
