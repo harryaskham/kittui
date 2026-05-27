@@ -540,7 +540,7 @@ fn parse_args() -> Result<Cli> {
                 let key = args
                     .next()
                     .ok_or_else(|| anyhow!("--send-key WINDOW KEY"))?;
-                out.automation_request = Some(automation_request("SEND_KEY", &window, &key)?);
+                out.automation_request = Some(send_key_request(&window, &key)?);
             }
             "--send-mouse" => {
                 let window = args
@@ -1486,8 +1486,11 @@ fn default_window_payload_alias(verb: &str, label: &str, argv: &[String]) -> Res
         [] => return Err(anyhow!("usage: kittwm {label} [WINDOW] VALUE")),
         _ => return Err(anyhow!("usage: kittwm {label} [WINDOW] VALUE")),
     };
-    if verb.trim().to_ascii_uppercase().starts_with("WAIT_") {
+    let normalized_verb = verb.trim().to_ascii_uppercase();
+    if normalized_verb.starts_with("WAIT_") {
         wait_request(verb, window, payload)
+    } else if normalized_verb == "SEND_KEY" {
+        send_key_request(window, payload)
     } else {
         text_payload_request(verb, window, payload, label)
     }
@@ -2805,6 +2808,11 @@ fn semantic_action_request(
         window,
         &format!("{component} {action} {payload}"),
     )
+}
+
+fn send_key_request(window: &str, key: &str) -> Result<String> {
+    let key = protocol_token(key, "--send-key KEY")?;
+    automation_request("SEND_KEY", window, &key)
 }
 
 fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result<String> {
@@ -8050,9 +8058,10 @@ END
             "SEND_LINE native-2 make test"
         );
         assert_eq!(
-            default_window_payload_alias("SEND_KEY", "key", &args(&["ctrl-c"])).unwrap(),
+            default_window_payload_alias("SEND_KEY", "key", &args(&[" ctrl-c "])).unwrap(),
             "SEND_KEY focused ctrl-c"
         );
+        assert!(default_window_payload_alias("SEND_KEY", "key", &args(&["page down"])).is_err());
         assert_eq!(
             default_window_payload_alias("WAIT_OUTPUT", "wait", &args(&["native-2", " Ready "]))
                 .unwrap(),
@@ -8358,6 +8367,7 @@ END
         assert!(events_request("60001").is_err());
         assert!(wait_ms_request("WAIT_TEXT_MS", "0", "focused", "ready").is_err());
         assert!(send_mouse_request("focused", "drag", "7", "9").is_err());
+        assert!(send_key_request("focused", "page down").is_err());
         assert!(automation_request("SEND_KEY", "bad window", "ctrl-c").is_err());
     }
 
