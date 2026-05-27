@@ -3592,6 +3592,16 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key("Backspace", "Backspace", 8)
     }
 
+    /// Dispatch a Shift+Backspace key press/release to the focused page element.
+    pub fn send_shift_backspace(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers(
+            "Backspace",
+            "Backspace",
+            8,
+            BROWSER_SHIFT_MODIFIER,
+        )
+    }
+
     /// Dispatch a Ctrl+Backspace key press/release to the focused page element.
     pub fn send_ctrl_backspace(&mut self) -> Result<()> {
         self.dispatch_browser_key_with_modifiers("Backspace", "Backspace", 8, BROWSER_CTRL_MODIFIER)
@@ -6083,6 +6093,17 @@ mod tests {
         assert_eq!(ctrl_backspace["windowsVirtualKeyCode"], 8);
         assert_eq!(ctrl_backspace["nativeVirtualKeyCode"], 8);
         assert_eq!(ctrl_backspace["modifiers"], BROWSER_CTRL_MODIFIER);
+        let shift_backspace = browser_key_event_params_with_modifiers(
+            "Backspace",
+            "Backspace",
+            8,
+            BROWSER_SHIFT_MODIFIER,
+        );
+        assert_eq!(shift_backspace["key"], "Backspace");
+        assert_eq!(shift_backspace["code"], "Backspace");
+        assert_eq!(shift_backspace["windowsVirtualKeyCode"], 8);
+        assert_eq!(shift_backspace["nativeVirtualKeyCode"], 8);
+        assert_eq!(shift_backspace["modifiers"], BROWSER_SHIFT_MODIFIER);
         let alt_backspace = browser_key_event_params_with_modifiers(
             "Backspace",
             "Backspace",
