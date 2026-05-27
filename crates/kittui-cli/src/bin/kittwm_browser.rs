@@ -183,6 +183,7 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::Tab => browser.send_tab()?,
                     BrowserInputAction::ShiftTab => browser.send_shift_tab()?,
                     BrowserInputAction::Enter => browser.send_enter()?,
+                    BrowserInputAction::Escape => browser.send_escape()?,
                     BrowserInputAction::Insert => browser.send_insert()?,
                     BrowserInputAction::Delete => browser.send_delete()?,
                     BrowserInputAction::Home => browser.send_home()?,
@@ -271,6 +272,7 @@ enum BrowserInputAction {
     Tab,
     ShiftTab,
     Enter,
+    Escape,
     Insert,
     Delete,
     Home,
@@ -338,6 +340,12 @@ fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
                     actions.push(action);
                 }
                 idx += consumed + 2;
+            }
+            0x1b => {
+                if !text.is_empty() {
+                    actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
+                }
+                actions.push(BrowserInputAction::Escape);
             }
             0x20..=0x7e => text.push(bytes[idx] as char),
             _ => {}
@@ -959,7 +967,7 @@ mod tests {
     fn browser_input_actions_preserve_text_backspace_tab_enter_page_and_arrow_order() {
         assert_eq!(
             browser_input_actions(
-                b"ab\x7fc\t\x1b[Zde\x1b[D\x1b[2~\x1b[3~\x1b[H\x1b[F\x1b[5~\x1b[6~\x08\rfg\n",
+                b"ab\x7fc\t\x1b[Zde\x1b[D\x1b[2~\x1b[3~\x1b[H\x1b[F\x1b[5~\x1b[6~\x1b\x08\rfg\n"
             ),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
@@ -975,6 +983,7 @@ mod tests {
                 BrowserInputAction::End,
                 BrowserInputAction::Page(BrowserPageKey::Up),
                 BrowserInputAction::Page(BrowserPageKey::Down),
+                BrowserInputAction::Escape,
                 BrowserInputAction::Backspace,
                 BrowserInputAction::Enter,
                 BrowserInputAction::Text("fg".to_string()),
@@ -1008,7 +1017,7 @@ mod tests {
         );
         assert_eq!(
             browser_input_actions(&[0x1b]),
-            Vec::<BrowserInputAction>::new()
+            vec![BrowserInputAction::Escape]
         );
         assert_eq!(
             browser_input_actions(b"x\x1b["),

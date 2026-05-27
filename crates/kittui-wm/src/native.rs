@@ -3448,6 +3448,11 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key("Enter", "Enter", 13)
     }
 
+    /// Dispatch an Escape key press/release to the focused page element.
+    pub fn send_escape(&mut self) -> Result<()> {
+        self.dispatch_browser_key("Escape", "Escape", 27)
+    }
+
     /// Dispatch an Insert key press/release to the focused page element.
     pub fn send_insert(&mut self) -> Result<()> {
         self.dispatch_browser_key("Insert", "Insert", 45)
@@ -5569,6 +5574,11 @@ mod tests {
         assert_eq!(params["code"], "Enter");
         assert_eq!(params["windowsVirtualKeyCode"], 13);
         assert_eq!(params["nativeVirtualKeyCode"], 13);
+        let escape = browser_key_event_params("Escape", "Escape", 27);
+        assert_eq!(escape["key"], "Escape");
+        assert_eq!(escape["code"], "Escape");
+        assert_eq!(escape["windowsVirtualKeyCode"], 27);
+        assert_eq!(escape["nativeVirtualKeyCode"], 27);
         let insert = browser_key_event_params("Insert", "Insert", 45);
         assert_eq!(insert["key"], "Insert");
         assert_eq!(insert["code"], "Insert");
