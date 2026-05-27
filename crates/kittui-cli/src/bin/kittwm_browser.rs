@@ -17,7 +17,7 @@ use anyhow::{anyhow, Result};
 use kittui::Transport;
 use kittui::{CellRect, CellSize, Runtime, TerminalInfo};
 use kittui_kitty as kitty;
-use kittui_wm::native::{HeadlessBrowserApp, NativeApp, NativeFrame};
+use kittui_wm::native::{BrowserArrowKey, HeadlessBrowserApp, NativeApp, NativeFrame};
 use kittui_wm::semantic::render_sdk_semantic_surface;
 use kittwm_sdk::{Kittwm, SemanticSurfaceSnapshot};
 
@@ -179,6 +179,7 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::Text(text) => browser.send_text(&text)?,
                     BrowserInputAction::Backspace => browser.send_backspace()?,
                     BrowserInputAction::Tab => browser.send_tab()?,
+                    BrowserInputAction::Arrow(direction) => browser.send_arrow_key(direction)?,
                 }
                 user_activity = true;
             }
@@ -259,13 +260,15 @@ enum BrowserInputAction {
     Text(String),
     Backspace,
     Tab,
+    Arrow(BrowserArrowKey),
 }
 
 fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
     let mut actions = Vec::new();
     let mut text = String::new();
-    for byte in bytes {
-        match *byte {
+    let mut idx = 0usize;
+    while idx < bytes.len() {
+        match bytes[idx] {
             b'\r' | b'\n' => text.push('\n'),
             0x08 | 0x7f => {
                 if !text.is_empty() {
@@ -279,9 +282,26 @@ fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
                 }
                 actions.push(BrowserInputAction::Tab);
             }
-            0x20..=0x7e => text.push(*byte as char),
+            0x1b if idx + 2 < bytes.len() && bytes[idx + 1] == b'[' => {
+                let arrow = match bytes[idx + 2] {
+                    b'A' => Some(BrowserArrowKey::Up),
+                    b'B' => Some(BrowserArrowKey::Down),
+                    b'C' => Some(BrowserArrowKey::Right),
+                    b'D' => Some(BrowserArrowKey::Left),
+                    _ => None,
+                };
+                if let Some(direction) = arrow {
+                    if !text.is_empty() {
+                        actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
+                    }
+                    actions.push(BrowserInputAction::Arrow(direction));
+                    idx += 2;
+                }
+            }
+            0x20..=0x7e => text.push(bytes[idx] as char),
             _ => {}
         }
+        idx += 1;
     }
     if !text.is_empty() {
         actions.push(BrowserInputAction::Text(text));
@@ -860,16 +880,27 @@ mod tests {
     }
 
     #[test]
-    fn browser_input_actions_preserve_text_and_backspace_order() {
+    fn browser_input_actions_preserve_text_backspace_tab_and_arrow_order() {
         assert_eq!(
-            browser_input_actions(b"ab\x7fc\x08\tde\r"),
+            browser_input_actions(b"ab\x7fc\tde\x1b[D\x08\r"),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
                 BrowserInputAction::Backspace,
                 BrowserInputAction::Text("c".to_string()),
-                BrowserInputAction::Backspace,
                 BrowserInputAction::Tab,
-                BrowserInputAction::Text("de\n".to_string()),
+                BrowserInputAction::Text("de".to_string()),
+                BrowserInputAction::Arrow(BrowserArrowKey::Left),
+                BrowserInputAction::Backspace,
+                BrowserInputAction::Text("\n".to_string()),
+            ]
+        );
+        assert_eq!(
+            browser_input_actions(b"\x1b[A\x1b[B\x1b[C\x1b[D"),
+            vec![
+                BrowserInputAction::Arrow(BrowserArrowKey::Up),
+                BrowserInputAction::Arrow(BrowserArrowKey::Down),
+                BrowserInputAction::Arrow(BrowserArrowKey::Right),
+                BrowserInputAction::Arrow(BrowserArrowKey::Left),
             ]
         );
         assert_eq!(

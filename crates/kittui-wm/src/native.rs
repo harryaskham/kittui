@@ -3265,6 +3265,30 @@ fn terminal_bitmap_glyph(ch: char) -> [u8; 7] {
     }
 }
 
+/// Browser arrow-key direction for DevTools key dispatch.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BrowserArrowKey {
+    /// ArrowUp.
+    Up,
+    /// ArrowDown.
+    Down,
+    /// ArrowLeft.
+    Left,
+    /// ArrowRight.
+    Right,
+}
+
+impl BrowserArrowKey {
+    fn key_fields(self) -> (&'static str, &'static str, u32) {
+        match self {
+            BrowserArrowKey::Up => ("ArrowUp", "ArrowUp", 38),
+            BrowserArrowKey::Down => ("ArrowDown", "ArrowDown", 40),
+            BrowserArrowKey::Left => ("ArrowLeft", "ArrowLeft", 37),
+            BrowserArrowKey::Right => ("ArrowRight", "ArrowRight", 39),
+        }
+    }
+}
+
 /// Headless Chrome/Chromium native app driven via Chrome DevTools Protocol.
 pub struct HeadlessBrowserApp {
     child: Child,
@@ -3394,6 +3418,12 @@ impl HeadlessBrowserApp {
     /// Dispatch a Tab key press/release to the focused page element.
     pub fn send_tab(&mut self) -> Result<()> {
         self.dispatch_browser_key("Tab", "Tab", 9)
+    }
+
+    /// Dispatch an arrow-key press/release to the focused page element.
+    pub fn send_arrow_key(&mut self, direction: BrowserArrowKey) -> Result<()> {
+        let (key, code, key_code) = direction.key_fields();
+        self.dispatch_browser_key(key, code, key_code)
     }
 
     fn dispatch_browser_key(&mut self, key: &str, code: &str, key_code: u32) -> Result<()> {
