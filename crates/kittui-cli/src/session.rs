@@ -4035,7 +4035,7 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
 }
 
 fn native_graphical_top_bar_overlay_clear(row: u16) -> String {
-    format!("\x1b[{row};1H\x1b[K")
+    format!("\x1b[0m\x1b[{row};1H\x1b[K")
 }
 
 fn native_graphical_top_bar_overlay_labels(model: &BarModel, cols: u16) -> Vec<String> {
@@ -4465,8 +4465,14 @@ mod native_pane_tests {
 
     #[test]
     fn graphical_top_bar_overlay_clears_row_before_rewrite() {
-        assert_eq!(native_graphical_top_bar_overlay_clear(1), "\x1b[1;1H\x1b[K");
-        assert_eq!(native_graphical_top_bar_overlay_clear(3), "\x1b[3;1H\x1b[K");
+        assert_eq!(
+            native_graphical_top_bar_overlay_clear(1),
+            "\x1b[0m\x1b[1;1H\x1b[K"
+        );
+        assert_eq!(
+            native_graphical_top_bar_overlay_clear(3),
+            "\x1b[0m\x1b[3;1H\x1b[K"
+        );
     }
 
     #[test]

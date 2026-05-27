@@ -220,7 +220,7 @@ fn kittwm_bar_kitty_text_overlay_with_config(
     config: &KittwmConfig,
 ) -> String {
     let palette = kittwm_bar_overlay_palette(config);
-    let mut out = String::from("\x1b[1;1H\x1b[K");
+    let mut out = String::from("\x1b[0m\x1b[1;1H\x1b[K");
     let mut workspace_cols = 0u16;
     for label in model.bar.workspace_chip_labels() {
         let active = model.bar.workspace.trim() == label;
@@ -477,7 +477,7 @@ mod tests {
             chrome: None,
         };
         let overlay = kittwm_bar_kitty_text_overlay(&model, 40);
-        assert!(overlay.starts_with("\x1b[1;1H"), "{overlay:?}");
+        assert!(overlay.starts_with("\x1b[0m\x1b[1;1H"), "{overlay:?}");
         assert!(overlay.contains(" 1 "), "{overlay:?}");
         assert!(overlay.contains(" 2 "), "{overlay:?}");
         assert!(overlay.contains(" 3 "), "{overlay:?}");
@@ -511,7 +511,7 @@ mod tests {
             chrome: None,
         };
         let overlay = kittwm_bar_kitty_text_overlay(&model, 60);
-        assert!(overlay.starts_with("\x1b[1;1H\x1b[K"), "{overlay:?}");
+        assert!(overlay.starts_with("\x1b[0m\x1b[1;1H\x1b[K"), "{overlay:?}");
         assert!(overlay.contains(" dev "), "{overlay:?}");
     }
 
@@ -522,7 +522,7 @@ mod tests {
             chrome: None,
         };
         let overlay = kittwm_bar_kitty_text_overlay(&model, 18);
-        assert!(overlay.starts_with("\x1b[1;1H\x1b[K"), "{overlay:?}");
+        assert!(overlay.starts_with("\x1b[0m\x1b[1;1H\x1b[K"), "{overlay:?}");
         assert!(overlay.contains(" sup "), "{overlay:?}");
         assert!(
             !overlay.contains("super-long-workspace-name"),
