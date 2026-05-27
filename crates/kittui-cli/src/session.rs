@@ -4711,11 +4711,35 @@ mod native_pane_tests {
             24,
         );
         assert_eq!(text.chars().count(), 24, "{text:?}");
+        assert!(text.capacity() >= 24);
         assert!(text.starts_with("kittui-wm frame 123"), "{text:?}");
         let tiny = raw_compositor_footer_text(
             1, "w", "s", "l", "c", "f", "sw", "m", 0, 0.0, 0.0, 60, "", "", "q", "log", 1,
         );
         assert_eq!(tiny.chars().count(), 1, "{tiny:?}");
+
+        let huge = raw_compositor_footer_text(
+            1,
+            &"workspace-".repeat(10_000),
+            "s",
+            "l",
+            "c",
+            "f",
+            "sw",
+            "m",
+            0,
+            0.0,
+            0.0,
+            60,
+            "",
+            "",
+            "q",
+            &"log-path-".repeat(10_000),
+            32,
+        );
+        assert_eq!(huge.chars().count(), 32, "{huge:?}");
+        assert!(huge.ends_with('…'), "{huge:?}");
+        assert!(!huge.contains(&"workspace-".repeat(4)), "{huge:?}");
     }
 
     #[test]
@@ -9310,10 +9334,69 @@ fn raw_compositor_footer_text(
     log_path: &str,
     terminal_cols: u16,
 ) -> String {
-    let text = format!(
-        "kittui-wm frame {frame} — ws {workspace} — panes {split} — layout {layout} — cfg {config} — focus {focus} — swap {swap} — mode {mode} — {window_count} windows — {live_fps:.0} fps (peak {peak_fps:.0}, cap {cap_fps}){launch_note}{keymap_note} — {quit_hint} (log: {log_path})"
-    );
-    truncate_cells(&text, terminal_cols.max(1) as usize)
+    let max = terminal_cols.max(1) as usize;
+    let mut out = String::with_capacity(max);
+    let mut used = 0usize;
+    macro_rules! push_footer {
+        ($segment:expr) => {
+            if !push_truncated_cells(&mut out, &mut used, max, $segment) {
+                return out;
+            }
+        };
+    }
+    push_footer!("kittui-wm frame ");
+    push_footer!(&frame.to_string());
+    push_footer!(" — ws ");
+    push_footer!(workspace);
+    push_footer!(" — panes ");
+    push_footer!(split);
+    push_footer!(" — layout ");
+    push_footer!(layout);
+    push_footer!(" — cfg ");
+    push_footer!(config);
+    push_footer!(" — focus ");
+    push_footer!(focus);
+    push_footer!(" — swap ");
+    push_footer!(swap);
+    push_footer!(" — mode ");
+    push_footer!(mode);
+    push_footer!(" — ");
+    push_footer!(&window_count.to_string());
+    push_footer!(" windows — ");
+    push_footer!(&format!("{live_fps:.0}"));
+    push_footer!(" fps (peak ");
+    push_footer!(&format!("{peak_fps:.0}"));
+    push_footer!(", cap ");
+    push_footer!(&cap_fps.to_string());
+    push_footer!(")");
+    push_footer!(launch_note);
+    push_footer!(keymap_note);
+    push_footer!(" — ");
+    push_footer!(quit_hint);
+    push_footer!(" (log: ");
+    push_footer!(log_path);
+    push_footer!(")");
+    out
+}
+
+fn push_truncated_cells(out: &mut String, used: &mut usize, max: usize, segment: &str) -> bool {
+    if segment.is_empty() {
+        return true;
+    }
+    let mut chars = segment.chars();
+    while *used < max {
+        let Some(ch) = chars.next() else {
+            return true;
+        };
+        out.push(ch);
+        *used += 1;
+    }
+    if chars.next().is_some() {
+        out.pop();
+        out.push('…');
+        return false;
+    }
+    true
 }
 
 fn raw_compositor_footer_refresh_interval() -> u64 {
