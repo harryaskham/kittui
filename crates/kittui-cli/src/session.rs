@@ -3770,7 +3770,7 @@ fn native_help_overlay_scene(
         Layer::new(
             "help-overlay-heading-band",
             Node::Rect {
-                rect: PxRect::new(0.0, 0.0, rect.width, row_h * 1.4),
+                rect: PxRect::new(0.0, 0.0, rect.width, (row_h * 1.4).min(rect.height)),
                 fill: Paint::Solid {
                     color: colors.highlight,
                 },
@@ -3781,15 +3781,17 @@ fn native_help_overlay_scene(
     ];
     for (idx, line) in lines.iter().enumerate().skip(1) {
         let row_y = row_h * (idx as f32 + 1.0);
-        if row_y + chip_h >= rect.height {
+        if row_y >= rect.height {
             break;
         }
         let keyish = line.starts_with("C-a") || line.starts_with("Ctrl-");
-        if keyish {
+        let chip_y = row_y + 2.0;
+        if keyish && chip_y < rect.height {
+            let bounded_chip_h = chip_h.min((rect.height - chip_y).max(1.0));
             layers.push(Layer::new(
                 format!("help-overlay-key-chip-{idx}"),
                 Node::Rect {
-                    rect: PxRect::new(chip_x, row_y + 2.0, chip_w, chip_h),
+                    rect: PxRect::new(chip_x, chip_y, chip_w, bounded_chip_h),
                     fill: Paint::Solid {
                         color: rgba_with_alpha(colors.border, 80),
                     },
@@ -3803,17 +3805,20 @@ fn native_help_overlay_scene(
                 },
             ));
         }
-        layers.push(Layer::new(
-            format!("help-overlay-row-{idx}"),
-            Node::Rect {
-                rect: PxRect::new(row_line_x, row_y + row_h - 2.0, row_line_w, 1.0),
-                fill: Paint::Solid {
-                    color: colors.highlight,
+        let row_line_y = row_y + row_h - 2.0;
+        if row_line_y < rect.height {
+            layers.push(Layer::new(
+                format!("help-overlay-row-{idx}"),
+                Node::Rect {
+                    rect: PxRect::new(row_line_x, row_line_y, row_line_w, 1.0),
+                    fill: Paint::Solid {
+                        color: colors.highlight,
+                    },
+                    stroke: None,
+                    corners: Corners::default(),
                 },
-                stroke: None,
-                corners: Corners::default(),
-            },
-        ));
+            ));
+        }
     }
     native_help_overlay_control_layers(cell_size, panel_cols, panel_rows, &mut layers);
     (
@@ -6480,6 +6485,36 @@ mod native_pane_tests {
                 "rows={rows} y={y} scene={:?}",
                 scene.footprint
             );
+        }
+    }
+
+    #[test]
+    fn native_help_overlay_internal_layers_fit_short_height() {
+        let (_x, _y, scene) = native_help_overlay_scene(
+            CellSize::new(8, 16),
+            80,
+            3,
+            &[
+                "kittwm shortcuts",
+                "C-a ? help",
+                "C-a x close",
+                "C-a g launcher",
+            ],
+        );
+        let scene_height = scene.footprint.rows as f32 * scene.cell_size.height_px as f32;
+        for layer in &scene.layers {
+            let rect = match &layer.root {
+                Node::Rect { rect, .. } | Node::Gradient { rect, .. } => Some(rect),
+                _ => None,
+            };
+            if let Some(rect) = rect {
+                assert!(
+                    rect.origin.1 >= 0.0 && rect.origin.1 + rect.height <= scene_height,
+                    "layer {:?} escapes scene height {scene_height}: {:?}",
+                    layer.label,
+                    rect
+                );
+            }
         }
     }
 
