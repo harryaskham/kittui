@@ -189,8 +189,7 @@ fn render_kitty_bar(model: &BarOutputModel) -> Result<String, String> {
         .build()
         .map_err(|err| err.to_string())?;
     let scene = model.scene(scene_cols());
-    let mut options = kittui_kitty::PlacementOptions::unicode();
-    options.z_index = 20;
+    let options = kittwm_bar_kitty_options(&scene);
     runtime
         .place_at_with_options(
             &scene,
@@ -199,6 +198,10 @@ fn render_kitty_bar(model: &BarOutputModel) -> Result<String, String> {
         )
         .map(|placement| placement.to_bytes())
         .map_err(|err| err.to_string())
+}
+
+fn kittwm_bar_kitty_options(scene: &kittui::Scene) -> kittui_kitty::PlacementOptions {
+    kittui_kitty::PlacementOptions::stable_absolute(scene.id().kitty_image_id()).with_z_index(20)
 }
 
 fn scene_cols() -> u16 {
@@ -275,6 +278,16 @@ mod tests {
         assert_eq!(json["footprint"]["cols"], 12);
         assert_eq!(json["footprint"]["rows"], 1);
         assert_eq!(json["layers"][0]["label"], "kittwm-bar:empty:1");
+    }
+
+    #[test]
+    fn kitty_bar_uses_stable_absolute_no_placeholder_options() {
+        let model = BarOutputModel::offline(UNIX_EPOCH);
+        let scene = model.scene(80);
+        let options = kittwm_bar_kitty_options(&scene);
+        assert_eq!(options.placement_id, Some(scene.id().kitty_image_id()));
+        assert_eq!(options.z_index, 20);
+        assert!(!options.unicode_placeholder);
     }
 
     #[test]
