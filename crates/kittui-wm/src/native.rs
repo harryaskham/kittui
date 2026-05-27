@@ -3646,6 +3646,16 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key_with_modifiers("Delete", "Delete", 46, BROWSER_CTRL_MODIFIER)
     }
 
+    /// Dispatch an Alt+Insert key press/release to the focused page element.
+    pub fn send_alt_insert(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Insert", "Insert", 45, BROWSER_ALT_MODIFIER)
+    }
+
+    /// Dispatch an Alt+Delete key press/release to the focused page element.
+    pub fn send_alt_delete(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Delete", "Delete", 46, BROWSER_ALT_MODIFIER)
+    }
+
     /// Dispatch a Home key press/release to the focused page element.
     pub fn send_home(&mut self) -> Result<()> {
         self.dispatch_browser_key("Home", "Home", 36)
@@ -6125,6 +6135,20 @@ mod tests {
         assert_eq!(ctrl_delete["windowsVirtualKeyCode"], 46);
         assert_eq!(ctrl_delete["nativeVirtualKeyCode"], 46);
         assert_eq!(ctrl_delete["modifiers"], BROWSER_CTRL_MODIFIER);
+        let alt_insert =
+            browser_key_event_params_with_modifiers("Insert", "Insert", 45, BROWSER_ALT_MODIFIER);
+        assert_eq!(alt_insert["key"], "Insert");
+        assert_eq!(alt_insert["code"], "Insert");
+        assert_eq!(alt_insert["windowsVirtualKeyCode"], 45);
+        assert_eq!(alt_insert["nativeVirtualKeyCode"], 45);
+        assert_eq!(alt_insert["modifiers"], BROWSER_ALT_MODIFIER);
+        let alt_delete =
+            browser_key_event_params_with_modifiers("Delete", "Delete", 46, BROWSER_ALT_MODIFIER);
+        assert_eq!(alt_delete["key"], "Delete");
+        assert_eq!(alt_delete["code"], "Delete");
+        assert_eq!(alt_delete["windowsVirtualKeyCode"], 46);
+        assert_eq!(alt_delete["nativeVirtualKeyCode"], 46);
+        assert_eq!(alt_delete["modifiers"], BROWSER_ALT_MODIFIER);
         let home = browser_key_event_params("Home", "Home", 36);
         assert_eq!(home["key"], "Home");
         assert_eq!(home["code"], "Home");
