@@ -992,6 +992,8 @@ pub struct TerminalSurface {
     cell_height: u32,
     cached_revision: u64,
     cached_frame: Option<NativeFrame>,
+    cached_text_snapshot: Mutex<Option<(u64, String)>>,
+    cached_scrollback_snapshot: Mutex<Option<(u64, String)>>,
 }
 
 /// A nested PTY terminal rendered into an RGBA frame.
@@ -1061,17 +1063,29 @@ impl TerminalSurface {
             cell_height,
             cached_revision: 0,
             cached_frame: None,
+            cached_text_snapshot: Mutex::new(None),
+            cached_scrollback_snapshot: Mutex::new(None),
         })
     }
 
     /// Return the terminal grid as plain text for assertions and accessibility.
     pub fn text_snapshot(&self) -> String {
-        self.state.lock().text_snapshot()
+        let state = self.state.lock();
+        cached_terminal_snapshot(
+            &state,
+            &self.cached_text_snapshot,
+            TerminalState::text_snapshot,
+        )
     }
 
     /// Return lines that have scrolled off the terminal grid as plain text.
     pub fn scrollback_snapshot(&self) -> String {
-        self.state.lock().scrollback_snapshot()
+        let state = self.state.lock();
+        cached_terminal_snapshot(
+            &state,
+            &self.cached_scrollback_snapshot,
+            TerminalState::scrollback_snapshot,
+        )
     }
 
     /// Drain host-terminal OSC/control sequences requested by the nested app.
@@ -1434,6 +1448,22 @@ impl NativeSurface for GhosttyTerminalApp {
         metadata.frame_size = Some(frame.size());
         Ok(SurfaceFrame { metadata, frame })
     }
+}
+
+fn cached_terminal_snapshot(
+    state: &TerminalState,
+    cache: &Mutex<Option<(u64, String)>>,
+    build: fn(&TerminalState) -> String,
+) -> String {
+    let revision = state.revision;
+    if let Some((cached_revision, cached)) = cache.lock().as_ref() {
+        if *cached_revision == revision {
+            return cached.clone();
+        }
+    }
+    let snapshot = build(state);
+    *cache.lock() = Some((revision, snapshot.clone()));
+    snapshot
 }
 
 impl PtyTerminalApp {
@@ -4177,6 +4207,37 @@ mod tests {
         assert_eq!(state.revision, 1);
         state.resize(3, 2);
         assert_eq!(state.revision, 2);
+    }
+
+    #[test]
+    fn terminal_snapshot_cache_reuses_revision_and_refreshes_on_change() {
+        let mut state = TerminalState::new(2, 1);
+        state.cells[0].ch = 'a';
+        let cache = Mutex::new(None);
+        let first = cached_terminal_snapshot(&state, &cache, TerminalState::text_snapshot);
+        assert_eq!(first, "a\n");
+
+        state.cells[0].ch = 'b';
+        let stale = cached_terminal_snapshot(&state, &cache, TerminalState::text_snapshot);
+        assert_eq!(stale, first, "unchanged revision should reuse cached text");
+
+        state.bump_revision();
+        let refreshed = cached_terminal_snapshot(&state, &cache, TerminalState::text_snapshot);
+        assert_eq!(refreshed, "b\n");
+    }
+
+    #[test]
+    fn terminal_snapshot_cache_keeps_scrollback_empty_fast_path() {
+        let state = TerminalState::new(2, 1);
+        let cache = Mutex::new(None);
+        assert_eq!(
+            cached_terminal_snapshot(&state, &cache, TerminalState::scrollback_snapshot),
+            ""
+        );
+        assert_eq!(
+            cache.lock().as_ref().map(|(revision, _)| *revision),
+            Some(0)
+        );
     }
 
     #[test]
