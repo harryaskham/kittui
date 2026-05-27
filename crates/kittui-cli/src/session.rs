@@ -3901,13 +3901,16 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         .strip_suffix(" UTC")
         .unwrap_or("00:00")
         .to_string();
-    let colors = native_glass_chrome_colors();
+    let palette = native_top_bar_overlay_palette(native_glass_chrome_colors());
     write!(out, "\x1b[{};1H", row)?;
-    let active_workspace = model.workspace;
     let mut workspace_cols = 0u16;
     for idx in 1..=3 {
-        let active = active_workspace == idx.to_string();
-        let (fg, bg) = native_graphical_top_bar_text_palette(&colors, active);
+        let active = model.workspace == idx.to_string();
+        let (fg, bg) = if active {
+            (palette.active_fg, palette.active_bg)
+        } else {
+            (palette.inactive_fg, palette.inactive_bg)
+        };
         let label = format!(" {idx} ");
         write!(
             out,
@@ -3922,14 +3925,13 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
     if let Some(clock_col) =
         native_graphical_top_bar_clock_col(cols, workspace_cols, clock_text.chars().count() as u16)
     {
-        let (clock_fg, clock_bg) = native_graphical_top_bar_clock_palette(&colors);
         write!(
             out,
             "\x1b[{};{}H\x1b[1m{}{}{}\x1b[0m",
             row,
             clock_col,
-            ansi_fg(clock_fg),
-            ansi_bg(clock_bg),
+            ansi_fg(palette.clock_fg),
+            ansi_bg(palette.clock_bg),
             clock_text
         )?;
     }
@@ -3949,6 +3951,7 @@ fn native_graphical_top_bar_clock_col(
         .then(|| cols.saturating_sub(clock_cols).saturating_add(1).max(1))
 }
 
+#[cfg(test)]
 fn native_graphical_top_bar_text_palette(colors: &InlineChipColors, active: bool) -> (Rgba, Rgba) {
     if active {
         (opaque_rgb(colors.fill), opaque_rgb(colors.highlight))
@@ -3957,12 +3960,47 @@ fn native_graphical_top_bar_text_palette(colors: &InlineChipColors, active: bool
     }
 }
 
+#[cfg(test)]
 fn native_graphical_top_bar_clock_palette(colors: &InlineChipColors) -> (Rgba, Rgba) {
     (opaque_rgb(colors.fg), rgba_with_alpha(colors.fill, 240))
 }
 
+#[cfg(test)]
 fn opaque_rgb(color: Rgba) -> Rgba {
     Rgba(color.0, color.1, color.2, 255)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct NativeTopBarOverlayPalette {
+    active_fg: Rgba,
+    active_bg: Rgba,
+    inactive_fg: Rgba,
+    inactive_bg: Rgba,
+    clock_fg: Rgba,
+    clock_bg: Rgba,
+}
+
+fn native_top_bar_overlay_palette(colors: InlineChipColors) -> NativeTopBarOverlayPalette {
+    let active_bg = rgba_with_alpha(colors.highlight, colors.highlight.3.max(235));
+    let inactive_bg = rgba_with_alpha(colors.fill, colors.fill.3.max(210));
+    let clock_bg = rgba_with_alpha(colors.fill, colors.fill.3.max(240));
+    NativeTopBarOverlayPalette {
+        active_fg: high_contrast_text_for(active_bg),
+        active_bg,
+        inactive_fg: high_contrast_text_for(inactive_bg),
+        inactive_bg,
+        clock_fg: high_contrast_text_for(clock_bg),
+        clock_bg,
+    }
+}
+
+fn high_contrast_text_for(bg: Rgba) -> Rgba {
+    let luminance = (u32::from(bg.0) * 299 + u32::from(bg.1) * 587 + u32::from(bg.2) * 114) / 1000;
+    if luminance > 150 {
+        Rgba(0x2e, 0x34, 0x40, 255)
+    } else {
+        Rgba(0xec, 0xef, 0xf4, 255)
+    }
 }
 
 fn ansi_fg(color: Rgba) -> String {
@@ -4205,6 +4243,23 @@ mod native_pane_tests {
         assert!(should_write_ansi_top_bar(false, true, "same", "same"));
         assert!(should_write_ansi_top_bar(false, false, "new", "old"));
         assert!(!should_write_ansi_top_bar(false, false, "same", "same"));
+    }
+
+    #[test]
+    fn native_top_bar_overlay_palette_uses_configured_colors_with_contrast() {
+        let colors = InlineChipColors {
+            fill: Rgba(0x11, 0x22, 0x33, 210),
+            fg: Rgba(0xdd, 0xee, 0xff, 255),
+            border: Rgba(0xaa, 0xbb, 0xcc, 255),
+            highlight: Rgba(0xee, 0xdd, 0xaa, 235),
+        };
+        let palette = native_top_bar_overlay_palette(colors);
+        assert_eq!(palette.active_bg, Rgba(0xee, 0xdd, 0xaa, 235));
+        assert_eq!(palette.inactive_bg, Rgba(0x11, 0x22, 0x33, 210));
+        assert_eq!(palette.clock_bg, Rgba(0x11, 0x22, 0x33, 240));
+        assert_eq!(palette.active_fg, Rgba(0x2e, 0x34, 0x40, 255));
+        assert_eq!(palette.inactive_fg, Rgba(0xec, 0xef, 0xf4, 255));
+        assert_eq!(palette.clock_fg, Rgba(0xec, 0xef, 0xf4, 255));
     }
 
     #[test]
