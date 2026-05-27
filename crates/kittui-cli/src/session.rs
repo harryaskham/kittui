@@ -1216,17 +1216,17 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 last_top_bar = shell_view.top_bar.text.clone();
             }
         }
-        if !affordance_scene_chrome
-            && !shell_view.footer.text.is_empty()
-            && (redraw_static || shell_view.footer.text != last_footer)
-        {
-            write!(
-                frame_out,
-                "\x1b[0m\x1b[{};1H\x1b[K{}",
-                shell_view.footer.row + 1,
-                shell_view.footer.text
-            )?;
-            last_footer = shell_view.footer.text;
+        if !affordance_scene_chrome && !shell_view.footer.text.is_empty() {
+            let visible_footer = native_footer_visible_text(&shell_view.footer.text, cols);
+            if redraw_static || visible_footer != last_footer {
+                write!(
+                    frame_out,
+                    "\x1b[0m\x1b[{};1H\x1b[K{}",
+                    terminal_visible_row(shell_view.footer.row, rows) + 1,
+                    visible_footer
+                )?;
+                last_footer = visible_footer;
+            }
         }
         if quit_confirm_overlay.active {
             let overlay_key = quit_confirm_overlay_key(&quit_confirm_overlay);
@@ -1637,6 +1637,10 @@ fn native_status_line_text(panes: usize, log_path: &str) -> String {
     } else {
         format!(" C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: {log_path}")
     }
+}
+
+fn native_footer_visible_text(text: &str, cols: u16) -> String {
+    clip_and_pad(text, cols as usize)
 }
 
 fn native_help_overlay_lines() -> &'static [&'static str] {
@@ -4790,6 +4794,16 @@ mod native_pane_tests {
         assert_eq!(clip_and_pad("abcdef", 3), "abc");
         assert_eq!(clip_and_pad("éx", 4), "éx  ");
         assert_eq!(clip_and_pad("anything", 0), "");
+    }
+
+    #[test]
+    fn native_footer_visible_text_clips_huge_log_paths_to_terminal_width() {
+        let huge_footer = native_status_line_text(1, &format!("/tmp/{}", "x".repeat(10_000)));
+        let visible = native_footer_visible_text(&huge_footer, 24);
+        assert_eq!(visible.chars().count(), 24);
+        assert!(visible.starts_with(" C-a ? help"), "{visible:?}");
+        assert!(!visible.contains(&"x".repeat(128)), "{}", visible.len());
+        assert_eq!(native_footer_visible_text("short", 8), "short   ");
     }
 
     #[test]
