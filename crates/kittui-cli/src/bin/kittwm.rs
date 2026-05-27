@@ -2421,20 +2421,32 @@ fn doctor_readiness_rect(width: f32, cell: CellSize) -> KittuiPxRect {
 }
 
 fn doctor_scene_cols() -> u16 {
-    doctor_scene_cols_from_value(
+    let detected = TerminalInfo::detect().columns;
+    doctor_scene_cols_from_sources(
         std::env::var("KITTWM_DOCTOR_COLS")
             .or_else(|_| std::env::var("COLUMNS"))
             .ok()
             .as_deref(),
+        detected,
     )
 }
 
-fn doctor_scene_cols_from_value(value: Option<&str>) -> u16 {
+fn graphical_scene_cols_from_sources(
+    value: Option<&str>,
+    detected_cols: Option<u16>,
+    default_cols: u16,
+    max_cols: u16,
+) -> u16 {
     value
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|cols| *cols > 0)
-        .map(|cols| cols.clamp(1, 120))
-        .unwrap_or(64)
+        .or_else(|| detected_cols.filter(|cols| *cols > 0))
+        .map(|cols| cols.min(max_cols.max(1)))
+        .unwrap_or(default_cols.min(max_cols.max(1)).max(1))
+}
+
+fn doctor_scene_cols_from_sources(value: Option<&str>, detected_cols: Option<u16>) -> u16 {
+    graphical_scene_cols_from_sources(value, detected_cols, 64, 120)
 }
 
 fn doctor_daily_driver_text(transport: &TransportDiagnostics, log_present: bool) -> String {
@@ -4620,20 +4632,18 @@ fn info_indicator_rect(width: f32, y: f32) -> KittuiPxRect {
 }
 
 fn info_scene_cols() -> u16 {
-    info_scene_cols_from_value(
+    let detected = TerminalInfo::detect().columns;
+    info_scene_cols_from_sources(
         std::env::var("KITTWM_INFO_COLS")
             .or_else(|_| std::env::var("COLUMNS"))
             .ok()
             .as_deref(),
+        detected,
     )
 }
 
-fn info_scene_cols_from_value(value: Option<&str>) -> u16 {
-    value
-        .and_then(|value| value.parse::<u16>().ok())
-        .filter(|cols| *cols > 0)
-        .map(|cols| cols.clamp(1, 140))
-        .unwrap_or(72)
+fn info_scene_cols_from_sources(value: Option<&str>, detected_cols: Option<u16>) -> u16 {
+    graphical_scene_cols_from_sources(value, detected_cols, 72, 140)
 }
 
 fn panes_graphical_cmd(kitty: bool) -> Result<()> {
@@ -5304,20 +5314,18 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
 }
 
 fn status_scene_cols() -> u16 {
-    status_scene_cols_from_value(
+    let detected = TerminalInfo::detect().columns;
+    status_scene_cols_from_sources(
         std::env::var("KITTWM_STATUS_COLS")
             .or_else(|_| std::env::var("COLUMNS"))
             .ok()
             .as_deref(),
+        detected,
     )
 }
 
-fn status_scene_cols_from_value(value: Option<&str>) -> u16 {
-    value
-        .and_then(|value| value.parse::<u16>().ok())
-        .filter(|cols| *cols > 0)
-        .map(|cols| cols.min(140))
-        .unwrap_or(72)
+fn status_scene_cols_from_sources(value: Option<&str>, detected_cols: Option<u16>) -> u16 {
+    graphical_scene_cols_from_sources(value, detected_cols, 72, 140)
 }
 
 fn status_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -5539,20 +5547,18 @@ fn shortcuts_scene_rows(entry_count: usize) -> u16 {
 }
 
 fn shortcuts_scene_cols() -> u16 {
-    shortcuts_scene_cols_from_value(
+    let detected = TerminalInfo::detect().columns;
+    shortcuts_scene_cols_from_sources(
         std::env::var("KITTWM_SHORTCUTS_COLS")
             .or_else(|_| std::env::var("COLUMNS"))
             .ok()
             .as_deref(),
+        detected,
     )
 }
 
-fn shortcuts_scene_cols_from_value(value: Option<&str>) -> u16 {
-    value
-        .and_then(|value| value.parse::<u16>().ok())
-        .filter(|cols| *cols > 0)
-        .map(|cols| cols.min(140))
-        .unwrap_or(72)
+fn shortcuts_scene_cols_from_sources(value: Option<&str>, detected_cols: Option<u16>) -> u16 {
+    graphical_scene_cols_from_sources(value, detected_cols, 72, 140)
 }
 
 fn shortcuts_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -6912,12 +6918,15 @@ mod tests {
 
     #[test]
     fn doctor_scene_cols_respects_narrow_positive_widths() {
-        assert_eq!(doctor_scene_cols_from_value(Some("1")), 1);
-        assert_eq!(doctor_scene_cols_from_value(Some("8")), 8);
-        assert_eq!(doctor_scene_cols_from_value(Some("31")), 31);
-        assert_eq!(doctor_scene_cols_from_value(Some("0")), 64);
-        assert_eq!(doctor_scene_cols_from_value(Some("240")), 120);
-        assert_eq!(doctor_scene_cols_from_value(None), 64);
+        assert_eq!(doctor_scene_cols_from_sources(Some("1"), None), 1);
+        assert_eq!(doctor_scene_cols_from_sources(Some("8"), None), 8);
+        assert_eq!(doctor_scene_cols_from_sources(Some("31"), None), 31);
+        assert_eq!(doctor_scene_cols_from_sources(Some("0"), None), 64);
+        assert_eq!(doctor_scene_cols_from_sources(Some("240"), None), 120);
+        assert_eq!(doctor_scene_cols_from_sources(None, None), 64);
+        assert_eq!(doctor_scene_cols_from_sources(None, Some(100)), 100);
+        assert_eq!(doctor_scene_cols_from_sources(Some("0"), Some(100)), 100);
+        assert_eq!(doctor_scene_cols_from_sources(None, Some(u16::MAX)), 120);
     }
 
     #[test]
@@ -7769,9 +7778,12 @@ mod tests {
 
     #[test]
     fn status_scene_width_respects_narrow_columns() {
-        assert_eq!(status_scene_cols_from_value(Some("8")), 8);
-        assert_eq!(status_scene_cols_from_value(Some("0")), 72);
-        assert_eq!(status_scene_cols_from_value(Some("240")), 140);
+        assert_eq!(status_scene_cols_from_sources(Some("8"), None), 8);
+        assert_eq!(status_scene_cols_from_sources(Some("0"), None), 72);
+        assert_eq!(status_scene_cols_from_sources(Some("240"), None), 140);
+        assert_eq!(status_scene_cols_from_sources(None, Some(100)), 100);
+        assert_eq!(status_scene_cols_from_sources(Some("0"), Some(100)), 100);
+        assert_eq!(status_scene_cols_from_sources(None, Some(u16::MAX)), 140);
 
         let status = serde_json::json!({
             "pid": 1234,
@@ -8266,9 +8278,12 @@ mod tests {
 
     #[test]
     fn shortcuts_scene_width_respects_narrow_columns() {
-        assert_eq!(shortcuts_scene_cols_from_value(Some("8")), 8);
-        assert_eq!(shortcuts_scene_cols_from_value(Some("0")), 72);
-        assert_eq!(shortcuts_scene_cols_from_value(Some("240")), 140);
+        assert_eq!(shortcuts_scene_cols_from_sources(Some("8"), None), 8);
+        assert_eq!(shortcuts_scene_cols_from_sources(Some("0"), None), 72);
+        assert_eq!(shortcuts_scene_cols_from_sources(Some("240"), None), 140);
+        assert_eq!(shortcuts_scene_cols_from_sources(None, Some(100)), 100);
+        assert_eq!(shortcuts_scene_cols_from_sources(Some("0"), Some(100)), 100);
+        assert_eq!(shortcuts_scene_cols_from_sources(None, Some(u16::MAX)), 140);
 
         let scene = shortcuts_scene_for_cols(1);
         assert_eq!(scene.footprint.cols, 1);
@@ -8670,12 +8685,15 @@ mod tests {
 
     #[test]
     fn info_scene_cols_respect_narrow_positive_widths() {
-        assert_eq!(info_scene_cols_from_value(Some("1")), 1);
-        assert_eq!(info_scene_cols_from_value(Some("8")), 8);
-        assert_eq!(info_scene_cols_from_value(Some("39")), 39);
-        assert_eq!(info_scene_cols_from_value(Some("0")), 72);
-        assert_eq!(info_scene_cols_from_value(Some("240")), 140);
-        assert_eq!(info_scene_cols_from_value(None), 72);
+        assert_eq!(info_scene_cols_from_sources(Some("1"), None), 1);
+        assert_eq!(info_scene_cols_from_sources(Some("8"), None), 8);
+        assert_eq!(info_scene_cols_from_sources(Some("39"), None), 39);
+        assert_eq!(info_scene_cols_from_sources(Some("0"), None), 72);
+        assert_eq!(info_scene_cols_from_sources(Some("240"), None), 140);
+        assert_eq!(info_scene_cols_from_sources(None, None), 72);
+        assert_eq!(info_scene_cols_from_sources(None, Some(100)), 100);
+        assert_eq!(info_scene_cols_from_sources(Some("0"), Some(100)), 100);
+        assert_eq!(info_scene_cols_from_sources(None, Some(u16::MAX)), 140);
     }
 
     #[test]
