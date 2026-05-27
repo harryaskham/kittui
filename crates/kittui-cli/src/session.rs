@@ -210,6 +210,10 @@ fn should_write_raw_compositor_error(last_key: Option<&str>, next_key: &str) -> 
     last_key != Some(next_key)
 }
 
+fn should_clear_raw_error_screen(last_error_key: Option<&str>) -> bool {
+    last_error_key.is_some()
+}
+
 fn native_idle_frame_target(active_target: Duration) -> Duration {
     let idle_fps = std::env::var("KITTWM_IDLE_FPS")
         .ok()
@@ -3966,6 +3970,8 @@ mod native_pane_tests {
         assert!(!should_write_raw_compositor_error(Some(&key), &key));
         let changed = raw_compositor_error_key("backend died", "/tmp/kittui-wm.log");
         assert!(should_write_raw_compositor_error(Some(&key), &changed));
+        assert!(should_clear_raw_error_screen(Some(&key)));
+        assert!(!should_clear_raw_error_screen(None));
     }
 
     #[test]
@@ -6864,7 +6870,11 @@ pub fn run_loop_with<S: XServer>(
         // never leaks the terminal.
         match compositor.raw_frames(&layout) {
             Ok(frames) => {
-                last_error_key = None;
+                let recovering_from_error =
+                    should_clear_raw_error_screen(last_error_key.as_deref());
+                if recovering_from_error {
+                    last_error_key = None;
+                }
                 let last_window_count = frames.len();
                 if frame % 30 == 0 {
                     dbg.log(&format!("frame {frame}: {} raw frames", frames.len()));
@@ -6872,6 +6882,17 @@ pub fn run_loop_with<S: XServer>(
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
                 let mut wrote_frame_output = false;
+                if recovering_from_error {
+                    write!(handle, "\x1b[H\x1b[2J")?;
+                    last_placed.clear();
+                    last_raw_hashes.clear();
+                    last_raw_chrome_keys.clear();
+                    last_launcher_overlay_key.clear();
+                    last_picker_overlay_key.clear();
+                    last_footer_key.clear();
+                    last_footer_row = None;
+                    wrote_frame_output = true;
+                }
                 // If a text overlay just closed, erase its rows and force
                 // image/chrome placeholders to be re-emitted underneath.
                 // Without this, boxed overlay glyphs remain burned into the
