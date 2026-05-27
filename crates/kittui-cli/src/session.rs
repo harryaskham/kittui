@@ -4088,7 +4088,7 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         else {
             break;
         };
-        let label_cols = label.chars().count() as u16 + 1;
+        let label_cols = native_top_bar_overlay_text_cols(&label, 1);
         write!(
             out,
             "\x1b[1m{}{}{}\x1b[0m ",
@@ -4099,9 +4099,11 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         workspace_cols = workspace_cols.saturating_add(label_cols);
     }
     let clock_text = format!(" {clock} ");
-    if let Some(clock_col) =
-        native_graphical_top_bar_clock_col(cols, workspace_cols, clock_text.chars().count() as u16)
-    {
+    if let Some(clock_col) = native_graphical_top_bar_clock_col(
+        cols,
+        workspace_cols,
+        native_top_bar_overlay_text_cols(&clock_text, 0),
+    ) {
         write!(
             out,
             "\x1b[{};{}H\x1b[1m{}{}{}\x1b[0m",
@@ -4113,6 +4115,11 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         )?;
     }
     Ok(())
+}
+
+fn native_top_bar_overlay_text_cols(text: &str, padding_cols: u16) -> u16 {
+    let count = text.chars().count().min(u16::MAX as usize) as u16;
+    count.saturating_add(padding_cols)
 }
 
 fn native_graphical_top_bar_overlay_clear(row: u16) -> String {
@@ -4610,6 +4617,14 @@ mod native_pane_tests {
         assert_eq!(native_help_overlay_ansi_width(4), None);
         assert_eq!(native_help_overlay_ansi_width(5), Some(1));
         assert_eq!(native_help_overlay_ansi_width(80), Some(76));
+    }
+
+    #[test]
+    fn graphical_top_bar_overlay_text_cols_saturate_pathological_labels() {
+        let long = "x".repeat(u16::MAX as usize + 32);
+        assert_eq!(native_top_bar_overlay_text_cols(&long, 0), u16::MAX);
+        assert_eq!(native_top_bar_overlay_text_cols(&long, 1), u16::MAX);
+        assert_eq!(native_top_bar_overlay_text_cols("dev", 1), 4);
     }
 
     #[test]

@@ -253,7 +253,7 @@ fn kittwm_bar_kitty_text_overlay_with_config(
             ansi_bg(bg),
             chip_text
         ));
-        workspace_cols = workspace_cols.saturating_add(chip_text.chars().count() as u16 + 1);
+        workspace_cols = workspace_cols.saturating_add(kittwm_bar_overlay_text_cols(&chip_text, 1));
     }
     let clock = model
         .bar
@@ -261,9 +261,11 @@ fn kittwm_bar_kitty_text_overlay_with_config(
         .strip_suffix(" UTC")
         .unwrap_or(&model.bar.time);
     let clock_text = format!(" {clock} ");
-    if let Some(clock_col) =
-        kittwm_bar_overlay_clock_col(cols, workspace_cols, clock_text.chars().count() as u16)
-    {
+    if let Some(clock_col) = kittwm_bar_overlay_clock_col(
+        cols,
+        workspace_cols,
+        kittwm_bar_overlay_text_cols(&clock_text, 0),
+    ) {
         out.push_str(&format!(
             "\x1b[1;{}H\x1b[1m{}{}{}\x1b[0m",
             clock_col,
@@ -273,6 +275,11 @@ fn kittwm_bar_kitty_text_overlay_with_config(
         ));
     }
     out
+}
+
+fn kittwm_bar_overlay_text_cols(text: &str, padding_cols: u16) -> u16 {
+    let count = text.chars().count().min(u16::MAX as usize) as u16;
+    count.saturating_add(padding_cols)
 }
 
 fn kittwm_bar_overlay_labels(model: &BarModel, cols: u16) -> Vec<String> {
@@ -569,6 +576,14 @@ mod tests {
         assert_eq!(scene_cols_from_value(Some("0")), 80);
         assert_eq!(scene_cols_from_value(Some("120")), 120);
         assert_eq!(scene_cols_from_value(Some("65535")), MAX_KITTWM_BAR_COLS);
+    }
+
+    #[test]
+    fn kitty_bar_overlay_text_cols_saturate_pathological_labels() {
+        let long = "x".repeat(u16::MAX as usize + 32);
+        assert_eq!(kittwm_bar_overlay_text_cols(&long, 0), u16::MAX);
+        assert_eq!(kittwm_bar_overlay_text_cols(&long, 1), u16::MAX);
+        assert_eq!(kittwm_bar_overlay_text_cols(" dev ", 1), 6);
     }
 
     #[test]
