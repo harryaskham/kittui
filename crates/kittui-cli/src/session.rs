@@ -1182,7 +1182,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         {
             write!(
                 frame_out,
-                "\x1b[{};1H\x1b[K{}",
+                "\x1b[0m\x1b[{};1H\x1b[K{}",
                 shell_view.footer.row + 1,
                 shell_view.footer.text
             )?;
@@ -3005,7 +3005,7 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
     if !view.footer.text.is_empty() {
         let footer = clip_and_pad(&view.footer.text, cols as usize);
         out.push_str(&format!(
-            "\x1b[{};1H\x1b[K{}",
+            "\x1b[0m\x1b[{};1H\x1b[K{}",
             terminal_visible_row(view.footer.row, rows) + 1,
             footer
         ));
@@ -5715,7 +5715,10 @@ mod native_pane_tests {
             help_overlay: false,
         };
         let rendered = render_native_shell_view_terminal(&view, 20, 5);
-        assert!(rendered.contains("\x1b[5;1H\x1b[Kfooter"), "{rendered:?}");
+        assert!(
+            rendered.contains("\x1b[0m\x1b[5;1H\x1b[Kfooter"),
+            "{rendered:?}"
+        );
         assert!(!rendered.contains("\x1b[100;1H"), "{rendered:?}");
     }
 
@@ -8373,12 +8376,12 @@ pub fn run_loop_with<S: XServer>(
                     ) {
                         if let Some(old_row) = last_footer_row {
                             if old_row != footer_row {
-                                write!(frame_out, "\x1b[{};1H\x1b[K", old_row)?;
+                                write!(frame_out, "\x1b[0m\x1b[{};1H\x1b[K", old_row)?;
                             }
                         }
                         write!(
-                            handle,
-                            "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — {} (log: {})",
+                            frame_out,
+                            "\x1b[0m\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — {} (log: {})",
                             footer_row,
                             frame,
                             workspaces.label(),
@@ -8404,7 +8407,7 @@ pub fn run_loop_with<S: XServer>(
                 } else {
                     if let Some(old_row) = last_footer_row.take() {
                         if old_row <= terminal_rows {
-                            write!(frame_out, "\x1b[{};1H\x1b[K", old_row)?;
+                            write!(frame_out, "\x1b[0m\x1b[{};1H\x1b[K", old_row)?;
                             wrote_frame_output = true;
                         }
                     }
@@ -9274,7 +9277,7 @@ fn clear_launcher_overlay_area<W: Write>(handle: &mut W) -> Result<()> {
     let terminal_rows = host_terminal_cells().map(|(_, rows)| rows).unwrap_or(24);
     if let Some(end_row) = raw_overlay_clear_end_row(terminal_rows) {
         for row in 2..=end_row {
-            write!(handle, "\x1b[{};1H\x1b[K", row)?;
+            write!(handle, "\x1b[0m\x1b[{};1H\x1b[K", row)?;
         }
     }
     Ok(())
