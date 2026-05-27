@@ -302,15 +302,16 @@ fn kittwm_bar_overlay_fit_chip_text(label: &str, cols: u16, used_cols: u16) -> O
         return None;
     }
     let label_width = max_chip_cols.saturating_sub(2);
-    if kittwm_bar_label_fits_cells(label, label_width) {
-        return Some(format!(" {label} "));
-    }
     if label_width == 0 {
         return None;
     }
     let mut chip = String::with_capacity(label_width.saturating_add(2));
     chip.push(' ');
-    chip.extend(label.chars().take(label_width));
+    if kittwm_bar_label_fits_cells(label, label_width) {
+        chip.push_str(label);
+    } else {
+        chip.extend(label.chars().take(label_width));
+    }
     chip.push(' ');
     Some(chip)
 }
@@ -673,10 +674,9 @@ mod tests {
             !overlay.contains("super-long-workspace-name"),
             "{overlay:?}"
         );
-        assert_eq!(
-            kittwm_bar_overlay_fit_chip_text("abcdef", 6, 0),
-            Some(" abc ".to_string())
-        );
+        let fitted = kittwm_bar_overlay_fit_chip_text("abcdef", 6, 0).unwrap();
+        assert_eq!(fitted, " abc ");
+        assert!(fitted.capacity() >= 5);
         assert_eq!(kittwm_bar_overlay_fit_chip_text("abcdef", 2, 0), None);
         let long = "x".repeat(u16::MAX as usize);
         assert!(!kittwm_bar_label_fits_cells(&long, 8));
