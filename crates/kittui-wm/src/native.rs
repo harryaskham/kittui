@@ -2778,6 +2778,9 @@ fn render_terminal_rgba(state: &TerminalState, cell_w: u32, cell_h: u32) -> Vec<
     for (row, cells) in state.cells.chunks(cols).enumerate() {
         let row = row as u16;
         for (col, cell) in cells.iter().enumerate() {
+            if is_blank_default_terminal_cell(cell) {
+                continue;
+            }
             let col = col as u16;
             let (fg, bg) = terminal_cell_colors(cell.style);
             if should_fill_terminal_cell_background(bg, default_bg) {
@@ -2820,6 +2823,10 @@ fn draw_terminal_cursor(
             rgba[idx + 3] = 0xff;
         }
     }
+}
+
+fn is_blank_default_terminal_cell(cell: &TerminalCell) -> bool {
+    cell.ch == ' ' && cell.style == TerminalStyle::default()
 }
 
 fn default_terminal_bg_color() -> TerminalColor {
@@ -4739,6 +4746,18 @@ mod tests {
     fn terminal_renderer_handles_zero_columns_without_chunk_panic() {
         let state = TerminalState::new(0, 1);
         assert!(render_terminal_rgba(&state, 8, 16).is_empty());
+    }
+
+    #[test]
+    fn terminal_renderer_fast_paths_only_blank_default_cells() {
+        let default_cell = TerminalCell::blank(TerminalStyle::default());
+        assert!(is_blank_default_terminal_cell(&default_cell));
+        let mut styled_blank = default_cell;
+        styled_blank.style.bg = Some(TerminalColor(0x19, 0x71, 0xc2));
+        assert!(!is_blank_default_terminal_cell(&styled_blank));
+        let mut glyph = default_cell;
+        glyph.ch = 'x';
+        assert!(!is_blank_default_terminal_cell(&glyph));
     }
 
     #[test]
