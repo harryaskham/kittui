@@ -226,8 +226,23 @@ fn raw_compositor_app_placement_options(image_id: u32) -> kittui_kitty::Placemen
         .with_z_index(raw_compositor_app_z_index())
 }
 
+const RAW_COMPOSITOR_ERROR_MESSAGE_MAX_CHARS: usize = 240;
+const RAW_COMPOSITOR_ERROR_LOG_PATH_MAX_CHARS: usize = 120;
+
+fn raw_compositor_error_text(message: &str) -> String {
+    truncate_cells(message, RAW_COMPOSITOR_ERROR_MESSAGE_MAX_CHARS)
+}
+
+fn raw_compositor_error_log_path(log_path: &str) -> String {
+    truncate_cells(log_path, RAW_COMPOSITOR_ERROR_LOG_PATH_MAX_CHARS)
+}
+
 fn raw_compositor_error_key(message: &str, log_path: &str) -> String {
-    format!("{message}\n{log_path}")
+    format!(
+        "{}\n{}",
+        raw_compositor_error_text(message),
+        raw_compositor_error_log_path(log_path)
+    )
 }
 
 fn should_write_raw_compositor_error(last_key: Option<&str>, next_key: &str) -> bool {
@@ -4705,6 +4720,21 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_error_text_and_key_are_bounded() {
+        let huge_message = "capture backend failed: ".to_string() + &"x".repeat(10_000);
+        let huge_log = "/tmp/".to_string() + &"kittui-wm/".repeat(10_000);
+        let text = raw_compositor_error_text(&huge_message);
+        let log = raw_compositor_error_log_path(&huge_log);
+        assert_eq!(text.chars().count(), RAW_COMPOSITOR_ERROR_MESSAGE_MAX_CHARS);
+        assert!(text.ends_with('…'), "{text}");
+        assert_eq!(log.chars().count(), RAW_COMPOSITOR_ERROR_LOG_PATH_MAX_CHARS);
+        assert!(log.ends_with('…'), "{log}");
+        let key = raw_compositor_error_key(&huge_message, &huge_log);
+        assert!(key.len() < 512, "{}", key.len());
+        assert!(!key.contains(&"x".repeat(512)), "{}", key.len());
+    }
+
+    #[test]
     fn native_top_bar_time_from_text_preserves_rendered_hh_mm_clock() {
         assert_eq!(
             native_top_bar_time_from_text("|[1]| 2 | 3 |                  12:34"),
@@ -9028,11 +9058,13 @@ pub fn run_loop_with<S: XServer>(
                     dbg.log(&format!("compose err: {msg}"));
                     let stdout = io::stdout();
                     let mut handle = stdout.lock();
+                    let error_text = raw_compositor_error_text(&msg);
+                    let log_path = raw_compositor_error_log_path(dbg.path_display());
                     write!(
                         handle,
                         "\x1b[H\x1b[J\x1b[1mkittui-wm error\x1b[0m\n\n  {}\n\n  q/Esc to quit. On macOS, grant Screen Recording + Accessibility.\n  (log: {})\n",
-                        msg,
-                        dbg.path_display()
+                        error_text,
+                        log_path
                     )?;
                     handle.flush()?;
                     update_native_idle_counter_for_activity(
