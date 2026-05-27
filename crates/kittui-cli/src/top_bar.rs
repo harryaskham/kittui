@@ -12,6 +12,8 @@ use kittwm_sdk::KittwmConfig;
 use ratatui::layout::Rect;
 use serde::Serialize;
 
+const TOP_BAR_LABEL_MAX_CHARS: usize = 64;
+
 /// Small, serializable status model for kittwm's top bar.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct BarModel {
@@ -112,10 +114,11 @@ impl BarModel {
         labels
             .into_iter()
             .map(|label| {
+                let display = top_bar_display_label(&label);
                 if label == workspace {
-                    format!("|[{label}]")
+                    format!("|[{display}]")
                 } else {
-                    format!("| {label} ")
+                    format!("| {display} ")
                 }
             })
             .collect::<String>()
@@ -159,9 +162,10 @@ impl BarModel {
             .to_scene(Rect::new(0, 0, cols.max(1), 1))
             .expect("title chrome produces a one-line scene");
         let workspace = self.workspace.trim();
+        let display_workspace = top_bar_display_label(workspace);
         for layer in &mut scene.layers {
             if layer.label.as_deref() == Some("background") {
-                layer.label = Some(format!("{label_prefix}:{}:{workspace}", self.state));
+                layer.label = Some(format!("{label_prefix}:{}:{display_workspace}", self.state));
             }
         }
         let cell_w = scene.cell_size.width_px.max(1) as f32;
@@ -172,7 +176,8 @@ impl BarModel {
         let mut last_chip_end_x = 0.0;
         for label in self.workspace_chip_labels_for_scene(cols) {
             let active = self.workspace.trim() == label;
-            let natural_chip_w = (label.chars().count() as f32 + 2.0).max(3.0) * cell_w;
+            let display_label = top_bar_display_label(&label);
+            let natural_chip_w = (display_label.chars().count() as f32 + 2.0).max(3.0) * cell_w;
             let Some(chip_w) = top_bar_bounded_chip_width(scene_w, chip_x, natural_chip_w, cell_w)
             else {
                 break;
@@ -180,7 +185,7 @@ impl BarModel {
             let x = chip_x;
             let y = ((cell_h - chip_h) / 2.0).max(0.0);
             scene.layers.push(Layer::new(
-                format!("{label_prefix}-workspace-chip-shadow:{label}"),
+                format!("{label_prefix}-workspace-chip-shadow:{display_label}"),
                 Node::Rect {
                     rect: PxRect::new(x + 1.0, y + 1.0, chip_w, chip_h),
                     fill: Paint::Solid {
@@ -192,7 +197,7 @@ impl BarModel {
             ));
             scene.layers.push(Layer::new(
                 format!(
-                    "{label_prefix}-workspace-chip:{label}:{}",
+                    "{label_prefix}-workspace-chip:{display_label}:{}",
                     if active { "active" } else { "inactive" }
                 ),
                 Node::Rect {
@@ -381,6 +386,19 @@ pub fn workspace_chip_total_cols(labels: &[String]) -> u16 {
     })
 }
 
+fn top_bar_display_label(label: &str) -> String {
+    if label.chars().count() <= TOP_BAR_LABEL_MAX_CHARS {
+        label.to_string()
+    } else {
+        let mut out: String = label
+            .chars()
+            .take(TOP_BAR_LABEL_MAX_CHARS.saturating_sub(1))
+            .collect();
+        out.push('…');
+        out
+    }
+}
+
 fn top_bar_clock_chip_x(total_width: f32, chip_end_x: f32, clock_width: f32) -> Option<f32> {
     let gap = 4.0;
     let right_aligned = (total_width - clock_width - 1.0).max(0.0);
@@ -525,6 +543,32 @@ mod tests {
         let model = BarModel::new(long.clone(), 0, "-", false, UNIX_EPOCH);
         let constrained = model.workspace_chip_labels_for_scene(8);
         assert_eq!(constrained.first(), Some(&long));
+    }
+
+    #[test]
+    fn text_and_scene_workspace_labels_are_bounded_for_pathological_input() {
+        let long = "workspace-".repeat(10_000);
+        let model = BarModel::new(long, 1, "native-1", true, UNIX_EPOCH);
+        let rendered = model.render();
+        assert!(
+            rendered.chars().count() < 100,
+            "{}",
+            rendered.chars().count()
+        );
+        assert!(rendered.contains('…'), "{rendered}");
+        let narrow = model.render_i3bar(20);
+        assert_eq!(narrow.chars().count(), 20);
+        let scene = model.scene(20);
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains('…')));
+        assert!(!scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains(&"workspace-".repeat(128))));
     }
 
     #[test]
