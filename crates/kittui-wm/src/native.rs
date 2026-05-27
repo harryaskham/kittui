@@ -1189,16 +1189,23 @@ impl TerminalSurface {
 }
 
 fn ghostty_snapshot_text(snapshot: &GhosttyRenderSnapshot) -> String {
-    snapshot
-        .cells
-        .iter()
-        .map(|row| {
-            row.iter()
-                .map(|cell| cell.text.as_str())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut out = String::with_capacity(
+        snapshot
+            .cells
+            .iter()
+            .map(|row| row.iter().map(|cell| cell.text.len()).sum::<usize>() + 1)
+            .sum::<usize>()
+            .saturating_sub(1),
+    );
+    for (row_idx, row) in snapshot.cells.iter().enumerate() {
+        if row_idx > 0 {
+            out.push('\n');
+        }
+        for cell in row {
+            out.push_str(&cell.text);
+        }
+    }
+    out
 }
 
 fn should_invalidate_ghostty_png_cache_after_text_refresh(had_output: bool) -> bool {
@@ -4157,46 +4164,47 @@ mod tests {
             cursor_x: 0,
             cursor_y: 0,
             cells: vec![
-                vec![
-                    kittui_ghostty_vt::GhosttyCellSnapshot {
-                        text: "a".to_string(),
-                        fg: None,
-                        bg: None,
-                        bold: false,
-                        italic: false,
-                        underline: 0,
-                    },
-                    kittui_ghostty_vt::GhosttyCellSnapshot {
-                        text: "b".to_string(),
-                        fg: None,
-                        bg: None,
-                        bold: false,
-                        italic: false,
-                        underline: 0,
-                    },
-                ],
-                vec![
-                    kittui_ghostty_vt::GhosttyCellSnapshot {
-                        text: "c".to_string(),
-                        fg: None,
-                        bg: None,
-                        bold: false,
-                        italic: false,
-                        underline: 0,
-                    },
-                    kittui_ghostty_vt::GhosttyCellSnapshot {
-                        text: "d".to_string(),
-                        fg: None,
-                        bg: None,
-                        bold: false,
-                        italic: false,
-                        underline: 0,
-                    },
-                ],
+                vec![ghostty_text_cell("a"), ghostty_text_cell("b")],
+                vec![ghostty_text_cell("c"), ghostty_text_cell("d")],
             ],
         };
 
         assert_eq!(ghostty_snapshot_text(&snapshot), "ab\ncd");
+    }
+
+    #[test]
+    fn ghostty_snapshot_text_appends_variable_width_cells_directly() {
+        let snapshot = GhosttyRenderSnapshot {
+            cols: 3,
+            rows: 2,
+            cursor_x: 0,
+            cursor_y: 0,
+            cells: vec![
+                vec![
+                    ghostty_text_cell("wide"),
+                    ghostty_text_cell(""),
+                    ghostty_text_cell("🙂"),
+                ],
+                vec![
+                    ghostty_text_cell("x"),
+                    ghostty_text_cell("y"),
+                    ghostty_text_cell("z"),
+                ],
+            ],
+        };
+
+        assert_eq!(ghostty_snapshot_text(&snapshot), "wide🙂\nxyz");
+    }
+
+    fn ghostty_text_cell(text: &str) -> kittui_ghostty_vt::GhosttyCellSnapshot {
+        kittui_ghostty_vt::GhosttyCellSnapshot {
+            text: text.to_string(),
+            fg: None,
+            bg: None,
+            bold: false,
+            italic: false,
+            underline: 0,
+        }
     }
 
     #[test]
