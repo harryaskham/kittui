@@ -1571,18 +1571,13 @@ fn native_shell_view(
     }
 }
 
-fn native_top_bar_model(_workspace_id: u16, panes: usize, sock: &str) -> BarModel {
-    let focus = if panes == 0 { "-" } else { sock };
-    BarModel::live(
-        workspace_label(),
-        panes,
-        focus,
-        std::time::SystemTime::now(),
-    )
-}
-
-fn native_top_bar_text(workspace_id: u16, panes: usize, sock: &str, cols: u16) -> String {
-    native_top_bar_model(workspace_id, panes, sock).render_i3bar(cols as usize)
+fn native_top_bar_text(_workspace_id: u16, panes: usize, _sock: &str, cols: u16) -> String {
+    // Text top-bar rendering only displays workspace chips and clock. Avoid
+    // carrying the socket path into the BarModel on every native redraw; the
+    // graphical scene path still derives focus metadata from the view when it
+    // needs diagnostic labels.
+    BarModel::live(workspace_label(), panes, "-", std::time::SystemTime::now())
+        .render_i3bar(cols as usize)
 }
 
 fn native_image_id_set(panes: &[NativePane]) -> HashSet<u32> {
@@ -7487,6 +7482,9 @@ mod native_pane_tests {
         assert!(text.contains("|[dev]|"), "{text}");
         assert!(!text.contains("| 1 | 2 | 3 |"), "{text}");
         assert!(text.ends_with("00:00 ") || text.contains(":"), "{text}");
+        let active = native_top_bar_text(1, 1, &"/tmp/kittwm.sock".repeat(10_000), 40);
+        assert!(!active.contains("kittwm.sock"), "{active}");
+        assert_eq!(active.chars().count(), 40, "{active}");
         std::env::remove_var("KITTWM_WORKSPACE");
     }
 
