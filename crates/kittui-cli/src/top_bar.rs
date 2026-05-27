@@ -79,7 +79,7 @@ impl BarModel {
         }
         let left_width = left.chars().count();
         let right_width = right.chars().count();
-        if left_width + right_width >= cols {
+        if left_width + right_width > cols {
             left = self.workspace_chips_text_constrained();
             let merged = format!("{left}{right}");
             return merged.chars().take(cols).collect();
@@ -469,6 +469,15 @@ mod tests {
             numeric.workspace_chip_labels_active_first(),
             vec!["3", "1", "2"]
         );
+    }
+
+    #[test]
+    fn exact_fit_text_bar_keeps_normal_chip_order() {
+        let model = BarModel::new("dev", 1, "native-1", true, UNIX_EPOCH);
+        let full = model.render();
+        let exact = model.render_i3bar(full.chars().count());
+        assert_eq!(exact, full);
+        assert!(exact.contains("| 1 | 2 | 3 |[dev]|"), "{exact}");
     }
 
     #[test]
