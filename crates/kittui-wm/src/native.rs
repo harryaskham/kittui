@@ -3386,6 +3386,27 @@ impl HeadlessBrowserApp {
         }
     }
 
+    /// Dispatch a Backspace key press/release to the focused page element.
+    pub fn send_backspace(&mut self) -> Result<()> {
+        self.dispatch_browser_key("Backspace", "Backspace", 8)
+    }
+
+    fn dispatch_browser_key(&mut self, key: &str, code: &str, key_code: u32) -> Result<()> {
+        let params = json!({
+            "key": key,
+            "code": code,
+            "windowsVirtualKeyCode": key_code,
+            "nativeVirtualKeyCode": key_code,
+        });
+        let mut down = params.clone();
+        down["type"] = json!("keyDown");
+        self.cdp("Input.dispatchKeyEvent", down)?;
+        let mut up = params;
+        up["type"] = json!("keyUp");
+        self.cdp("Input.dispatchKeyEvent", up)?;
+        Ok(())
+    }
+
     /// Dispatch a mouse click at CSS-pixel coordinates.
     pub fn click(&mut self, x: i32, y: i32) -> Result<()> {
         self.cdp(

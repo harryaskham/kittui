@@ -174,16 +174,11 @@ fn real_main() -> Result<()> {
             if buf[..n].contains(&0x1d) {
                 return Ok(());
             }
-            let text: String = buf[..n]
-                .iter()
-                .filter_map(|b| match *b {
-                    b'\r' | b'\n' => Some('\n'),
-                    0x20..=0x7e => Some(*b as char),
-                    _ => None,
-                })
-                .collect();
-            if !text.is_empty() {
-                browser.send_text(&text)?;
+            for action in browser_input_actions(&buf[..n]) {
+                match action {
+                    BrowserInputAction::Text(text) => browser.send_text(&text)?,
+                    BrowserInputAction::Backspace => browser.send_backspace()?,
+                }
                 user_activity = true;
             }
         }
@@ -256,6 +251,34 @@ fn real_main() -> Result<()> {
             sleep_browser_frame_or_input(slack);
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum BrowserInputAction {
+    Text(String),
+    Backspace,
+}
+
+fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
+    let mut actions = Vec::new();
+    let mut text = String::new();
+    for byte in bytes {
+        match *byte {
+            b'\r' | b'\n' => text.push('\n'),
+            0x08 | 0x7f => {
+                if !text.is_empty() {
+                    actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
+                }
+                actions.push(BrowserInputAction::Backspace);
+            }
+            0x20..=0x7e => text.push(*byte as char),
+            _ => {}
+        }
+    }
+    if !text.is_empty() {
+        actions.push(BrowserInputAction::Text(text));
+    }
+    actions
 }
 
 fn print_semantic_snapshot(url: &str, compact: bool) -> Result<()> {
@@ -825,6 +848,24 @@ mod tests {
         assert_eq!(
             browser_current_frame_interval(active, idle, idle_frames),
             active
+        );
+    }
+
+    #[test]
+    fn browser_input_actions_preserve_text_and_backspace_order() {
+        assert_eq!(
+            browser_input_actions(b"ab\x7fc\x08\r"),
+            vec![
+                BrowserInputAction::Text("ab".to_string()),
+                BrowserInputAction::Backspace,
+                BrowserInputAction::Text("c".to_string()),
+                BrowserInputAction::Backspace,
+                BrowserInputAction::Text("\n".to_string()),
+            ]
+        );
+        assert_eq!(
+            browser_input_actions(&[0x1b]),
+            Vec::<BrowserInputAction>::new()
         );
     }
 
