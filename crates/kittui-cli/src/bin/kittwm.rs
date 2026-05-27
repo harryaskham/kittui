@@ -6049,7 +6049,7 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
                 candidate.name
             )),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: launcher_scene_row_rect(width, y),
                 fill: Paint::Solid {
                     color: if selected {
                         Rgba::rgba(235, 203, 139, 255)
@@ -6068,6 +6068,10 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
         layers,
         animation: None,
     }
+}
+
+fn launcher_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
+    info_indicator_rect(width, y)
 }
 
 fn native_terminal_cmd() -> Result<()> {
@@ -6358,6 +6362,18 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn launcher_scene_row_rect_fits_tiny_widths() {
+        for width in [0.0_f32, 1.0, 8.0, 40.0] {
+            let rect = launcher_scene_row_rect(width, 2.0);
+            assert!(rect.origin.0 >= 0.0, "{rect:?}");
+            assert!(
+                rect.origin.0 + rect.width <= width.max(1.0),
+                "width={width} rect={rect:?}"
+            );
+        }
     }
 
     #[test]
