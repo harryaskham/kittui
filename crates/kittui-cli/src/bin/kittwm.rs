@@ -395,6 +395,15 @@ fn parse_args() -> Result<Cli> {
                     Some(default_window_payload_alias("SEND_LINE", "line", &argv)?);
                 break;
             }
+            "paste" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.automation_request = Some(default_window_payload_alias(
+                    "PASTE_BYTES_B64",
+                    "paste",
+                    &argv,
+                )?);
+                break;
+            }
             "key" => {
                 let argv = args.by_ref().collect::<Vec<_>>();
                 out.automation_request =
@@ -1018,6 +1027,7 @@ PANE CONTROL
 INPUT AND AUTOMATION
   type [WINDOW] TEXT               Send text bytes (default window: focused)
   line [WINDOW] TEXT               Send text plus newline
+  paste [WINDOW] TEXT              Paste text via bracketed paste
   key [WINDOW] KEY                 Send a named key
   read [WINDOW]                    Read text (default window: focused)
   read-json [WINDOW]               Read text JSON
@@ -1265,6 +1275,10 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 "),
         "input" => Ok("kittwm help input\n\
              =================\n\n\
+             type [WINDOW] TEXT             short alias for --send-text\n\
+             line [WINDOW] TEXT             short alias for --send-line\n\
+             paste [WINDOW] TEXT            paste text with bracketed-paste support\n\
+             key [WINDOW] KEY               short alias for --send-key\n\
              --send-text WINDOW TEXT        send text bytes\n\
              --send-line WINDOW TEXT        send text plus newline\n\
              --send-key WINDOW KEY          send named key (ctrl-c, escape, arrows)\n\
@@ -1502,6 +1516,8 @@ fn default_window_payload_alias(verb: &str, label: &str, argv: &[String]) -> Res
         wait_request(verb, window, payload)
     } else if normalized_verb == "SEND_KEY" {
         send_key_request(window, payload)
+    } else if normalized_verb == "PASTE_BYTES_B64" {
+        paste_text_request(window, payload, label)
     } else {
         text_payload_request(verb, window, payload, label)
     }
@@ -2786,6 +2802,13 @@ fn text_payload_request(verb: &str, window: &str, text: &str, label: &str) -> Re
     automation_request(verb, window, text)
 }
 
+fn paste_text_request(window: &str, text: &str, label: &str) -> Result<String> {
+    if text.is_empty() {
+        return Err(anyhow!("{label} text must be nonempty"));
+    }
+    paste_bytes_request(window, text.as_bytes())
+}
+
 fn semantic_snapshot_request(window: &str) -> Result<String> {
     automation_request("SEMANTIC_SNAPSHOT", window, "")
 }
@@ -3320,6 +3343,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "line [WINDOW] TEXT",
             category: "action",
             description: "send line",
+        },
+        LocalCommandEntry {
+            command: "paste [WINDOW] TEXT",
+            category: "action",
+            description: "paste text",
         },
         LocalCommandEntry {
             command: "key [WINDOW] KEY",
@@ -3981,6 +4009,7 @@ fn quickstart_text() -> &'static str {
    kittwm read-json focused
    kittwm type focused 'echo hello'
    kittwm line focused 'cargo test'
+   kittwm paste focused 'multi-line text'
    kittwm key focused ctrl-c
    kittwm --paste-bytes-b64 focused cGFzdGUgbWU=
    kittwm wait focused 'finished'
@@ -4029,6 +4058,7 @@ SPAWN AND TYPE
   kittwm spawn bash -lc 'cargo test'
   kittwm type focused 'echo hello'
   kittwm line focused 'cargo test -p kittui-cli'
+  kittwm paste focused 'multi-line text'
   kittwm key focused ctrl-c
 
 BYTES AND PASTE
@@ -4091,6 +4121,7 @@ PANE CONTROL
 AUTOMATION
   kittwm type focused 'echo hi'
   kittwm line focused 'cargo test'
+  kittwm paste focused 'multi-line text'
   kittwm read-json focused
   kittwm wait focused 'Finished'
 
@@ -7710,6 +7741,10 @@ mod tests {
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("kittwm spawn htop"), "{text}");
         assert!(
+            text.contains("kittwm paste focused 'multi-line text'"),
+            "{text}"
+        );
+        assert!(
             text.contains("kittwm --paste-bytes-b64 focused cGFzdGUgbWU="),
             "{text}"
         );
@@ -7723,6 +7758,7 @@ mod tests {
             "kittwm info",
             "kittwm spawn htop",
             "kittwm line focused 'cargo test -p kittui-cli'",
+            "kittwm paste focused 'multi-line text'",
             "kittwm --send-bytes-b64 focused aGkKAA==",
             "kittwm --paste-bytes-b64 focused cGFzdGUgbWU=",
             "kittwm --paste-file focused -",
@@ -8187,6 +8223,15 @@ END
             "SEND_LINE native-2 make test"
         );
         assert_eq!(
+            default_window_payload_alias(
+                "PASTE_BYTES_B64",
+                "paste",
+                &args(&["native-2", "paste me"])
+            )
+            .unwrap(),
+            "PASTE_BYTES_B64 native-2 cGFzdGUgbWU="
+        );
+        assert_eq!(
             default_window_payload_alias("SEND_KEY", "key", &args(&[" ctrl-c "])).unwrap(),
             "SEND_KEY focused ctrl-c"
         );
@@ -8386,6 +8431,15 @@ END
             text_payload_request("send_line", "focused", "echo Mixed Case", "line").unwrap(),
             "SEND_LINE focused echo Mixed Case"
         );
+        assert_eq!(
+            paste_text_request("focused", "paste me", "paste").unwrap(),
+            "PASTE_BYTES_B64 focused cGFzdGUgbWU="
+        );
+        assert_eq!(
+            paste_text_request("focused", "   ", "paste").unwrap(),
+            "PASTE_BYTES_B64 focused ICAg"
+        );
+        assert!(paste_text_request("focused", "", "paste").is_err());
         assert_eq!(
             text_payload_request("send_text", "focused", "   ", "type").unwrap(),
             "SEND_TEXT focused    "
