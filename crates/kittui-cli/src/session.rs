@@ -2592,8 +2592,8 @@ fn native_mouse_event_name_and_position(
             MouseButton::Left => Some(("press-left", *col, *row, true)),
             MouseButton::Middle => Some(("press-middle", *col, *row, true)),
             MouseButton::Right => Some(("press-right", *col, *row, true)),
-            MouseButton::ScrollUp => Some(("scroll-up", *col, *row, true)),
-            MouseButton::ScrollDown => Some(("scroll-down", *col, *row, true)),
+            MouseButton::ScrollUp => Some(("scroll-up", *col, *row, false)),
+            MouseButton::ScrollDown => Some(("scroll-down", *col, *row, false)),
             _ => None,
         },
         InputEvent::MouseRelease { col, row, .. } => Some(("release", *col, *row, false)),
@@ -5153,6 +5153,24 @@ mod native_pane_tests {
 
     #[test]
     fn native_mouse_event_mapping_preserves_drag_buttons() {
+        assert_eq!(
+            native_mouse_event_name_and_position(&InputEvent::MousePress {
+                button: MouseButton::ScrollDown,
+                col: 5,
+                row: 6,
+                mods: Default::default(),
+            }),
+            Some(("scroll-down", 5, 6, false))
+        );
+        assert_eq!(
+            native_mouse_event_name_and_position(&InputEvent::MousePress {
+                button: MouseButton::Left,
+                col: 5,
+                row: 6,
+                mods: Default::default(),
+            }),
+            Some(("press-left", 5, 6, true))
+        );
         assert_eq!(
             native_mouse_event_name_and_position(&InputEvent::MouseMove {
                 button: MouseButton::Left,
