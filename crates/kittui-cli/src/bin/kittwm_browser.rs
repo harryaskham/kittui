@@ -253,7 +253,7 @@ fn real_main() -> Result<()> {
         let frame_interval =
             browser_current_frame_interval(active_interval, idle_interval, consecutive_idle_frames);
         if let Some(slack) = frame_interval.checked_sub(start.elapsed()) {
-            std::thread::sleep(slack);
+            sleep_browser_frame_or_input(slack);
         }
     }
 }
@@ -505,6 +505,20 @@ fn update_browser_idle_counter(counter: &mut u16, activity: bool) {
         *counter = 0;
     } else {
         *counter = counter.saturating_add(1);
+    }
+}
+
+fn browser_sleep_poll_chunk(slack: Duration) -> Duration {
+    slack.min(Duration::from_millis(50))
+}
+
+fn sleep_browser_frame_or_input(mut slack: Duration) {
+    while slack > Duration::ZERO {
+        let chunk = browser_sleep_poll_chunk(slack);
+        if stdin_ready(chunk) {
+            break;
+        }
+        slack = slack.saturating_sub(chunk);
     }
 }
 
@@ -782,6 +796,18 @@ mod tests {
         assert_eq!(
             browser_idle_frame_interval(Duration::from_millis(1500)),
             Duration::from_millis(1500)
+        );
+    }
+
+    #[test]
+    fn browser_sleep_poll_chunk_bounds_idle_waits() {
+        assert_eq!(
+            browser_sleep_poll_chunk(Duration::from_millis(1000)),
+            Duration::from_millis(50)
+        );
+        assert_eq!(
+            browser_sleep_poll_chunk(Duration::from_millis(17)),
+            Duration::from_millis(17)
         );
     }
 
