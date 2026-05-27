@@ -15,6 +15,7 @@
 //! [`run_loop`].
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Write as FmtWrite;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::sync::OnceLock;
@@ -3087,12 +3088,9 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
     let mut out = String::with_capacity(frame_cells.saturating_add(ansi_overhead));
     out.push_str("\x1b[H");
     if let Some(top_bar_row) = terminal_visible_row_opt(view.top_bar.row, rows) {
-        out.push_str(&format!(
-            "\x1b[{};1H{}{}\x1b[0m",
-            top_bar_row + 1,
-            ansi_fg_bg(colors.fg, colors.fill),
-            clip_and_pad(&view.top_bar.text, cols as usize)
-        ));
+        let style = ansi_fg_bg(colors.fg, colors.fill);
+        let text = clip_and_pad(&view.top_bar.text, cols as usize);
+        let _ = write!(out, "\x1b[{};1H{}{}\x1b[0m", top_bar_row + 1, style, text);
     }
     // Empty workspaces intentionally render only the top bar by default.
     for pane in &view.panes {
@@ -3105,13 +3103,15 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
             terminal_visible_row_opt(pane.y, rows),
             terminal_visible_width(pane.x, pane.cols, cols),
         ) {
-            out.push_str(&format!(
+            let text = clip_and_pad(&pane.text, title_width);
+            let _ = write!(
+                out,
                 "\x1b[{};{}H{}{}\x1b[0m",
                 title_row + 1,
                 pane.x + 1,
                 title_style,
-                clip_and_pad(&pane.text, title_width)
-            ));
+                text
+            );
         }
         if pane.app_cols > 0 && pane.app_rows > 0 {
             for (line_idx, line) in pane
@@ -3129,12 +3129,7 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
                     continue;
                 };
                 let clipped = clip_and_pad(line, line_width);
-                out.push_str(&format!(
-                    "\x1b[{};{}H{}",
-                    line_row + 1,
-                    pane.app_x + 1,
-                    clipped
-                ));
+                let _ = write!(out, "\x1b[{};{}H{}", line_row + 1, pane.app_x + 1, clipped);
             }
         }
     }
@@ -3145,21 +3140,19 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
                 if row >= rows {
                     break;
                 }
-                out.push_str(&format!(
-                    "\x1b[{};3H\x1b[7m {} \x1b[0m",
-                    row + 1,
-                    clip_and_pad(line, help_width)
-                ));
+                let text = clip_and_pad(line, help_width);
+                let _ = write!(out, "\x1b[{};3H\x1b[7m {} \x1b[0m", row + 1, text);
             }
         }
     }
     if !view.footer.text.is_empty() {
         let footer = clip_and_pad(&view.footer.text, cols as usize);
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\x1b[0m\x1b[{};1H\x1b[K{}",
             terminal_visible_row(view.footer.row, rows) + 1,
             footer
-        ));
+        );
     }
     out
 }
