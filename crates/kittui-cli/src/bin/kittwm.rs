@@ -3594,11 +3594,11 @@ fn architecture_graphical_cmd(kitty: bool) -> Result<()> {
 
 fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
     let cols = info_scene_cols();
-    let rows = (contract.layers.len() as u16
-        + contract.composition_order.len() as u16
-        + contract.first_party_native_surfaces.len() as u16
-        + 6)
-    .clamp(10, 30);
+    let rows = architecture_scene_rows(
+        contract.layers.len(),
+        contract.composition_order.len(),
+        contract.first_party_native_surfaces.len(),
+    );
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -3711,6 +3711,15 @@ fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn architecture_scene_rows(layer_count: usize, plane_count: usize, surface_count: usize) -> u16 {
+    let rows = layer_count
+        .saturating_add(plane_count)
+        .saturating_add(surface_count)
+        .saturating_add(6)
+        .min(u16::MAX as usize) as u16;
+    rows.clamp(10, 30)
 }
 
 fn architecture_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -7381,6 +7390,16 @@ mod tests {
                 .iter()
                 .any(|label| label.contains("open_launcher:C-a g")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn architecture_scene_rows_saturate_large_contract_counts() {
+        assert_eq!(architecture_scene_rows(0, 0, 0), 10);
+        assert_eq!(architecture_scene_rows(2, 3, 4), 15);
+        assert_eq!(
+            architecture_scene_rows(usize::MAX, usize::MAX, usize::MAX),
+            30
         );
     }
 
