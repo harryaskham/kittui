@@ -3391,6 +3391,11 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key("Backspace", "Backspace", 8)
     }
 
+    /// Dispatch a Tab key press/release to the focused page element.
+    pub fn send_tab(&mut self) -> Result<()> {
+        self.dispatch_browser_key("Tab", "Tab", 9)
+    }
+
     fn dispatch_browser_key(&mut self, key: &str, code: &str, key_code: u32) -> Result<()> {
         let params = json!({
             "key": key,

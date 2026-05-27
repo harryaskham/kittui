@@ -178,6 +178,7 @@ fn real_main() -> Result<()> {
                 match action {
                     BrowserInputAction::Text(text) => browser.send_text(&text)?,
                     BrowserInputAction::Backspace => browser.send_backspace()?,
+                    BrowserInputAction::Tab => browser.send_tab()?,
                 }
                 user_activity = true;
             }
@@ -257,6 +258,7 @@ fn real_main() -> Result<()> {
 enum BrowserInputAction {
     Text(String),
     Backspace,
+    Tab,
 }
 
 fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
@@ -270,6 +272,12 @@ fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
                     actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
                 }
                 actions.push(BrowserInputAction::Backspace);
+            }
+            b'\t' => {
+                if !text.is_empty() {
+                    actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
+                }
+                actions.push(BrowserInputAction::Tab);
             }
             0x20..=0x7e => text.push(*byte as char),
             _ => {}
@@ -854,13 +862,14 @@ mod tests {
     #[test]
     fn browser_input_actions_preserve_text_and_backspace_order() {
         assert_eq!(
-            browser_input_actions(b"ab\x7fc\x08\r"),
+            browser_input_actions(b"ab\x7fc\x08\tde\r"),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
                 BrowserInputAction::Backspace,
                 BrowserInputAction::Text("c".to_string()),
                 BrowserInputAction::Backspace,
-                BrowserInputAction::Text("\n".to_string()),
+                BrowserInputAction::Tab,
+                BrowserInputAction::Text("de\n".to_string()),
             ]
         );
         assert_eq!(
