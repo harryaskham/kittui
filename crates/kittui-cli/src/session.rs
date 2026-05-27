@@ -936,9 +936,6 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 cols,
                 &mut affordance_chrome_keys,
             )?;
-            if shell_view.help_overlay {
-                write_native_help_overlay(&mut frame_out, cols, rows)?;
-            }
         }
         if !affordance_scene_chrome
             && !shell_view.footer.text.is_empty()
@@ -4983,6 +4980,40 @@ mod native_pane_tests {
         let fallback = render_native_shell_view_terminal(&view, 80, 12);
         assert!(fallback.contains("| 1 | 2 | 3 |"), "{fallback:?}");
         assert!(fallback.contains("kittwm shortcuts"), "{fallback:?}");
+    }
+
+    #[test]
+    fn graphical_help_overlay_path_does_not_emit_ansi_help_text() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 8,
+                text: String::new(),
+            },
+            help_overlay: true,
+        };
+        let runtime = Runtime::builder()
+            .terminal(kittui::TerminalInfo::override_with(
+                Some(80),
+                Some(24),
+                CellSize::new(8, 16),
+                true,
+                true,
+                kittui_core::terminal::Transport::Direct,
+            ))
+            .build()
+            .unwrap();
+        let mut out = Vec::new();
+        let mut last = HashMap::new();
+        write_native_shell_affordance_chrome(&mut out, &runtime, &view, 80, &mut last).unwrap();
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.contains("_G"), "{text:?}");
+        assert!(!text.contains("kittwm shortcuts"), "{text:?}");
+        assert!(last.contains_key("help-overlay"));
     }
 
     #[test]
