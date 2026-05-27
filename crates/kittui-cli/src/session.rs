@@ -677,9 +677,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 frame_out.write_to(&mut handle)?;
             }
             clear = false;
-            if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
-                std::thread::sleep(frame_sleep_chunk(slack));
-            }
+            sleep_remaining_frame_budget(frame_start, frame_target);
             continue;
         }
         if clear {
@@ -915,9 +913,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             last_footer = shell_view.footer.text;
         }
         frame_out.write_to(&mut handle)?;
-        if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
-            std::thread::sleep(frame_sleep_chunk(slack));
-        }
+        sleep_remaining_frame_budget(frame_start, frame_target);
     }
 }
 
@@ -5310,6 +5306,14 @@ mod native_pane_tests {
             frame_sleep_chunk(Duration::from_millis(3)),
             Duration::from_millis(3)
         );
+        assert_eq!(
+            frame_sleep_chunks_for_budget(Duration::from_millis(35)),
+            vec![
+                Duration::from_millis(16),
+                Duration::from_millis(16),
+                Duration::from_millis(3),
+            ]
+        );
     }
 
     #[test]
@@ -6557,6 +6561,25 @@ pub fn run_loop_with<S: XServer>(
 
 fn frame_sleep_chunk(slack: Duration) -> Duration {
     slack.min(Duration::from_millis(16))
+}
+
+fn frame_sleep_chunks_for_budget(mut remaining: Duration) -> Vec<Duration> {
+    let mut chunks = Vec::new();
+    while remaining >= Duration::from_micros(500) {
+        let chunk = frame_sleep_chunk(remaining);
+        chunks.push(chunk);
+        remaining = remaining.saturating_sub(chunk);
+    }
+    chunks
+}
+
+fn sleep_remaining_frame_budget(frame_start: Instant, frame_target: Duration) {
+    let remaining = frame_target
+        .checked_sub(frame_start.elapsed())
+        .unwrap_or_default();
+    for chunk in frame_sleep_chunks_for_budget(remaining) {
+        std::thread::sleep(chunk);
+    }
 }
 
 /// Append-only log for the kittui-wm session. Stderr is invisible inside
