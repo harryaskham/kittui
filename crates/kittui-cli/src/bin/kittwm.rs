@@ -6878,6 +6878,44 @@ mod tests {
     }
 
     #[test]
+    fn launcher_scene_row_rects_fit_narrow_widths() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_INFO_COLS", "8");
+        let candidates = vec![
+            AppCandidate {
+                kind: "path",
+                name: "xterm".to_string(),
+            },
+            AppCandidate {
+                kind: "macos",
+                name: "Terminal".to_string(),
+            },
+        ];
+        let scene = launcher_scene("term", 1, &candidates);
+        assert_eq!(scene.footprint.cols, 8);
+        let width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if layer
+                .label
+                .as_deref()
+                .unwrap_or_default()
+                .contains("kittwm-launcher-row:")
+            {
+                let Node::Rect { rect, .. } = &layer.root else {
+                    panic!("expected row rect");
+                };
+                assert!(rect.origin.0 >= 0.0, "{rect:?}");
+                assert!(rect.width >= 1.0, "{rect:?}");
+                assert!(
+                    rect.origin.0 + rect.width <= width + 0.01,
+                    "{rect:?} > {width}"
+                );
+            }
+        }
+        std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
     fn launcher_scene_labels_selected_candidate() {
         let candidates = vec![
             AppCandidate {
