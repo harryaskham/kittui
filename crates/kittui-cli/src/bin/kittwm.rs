@@ -4317,7 +4317,7 @@ fn info_scene(
         .or_else(|| panes.get("panes"))
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
-    let rows = (pane_count as u16 + 5).clamp(5, 18);
+    let rows = info_scene_rows(pane_count);
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -4437,6 +4437,10 @@ fn info_scene(
         layers,
         animation: None,
     }
+}
+
+fn info_scene_rows(pane_count: u64) -> u16 {
+    pane_count.saturating_add(5).clamp(5, 18) as u16
 }
 
 fn daily_help_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -6436,6 +6440,13 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn info_scene_rows_saturate_before_clamping() {
+        assert_eq!(info_scene_rows(0), 5);
+        assert_eq!(info_scene_rows(8), 13);
+        assert_eq!(info_scene_rows(u64::MAX), 18);
     }
 
     #[test]
