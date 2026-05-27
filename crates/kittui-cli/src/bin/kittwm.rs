@@ -5862,14 +5862,16 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
     let height = rows as f32 * cell.height_px as f32;
     let resolved = summary.default_resolved.as_deref().unwrap_or("<not found>");
     let filter = summary.filter.as_deref().unwrap_or("<none>");
+    let filter_label = truncate(filter, 32);
+    let default_label = truncate(&summary.default_cmd, 48);
+    let resolved_label = truncate(resolved, 48);
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-apps-backdrop:path_count={}:macos_count={}:limit={}:filter={filter}:default={}:resolved={resolved}",
+                "kittwm-apps-backdrop:path_count={}:macos_count={}:limit={}:filter={filter_label}:default={default_label}:resolved={resolved_label}",
                 summary.path_commands.len(),
                 summary.macos_apps.len(),
-                summary.limit,
-                summary.default_cmd
+                summary.limit
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -5905,8 +5907,9 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
     let mut row = 2usize;
     for cmd in summary.path_commands.iter().take(16) {
         let y = row as f32 * cell.height_px as f32;
+        let cmd_label = truncate(cmd, 48);
         layers.push(Layer {
-            label: Some(format!("kittwm-app-row:path:{cmd}")),
+            label: Some(format!("kittwm-app-row:path:{cmd_label}")),
             root: Node::Rect {
                 rect: apps_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -5920,8 +5923,9 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
     }
     for app in summary.macos_apps.iter().take(8) {
         let y = row as f32 * cell.height_px as f32;
+        let app_label = truncate(app, 48);
         layers.push(Layer {
-            label: Some(format!("kittwm-app-row:macos:{app}")),
+            label: Some(format!("kittwm-app-row:macos:{app_label}")),
             root: Node::Rect {
                 rect: apps_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -7510,6 +7514,57 @@ mod tests {
             labels
                 .iter()
                 .any(|label| label.contains("kittwm-app-row:macos:Terminal")),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn apps_scene_clips_pathological_label_fields() {
+        let summary = AppsSummary {
+            default_cmd: "default-command-with-a-pathologically-long-name".to_string(),
+            default_resolved: Some(
+                "/very/long/path/to/default-command-that-would-bloat-labels".to_string(),
+            ),
+            filter: Some("filter-value-that-is-pathologically-long".to_string()),
+            limit: 5,
+            path_commands: vec![
+                "path-command-name-that-is-pathologically-long-and-bloats-labels".to_string(),
+            ],
+            macos_apps: vec![
+                "macOS Application Name That Is Pathologically Long And Bloats Labels".to_string(),
+            ],
+        };
+        let scene = apps_scene(&summary);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let backdrop = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-apps-backdrop:"))
+            .unwrap();
+        assert!(
+            backdrop.contains("filter=filter-value-that-is-pathologic…"),
+            "{backdrop}"
+        );
+        assert!(
+            backdrop.contains("default=default-command-with-a-pathologically-long-name"),
+            "{backdrop}"
+        );
+        assert!(
+            backdrop.contains("resolved=/very/long/path/to/default-command-that-would-b…"),
+            "{backdrop}"
+        );
+        assert!(backdrop.len() < 220, "{backdrop}");
+        assert!(
+            labels.iter().any(|label| label
+                .contains("kittwm-app-row:path:path-command-name-that-is-pathologically-long-a…")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label
+                .contains("kittwm-app-row:macos:macOS Application Name That Is Pathologically L…")),
             "{labels:?}"
         );
     }
