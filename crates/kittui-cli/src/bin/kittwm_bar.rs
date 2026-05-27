@@ -9,9 +9,9 @@
 use std::process::ExitCode;
 use std::time::SystemTime;
 
-use kittui::{CellRect, Runtime, TerminalInfo};
+use kittui::{CellRect, Rgba, Runtime, TerminalInfo};
 use kittui_cli::top_bar::{workspace_label, BarModel};
-use kittwm_sdk::{ChromeReservationRequest, ChromeReservationStatus, Kittwm};
+use kittwm_sdk::{ChromeReservationRequest, ChromeReservationStatus, Kittwm, KittwmConfig};
 use serde::Serialize;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -205,14 +205,24 @@ fn render_kitty_bar(model: &BarOutputModel) -> Result<String, String> {
 }
 
 fn kittwm_bar_kitty_text_overlay(model: &BarOutputModel, cols: u16) -> String {
+    let config = KittwmConfig::load_default().unwrap_or_default();
+    kittwm_bar_kitty_text_overlay_with_config(model, cols, &config)
+}
+
+fn kittwm_bar_kitty_text_overlay_with_config(
+    model: &BarOutputModel,
+    cols: u16,
+    config: &KittwmConfig,
+) -> String {
+    let palette = kittwm_bar_overlay_palette(config);
     let mut out = String::from("\x1b[1;1H\x1b[K");
     let mut workspace_cols = 0u16;
     for label in model.bar.workspace_chip_labels() {
         let active = model.bar.workspace.trim() == label;
         let (fg, bg) = if active {
-            ((0x2e, 0x34, 0x40), (0x88, 0xc0, 0xd0))
+            (palette.active_fg, palette.active_bg)
         } else {
-            ((0xec, 0xef, 0xf4), (0x3b, 0x42, 0x52))
+            (palette.inactive_fg, palette.inactive_bg)
         };
         let chip_text = format!(" {label} ");
         out.push_str(&format!(
@@ -235,8 +245,8 @@ fn kittwm_bar_kitty_text_overlay(model: &BarOutputModel, cols: u16) -> String {
         out.push_str(&format!(
             "\x1b[1;{}H\x1b[1m{}{}{}\x1b[0m",
             clock_col,
-            ansi_fg((0xec, 0xef, 0xf4)),
-            ansi_bg((0x2e, 0x34, 0x40)),
+            ansi_fg(palette.clock_fg),
+            ansi_bg(palette.clock_bg),
             clock_text
         ));
     }
@@ -250,6 +260,72 @@ fn kittwm_bar_overlay_clock_col(cols: u16, workspace_cols: u16, clock_cols: u16)
         .saturating_add(clock_cols)
         <= cols)
         .then(|| cols.saturating_sub(clock_cols).saturating_add(1).max(1))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct KittwmBarOverlayPalette {
+    active_fg: (u8, u8, u8),
+    active_bg: (u8, u8, u8),
+    inactive_fg: (u8, u8, u8),
+    inactive_bg: (u8, u8, u8),
+    clock_fg: (u8, u8, u8),
+    clock_bg: (u8, u8, u8),
+}
+
+fn kittwm_bar_overlay_palette(config: &KittwmConfig) -> KittwmBarOverlayPalette {
+    let inactive_bg =
+        parse_bar_rgb(&config.background.color).unwrap_or(Rgba(0x3b, 0x42, 0x52, 255));
+    let active_bg = config
+        .colorscheme
+        .ansi_color(4)
+        .and_then(|value| parse_bar_rgb(value))
+        .unwrap_or(Rgba(0x88, 0xc0, 0xd0, 255));
+    let clock_bg = inactive_bg;
+    KittwmBarOverlayPalette {
+        active_fg: ansi_rgb(high_contrast_text_for(active_bg)),
+        active_bg: ansi_rgb(active_bg),
+        inactive_fg: ansi_rgb(high_contrast_text_for(inactive_bg)),
+        inactive_bg: ansi_rgb(inactive_bg),
+        clock_fg: ansi_rgb(high_contrast_text_for(clock_bg)),
+        clock_bg: ansi_rgb(clock_bg),
+    }
+}
+
+fn parse_bar_rgb(value: &str) -> Option<Rgba> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "nord0" => Some(Rgba(0x2e, 0x34, 0x40, 255)),
+        "nord1" => Some(Rgba(0x3b, 0x42, 0x52, 255)),
+        "nord2" => Some(Rgba(0x43, 0x4c, 0x5e, 255)),
+        "nord3" => Some(Rgba(0x4c, 0x56, 0x6a, 255)),
+        "nord4" => Some(Rgba(0xd8, 0xde, 0xe9, 255)),
+        "nord5" => Some(Rgba(0xe5, 0xe9, 0xf0, 255)),
+        "nord6" => Some(Rgba(0xec, 0xef, 0xf4, 255)),
+        "nord7" => Some(Rgba(0x8f, 0xbc, 0xbb, 255)),
+        "nord8" => Some(Rgba(0x88, 0xc0, 0xd0, 255)),
+        "nord9" => Some(Rgba(0x81, 0xa1, 0xc1, 255)),
+        "nord10" => Some(Rgba(0x5e, 0x81, 0xac, 255)),
+        "nord11" => Some(Rgba(0xbf, 0x61, 0x6a, 255)),
+        "nord12" => Some(Rgba(0xd0, 0x87, 0x70, 255)),
+        "nord13" => Some(Rgba(0xeb, 0xcb, 0x8b, 255)),
+        "nord14" => Some(Rgba(0xa3, 0xbe, 0x8c, 255)),
+        "nord15" => Some(Rgba(0xb4, 0x8e, 0xad, 255)),
+        other => Rgba::parse(other)
+            .ok()
+            .map(|color| Rgba(color.0, color.1, color.2, 255)),
+    }
+}
+
+fn high_contrast_text_for(bg: Rgba) -> Rgba {
+    let luminance = (u32::from(bg.0) * 299 + u32::from(bg.1) * 587 + u32::from(bg.2) * 114) / 1000;
+    if luminance > 150 {
+        Rgba(0x2e, 0x34, 0x40, 255)
+    } else {
+        Rgba(0xec, 0xef, 0xf4, 255)
+    }
+}
+
+fn ansi_rgb(color: Rgba) -> (u8, u8, u8) {
+    (color.0, color.1, color.2)
 }
 
 fn ansi_fg((r, g, b): (u8, u8, u8)) -> String {
@@ -368,8 +444,26 @@ mod tests {
         assert!(overlay.contains(" 2 "), "{overlay:?}");
         assert!(overlay.contains(" 3 "), "{overlay:?}");
         assert!(overlay.contains(" 09:05 "), "{overlay:?}");
-        assert!(overlay.contains("\x1b[38;2;46;52;64m"), "{overlay:?}");
-        assert!(overlay.contains("\x1b[48;2;136;192;208m"), "{overlay:?}");
+        assert!(overlay.contains("\x1b[38;2;"), "{overlay:?}");
+        assert!(overlay.contains("\x1b[48;2;"), "{overlay:?}");
+    }
+
+    #[test]
+    fn kitty_bar_text_overlay_uses_configured_theme_colors() {
+        let mut config = KittwmConfig::default();
+        config.background.color = "#112233".to_string();
+        config.colorscheme.colors[4] = "#ddeeff".to_string();
+        let model = BarOutputModel {
+            bar: BarModel::new("2", 0, "-", false, UNIX_EPOCH),
+            chrome: None,
+        };
+        let overlay = kittwm_bar_kitty_text_overlay_with_config(&model, 40, &config);
+        assert!(overlay.contains("\x1b[48;2;221;238;255m 2 "), "{overlay:?}");
+        assert!(overlay.contains("\x1b[48;2;17;34;51m 1 "), "{overlay:?}");
+        assert!(
+            overlay.contains("\x1b[48;2;17;34;51m 00:00 "),
+            "{overlay:?}"
+        );
     }
 
     #[test]
