@@ -40,7 +40,7 @@ use kittui_xvfb::XServer;
 use kittwm_sdk::{ArchitectureContract, KittwmConfig, LibghosttyConfig, SurfacePlacementRole};
 
 use crate::keymap::{Action, KeyMods, KeySpec, Keymap};
-use crate::top_bar::{workspace_label, BarModel};
+use crate::top_bar::{workspace_chip_total_cols, workspace_label, BarModel};
 
 #[derive(Default)]
 struct NativeFrameWriteBatch {
@@ -4085,10 +4085,7 @@ fn native_graphical_top_bar_overlay_clear(row: u16) -> String {
 
 fn native_graphical_top_bar_overlay_labels(model: &BarModel, cols: u16) -> Vec<String> {
     let labels = model.workspace_chip_labels();
-    let total_cols = labels
-        .iter()
-        .map(|label| label.chars().count() as u16 + 3)
-        .sum::<u16>();
+    let total_cols = workspace_chip_total_cols(&labels);
     if total_cols > cols {
         return model.workspace_chip_labels_active_first();
     }
@@ -4551,6 +4548,14 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_top_bar_overlay_labels_saturate_long_workspace_width() {
+        let long = "x".repeat(u16::MAX as usize);
+        let model = BarModel::new(long.clone(), 0, "-", true, std::time::UNIX_EPOCH);
+        let labels = native_graphical_top_bar_overlay_labels(&model, 8);
+        assert_eq!(labels.first(), Some(&long));
+    }
+
+    #[test]
     fn graphical_top_bar_overlay_labels_prioritize_active_when_constrained() {
         let model = BarModel::new("dev", 0, "-", true, std::time::UNIX_EPOCH);
         assert_eq!(
@@ -4593,10 +4598,7 @@ mod native_pane_tests {
     fn graphical_top_bar_overlay_width_accounts_for_custom_workspace() {
         let model = BarModel::new("dev", 0, "-", true, std::time::UNIX_EPOCH);
         let labels = model.workspace_chip_labels();
-        let workspace_cols = labels
-            .iter()
-            .map(|label| label.chars().count() as u16 + 3)
-            .sum::<u16>();
+        let workspace_cols = workspace_chip_total_cols(&labels);
         assert_eq!(labels, vec!["1", "2", "3", "dev"]);
         assert_eq!(workspace_cols, 18);
         assert_eq!(

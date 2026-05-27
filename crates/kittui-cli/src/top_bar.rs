@@ -136,10 +136,7 @@ impl BarModel {
 
     fn workspace_chip_labels_for_scene(&self, cols: u16) -> Vec<String> {
         let labels = self.workspace_chip_labels();
-        let total_cols = labels
-            .iter()
-            .map(|label| label.chars().count() as u16 + 3)
-            .sum::<u16>();
+        let total_cols = workspace_chip_total_cols(&labels);
         if total_cols > cols {
             self.workspace_chip_labels_active_first()
         } else {
@@ -366,6 +363,17 @@ fn with_alpha(color: Rgba, alpha: u8) -> Rgba {
     Rgba(color.0, color.1, color.2, alpha)
 }
 
+pub fn workspace_chip_total_cols(labels: &[String]) -> u16 {
+    labels.iter().fold(0u16, |total, label| {
+        let chip_cols = label
+            .chars()
+            .count()
+            .saturating_add(3)
+            .min(u16::MAX as usize) as u16;
+        total.saturating_add(chip_cols)
+    })
+}
+
 fn top_bar_clock_chip_x(total_width: f32, chip_end_x: f32, clock_width: f32) -> Option<f32> {
     let gap = 4.0;
     let right_aligned = (total_width - clock_width - 1.0).max(0.0);
@@ -488,6 +496,17 @@ mod tests {
             time_label(UNIX_EPOCH + std::time::Duration::from_secs(23 * 3_600 + 59 * 60)),
             "23:59 UTC"
         );
+    }
+
+    #[test]
+    fn workspace_chip_width_accounting_saturates_long_labels() {
+        let long = "x".repeat(u16::MAX as usize);
+        let labels = vec!["1".to_string(), long.clone()];
+        assert_eq!(workspace_chip_total_cols(&labels), u16::MAX);
+
+        let model = BarModel::new(long.clone(), 0, "-", false, UNIX_EPOCH);
+        let constrained = model.workspace_chip_labels_for_scene(8);
+        assert_eq!(constrained.first(), Some(&long));
     }
 
     #[test]

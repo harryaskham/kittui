@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use std::time::SystemTime;
 
 use kittui::{CellRect, Rgba, Runtime, TerminalInfo};
-use kittui_cli::top_bar::{workspace_label, BarModel};
+use kittui_cli::top_bar::{workspace_chip_total_cols, workspace_label, BarModel};
 use kittwm_sdk::{ChromeReservationRequest, ChromeReservationStatus, Kittwm, KittwmConfig, Status};
 use serde::Serialize;
 
@@ -277,10 +277,7 @@ fn kittwm_bar_kitty_text_overlay_with_config(
 
 fn kittwm_bar_overlay_labels(model: &BarModel, cols: u16) -> Vec<String> {
     let labels = model.workspace_chip_labels();
-    let total_cols = labels
-        .iter()
-        .map(|label| label.chars().count() as u16 + 3)
-        .sum::<u16>();
+    let total_cols = workspace_chip_total_cols(&labels);
     if total_cols > cols {
         model.workspace_chip_labels_active_first()
     } else {
@@ -605,6 +602,14 @@ mod tests {
         let overlay = kittwm_bar_kitty_text_overlay(&model, 60);
         assert!(overlay.starts_with("\x1b[0m\x1b[1;1H\x1b[K"), "{overlay:?}");
         assert!(overlay.contains(" dev "), "{overlay:?}");
+    }
+
+    #[test]
+    fn kitty_bar_overlay_labels_saturate_long_workspace_width() {
+        let long = "x".repeat(u16::MAX as usize);
+        let model = BarModel::new(long.clone(), 0, "-", false, UNIX_EPOCH);
+        let labels = kittwm_bar_overlay_labels(&model, 8);
+        assert_eq!(labels.first(), Some(&long));
     }
 
     #[test]
