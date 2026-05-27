@@ -3634,6 +3634,16 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key_with_modifiers("Delete", "Delete", 46, BROWSER_SHIFT_MODIFIER)
     }
 
+    /// Dispatch a Ctrl+Insert key press/release to the focused page element.
+    pub fn send_ctrl_insert(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Insert", "Insert", 45, BROWSER_CTRL_MODIFIER)
+    }
+
+    /// Dispatch a Ctrl+Delete key press/release to the focused page element.
+    pub fn send_ctrl_delete(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Delete", "Delete", 46, BROWSER_CTRL_MODIFIER)
+    }
+
     /// Dispatch a Home key press/release to the focused page element.
     pub fn send_home(&mut self) -> Result<()> {
         self.dispatch_browser_key("Home", "Home", 36)
@@ -6099,6 +6109,20 @@ mod tests {
         assert_eq!(shift_delete["windowsVirtualKeyCode"], 46);
         assert_eq!(shift_delete["nativeVirtualKeyCode"], 46);
         assert_eq!(shift_delete["modifiers"], BROWSER_SHIFT_MODIFIER);
+        let ctrl_insert =
+            browser_key_event_params_with_modifiers("Insert", "Insert", 45, BROWSER_CTRL_MODIFIER);
+        assert_eq!(ctrl_insert["key"], "Insert");
+        assert_eq!(ctrl_insert["code"], "Insert");
+        assert_eq!(ctrl_insert["windowsVirtualKeyCode"], 45);
+        assert_eq!(ctrl_insert["nativeVirtualKeyCode"], 45);
+        assert_eq!(ctrl_insert["modifiers"], BROWSER_CTRL_MODIFIER);
+        let ctrl_delete =
+            browser_key_event_params_with_modifiers("Delete", "Delete", 46, BROWSER_CTRL_MODIFIER);
+        assert_eq!(ctrl_delete["key"], "Delete");
+        assert_eq!(ctrl_delete["code"], "Delete");
+        assert_eq!(ctrl_delete["windowsVirtualKeyCode"], 46);
+        assert_eq!(ctrl_delete["nativeVirtualKeyCode"], 46);
+        assert_eq!(ctrl_delete["modifiers"], BROWSER_CTRL_MODIFIER);
         let home = browser_key_event_params("Home", "Home", 36);
         assert_eq!(home["key"], "Home");
         assert_eq!(home["code"], "Home");
