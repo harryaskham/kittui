@@ -1150,7 +1150,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             if !affordance_scene_chrome
                 && (redraw_static || last_title_rows.get(idx) != Some(&chrome.cache_key))
             {
-                write_native_pane_chrome(&mut frame_out, chrome)?;
+                write_native_pane_chrome(&mut frame_out, chrome, cols, rows)?;
                 last_title_rows[idx] = chrome.cache_key.clone();
             }
         }
@@ -4250,15 +4250,26 @@ fn write_native_help_overlay<W: Write>(out: &mut W, cols: u16, rows: u16) -> Res
     Ok(())
 }
 
-fn write_native_pane_chrome<W: Write>(out: &mut W, chrome: &NativePaneChrome) -> Result<()> {
+fn write_native_pane_chrome<W: Write>(
+    out: &mut W,
+    chrome: &NativePaneChrome,
+    cols: u16,
+    rows: u16,
+) -> Result<()> {
+    let Some(row) = terminal_visible_row_opt(chrome.y, rows) else {
+        return Ok(());
+    };
+    let Some(width) = terminal_visible_width(chrome.x, chrome.cols, cols) else {
+        return Ok(());
+    };
     let style = if chrome.focused { "\x1b[7m" } else { "\x1b[2m" };
     write!(
         out,
         "\x1b[{};{}H{}{}\x1b[0m",
-        chrome.y + 1,
+        row + 1,
         chrome.x + 1,
         style,
-        chrome.text
+        clip_and_pad(&chrome.text, width)
     )?;
     Ok(())
 }
@@ -5440,6 +5451,35 @@ mod native_pane_tests {
             native_focus_event_payload(true, false),
             Some(b"\x1b[O".as_slice())
         );
+    }
+
+    #[test]
+    fn ansi_pane_chrome_write_guards_visible_bounds_and_pads() {
+        let chrome = NativePaneChrome {
+            x: 3,
+            y: 1,
+            focused: true,
+            text: "sh".to_string(),
+            cache_key: "key".to_string(),
+            status: "status".to_string(),
+            app_x: 3,
+            app_y: 2,
+            app_cols: 4,
+            app_rows: 1,
+            cols: 5,
+            rows: 2,
+            text_snapshot: String::new(),
+        };
+        let mut out = Vec::new();
+        write_native_pane_chrome(&mut out, &chrome, 6, 4).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text, "\x1b[2;4H\x1b[7msh \x1b[0m");
+
+        let mut offscreen = Vec::new();
+        let mut hidden = chrome.clone();
+        hidden.y = 4;
+        write_native_pane_chrome(&mut offscreen, &hidden, 6, 4).unwrap();
+        assert!(offscreen.is_empty());
     }
 
     #[test]
