@@ -206,8 +206,8 @@ fn render_kitty_bar(model: &BarOutputModel) -> Result<String, String> {
 
 fn kittwm_bar_kitty_text_overlay(model: &BarOutputModel, cols: u16) -> String {
     let mut out = String::from("\x1b[1;1H");
-    for idx in 1..=3 {
-        let active = model.bar.workspace == idx.to_string();
+    for label in model.bar.workspace_chip_labels() {
+        let active = model.bar.workspace.trim() == label;
         let (fg, bg) = if active {
             ((0x2e, 0x34, 0x40), (0x88, 0xc0, 0xd0))
         } else {
@@ -217,7 +217,7 @@ fn kittwm_bar_kitty_text_overlay(model: &BarOutputModel, cols: u16) -> String {
             "\x1b[1m{}{} {} \x1b[0m ",
             ansi_fg(fg),
             ansi_bg(bg),
-            idx
+            label
         ));
     }
     let clock = model
@@ -358,6 +358,16 @@ mod tests {
         assert!(overlay.contains(" 09:05 "), "{overlay:?}");
         assert!(overlay.contains("\x1b[38;2;46;52;64m"), "{overlay:?}");
         assert!(overlay.contains("\x1b[48;2;136;192;208m"), "{overlay:?}");
+    }
+
+    #[test]
+    fn kitty_bar_text_overlay_includes_custom_workspace_label() {
+        let model = BarOutputModel {
+            bar: BarModel::new("dev", 0, "-", false, UNIX_EPOCH),
+            chrome: None,
+        };
+        let overlay = kittwm_bar_kitty_text_overlay(&model, 60);
+        assert!(overlay.contains(" dev "), "{overlay:?}");
     }
 
     #[test]

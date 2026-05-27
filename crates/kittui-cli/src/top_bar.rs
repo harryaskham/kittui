@@ -90,9 +90,9 @@ impl BarModel {
 
     fn workspace_chips_text(&self) -> String {
         let workspace = self.workspace.trim();
-        (1..=3)
-            .map(|idx| {
-                let label = idx.to_string();
+        self.workspace_chip_labels()
+            .into_iter()
+            .map(|label| {
                 if label == workspace {
                     format!("|[{label}]")
                 } else {
@@ -101,6 +101,18 @@ impl BarModel {
             })
             .collect::<String>()
             + "|"
+    }
+
+    /// Workspace chips shown in the bar. Numeric defaults stay first; a custom
+    /// active workspace label is appended so it is visible and can carry active
+    /// action metadata.
+    pub fn workspace_chip_labels(&self) -> Vec<String> {
+        let workspace = self.workspace.trim();
+        let mut labels = (1..=3).map(|idx| idx.to_string()).collect::<Vec<_>>();
+        if !workspace.is_empty() && !labels.iter().any(|label| label == workspace) {
+            labels.push(workspace.to_string());
+        }
+        labels
     }
 
     /// Render the bar as a one-line kittui scene.
@@ -121,14 +133,15 @@ impl BarModel {
         }
         let cell_w = scene.cell_size.width_px.max(1) as f32;
         let cell_h = scene.cell_size.height_px.max(1) as f32;
-        let chip_w = 3.0 * cell_w;
         let chip_h = (cell_h - 4.0).max(6.0);
-        for idx in 1..=3 {
-            let active = self.workspace == idx.to_string();
-            let x = 1.0 + (idx - 1) as f32 * (chip_w + 3.0);
+        let mut chip_x = 1.0;
+        for label in self.workspace_chip_labels() {
+            let active = self.workspace.trim() == label;
+            let chip_w = (label.chars().count() as f32 + 2.0).max(3.0) * cell_w;
+            let x = chip_x;
             let y = ((cell_h - chip_h) / 2.0).max(0.0);
             scene.layers.push(Layer::new(
-                format!("{label_prefix}-workspace-chip-shadow:{idx}"),
+                format!("{label_prefix}-workspace-chip-shadow:{label}"),
                 Node::Rect {
                     rect: PxRect::new(x + 1.0, y + 1.0, chip_w, chip_h),
                     fill: Paint::Solid {
@@ -140,7 +153,7 @@ impl BarModel {
             ));
             scene.layers.push(Layer::new(
                 format!(
-                    "{label_prefix}-workspace-chip:{idx}:{}:action=workspace.switch.{idx}",
+                    "{label_prefix}-workspace-chip:{label}:{}:action=workspace.switch.{label}",
                     if active { "active" } else { "inactive" }
                 ),
                 Node::Rect {
@@ -161,6 +174,7 @@ impl BarModel {
                     corners: Corners::uniform(7.0),
                 },
             ));
+            chip_x += chip_w + 3.0;
         }
         let clock = self.time.strip_suffix(" UTC").unwrap_or(&self.time);
         let clock_cols = clock.chars().count().max(5) as f32 + 2.0;
@@ -397,6 +411,20 @@ mod tests {
         assert_eq!(theme.border, Rgba(0xdd, 0xee, 0xff, 255));
         assert_eq!(theme.clock_fg, Rgba(0xdd, 0xee, 0xff, 255));
         assert_eq!(theme.chip_active, Rgba(0x44, 0x55, 0x66, 235));
+    }
+
+    #[test]
+    fn custom_workspace_label_is_rendered_as_active_chip() {
+        let model = BarModel::new("dev", 0, "-", false, UNIX_EPOCH);
+        assert_eq!(model.workspace_chip_labels(), vec!["1", "2", "3", "dev"]);
+        let rendered = model.render();
+        assert!(rendered.contains("|[dev]|"), "{rendered}");
+        let scene = model.scene(60);
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("workspace-chip:dev:active:action=workspace.switch.dev")));
     }
 
     #[test]

@@ -3921,14 +3921,14 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
     let palette = native_top_bar_overlay_palette(native_glass_chrome_colors());
     write!(out, "{}", native_graphical_top_bar_overlay_clear(row))?;
     let mut workspace_cols = 0u16;
-    for idx in 1..=3 {
-        let active = model.workspace == idx.to_string();
+    for label in model.workspace_chip_labels() {
+        let active = model.workspace.trim() == label;
         let (fg, bg) = if active {
             (palette.active_fg, palette.active_bg)
         } else {
             (palette.inactive_fg, palette.inactive_bg)
         };
-        let label = format!(" {idx} ");
+        let label = format!(" {label} ");
         write!(
             out,
             "\x1b[1m{}{}{}\x1b[0m ",
