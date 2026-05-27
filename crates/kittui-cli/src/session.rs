@@ -214,6 +214,14 @@ fn should_clear_raw_error_screen(last_error_key: Option<&str>) -> bool {
     last_error_key.is_some()
 }
 
+fn raw_compositor_should_render_app_graphics(launcher_active: bool) -> bool {
+    !launcher_active
+}
+
+fn should_hide_raw_graphics_for_launcher(launcher_active: bool, already_hidden: bool) -> bool {
+    launcher_active && !already_hidden
+}
+
 fn native_idle_frame_target(active_target: Duration) -> Duration {
     let idle_fps = std::env::var("KITTWM_IDLE_FPS")
         .ok()
@@ -3975,6 +3983,15 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn launcher_overlay_temporarily_hides_raw_app_graphics() {
+        assert!(raw_compositor_should_render_app_graphics(false));
+        assert!(!raw_compositor_should_render_app_graphics(true));
+        assert!(should_hide_raw_graphics_for_launcher(true, false));
+        assert!(!should_hide_raw_graphics_for_launcher(true, true));
+        assert!(!should_hide_raw_graphics_for_launcher(false, false));
+    }
+
+    #[test]
     fn native_idle_frame_pacing_uses_active_then_idle_target() {
         let active = Duration::from_millis(33);
         let idle = Duration::from_millis(100);
@@ -6489,6 +6506,7 @@ pub fn run_loop_with<S: XServer>(
     let mut picker_overlay = PickerOverlay::default();
     let mut launcher_overlay_was_active = false;
     let mut picker_overlay_was_active = false;
+    let mut launcher_overlay_hid_raw_graphics = false;
     let mut last_footer_key = String::new();
     let mut last_footer_row: Option<u16> = None;
     let mut last_launcher_overlay_key = String::new();
@@ -6906,17 +6924,25 @@ pub fn run_loop_with<S: XServer>(
                     clear_launcher_overlay_area(&mut handle)?;
                     wrote_frame_output = true;
                     last_placed.clear();
+                    last_raw_hashes.clear();
                     last_raw_chrome_keys.clear();
                     last_launcher_overlay_key.clear();
                     last_footer_key.clear();
+                    launcher_overlay_hid_raw_graphics = false;
                 }
                 // Track which windows are present this frame so we can
                 // delete the ones that have disappeared.
                 let mut current_ids: std::collections::HashSet<u32> =
                     std::collections::HashSet::with_capacity(frames.len());
                 let mut footer_row = 2u16;
+                let render_app_graphics =
+                    raw_compositor_should_render_app_graphics(launcher_overlay.active);
                 for f in &frames {
                     current_ids.insert(f.image_id);
+                    if !render_app_graphics {
+                        footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
+                        continue;
+                    }
                     let decision = decide_native_raw_frame_write(
                         &mut last_raw_hashes,
                         &mut last_placed,
@@ -6966,6 +6992,19 @@ pub fn run_loop_with<S: XServer>(
                         last_raw_chrome_keys.insert(f.image_id, chrome_key);
                     }
                     footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
+                }
+                if should_hide_raw_graphics_for_launcher(
+                    launcher_overlay.active,
+                    launcher_overlay_hid_raw_graphics,
+                ) {
+                    for image_id in &current_ids {
+                        handle.write_all(runtime.unplace(*image_id).as_bytes())?;
+                        wrote_frame_output = true;
+                    }
+                    last_placed.clear();
+                    last_raw_hashes.clear();
+                    last_raw_chrome_keys.clear();
+                    launcher_overlay_hid_raw_graphics = true;
                 }
                 // Delete any window that disappeared since last frame.
                 for old_id in prev_window_ids.difference(&current_ids) {
