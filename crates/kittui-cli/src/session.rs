@@ -3739,7 +3739,11 @@ fn native_help_overlay_scene(
     let rect = CellRect::new(0, 0, panel_cols, panel_rows).to_pixels(cell_size);
     let row_h = cell_size.height_px.max(1) as f32;
     let chip_h = (row_h - 5.0).max(6.0);
-    let chip_w = (cell_size.width_px.max(1) as f32 * 15.0).min((rect.width - 20.0).max(1.0));
+    let chip_x = if rect.width > 20.0 { 10.0 } else { 0.0 };
+    let chip_w =
+        (cell_size.width_px.max(1) as f32 * 15.0).min((rect.width - chip_x * 2.0).max(1.0));
+    let row_line_x = if rect.width > 16.0 { 8.0 } else { 0.0 };
+    let row_line_w = (rect.width - row_line_x * 2.0).max(1.0);
     let mut layers = vec![
         Layer::new(
             "help-overlay-backdrop",
@@ -3777,7 +3781,7 @@ fn native_help_overlay_scene(
             layers.push(Layer::new(
                 format!("help-overlay-key-chip-{idx}"),
                 Node::Rect {
-                    rect: PxRect::new(10.0, row_y + 2.0, chip_w, chip_h),
+                    rect: PxRect::new(chip_x, row_y + 2.0, chip_w, chip_h),
                     fill: Paint::Solid {
                         color: rgba_with_alpha(colors.border, 80),
                     },
@@ -3794,7 +3798,7 @@ fn native_help_overlay_scene(
         layers.push(Layer::new(
             format!("help-overlay-row-{idx}"),
             Node::Rect {
-                rect: PxRect::new(8.0, row_y + row_h - 2.0, (rect.width - 16.0).max(1.0), 1.0),
+                rect: PxRect::new(row_line_x, row_y + row_h - 2.0, row_line_w, 1.0),
                 fill: Paint::Solid {
                     color: colors.highlight,
                 },
@@ -6460,6 +6464,31 @@ mod native_pane_tests {
                 "rows={rows} y={y} scene={:?}",
                 scene.footprint
             );
+        }
+    }
+
+    #[test]
+    fn native_help_overlay_internal_layers_fit_tiny_width() {
+        let (_x, _y, scene) = native_help_overlay_scene(
+            CellSize::new(8, 16),
+            1,
+            24,
+            &["kittwm shortcuts", "C-a ? help"],
+        );
+        let scene_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            let rect = match &layer.root {
+                Node::Rect { rect, .. } | Node::Gradient { rect, .. } => Some(rect),
+                _ => None,
+            };
+            if let Some(rect) = rect {
+                assert!(
+                    rect.origin.0 >= 0.0 && rect.origin.0 + rect.width <= scene_width,
+                    "layer {:?} escapes scene width {scene_width}: {:?}",
+                    layer.label,
+                    rect
+                );
+            }
         }
     }
 
