@@ -5650,6 +5650,23 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn overlay_keys_change_when_visual_state_changes() {
+        let mut launcher = LauncherOverlay::default();
+        launcher.active = true;
+        launcher.query = "term".to_string();
+        let base = launcher_overlay_key(&launcher);
+        launcher.selected = 1;
+        assert_ne!(base, launcher_overlay_key(&launcher));
+
+        let mut picker = PickerOverlay::default();
+        picker.active = true;
+        picker.entries = vec!["one".to_string()];
+        let picker_base = picker_overlay_key(&picker);
+        picker.entries.push("two".to_string());
+        assert_ne!(picker_base, picker_overlay_key(&picker));
+    }
+
+    #[test]
     fn compositor_frame_flush_decision_requires_output() {
         assert!(should_flush_compositor_frame(true));
         assert!(!should_flush_compositor_frame(false));
@@ -6432,6 +6449,8 @@ pub fn run_loop_with<S: XServer>(
     let mut launcher_overlay_was_active = false;
     let mut last_footer_key = String::new();
     let mut last_footer_row: Option<u16> = None;
+    let mut last_launcher_overlay_key = String::new();
+    let mut last_picker_overlay_key = String::new();
     // Triple-Ctrl-C kill switch (bd-2776ad): single Ctrl-C is forwarded to
     // the focused window like any other key; three within 1s exits cleanly.
     let mut ctrl_c_guard = CtrlCGuard::new();
@@ -6824,6 +6843,7 @@ pub fn run_loop_with<S: XServer>(
                     wrote_frame_output = true;
                     last_placed.clear();
                     last_raw_chrome_keys.clear();
+                    last_launcher_overlay_key.clear();
                     last_footer_key.clear();
                 }
                 // Track which windows are present this frame so we can
@@ -6893,14 +6913,26 @@ pub fn run_loop_with<S: XServer>(
                 }
                 prev_window_ids = current_ids;
                 if launcher_overlay.active {
-                    launcher_overlay.render(&mut handle)?;
-                    wrote_frame_output = true;
+                    let overlay_key = launcher_overlay_key(&launcher_overlay);
+                    if last_launcher_overlay_key != overlay_key {
+                        launcher_overlay.render(&mut handle)?;
+                        wrote_frame_output = true;
+                        last_launcher_overlay_key = overlay_key;
+                    }
                     footer_row = footer_row.max(12);
+                } else {
+                    last_launcher_overlay_key.clear();
                 }
                 if picker_overlay.active {
-                    picker_overlay.render(&mut handle)?;
-                    wrote_frame_output = true;
+                    let overlay_key = picker_overlay_key(&picker_overlay);
+                    if last_picker_overlay_key != overlay_key {
+                        picker_overlay.render(&mut handle)?;
+                        wrote_frame_output = true;
+                        last_picker_overlay_key = overlay_key;
+                    }
                     footer_row = footer_row.max(14);
+                } else {
+                    last_picker_overlay_key.clear();
                 }
                 let launch_note = last_launch_pid
                     .map(|pid| format!(" — last launch pid={pid}"))
@@ -7383,6 +7415,22 @@ struct PickerOverlay {
     active: bool,
     selected: usize,
     entries: Vec<String>,
+}
+
+fn launcher_overlay_key(overlay: &LauncherOverlay) -> String {
+    format!(
+        "active={};query={};selected={}",
+        overlay.active, overlay.query, overlay.selected
+    )
+}
+
+fn picker_overlay_key(overlay: &PickerOverlay) -> String {
+    format!(
+        "active={};selected={};entries={}",
+        overlay.active,
+        overlay.selected,
+        overlay.entries.join("\u{1f}")
+    )
 }
 
 impl PickerOverlay {
