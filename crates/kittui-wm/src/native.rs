@@ -1890,8 +1890,16 @@ impl TerminalState {
         if self.scrollback.is_empty() {
             return String::new();
         }
-        let mut out = self.scrollback.join("\n");
-        out.push('\n');
+        let mut out = String::with_capacity(
+            self.scrollback
+                .iter()
+                .map(|line| line.len().saturating_add(1))
+                .sum(),
+        );
+        for line in &self.scrollback {
+            out.push_str(line);
+            out.push('\n');
+        }
         out
     }
 
@@ -4405,6 +4413,14 @@ mod tests {
             cache.lock().as_ref().map(|(revision, _)| *revision),
             Some(0)
         );
+    }
+
+    #[test]
+    fn terminal_scrollback_snapshot_appends_lines_directly() {
+        let mut state = TerminalState::new(2, 1);
+        state.push_scrollback_line("one".to_string());
+        state.push_scrollback_line("two".to_string());
+        assert_eq!(state.scrollback_snapshot(), "one\ntwo\n");
     }
 
     #[test]
