@@ -2869,12 +2869,10 @@ fn fill_cell_background(
     let x0 = u32::from(col) * cell_w;
     let y0 = u32::from(row) * cell_h;
     for y in 0..cell_h {
-        for x in 0..cell_w {
-            let idx = (((y0 + y) * width + (x0 + x)) as usize) * 4;
-            rgba[idx] = color.0;
-            rgba[idx + 1] = color.1;
-            rgba[idx + 2] = color.2;
-            rgba[idx + 3] = 0xff;
+        let mut idx = rgba_pixel_index(width, x0, y0 + y);
+        for _ in 0..cell_w {
+            set_rgba_pixel_at_index(rgba, idx, color);
+            idx += 4;
         }
     }
 }
@@ -4949,6 +4947,18 @@ mod tests {
         let rgba = render_terminal_rgba(&state, 2, 1);
         assert_eq!(&rgba[0..4], &[0x08, 0x0d, 0x14, 0xff]);
         assert_eq!(&rgba[8..12], &[0x19, 0x71, 0xc2, 0xff]);
+    }
+
+    #[test]
+    fn fill_cell_background_writes_contiguous_cell_rows() {
+        let mut rgba = vec![0; 4 * 4 * 2];
+        fill_cell_background(&mut rgba, 4, 1, 0, 2, 2, TerminalColor(7, 8, 9));
+        assert_eq!(&rgba[8..12], &[7, 8, 9, 255]);
+        assert_eq!(&rgba[12..16], &[7, 8, 9, 255]);
+        assert_eq!(&rgba[24..28], &[7, 8, 9, 255]);
+        assert_eq!(&rgba[28..32], &[7, 8, 9, 255]);
+        assert_eq!(&rgba[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&rgba[20..24], &[0, 0, 0, 0]);
     }
 
     #[test]
