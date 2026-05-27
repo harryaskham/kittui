@@ -3117,15 +3117,17 @@ fn render_native_shell_view_affordance_scenes(
             y: view.footer.row,
             scene: native_footer_status_scene(cell_size, cols, &view.footer.text),
         });
-        if let Some((x, y, scene)) =
-            native_toast_scene(cell_size, cols, view.footer.row, &view.footer.text)
-        {
-            scenes.push(NativeShellChromeScene {
-                id: "toast".to_string(),
-                x,
-                y,
-                scene,
-            });
+        if native_should_show_footer_toast(&view.footer.text) {
+            if let Some((x, y, scene)) =
+                native_toast_scene(cell_size, cols, view.footer.row, &view.footer.text)
+            {
+                scenes.push(NativeShellChromeScene {
+                    id: "toast".to_string(),
+                    x,
+                    y,
+                    scene,
+                });
+            }
         }
     }
     if view.help_overlay {
@@ -3259,6 +3261,14 @@ fn native_pane_title_status_scene(
         layers,
         animation: None,
     }
+}
+
+fn native_should_show_footer_toast(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("error")
+        || lower.contains("failed")
+        || lower.contains("denied")
+        || lower.contains("launcher.error")
 }
 
 fn native_toast_scene(
@@ -4997,7 +5007,7 @@ mod native_pane_tests {
             help_overlay: false,
         };
         let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 18);
-        assert_eq!(scenes.len(), 7);
+        assert_eq!(scenes.len(), 6);
         assert_eq!(scenes[0].id, "top-bar");
         assert_eq!((scenes[0].x, scenes[0].y), (0, 0));
         assert!(scenes[0]
@@ -5009,7 +5019,6 @@ mod native_pane_tests {
         assert_eq!(scenes[2].id, "pane-0-border");
         assert_eq!((scenes[3].x, scenes[3].y), (8, 1));
         assert_eq!(scenes[5].id, "footer");
-        assert_eq!(scenes[6].id, "toast");
         assert!(scenes[5].scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
@@ -5020,16 +5029,7 @@ mod native_pane_tests {
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("status-chip-help")));
-        assert!(scenes[6].scene.layers.iter().any(|layer| layer
-            .label
-            .as_deref()
-            .unwrap_or_default()
-            .starts_with("toast-backdrop:footer")));
-        assert!(scenes[6]
-            .scene
-            .layers
-            .iter()
-            .any(|layer| layer.label.as_deref() == Some("toast-accent-rail")));
+        assert!(scenes.iter().all(|scene| scene.id != "toast"));
         assert!(scenes[1].scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
@@ -5521,11 +5521,23 @@ mod native_pane_tests {
         assert_eq!(metrics["cols"], 96);
         assert_eq!(metrics["rows"], 24);
         assert_eq!(metrics["help_overlay"], true);
-        assert_eq!(metrics["scene_count"], 8);
+        assert_eq!(metrics["scene_count"], 7);
         assert!(metrics["layer_count"].as_u64().unwrap() >= 40, "{metrics}");
         assert!(metrics["total_pixels"].as_u64().unwrap() > 0, "{metrics}");
         assert_eq!(metrics["cell_width_px"], NATIVE_CELL_WIDTH_PX);
         assert_eq!(metrics["cell_height_px"], NATIVE_CELL_HEIGHT_PX);
+    }
+
+    #[test]
+    fn native_footer_toast_is_only_for_transient_errors() {
+        assert!(!native_should_show_footer_toast(
+            "C-a ? help · C-a g launcher · C-a Enter/t terminal"
+        ));
+        assert!(native_should_show_footer_toast(
+            "launcher.error no candidate"
+        ));
+        assert!(native_should_show_footer_toast("capture denied"));
+        assert!(native_should_show_footer_toast("backend failed"));
     }
 
     #[test]
@@ -5544,7 +5556,6 @@ mod native_pane_tests {
             "pane-1-title",
             "pane-1-border",
             "footer",
-            "toast",
             "help-overlay",
         ] {
             assert!(ids.contains(&id), "missing {id}: {ids:?}");

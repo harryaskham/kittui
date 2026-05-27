@@ -5,7 +5,15 @@
     "y": 0,
     "layers": [
       "kittwm-live-top-bar:active:1",
-      "kittwm-live-top-bar-text:kittui-bar  ws:1  active  panes:2  focus:-  12:00 UTC"
+      "kittwm-live-top-bar-workspace-chip-shadow:1",
+      "kittwm-live-top-bar-workspace-chip:1:active:action=workspace.switch.1",
+      "kittwm-live-top-bar-workspace-chip-shadow:2",
+      "kittwm-live-top-bar-workspace-chip:2:inactive:action=workspace.switch.2",
+      "kittwm-live-top-bar-workspace-chip-shadow:3",
+      "kittwm-live-top-bar-workspace-chip:3:inactive:action=workspace.switch.3",
+      "kittwm-live-top-bar-clock-chip:00:00:high-contrast",
+      "kittwm-live-top-bar-clock-chip-foreground:00:00",
+      "kittwm-live-top-bar-text:| 1 | 2 | 3 |                                                                             00:00"
     ]
   },
   {
@@ -58,17 +66,6 @@
       "status-chip-help",
       "status-chip-terminal",
       "status-chip-close"
-    ]
-  },
-  {
-    "id": "toast",
-    "x": 2,
-    "y": 19,
-    "layers": [
-      "toast-backdrop:C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showca",
-      "toast-accent-rail",
-      "toast-highlight",
-      "toast-text:C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: sh"
     ]
   },
   {
