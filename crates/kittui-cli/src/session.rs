@@ -3574,7 +3574,7 @@ fn native_toast_scene(
 
 fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str) -> Scene {
     let colors = native_glass_chrome_colors();
-    let cols = cols.max(20);
+    let cols = cols.max(1);
     let rect = CellRect::new(0, 0, cols, 1).to_pixels(cell_size);
     let cell_w = cell_size.width_px.max(1) as f32;
     let chip_h = (cell_size.height_px.max(1) as f32 - 4.0).max(6.0);
@@ -3601,8 +3601,11 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
     )];
     for (label, x_cells, width_cells) in chip_specs {
         let x = x_cells * cell_w;
+        if x >= rect.width {
+            continue;
+        }
         let width = (width_cells * cell_w).min((rect.width - x - 4.0).max(1.0));
-        if width <= 1.0 {
+        if width <= 1.0 || x + width > rect.width {
             continue;
         }
         layers.push(Layer::new(
@@ -6451,6 +6454,33 @@ mod native_pane_tests {
                 })
                 .collect::<Vec<_>>(),
         )
+    }
+
+    #[test]
+    fn native_footer_status_scene_fits_tiny_terminals() {
+        for cols in [0, 1, 8, 19] {
+            let scene = native_footer_status_scene(CellSize::new(8, 16), cols, "status");
+            assert!(
+                scene.footprint.cols <= cols.max(1),
+                "cols={cols} scene={:?}",
+                scene.footprint
+            );
+            let scene_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+            for layer in &scene.layers {
+                let Some(rect) = (match &layer.root {
+                    Node::Rect { rect, .. } | Node::Gradient { rect, .. } => Some(rect),
+                    _ => None,
+                }) else {
+                    continue;
+                };
+                assert!(
+                    rect.origin.0 >= 0.0 && rect.origin.0 + rect.width <= scene_width,
+                    "layer {:?} escapes width {scene_width}: {:?}",
+                    layer.label,
+                    rect
+                );
+            }
+        }
     }
 
     #[test]
