@@ -4871,7 +4871,10 @@ fn load_status_snapshot() -> Result<serde_json::Value> {
 }
 
 fn status_scene(status: &serde_json::Value) -> Scene {
-    let cols = info_scene_cols();
+    status_scene_for_cols(status, status_scene_cols())
+}
+
+fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
     let rows = 9;
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
@@ -4957,7 +4960,7 @@ fn status_scene(status: &serde_json::Value) -> Scene {
         layers.push(Layer {
             label: Some(format!("kittwm-status-row:{idx}:{row}")),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: status_scene_row_rect(width, y),
                 fill: Paint::Solid {
                     color: Rgba::rgba(163, 190, 140, 255),
                 },
@@ -4972,6 +4975,28 @@ fn status_scene(status: &serde_json::Value) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn status_scene_cols() -> u16 {
+    status_scene_cols_from_value(
+        std::env::var("KITTWM_STATUS_COLS")
+            .or_else(|_| std::env::var("COLUMNS"))
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn status_scene_cols_from_value(value: Option<&str>) -> u16 {
+    value
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|cols| *cols > 0)
+        .map(|cols| cols.min(140))
+        .unwrap_or(72)
+}
+
+fn status_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
+    let margin = 10.0_f32.min((width / 4.0).max(0.0));
+    KittuiPxRect::new(margin, y, (width - margin * 2.0).max(1.0), 1.5)
 }
 
 fn status_cmd() -> Result<()> {
@@ -6568,6 +6593,29 @@ mod tests {
                 .any(|label| label.contains("kittwm-app-row:macos:Terminal")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn status_scene_width_respects_narrow_columns() {
+        assert_eq!(status_scene_cols_from_value(Some("8")), 8);
+        assert_eq!(status_scene_cols_from_value(Some("0")), 72);
+        assert_eq!(status_scene_cols_from_value(Some("240")), 140);
+
+        let status = serde_json::json!({
+            "pid": 1234,
+            "panes": 2,
+            "focus": "native-2",
+            "layout": "rows"
+        });
+        let scene = status_scene_for_cols(&status, 1);
+        assert_eq!(scene.footprint.cols, 1);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
+        assert_eq!(status_scene_row_rect(8.0, 0.0).origin.0, 2.0);
     }
 
     #[test]
