@@ -2226,11 +2226,24 @@ fn native_move_focused(
     clear: &mut bool,
     dbg: &Debugger,
 ) -> Result<()> {
-    let to = native_move_target_index(*focused, panes.len(), direction);
-    if to != *focused {
-        let pane = panes.remove(*focused);
+    let from = *focused;
+    let to = native_move_target_index(from, panes.len(), direction);
+    if to != from {
+        let old_focused_window = panes.get(from).map(|pane| pane.window.clone());
+        let pane = panes.remove(from);
         panes.insert(to, pane);
-        *focused = to;
+        if let Some(old_focused_window) = old_focused_window.as_deref() {
+            if let Some(old_focus_idx) = native_window_index_after_reorder(
+                &panes
+                    .iter()
+                    .map(|pane| pane.window.as_str())
+                    .collect::<Vec<_>>(),
+                old_focused_window,
+            ) {
+                *focused = old_focus_idx;
+            }
+        }
+        native_set_focus(panes, focused, to)?;
         resize_native_panes_for_layout_with_reservation(panes, cols, rows, axis, reservation)?;
         *clear = true;
     }
@@ -6864,6 +6877,7 @@ mod native_pane_tests {
         focused = native_window_index_after_reorder(&order, old_focused).unwrap();
         assert_eq!(order, vec!["a", "c", "b"]);
         assert_eq!(order[focused], "b");
+        assert_eq!(native_window_index_after_reorder(&order, "b"), Some(2));
         assert_eq!(native_window_index_after_reorder(&order, "missing"), None);
     }
 
