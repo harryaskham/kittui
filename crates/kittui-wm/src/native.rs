@@ -2815,12 +2815,10 @@ fn draw_terminal_cursor(
     let y0 = u32::from(state.cursor_row) * cell_h;
     let start_y = cell_h.saturating_sub(3);
     for y in start_y..cell_h {
-        for x in 0..cell_w {
-            let idx = (((y0 + y) * width + (x0 + x)) as usize) * 4;
-            rgba[idx] = cursor.0;
-            rgba[idx + 1] = cursor.1;
-            rgba[idx + 2] = cursor.2;
-            rgba[idx + 3] = 0xff;
+        let mut idx = rgba_pixel_index(width, x0, y0 + y);
+        for _ in 0..cell_w {
+            set_rgba_pixel_at_index(rgba, idx, cursor);
+            idx += 4;
         }
     }
 }
@@ -4965,6 +4963,19 @@ mod tests {
         assert_eq!(&rgba[28..32], &[7, 8, 9, 255]);
         assert_eq!(&rgba[0..4], &[0, 0, 0, 0]);
         assert_eq!(&rgba[20..24], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn terminal_cursor_draws_contiguous_bottom_rows() {
+        let mut state = TerminalState::new(1, 1);
+        state.cursor_visible = true;
+        let rgba = render_terminal_rgba(&state, 4, 4);
+        let bg = [0x08, 0x0d, 0x14, 0xff];
+        let fg = [0xd7, 0xf8, 0xff, 0xff];
+        assert_eq!(&rgba[0..4], &bg);
+        for px in rgba[16..].chunks_exact(4) {
+            assert_eq!(px, fg);
+        }
     }
 
     #[test]
