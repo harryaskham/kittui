@@ -3648,6 +3648,16 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key_with_modifiers("End", "End", 35, BROWSER_CTRL_MODIFIER)
     }
 
+    /// Dispatch an Alt+Home key press/release to the focused page element.
+    pub fn send_alt_home(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Home", "Home", 36, BROWSER_ALT_MODIFIER)
+    }
+
+    /// Dispatch an Alt+End key press/release to the focused page element.
+    pub fn send_alt_end(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("End", "End", 35, BROWSER_ALT_MODIFIER)
+    }
+
     /// Dispatch an arrow-key press/release to the focused page element.
     pub fn send_arrow_key(&mut self, direction: BrowserArrowKey) -> Result<()> {
         let (key, code, key_code) = direction.key_fields();
@@ -6018,6 +6028,20 @@ mod tests {
         assert_eq!(ctrl_end["windowsVirtualKeyCode"], 35);
         assert_eq!(ctrl_end["nativeVirtualKeyCode"], 35);
         assert_eq!(ctrl_end["modifiers"], BROWSER_CTRL_MODIFIER);
+        let alt_home =
+            browser_key_event_params_with_modifiers("Home", "Home", 36, BROWSER_ALT_MODIFIER);
+        assert_eq!(alt_home["key"], "Home");
+        assert_eq!(alt_home["code"], "Home");
+        assert_eq!(alt_home["windowsVirtualKeyCode"], 36);
+        assert_eq!(alt_home["nativeVirtualKeyCode"], 36);
+        assert_eq!(alt_home["modifiers"], BROWSER_ALT_MODIFIER);
+        let alt_end =
+            browser_key_event_params_with_modifiers("End", "End", 35, BROWSER_ALT_MODIFIER);
+        assert_eq!(alt_end["key"], "End");
+        assert_eq!(alt_end["code"], "End");
+        assert_eq!(alt_end["windowsVirtualKeyCode"], 35);
+        assert_eq!(alt_end["nativeVirtualKeyCode"], 35);
+        assert_eq!(alt_end["modifiers"], BROWSER_ALT_MODIFIER);
         let (page_up_key, page_up_code, page_up_code_num) = BrowserPageKey::Up.key_fields();
         let page_up = browser_key_event_params(page_up_key, page_up_code, page_up_code_num);
         assert_eq!(page_up["key"], "PageUp");
