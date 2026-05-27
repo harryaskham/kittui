@@ -335,6 +335,10 @@ enum BrowserInputAction {
     Page(BrowserPageKey),
 }
 
+fn browser_csi_sequence_complete(bytes: &[u8]) -> bool {
+    bytes.iter().any(|b| (0x40..=0x7e).contains(b))
+}
+
 fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize) {
     if bytes.is_empty() {
         return (None, 0);
@@ -401,6 +405,7 @@ fn browser_ss3_input_action(byte: u8) -> Option<BrowserInputAction> {
 #[derive(Default)]
 struct BrowserInputParser {
     pending_text: Vec<u8>,
+    pending_control: Vec<u8>,
 }
 
 impl BrowserInputParser {
@@ -419,6 +424,14 @@ impl BrowserInputParser {
         preserve_incomplete: bool,
     ) -> Vec<BrowserInputAction> {
         let mut actions = Vec::new();
+        let mut input;
+        let bytes = if self.pending_control.is_empty() {
+            bytes
+        } else {
+            input = std::mem::take(&mut self.pending_control);
+            input.extend_from_slice(bytes);
+            input.as_slice()
+        };
         let mut idx = 0usize;
         while idx < bytes.len() {
             match bytes[idx] {
@@ -435,6 +448,10 @@ impl BrowserInputParser {
                     actions.push(BrowserInputAction::Tab);
                 }
                 0x1b if idx + 1 < bytes.len() && bytes[idx + 1] == b'[' => {
+                    if preserve_incomplete && !browser_csi_sequence_complete(&bytes[idx + 2..]) {
+                        self.pending_control.extend_from_slice(&bytes[idx..]);
+                        break;
+                    }
                     let (action, consumed) = browser_csi_input_action(&bytes[idx + 2..]);
                     if let Some(action) = action {
                         flush_browser_text_action(&mut actions, &mut self.pending_text, false);
@@ -449,6 +466,9 @@ impl BrowserInputParser {
                             actions.push(action);
                         }
                         idx += 2;
+                    } else if preserve_incomplete {
+                        self.pending_control.extend_from_slice(&bytes[idx..]);
+                        break;
                     } else {
                         idx += 1;
                     }
@@ -1330,6 +1350,21 @@ mod tests {
             parser.actions(&smile[2..]),
             vec![BrowserInputAction::Text("🙂".to_string())]
         );
+        let mut parser = BrowserInputParser::default();
+        assert_eq!(
+            parser.actions(b"x\x1b[1;"),
+            vec![BrowserInputAction::Text("x".to_string())]
+        );
+        assert_eq!(
+            parser.actions(b"5Cy"),
+            vec![
+                BrowserInputAction::CtrlArrow(BrowserArrowKey::Right),
+                BrowserInputAction::Text("y".to_string()),
+            ]
+        );
+        let mut parser = BrowserInputParser::default();
+        assert_eq!(parser.actions(b"\x1bO"), vec![]);
+        assert_eq!(parser.actions(b"H"), vec![BrowserInputAction::Home]);
     }
 
     #[test]
