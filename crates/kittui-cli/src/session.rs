@@ -168,6 +168,26 @@ fn update_native_idle_counter(counter: &mut u16, emitted: bool) {
     }
 }
 
+fn native_pane_statuses_changed(
+    last: &[crate::daemon::NativePaneStatus],
+    next: &[crate::daemon::NativePaneStatus],
+) -> bool {
+    last != next
+}
+
+fn publish_native_pane_statuses_if_changed(
+    queue: &crate::daemon::NativeSpawnQueue,
+    last: &mut Vec<crate::daemon::NativePaneStatus>,
+    next: Vec<crate::daemon::NativePaneStatus>,
+) -> bool {
+    if !native_pane_statuses_changed(last, &next) {
+        return false;
+    }
+    queue.update_panes(next.clone());
+    *last = next;
+    true
+}
+
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
 /// `compositor` and `layout` are passed in so callers can wire any
@@ -215,7 +235,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         &last_chrome_reservation,
     );
     let mut last_resized_layouts = initial_layouts.clone();
-    queue.update_panes(native_pane_statuses(&panes, focused, &initial_layouts));
+    let mut last_published_pane_statuses = native_pane_statuses(&panes, focused, &initial_layouts);
+    queue.update_panes(last_published_pane_statuses.clone());
     queue.update_layout(layout_axis.label());
 
     let fps = std::env::var("KITTUI_WM_FPS")
@@ -662,7 +683,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             dbg.path_display(),
             help_overlay,
         );
-        queue.update_panes(native_pane_statuses(&panes, focused, &layouts));
+        publish_native_pane_statuses_if_changed(
+            &queue,
+            &mut last_published_pane_statuses,
+            native_pane_statuses(&panes, focused, &layouts),
+        );
         let stdout = io::stdout();
         let mut handle = stdout.lock();
         let mut frame_out = NativeFrameWriteBatch::default();
@@ -3755,6 +3780,45 @@ mod native_pane_tests {
             .unwrap());
         assert_eq!(empty_writer.writes, 0);
         assert_eq!(empty_writer.flushes, 0);
+    }
+
+    #[test]
+    fn native_pane_statuses_changed_detects_stable_snapshots() {
+        let status = crate::daemon::NativePaneStatus {
+            window: "native-1".to_string(),
+            title: "shell".to_string(),
+            focused: true,
+            weight: 1,
+            pid: Some(42),
+            command: Some("sh".to_string()),
+            x: Some(0),
+            y: Some(1),
+            cols: Some(80),
+            rows: Some(23),
+            app_x: Some(1),
+            app_y: Some(2),
+            app_cols: Some(78),
+            cursor_col: Some(0),
+            cursor_row: Some(0),
+            cursor_visible: Some(true),
+            bracketed_paste: Some(false),
+            application_cursor_keys: Some(false),
+            mouse_reporting: Some(false),
+            mouse_button_motion: Some(false),
+            mouse_all_motion: Some(false),
+            mouse_sgr: Some(false),
+            dirty_frame: None,
+            text_snapshot: None,
+            scrollback_snapshot: None,
+            app_rows: Some(21),
+        };
+        assert!(!native_pane_statuses_changed(
+            std::slice::from_ref(&status),
+            std::slice::from_ref(&status),
+        ));
+        let mut changed = status.clone();
+        changed.focused = false;
+        assert!(native_pane_statuses_changed(&[status], &[changed]));
     }
 
     #[test]
