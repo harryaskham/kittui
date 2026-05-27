@@ -3591,6 +3591,16 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key("End", "End", 35)
     }
 
+    /// Dispatch a Shift+Home key press/release to the focused page element.
+    pub fn send_shift_home(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Home", "Home", 36, BROWSER_SHIFT_MODIFIER)
+    }
+
+    /// Dispatch a Shift+End key press/release to the focused page element.
+    pub fn send_shift_end(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("End", "End", 35, BROWSER_SHIFT_MODIFIER)
+    }
+
     /// Dispatch an arrow-key press/release to the focused page element.
     pub fn send_arrow_key(&mut self, direction: BrowserArrowKey) -> Result<()> {
         let (key, code, key_code) = direction.key_fields();
@@ -5902,6 +5912,20 @@ mod tests {
         assert_eq!(end["code"], "End");
         assert_eq!(end["windowsVirtualKeyCode"], 35);
         assert_eq!(end["nativeVirtualKeyCode"], 35);
+        let shift_home =
+            browser_key_event_params_with_modifiers("Home", "Home", 36, BROWSER_SHIFT_MODIFIER);
+        assert_eq!(shift_home["key"], "Home");
+        assert_eq!(shift_home["code"], "Home");
+        assert_eq!(shift_home["windowsVirtualKeyCode"], 36);
+        assert_eq!(shift_home["nativeVirtualKeyCode"], 36);
+        assert_eq!(shift_home["modifiers"], BROWSER_SHIFT_MODIFIER);
+        let shift_end =
+            browser_key_event_params_with_modifiers("End", "End", 35, BROWSER_SHIFT_MODIFIER);
+        assert_eq!(shift_end["key"], "End");
+        assert_eq!(shift_end["code"], "End");
+        assert_eq!(shift_end["windowsVirtualKeyCode"], 35);
+        assert_eq!(shift_end["nativeVirtualKeyCode"], 35);
+        assert_eq!(shift_end["modifiers"], BROWSER_SHIFT_MODIFIER);
         let (page_up_key, page_up_code, page_up_code_num) = BrowserPageKey::Up.key_fields();
         let page_up = browser_key_event_params(page_up_key, page_up_code, page_up_code_num);
         assert_eq!(page_up["key"], "PageUp");
