@@ -4776,6 +4776,8 @@ fn panes_scene_for_cols(panes: &serde_json::Value, cols: u16) -> Scene {
         .get("layout")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("-");
+    let focus_label = truncate(focus, 32);
+    let layout_label = truncate(layout, 32);
     let rows = panes_scene_rows(details.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
@@ -4783,7 +4785,7 @@ fn panes_scene_for_cols(panes: &serde_json::Value, cols: u16) -> Scene {
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-panes-backdrop:panes={pane_count}:focus={focus}:layout={layout}"
+                "kittwm-panes-backdrop:panes={pane_count}:focus={focus_label}:layout={layout_label}"
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -4838,9 +4840,11 @@ fn panes_scene_for_cols(panes: &serde_json::Value, cols: u16) -> Scene {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        let window_label = truncate(window, 32);
+        let title_label = truncate(title, 48);
         layers.push(Layer {
             label: Some(format!(
-                "kittwm-pane-row:{window}:focused={focused}:title={title}:app={app_cols}x{app_rows}"
+                "kittwm-pane-row:{window_label}:focused={focused}:title={title_label}:app={app_cols}x{app_rows}"
             )),
             root: Node::Rect {
                 rect: info_indicator_rect(width, y),
@@ -8328,6 +8332,53 @@ END
                 .contains("kittwm-pane-row:native-2:focused=true:title=editor:app=80x12")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn panes_scene_clips_pathological_label_fields() {
+        let panes = serde_json::json!({
+            "panes": 1,
+            "focus": "native-window-with-a-pathologically-long-focus-id",
+            "layout": "layout-name-that-is-pathologically-long",
+            "panes_detail": [
+                {
+                    "window":"native-window-with-a-pathologically-long-window-id",
+                    "title":"pane-title-that-is-pathologically-long-and-would-bloat-scene-labels",
+                    "focused":true,
+                    "app_cols":80,
+                    "app_rows":24
+                }
+            ]
+        });
+        let scene = panes_scene_for_cols(&panes, 8);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let backdrop = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-panes-backdrop:"))
+            .unwrap();
+        assert!(
+            backdrop.contains("focus=native-window-with-a-pathologic…"),
+            "{backdrop}"
+        );
+        assert!(
+            backdrop.contains("layout=layout-name-that-is-pathologica…"),
+            "{backdrop}"
+        );
+        assert!(backdrop.len() < 120, "{backdrop}");
+        let row = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-pane-row:"))
+            .unwrap();
+        assert!(row.contains("native-window-with-a-pathologic…"), "{row}");
+        assert!(
+            row.contains("title=pane-title-that-is-pathologically-long-and-woul…"),
+            "{row}"
+        );
+        assert!(row.len() < 140, "{row}");
     }
 
     #[test]
