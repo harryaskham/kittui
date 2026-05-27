@@ -564,8 +564,7 @@ fn parse_args() -> Result<Cli> {
                 let encoded = args
                     .next()
                     .ok_or_else(|| anyhow!("--send-bytes-b64 WINDOW BASE64"))?;
-                out.automation_request =
-                    Some(automation_request("SEND_BYTES_B64", &window, &encoded)?);
+                out.automation_request = Some(send_bytes_b64_request(&window, &encoded)?);
             }
             "--send-file" => {
                 let window = args
@@ -2832,6 +2831,17 @@ fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result
         ));
     }
     automation_request("SEND_MOUSE", window, &format!("{event} {col} {row}"))
+}
+
+fn send_bytes_b64_request(window: &str, encoded: &str) -> Result<String> {
+    let encoded = encoded.trim();
+    if encoded.is_empty() {
+        return Err(anyhow!("--send-bytes-b64 BASE64 must be nonempty"));
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|err| anyhow!("--send-bytes-b64 BASE64 must be valid base64: {err}"))?;
+    automation_request("SEND_BYTES_B64", window, encoded)
 }
 
 fn send_bytes_request(window: &str, bytes: &[u8]) -> Result<String> {
@@ -7689,9 +7699,11 @@ END
             "WAIT_TEXT_JSON_MS focused 2500 Ready Now"
         );
         assert_eq!(
-            automation_request("send_bytes_b64", "focused", "aGkKAA==").unwrap(),
+            send_bytes_b64_request("focused", " aGkKAA== ").unwrap(),
             "SEND_BYTES_B64 focused aGkKAA=="
         );
+        assert!(send_bytes_b64_request("focused", "").is_err());
+        assert!(send_bytes_b64_request("focused", "!!!").is_err());
         assert_eq!(
             send_mouse_request("focused", "press-left", "7", "9").unwrap(),
             "SEND_MOUSE focused press-left 7 9"
