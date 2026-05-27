@@ -2080,13 +2080,7 @@ impl TerminalState {
     }
 
     fn set_title_from_osc(&mut self, params: &[&[u8]]) {
-        let title = params
-            .get(1..)
-            .unwrap_or_default()
-            .iter()
-            .flat_map(|part| std::str::from_utf8(part).ok())
-            .collect::<Vec<_>>()
-            .join(";");
+        let title = join_osc_utf8_params(params.get(1..).unwrap_or_default());
         if !title.is_empty() {
             self.title = Some(title.clone());
             self.queue_surface_event(SurfaceEvent::TitleChanged(title));
@@ -2094,13 +2088,7 @@ impl TerminalState {
     }
 
     fn notification_from_osc9(&mut self, params: &[&[u8]]) {
-        let body = params
-            .get(1..)
-            .unwrap_or_default()
-            .iter()
-            .flat_map(|part| std::str::from_utf8(part).ok())
-            .collect::<Vec<_>>()
-            .join(";");
+        let body = join_osc_utf8_params(params.get(1..).unwrap_or_default());
         if !body.is_empty() {
             self.queue_surface_event(SurfaceEvent::Notification {
                 title: self.title.clone().unwrap_or_else(|| "kittwm".to_string()),
@@ -2124,13 +2112,7 @@ impl TerminalState {
             .and_then(|part| std::str::from_utf8(part).ok())
             .unwrap_or("kittwm")
             .to_string();
-        let body = params
-            .get(3..)
-            .unwrap_or_default()
-            .iter()
-            .flat_map(|part| std::str::from_utf8(part).ok())
-            .collect::<Vec<_>>()
-            .join(";");
+        let body = join_osc_utf8_params(params.get(3..).unwrap_or_default());
         self.queue_surface_event(SurfaceEvent::Notification { title, body });
     }
 
@@ -2146,13 +2128,7 @@ impl TerminalState {
         {
             return;
         }
-        let payload = params
-            .get(2..)
-            .unwrap_or_default()
-            .iter()
-            .flat_map(|part| std::str::from_utf8(part).ok())
-            .collect::<Vec<_>>()
-            .join(";");
+        let payload = join_osc_utf8_params(params.get(2..).unwrap_or_default());
         if payload.is_empty() || payload == "?" {
             return;
         }
@@ -2558,6 +2534,20 @@ fn dec_special_graphics_char(ch: char) -> char {
         '~' => '·',
         _ => ch,
     }
+}
+
+fn join_osc_utf8_params(parts: &[&[u8]]) -> String {
+    let mut out = String::new();
+    for part in parts {
+        let Ok(text) = std::str::from_utf8(part) else {
+            continue;
+        };
+        if !out.is_empty() {
+            out.push(';');
+        }
+        out.push_str(text);
+    }
+    out
 }
 
 fn resize_cells(
@@ -5104,6 +5094,16 @@ mod tests {
         assert_eq!(state.scrollback_snapshot(), "one\n");
         let text = state.text_snapshot();
         assert!(text.starts_with("two\nthree"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn join_osc_utf8_params_appends_without_intermediate_vec() {
+        assert_eq!(join_osc_utf8_params(&[b"hello", b"world"]), "hello;world");
+        assert_eq!(
+            join_osc_utf8_params(&[b"hello", &[0xff], b"world"]),
+            "hello;world"
+        );
+        assert_eq!(join_osc_utf8_params(&[]), "");
     }
 
     #[test]
