@@ -7518,6 +7518,27 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_frame_chrome_text_bounds_huge_titles() {
+        let text = raw_frame_chrome_text(
+            &"title-".repeat(10_000),
+            true,
+            kittui_wm::compositor::WindowMode::Tiled,
+            false,
+            12,
+        );
+        assert_eq!(text, "* title-titl");
+        assert_eq!(text.chars().count(), 12);
+        let short = raw_frame_chrome_text(
+            "app",
+            false,
+            kittui_wm::compositor::WindowMode::Floating,
+            true,
+            20,
+        );
+        assert_eq!(short, "  app float full    ");
+    }
+
+    #[test]
     fn compositor_footer_write_decision_throttles_volatile_repaints() {
         assert!(should_write_compositor_footer("", "state", 1, 30));
         assert!(should_write_compositor_footer("old", "state", 1, 30));
@@ -9173,24 +9194,49 @@ fn raw_frame_chrome_key(
 /// Append-only log for the kittui-wm session. Stderr is invisible inside
 /// the alt screen, so we mirror everything to a file at $KITTUI_WM_LOG
 /// (default `/tmp/kittui-wm.log`).
+fn raw_frame_chrome_text(
+    title: &str,
+    focused: bool,
+    mode: kittui_wm::compositor::WindowMode,
+    fullscreen: bool,
+    cols: u16,
+) -> String {
+    let width = cols as usize;
+    let marker = if focused { "*" } else { " " };
+    let mode = match mode {
+        kittui_wm::compositor::WindowMode::Floating => "float",
+        kittui_wm::compositor::WindowMode::Tiled => "tile",
+    };
+    let fullscreen = if fullscreen { " full" } else { "" };
+    let mut out = String::new();
+    let mut used = 0usize;
+    for segment in [marker, " ", title, " ", mode, fullscreen] {
+        for ch in segment.chars() {
+            if used >= width {
+                return out;
+            }
+            out.push(ch);
+            used += 1;
+        }
+    }
+    while used < width {
+        out.push(' ');
+        used += 1;
+    }
+    out
+}
+
 fn write_raw_frame_chrome<W: Write>(
     out: &mut W,
     frame: &kittui_wm::compositor::RawFrame,
 ) -> Result<()> {
-    let marker = if frame.focused { "*" } else { " " };
-    let mode = match frame.mode {
-        kittui_wm::compositor::WindowMode::Floating => "float",
-        kittui_wm::compositor::WindowMode::Tiled => "tile",
-    };
-    let fullscreen = if frame.fullscreen { " full" } else { "" };
-    let label = format!("{marker} {} {mode}{fullscreen}", frame.title);
-    let mut clipped = label
-        .chars()
-        .take(frame.footprint.cols as usize)
-        .collect::<String>();
-    while clipped.chars().count() < frame.footprint.cols as usize {
-        clipped.push(' ');
-    }
+    let clipped = raw_frame_chrome_text(
+        &frame.title,
+        frame.focused,
+        frame.mode,
+        frame.fullscreen,
+        frame.footprint.cols,
+    );
     let style = if frame.focused { "\x1b[7m" } else { "\x1b[2m" };
     write!(
         out,
