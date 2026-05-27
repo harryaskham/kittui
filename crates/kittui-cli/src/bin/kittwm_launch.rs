@@ -338,7 +338,8 @@ fn launch_plan_scene_for_cols(plan: &LaunchPlan, cols: u16) -> Scene {
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
-    let command = plan.command.chars().take(40).collect::<String>();
+    let status_label = bounded_label(&plan.status, 96);
+    let command = bounded_label(&plan.command, 40);
     let command_rect = launch_plan_command_rect(width, cell);
     Scene {
         footprint: CellRect::new(0, 0, cols, rows),
@@ -364,7 +365,7 @@ fn launch_plan_scene_for_cols(plan: &LaunchPlan, cols: u16) -> Scene {
                 },
             },
             Layer {
-                label: Some(format!("kittwm-launch-plan-heading:{}", plan.status)),
+                label: Some(format!("kittwm-launch-plan-heading:{status_label}")),
                 root: Node::Rect {
                     rect: PxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                     fill: Paint::Solid {
@@ -393,6 +394,20 @@ fn launch_plan_scene_for_cols(plan: &LaunchPlan, cols: u16) -> Scene {
         ],
         animation: None,
     }
+}
+
+fn bounded_label(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let mut chars = text.chars();
+    let mut out: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_none() {
+        return out;
+    }
+    out.pop();
+    out.push('…');
+    out
 }
 
 fn launch_plan_scene_cols() -> u16 {
@@ -618,6 +633,28 @@ mod tests {
         );
         let json = render_launch_plan(&plan, PlanOutput::SceneJson).unwrap();
         assert!(json.contains("kittwm-launch-plan-command"), "{json}");
+    }
+
+    #[test]
+    fn launch_plan_scene_labels_clip_pathological_status_and_command() {
+        let query = "https://example.com/".to_string() + &"x".repeat(10_000);
+        let args =
+            LaunchArgs::parse_from(["--plan-scene-json", "--browser", query.as_str()]).unwrap();
+        let plan = build_launch_plan(&args);
+        assert!(plan.status.contains(&"x".repeat(256)));
+        let scene = launch_plan_scene(&plan);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(labels.iter().any(|label| label.contains('…')), "{labels:?}");
+        assert!(
+            labels.iter().all(|label| !label.contains(&"x".repeat(256))),
+            "{labels:?}"
+        );
+        assert_eq!(bounded_label("short", 40), "short");
+        assert_eq!(bounded_label("anything", 1), "…");
     }
 
     #[test]
