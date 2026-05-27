@@ -4030,6 +4030,12 @@ SPAWN AND TYPE
   kittwm line focused 'cargo test -p kittui-cli'
   kittwm key focused ctrl-c
 
+BYTES AND PASTE
+  kittwm --send-bytes-b64 focused aGkKAA==
+  kittwm --paste-bytes-b64 focused cGFzdGUgbWU=
+  kittwm --send-file focused ./input.bin
+  kittwm --paste-file focused -
+
 READ AND WAIT
   kittwm read focused
   kittwm read-json focused
@@ -7674,6 +7680,9 @@ mod tests {
             "kittwm info",
             "kittwm spawn htop",
             "kittwm line focused 'cargo test -p kittui-cli'",
+            "kittwm --send-bytes-b64 focused aGkKAA==",
+            "kittwm --paste-bytes-b64 focused cGFzdGUgbWU=",
+            "kittwm --paste-file focused -",
             "kittwm --wait-output-json-ms 10000 focused 'build finished'",
             "kittwm balance",
             "kittwm --save-session session.json",
