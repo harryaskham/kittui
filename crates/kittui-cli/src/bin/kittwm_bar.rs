@@ -278,7 +278,7 @@ fn kittwm_bar_kitty_text_overlay_with_config(
 }
 
 fn kittwm_bar_overlay_text_cols(text: &str, padding_cols: u16) -> u16 {
-    let count = text.chars().count().min(u16::MAX as usize) as u16;
+    let count = text.chars().take(u16::MAX as usize).count() as u16;
     count.saturating_add(padding_cols)
 }
 
