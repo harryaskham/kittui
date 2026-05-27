@@ -152,8 +152,12 @@ fn decide_native_png_frame_write(
     }
 }
 
-fn should_publish_native_frame_event(uploaded: bool, placement_changed: bool) -> bool {
-    uploaded || placement_changed
+fn should_publish_native_frame_event(
+    uploaded: bool,
+    placement_changed: bool,
+    changed_tiles: Option<u32>,
+) -> bool {
+    uploaded || placement_changed || changed_tiles.unwrap_or(0) > 0
 }
 
 fn native_idle_frame_target(active_target: Duration) -> Duration {
@@ -859,6 +863,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     if should_publish_native_frame_event(
                         decision.upload,
                         placement_write.write_placement,
+                        Some(decision.metrics.changed_tiles),
                     ) {
                         queue.publish_frame_presented(
                             pane.window.clone(),
@@ -941,6 +946,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     if should_publish_native_frame_event(
                         decision.upload,
                         decision.placement.write_placement,
+                        None,
                     ) {
                         queue.publish_frame_presented(
                             pane.window.clone(),
@@ -3990,10 +3996,12 @@ mod native_pane_tests {
 
     #[test]
     fn native_frame_event_publish_decision_suppresses_clean_static_frames() {
-        assert!(should_publish_native_frame_event(true, false));
-        assert!(should_publish_native_frame_event(false, true));
-        assert!(should_publish_native_frame_event(true, true));
-        assert!(!should_publish_native_frame_event(false, false));
+        assert!(should_publish_native_frame_event(true, false, None));
+        assert!(should_publish_native_frame_event(false, true, None));
+        assert!(should_publish_native_frame_event(true, true, Some(0)));
+        assert!(should_publish_native_frame_event(false, false, Some(1)));
+        assert!(!should_publish_native_frame_event(false, false, Some(0)));
+        assert!(!should_publish_native_frame_event(false, false, None));
     }
 
     #[test]
