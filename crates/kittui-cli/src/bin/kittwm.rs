@@ -3713,6 +3713,10 @@ fn native_surfaces_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
 }
 
+fn native_surfaces_scene_rows(surface_count: usize) -> u16 {
+    surface_count.saturating_add(5).clamp(8, 22) as u16
+}
+
 fn native_surfaces_json_text() -> String {
     let contract = kittwm_sdk::ArchitectureContract::current();
     let surfaces = contract.first_party_native_surfaces.clone();
@@ -3775,7 +3779,7 @@ fn native_surfaces_graphical_cmd(kitty: bool) -> Result<()> {
 fn native_surfaces_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
     let cols = info_scene_cols();
     let surfaces = &contract.first_party_native_surfaces;
-    let rows = (surfaces.len() as u16 + 5).clamp(8, 22);
+    let rows = native_surfaces_scene_rows(surfaces.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -6410,6 +6414,13 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn native_surfaces_scene_rows_saturate_before_clamping() {
+        assert_eq!(native_surfaces_scene_rows(0), 8);
+        assert_eq!(native_surfaces_scene_rows(12), 17);
+        assert_eq!(native_surfaces_scene_rows(usize::MAX), 22);
     }
 
     #[test]
