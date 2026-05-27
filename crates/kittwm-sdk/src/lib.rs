@@ -2343,6 +2343,11 @@ impl ChromeReservationStatus {
     }
 }
 
+fn normalized_optional_string(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
 impl ChromeReservationRequest {
     /// Reserve only a top bar with the given row count.
     pub fn top_bar(rows: u16) -> Self {
@@ -2354,7 +2359,7 @@ impl ChromeReservationRequest {
 
     /// Attach an owner/window token to the request.
     pub fn owner(mut self, owner: impl Into<String>) -> Self {
-        self.owner = Some(owner.into());
+        self.owner = normalized_optional_string(&owner.into());
         self
     }
 
@@ -4483,7 +4488,9 @@ mod tests {
             request.trim().to_string()
         });
         let client = Kittwm::connect_path(&path);
-        let request = ChromeReservationRequest::top_bar(2).gaps(1, 1).owner("bar");
+        let request = ChromeReservationRequest::top_bar(2)
+            .gaps(1, 1)
+            .owner(" bar ");
         client.reserve_chrome(&request).unwrap();
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
@@ -4491,6 +4498,14 @@ mod tests {
         assert!(seen.contains("\"top_bar_rows\":2"), "{seen}");
         assert!(seen.contains("\"gap_cols\":1"), "{seen}");
         assert!(seen.contains("\"owner\":\"bar\""), "{seen}");
+    }
+
+    #[test]
+    fn chrome_reservation_request_owner_drops_blank_values() {
+        let request = ChromeReservationRequest::top_bar(1).owner("   ");
+        assert_eq!(request.owner, None);
+        let request = ChromeReservationRequest::top_bar(1).owner(" panel ");
+        assert_eq!(request.owner.as_deref(), Some("panel"));
     }
 
     #[cfg(unix)]
