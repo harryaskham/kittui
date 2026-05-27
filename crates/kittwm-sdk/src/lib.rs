@@ -2906,6 +2906,13 @@ fn validated_base64_payload<'a>(payload_b64: &'a str, verb: &str) -> Result<&'a 
     Ok(payload_b64)
 }
 
+fn validated_text_payload<'a>(text: &'a str, verb: &str) -> Result<&'a str> {
+    if text.is_empty() {
+        return Err(Error::Daemon(format!("{verb} requires nonempty text")));
+    }
+    Ok(text)
+}
+
 impl SurfaceHandle {
     /// Focus this surface/window.
     pub fn focus(&self) -> Result<String> {
@@ -2953,15 +2960,17 @@ impl SurfaceHandle {
     /// Send raw UTF-8 text.
     pub fn send_text(&self, text: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::SendInput)?;
+        let text = validated_text_payload(text.as_ref(), "SEND_TEXT")?;
         self.client
-            .request_protocol(format!("SEND_TEXT {} {}", self.id, text.as_ref()))
+            .request_protocol(format!("SEND_TEXT {} {text}", self.id))
     }
 
     /// Send one line, appending a newline in the daemon.
     pub fn send_line(&self, text: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::SendInput)?;
+        let text = validated_text_payload(text.as_ref(), "SEND_LINE")?;
         self.client
-            .request_protocol(format!("SEND_LINE {} {}", self.id, text.as_ref()))
+            .request_protocol(format!("SEND_LINE {} {text}", self.id))
     }
 
     /// Send a named key such as `ctrl-c`, `escape`, or `up`.
@@ -5040,7 +5049,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..7 {
+            for _ in 0..9 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -5054,6 +5063,8 @@ mod tests {
         });
 
         let surface = Kittwm::connect_path(&path).surface("native-1");
+        assert_eq!(surface.send_text("   ").unwrap().trim(), "OK");
+        assert_eq!(surface.send_line("echo hi").unwrap().trim(), "OK");
         assert_eq!(surface.send_bytes(b"hi\n\0").unwrap().trim(), "OK");
         assert_eq!(surface.send_bytes_b64(" AQID ").unwrap().trim(), "OK");
         assert_eq!(surface.paste_bytes(b"paste me").unwrap().trim(), "OK");
@@ -5081,6 +5092,8 @@ mod tests {
         assert_eq!(
             seen,
             [
+                "SEND_TEXT native-1",
+                "SEND_LINE native-1 echo hi",
                 "SEND_BYTES_B64 native-1 aGkKAA==",
                 "SEND_BYTES_B64 native-1 AQID",
                 "PASTE_BYTES_B64 native-1 cGFzdGUgbWU=",
@@ -5102,6 +5115,19 @@ mod tests {
         assert!(matches!(
             surface.paste_bytes_b64("!!!"),
             Err(Error::Daemon(message)) if message.contains("invalid base64")
+        ));
+    }
+
+    #[test]
+    fn text_input_helpers_validate_payloads_before_io() {
+        let surface = Kittwm::connect_path("/tmp/does-not-exist.sock").surface("focused");
+        assert!(matches!(
+            surface.send_text(""),
+            Err(Error::Daemon(message)) if message.contains("nonempty text")
+        ));
+        assert!(matches!(
+            surface.send_line(""),
+            Err(Error::Daemon(message)) if message.contains("nonempty text")
         ));
     }
 
