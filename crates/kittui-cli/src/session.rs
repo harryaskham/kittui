@@ -5685,6 +5685,15 @@ mod native_pane_tests {
 
     #[cfg(unix)]
     #[test]
+    fn raw_mode_oflag_disables_output_post_processing() {
+        use libc::{OCRNL, OPOST};
+        let flags = raw_mode_oflag(OPOST | OCRNL);
+        assert_eq!(flags & OPOST, 0);
+        assert_ne!(flags & OCRNL, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn raw_mode_lflag_disables_signal_and_extended_line_processing() {
         use libc::{ECHO, ICANON, IEXTEN, ISIG};
         let flags = raw_mode_lflag(ICANON | ECHO | ISIG | IEXTEN);
@@ -9132,6 +9141,14 @@ fn raw_mode_iflag(iflag: libc::tcflag_t) -> libc::tcflag_t {
 }
 
 #[cfg(unix)]
+fn raw_mode_oflag(oflag: libc::tcflag_t) -> libc::tcflag_t {
+    use libc::OPOST;
+    // Keep kittwm's rendered output byte-exact while it writes alt-screen
+    // control sequences, cursor-addressed chrome, and kitty graphics payloads.
+    oflag & !OPOST
+}
+
+#[cfg(unix)]
 fn raw_mode_lflag(lflag: libc::tcflag_t) -> libc::tcflag_t {
     use libc::{ECHO, ICANON, IEXTEN, ISIG};
     // Disable ISIG so Ctrl-C is delivered as byte 0x03 and can be handled by
@@ -9154,6 +9171,7 @@ impl RawMode {
             tcgetattr(STDIN_FILENO, &mut term);
             let mut raw = term;
             raw.c_iflag = raw_mode_iflag(term.c_iflag);
+            raw.c_oflag = raw_mode_oflag(term.c_oflag);
             raw.c_lflag = raw_mode_lflag(term.c_lflag);
             raw.c_cc[VMIN] = 0;
             raw.c_cc[VTIME] = 0;
