@@ -4431,11 +4431,22 @@ fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
 
 fn native_shell_chrome_scene_visual_hash(scene: &Scene) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    scene.id().0.hash(&mut hasher);
-    for layer in &scene.layers {
-        layer.label.hash(&mut hasher);
-    }
+    let mut writer = DebugHashWriter {
+        hasher: &mut hasher,
+    };
+    std::fmt::write(&mut writer, format_args!("{scene:?}")).expect("hash writer cannot fail");
     hasher.finish()
+}
+
+struct DebugHashWriter<'a, H: Hasher> {
+    hasher: &'a mut H,
+}
+
+impl<H: Hasher> std::fmt::Write for DebugHashWriter<'_, H> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.hasher.write(s.as_bytes());
+        Ok(())
+    }
 }
 
 fn clip_and_pad(text: &str, width: usize) -> String {
