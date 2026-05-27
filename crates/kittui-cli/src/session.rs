@@ -4655,6 +4655,16 @@ mod native_pane_tests {
         assert!(restore.find("?1006l").unwrap() < restore.find("?1000l").unwrap());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn raw_mode_lflag_disables_signal_generating_ctrl_c() {
+        use libc::{ECHO, ICANON, ISIG};
+        let flags = raw_mode_lflag(ICANON | ECHO | ISIG);
+        assert_eq!(flags & ICANON, 0);
+        assert_eq!(flags & ECHO, 0);
+        assert_eq!(flags & ISIG, 0);
+    }
+
     #[test]
     fn native_ctrl_c_exit_guard_requires_three_presses_in_window() {
         let start = Instant::now();
@@ -7256,6 +7266,14 @@ fn raw_mode_restore_sequence() -> &'static [u8] {
     b"\x1b[?1006l\x1b[?1004l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l"
 }
 
+#[cfg(unix)]
+fn raw_mode_lflag(lflag: libc::tcflag_t) -> libc::tcflag_t {
+    use libc::{ECHO, ICANON, ISIG};
+    // Disable ISIG so Ctrl-C is delivered as byte 0x03 and can be handled by
+    // kittwm's triple-press guard instead of the kernel sending SIGINT.
+    lflag & !(ICANON | ECHO | ISIG)
+}
+
 impl RawMode {
     fn enter() -> Result<Self> {
         let mut out = io::stdout();
@@ -7267,7 +7285,7 @@ impl RawMode {
             let mut term: termios = std::mem::zeroed();
             tcgetattr(STDIN_FILENO, &mut term);
             let mut raw = term;
-            raw.c_lflag &= !(ICANON | ECHO);
+            raw.c_lflag = raw_mode_lflag(term.c_lflag);
             raw.c_cc[VMIN] = 0;
             raw.c_cc[VTIME] = 0;
             tcsetattr(STDIN_FILENO, TCSANOW, &raw);
