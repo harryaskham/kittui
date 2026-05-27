@@ -1270,7 +1270,7 @@ pub struct SurfaceHandle {
 
 /// Pane-local mouse event label accepted by `SEND_MOUSE`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum MouseEvent {
     /// Press the primary/left mouse button.
     PressLeft,
@@ -5046,6 +5046,19 @@ mod tests {
             surface.send_mouse(MouseEvent::ScrollDown, 1, 2),
             Err(Error::CapabilityDenied(Capability::SendInput))
         ));
+    }
+
+    #[test]
+    fn mouse_event_serde_matches_daemon_vocab() {
+        assert_eq!(
+            serde_json::to_string(&MouseEvent::ReleaseLeft).unwrap(),
+            "\"release-left\""
+        );
+        assert_eq!(
+            serde_json::from_str::<MouseEvent>("\"release-right\"").unwrap(),
+            MouseEvent::ReleaseRight
+        );
+        assert!(serde_json::from_str::<MouseEvent>("\"release_right\"").is_err());
     }
 
     #[test]
