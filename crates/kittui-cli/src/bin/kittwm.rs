@@ -3982,6 +3982,7 @@ fn quickstart_text() -> &'static str {
    kittwm type focused 'echo hello'
    kittwm line focused 'cargo test'
    kittwm key focused ctrl-c
+   kittwm --paste-bytes-b64 focused cGFzdGUgbWU=
    kittwm wait focused 'finished'
 
 5. Manage panes
@@ -7708,6 +7709,10 @@ mod tests {
         assert!(text.contains("C-a g"), "{text}");
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("kittwm spawn htop"), "{text}");
+        assert!(
+            text.contains("kittwm --paste-bytes-b64 focused cGFzdGUgbWU="),
+            "{text}"
+        );
         assert!(text.contains("kittwm help topics"), "{text}");
     }
 
