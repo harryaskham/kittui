@@ -2653,17 +2653,18 @@ fn native_mouse_event_payload(
     if col == 0 || row == 0 {
         return None;
     }
+    let click_capable = modes.basic || modes.button_motion || modes.all_motion;
     let (bits, suffix) = match event {
-        "press-left" if modes.basic => (0, 'M'),
-        "press-middle" if modes.basic => (1, 'M'),
-        "press-right" if modes.basic => (2, 'M'),
-        "release" if modes.basic => (3, 'm'),
+        "press-left" if click_capable => (0, 'M'),
+        "press-middle" if click_capable => (1, 'M'),
+        "press-right" if click_capable => (2, 'M'),
+        "release" if click_capable => (3, 'm'),
         "move" if modes.all_motion => (35, 'M'),
         "move-left" if modes.button_motion || modes.all_motion => (32, 'M'),
         "move-middle" if modes.button_motion || modes.all_motion => (33, 'M'),
         "move-right" if modes.button_motion || modes.all_motion => (34, 'M'),
-        "scroll-up" if modes.basic => (64, 'M'),
-        "scroll-down" if modes.basic => (65, 'M'),
+        "scroll-up" if click_capable => (64, 'M'),
+        "scroll-down" if click_capable => (65, 'M'),
         _ => return None,
     };
     if modes.sgr {
@@ -5110,6 +5111,36 @@ mod native_pane_tests {
             }
         )
         .is_none());
+        assert_eq!(
+            native_mouse_event_payload(
+                "press-left",
+                7,
+                9,
+                MouseReportingModes {
+                    basic: false,
+                    button_motion: true,
+                    all_motion: false,
+                    sgr: true,
+                },
+            )
+            .unwrap(),
+            b"\x1b[<0;7;9M".to_vec()
+        );
+        assert_eq!(
+            native_mouse_event_payload(
+                "scroll-up",
+                7,
+                9,
+                MouseReportingModes {
+                    basic: false,
+                    button_motion: false,
+                    all_motion: true,
+                    sgr: true,
+                },
+            )
+            .unwrap(),
+            b"\x1b[<64;7;9M".to_vec()
+        );
     }
 
     #[test]
