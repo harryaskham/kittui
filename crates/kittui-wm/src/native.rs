@@ -2763,18 +2763,21 @@ impl Perform for TerminalState {
 fn render_terminal_rgba(state: &TerminalState, cell_w: u32, cell_h: u32) -> Vec<u8> {
     let width = u32::from(state.cols) * cell_w;
     let height = u32::from(state.rows) * cell_h;
-    let mut rgba = vec![0x0b; (width as usize) * (height as usize) * 4];
+    let default_bg = default_terminal_bg_color();
+    let mut rgba = vec![0; (width as usize) * (height as usize) * 4];
     for px in rgba.chunks_exact_mut(4) {
-        px[0] = 0x08;
-        px[1] = 0x0d;
-        px[2] = 0x14;
+        px[0] = default_bg.0;
+        px[1] = default_bg.1;
+        px[2] = default_bg.2;
         px[3] = 0xff;
     }
     for row in 0..state.rows {
         for col in 0..state.cols {
             let cell = state.get_cell_at(col, row);
             let (fg, bg) = terminal_cell_colors(cell.style);
-            fill_cell_background(&mut rgba, width, col, row, cell_w, cell_h, bg);
+            if should_fill_terminal_cell_background(bg, default_bg) {
+                fill_cell_background(&mut rgba, width, col, row, cell_w, cell_h, bg);
+            }
             if cell.ch == ' ' {
                 continue;
             }
@@ -2814,9 +2817,17 @@ fn draw_terminal_cursor(
     }
 }
 
+fn default_terminal_bg_color() -> TerminalColor {
+    TerminalColor(0x08, 0x0d, 0x14)
+}
+
+fn should_fill_terminal_cell_background(bg: TerminalColor, default_bg: TerminalColor) -> bool {
+    bg != default_bg
+}
+
 fn terminal_cell_colors(style: TerminalStyle) -> (TerminalColor, TerminalColor) {
     let mut fg = style.fg.unwrap_or(TerminalColor(0xd7, 0xf8, 0xff));
-    let mut bg = style.bg.unwrap_or(TerminalColor(0x08, 0x0d, 0x14));
+    let mut bg = style.bg.unwrap_or(default_terminal_bg_color());
     if style.bold && style.fg.is_some() {
         fg = brighten_color(fg);
     }
@@ -4701,6 +4712,22 @@ mod tests {
         assert!(rgba
             .chunks_exact(4)
             .any(|px| px == [0x19, 0x71, 0xc2, 0xff]));
+    }
+
+    #[test]
+    fn terminal_renderer_skips_default_background_fills_only() {
+        let default_bg = default_terminal_bg_color();
+        assert!(!should_fill_terminal_cell_background(
+            default_bg, default_bg
+        ));
+        assert!(should_fill_terminal_cell_background(
+            TerminalColor(0x19, 0x71, 0xc2),
+            default_bg
+        ));
+        assert!(should_fill_terminal_cell_background(
+            TerminalColor(0xd7, 0xf8, 0xff),
+            default_bg
+        ));
     }
 
     #[test]
