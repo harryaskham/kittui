@@ -338,7 +338,8 @@ fn top_bar_clock_chip_x(total_width: f32, chip_end_x: f32, clock_width: f32) -> 
 pub fn workspace_label() -> String {
     std::env::var("KITTWM_WORKSPACE")
         .ok()
-        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "1".to_string())
 }
 
@@ -358,6 +359,8 @@ pub fn time_label(now: SystemTime) -> String {
 mod tests {
     use super::*;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn offline_bar_model_renders_empty_workspace() {
         let model = BarModel::new(
@@ -375,6 +378,16 @@ mod tests {
         assert!(rendered.contains("|[1]| 2 | 3 |"), "{rendered}");
         assert!(rendered.contains("12:34"), "{rendered}");
         assert!(!rendered.contains("kittui-bar"), "{rendered}");
+    }
+
+    #[test]
+    fn workspace_label_trims_environment_value() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_WORKSPACE", " dev ");
+        assert_eq!(workspace_label(), "dev");
+        std::env::set_var("KITTWM_WORKSPACE", "   ");
+        assert_eq!(workspace_label(), "1");
+        std::env::remove_var("KITTWM_WORKSPACE");
     }
 
     #[test]
