@@ -107,6 +107,8 @@ pub enum Action {
     WorkspaceNext,
     /// Switch to previous virtual workspace.
     WorkspacePrev,
+    /// Switch to/create a numbered virtual workspace.
+    WorkspaceSwitch(usize),
     /// Split current tiled view vertically and open the launcher in the new pane.
     SplitVerticalLauncher,
     /// Split current tiled view horizontally and open the launcher in the new pane.
@@ -154,6 +156,32 @@ impl Action {
             "workspace.new" | "workspace-create" => Self::WorkspaceNew,
             "workspace.next" => Self::WorkspaceNext,
             "workspace.prev" => Self::WorkspacePrev,
+            token
+                if token
+                    .strip_prefix("workspace.")
+                    .and_then(|suffix| suffix.parse::<usize>().ok())
+                    .is_some() =>
+            {
+                Self::WorkspaceSwitch(
+                    token
+                        .strip_prefix("workspace.")
+                        .and_then(|suffix| suffix.parse::<usize>().ok())
+                        .unwrap(),
+                )
+            }
+            token
+                if token
+                    .strip_prefix("workspace.switch.")
+                    .and_then(|suffix| suffix.parse::<usize>().ok())
+                    .is_some() =>
+            {
+                Self::WorkspaceSwitch(
+                    token
+                        .strip_prefix("workspace.switch.")
+                        .and_then(|suffix| suffix.parse::<usize>().ok())
+                        .unwrap(),
+                )
+            }
             "split.vertical.launcher" | "split-vertical-launcher" => Self::SplitVerticalLauncher,
             "split.horizontal.launcher" | "split-horizontal-launcher" => {
                 Self::SplitHorizontalLauncher
@@ -185,6 +213,7 @@ impl fmt::Display for Action {
             Self::WorkspaceNew => "workspace.new",
             Self::WorkspaceNext => "workspace.next",
             Self::WorkspacePrev => "workspace.prev",
+            Self::WorkspaceSwitch(n) => return write!(f, "workspace.switch.{n}"),
             Self::SplitVerticalLauncher => "split.vertical.launcher",
             Self::SplitHorizontalLauncher => "split.horizontal.launcher",
             Self::Launch => "launch",
@@ -315,6 +344,15 @@ prefix C-a
 bind c workspace.new
 bind n workspace.next
 bind p workspace.prev
+bind 1 workspace.switch.1
+bind 2 workspace.switch.2
+bind 3 workspace.switch.3
+bind 4 workspace.switch.4
+bind 5 workspace.switch.5
+bind 6 workspace.switch.6
+bind 7 workspace.switch.7
+bind 8 workspace.switch.8
+bind 9 workspace.switch.9
 bind | split.vertical.launcher
 bind - split.horizontal.launcher
 bind Enter launch
@@ -348,6 +386,10 @@ mod tests {
         let rendered = km.render_table();
         assert!(rendered.contains("C-a c"));
         assert!(rendered.contains("workspace.new"));
+        assert!(rendered.contains("C-a 1"));
+        assert!(rendered.contains("workspace.switch.1"));
+        assert!(rendered.contains("C-a 9"));
+        assert!(rendered.contains("workspace.switch.9"));
         assert!(rendered.contains("C-a |"));
         assert!(rendered.contains("split.vertical.launcher"));
         assert!(rendered.contains("C-a d"));

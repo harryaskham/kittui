@@ -8338,7 +8338,8 @@ pub fn run_loop_with<S: XServer>(
                                 }
                                 Action::WorkspaceNew
                                 | Action::WorkspaceNext
-                                | Action::WorkspacePrev => {
+                                | Action::WorkspacePrev
+                                | Action::WorkspaceSwitch(_) => {
                                     let msg = workspaces.apply(&action);
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("workspace action: {msg}"));
@@ -10164,6 +10165,14 @@ impl WorkspaceState {
                 self.current = (self.current + self.count - 1) % self.count;
                 format!("workspace.prev -> {}", self.label())
             }
+            Action::WorkspaceSwitch(target) => {
+                let target = (*target).max(1);
+                if target > self.count {
+                    self.count = target;
+                }
+                self.current = target - 1;
+                format!("workspace.switch.{target} -> {}", self.label())
+            }
             other => format!("workspace ignored action {other}"),
         }
     }
@@ -10185,6 +10194,18 @@ mod workspace_state_tests {
         assert_eq!(ws.apply(&Action::WorkspaceNew), "workspace.new -> 3/3");
         assert_eq!(ws.apply(&Action::WorkspaceNext), "workspace.next -> 1/3");
         assert_eq!(ws.apply(&Action::WorkspacePrev), "workspace.prev -> 3/3");
+        assert_eq!(
+            ws.apply(&Action::WorkspaceSwitch(7)),
+            "workspace.switch.7 -> 7/7"
+        );
+        assert_eq!(
+            ws.apply(&Action::WorkspaceSwitch(2)),
+            "workspace.switch.2 -> 2/7"
+        );
+        assert_eq!(
+            ws.apply(&Action::WorkspaceSwitch(0)),
+            "workspace.switch.1 -> 1/7"
+        );
     }
 }
 
