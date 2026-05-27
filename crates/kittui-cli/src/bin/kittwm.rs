@@ -1144,6 +1144,8 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
     let heading = content_lines.first().copied().unwrap_or(topic).trim();
+    let topic_label = truncate(topic, 32);
+    let heading_label = truncate(heading, 64);
     let command_count = content_lines
         .iter()
         .filter(|line| {
@@ -1156,7 +1158,7 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-help-topic-backdrop:{topic}:lines={}:commands={command_count}",
+                "kittwm-help-topic-backdrop:{topic_label}:lines={}:commands={command_count}",
                 content_lines.len()
             )),
             root: Node::Rect {
@@ -1174,7 +1176,9 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
             },
         },
         Layer {
-            label: Some(format!("kittwm-help-topic-heading:{topic}:{heading}")),
+            label: Some(format!(
+                "kittwm-help-topic-heading:{topic_label}:{heading_label}"
+            )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                 fill: Paint::Solid {
@@ -1193,8 +1197,11 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
     for (idx, line) in content_lines.iter().skip(1).take(20).enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         let trimmed = line.trim();
+        let row_label = truncate(trimmed, 80);
         layers.push(Layer {
-            label: Some(format!("kittwm-help-topic-row:{topic}:{idx}:{trimmed}")),
+            label: Some(format!(
+                "kittwm-help-topic-row:{topic_label}:{idx}:{row_label}"
+            )),
             root: Node::Rect {
                 rect: info_indicator_rect(width, y),
                 fill: Paint::Solid {
@@ -7302,6 +7309,42 @@ mod tests {
         );
         assert!(
             labels.iter().any(|label| label.contains("--spawn-pty CMD")),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn help_topic_scene_labels_clip_pathological_payloads() {
+        let topic = "topic-".repeat(1024);
+        let text = format!(
+            "{}\n{}\n{}",
+            "heading-".repeat(1024),
+            "kittwm --".to_string() + &"row-".repeat(2048),
+            "plain text"
+        );
+        let scene = help_topic_scene_for_cols(&topic, &text, 80);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(labels.iter().any(|label| label.contains('…')), "{labels:?}");
+        assert!(
+            labels
+                .iter()
+                .all(|label| !label.contains(&"topic-".repeat(32))),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .all(|label| !label.contains(&"heading-".repeat(16))),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .all(|label| !label.contains(&"row-".repeat(32))),
             "{labels:?}"
         );
     }
