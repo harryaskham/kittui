@@ -2785,15 +2785,15 @@ impl Kittwm {
     /// Return the first app-discovery candidate matching a query.
     pub fn app_first(&self, query: impl AsRef<str>) -> Result<AppCandidate> {
         self.capabilities.ensure(Capability::ReadText)?;
-        parse_app_first_reply(&self.request_protocol(format!("APPS_FIRST {}", query.as_ref()))?)
+        let query = validated_nonempty_trimmed(query.as_ref(), "APPS_FIRST query")?;
+        parse_app_first_reply(&self.request_protocol(format!("APPS_FIRST {query}"))?)
     }
 
     /// Launch the first app-discovery candidate matching a query.
     pub fn app_launch_first(&self, query: impl AsRef<str>) -> Result<AppLaunch> {
         self.capabilities.ensure(Capability::CreateWindow)?;
-        parse_app_launch_reply(
-            &self.request_protocol(format!("APPS_LAUNCH_FIRST {}", query.as_ref()))?,
-        )
+        let query = validated_nonempty_trimmed(query.as_ref(), "APPS_LAUNCH_FIRST query")?;
+        parse_app_launch_reply(&self.request_protocol(format!("APPS_LAUNCH_FIRST {query}"))?)
     }
 
     /// Focus the next pane/window.
@@ -3331,6 +3331,14 @@ fn parse_app_first_reply(reply: &str) -> Result<AppCandidate> {
         .strip_prefix("APPS_FIRST ")
         .ok_or_else(|| Error::Daemon(line.to_string()))?;
     parse_app_candidate_fields(fields)
+}
+
+fn validated_nonempty_trimmed<'a>(value: &'a str, label: &str) -> Result<&'a str> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(Error::Daemon(format!("{label} must be nonempty")));
+    }
+    Ok(value)
 }
 
 fn parse_app_launch_reply(reply: &str) -> Result<AppLaunch> {
@@ -4730,10 +4738,10 @@ mod tests {
         let client = Kittwm::connect_path(&path);
         assert_eq!(client.apps().unwrap().path_commands, ["bash"]);
         assert_eq!(
-            client.app_first("Visual Studio Code").unwrap().name,
+            client.app_first(" Visual Studio Code ").unwrap().name,
             "Visual Studio Code"
         );
-        assert_eq!(client.app_launch_first("Safari").unwrap().pid, 42);
+        assert_eq!(client.app_launch_first(" Safari ").unwrap().pid, 42);
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(
@@ -4744,6 +4752,19 @@ mod tests {
                 "APPS_LAUNCH_FIRST Safari"
             ]
         );
+    }
+
+    #[test]
+    fn app_discovery_helpers_reject_blank_queries_before_io() {
+        let client = Kittwm::connect_path("/tmp/does-not-exist.sock");
+        assert!(matches!(
+            client.app_first("   "),
+            Err(Error::Daemon(message)) if message.contains("must be nonempty")
+        ));
+        assert!(matches!(
+            client.app_launch_first(""),
+            Err(Error::Daemon(message)) if message.contains("must be nonempty")
+        ));
     }
 
     #[cfg(unix)]
