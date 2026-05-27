@@ -1743,6 +1743,11 @@ fn native_reserve_chrome_json_reply(
     reservation.right_cols = reservation.right_cols.min(80);
     reservation.gap_cols = reservation.gap_cols.min(20);
     reservation.gap_rows = reservation.gap_rows.min(20);
+    reservation.owner = reservation
+        .owner
+        .take()
+        .map(|owner| owner.trim().to_string())
+        .filter(|owner| !owner.is_empty());
     match pending.lock() {
         Ok(mut state) => {
             state.chrome_reservation = reservation.clone();
@@ -3991,7 +3996,7 @@ mod tests {
     fn native_chrome_reservation_json_updates_drawable_contract() {
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
         let reply = native_spawn_queue_reply(
-            r#"RESERVE_CHROME_JSON {"top_bar_rows":2,"bottom_bar_rows":1,"left_cols":4,"right_cols":3,"gap_cols":1,"gap_rows":2,"owner":"bar"}"#,
+            r#"RESERVE_CHROME_JSON {"top_bar_rows":2,"bottom_bar_rows":1,"left_cols":4,"right_cols":3,"gap_cols":1,"gap_rows":2,"owner":" bar "}"#,
             &pending,
         );
         assert!(reply.starts_with("CHROME_RESERVED "), "{reply}");
@@ -4004,6 +4009,14 @@ mod tests {
         assert_eq!(chrome["gap_cols"], 1);
         assert_eq!(chrome["gap_rows"], 2);
         assert_eq!(chrome["owner"], "bar");
+        let reply = native_spawn_queue_reply(
+            r#"RESERVE_CHROME_JSON {"top_bar_rows":1,"owner":"   "}"#,
+            &pending,
+        );
+        assert!(reply.starts_with("CHROME_RESERVED "), "{reply}");
+        let chrome: serde_json::Value =
+            serde_json::from_str(&native_spawn_queue_reply("CHROME_JSON", &pending)).unwrap();
+        assert_eq!(chrome["owner"], serde_json::Value::Null);
         let events = pending
             .lock()
             .unwrap()
