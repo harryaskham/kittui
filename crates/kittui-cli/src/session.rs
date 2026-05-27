@@ -4087,8 +4087,9 @@ fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
         .filter_map(|layer| layer.label.as_deref())
         .collect::<Vec<_>>()
         .join("|");
+    let visual_hash = native_shell_chrome_scene_visual_hash(&chrome.scene);
     format!(
-        "{}@{},{}:{}x{}:{}:{}:{}",
+        "{}@{},{}:{}x{}:{}:{}:{}:{}",
         chrome.id,
         chrome.x,
         chrome.y,
@@ -4096,8 +4097,15 @@ fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
         chrome.scene.footprint.rows,
         chrome.scene.cell_size.width_px,
         chrome.scene.id().0,
+        visual_hash,
         labels,
     )
+}
+
+fn native_shell_chrome_scene_visual_hash(scene: &Scene) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    format!("{scene:?}").hash(&mut hasher);
+    hasher.finish()
 }
 
 fn clip_and_pad(text: &str, width: usize) -> String {
@@ -5508,6 +5516,34 @@ mod native_pane_tests {
         let mut changed_scene = scenes[0].clone();
         changed_scene.x = 0;
         changed_scene.scene.layers[0].label = Some("changed-top-bar-state".to_string());
+        assert_ne!(baseline, native_shell_chrome_scene_key(&changed_scene));
+    }
+
+    #[test]
+    fn native_shell_chrome_scene_key_tracks_visual_paint_changes() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 4,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+        let mut changed_scene = scenes[0].clone();
+        let baseline = native_shell_chrome_scene_key(&changed_scene);
+        match &mut changed_scene.scene.layers[0].root {
+            Node::Rect {
+                fill: Paint::Solid { color },
+                ..
+            } => *color = Rgba(1, 2, 3, 255),
+            Node::Gradient { stops, .. } => stops[0].color = Rgba(1, 2, 3, 255),
+            node => panic!("expected top-bar visual paint node, got {node:?}"),
+        }
         assert_ne!(baseline, native_shell_chrome_scene_key(&changed_scene));
     }
 
