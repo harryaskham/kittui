@@ -4400,16 +4400,9 @@ fn write_native_shell_affordance_chrome<W: Write>(
 }
 
 fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
-    let labels = chrome
-        .scene
-        .layers
-        .iter()
-        .filter_map(|layer| layer.label.as_deref())
-        .collect::<Vec<_>>()
-        .join("|");
     let visual_hash = native_shell_chrome_scene_visual_hash(&chrome.scene);
     format!(
-        "{}@{},{}:{}x{}:{}:{}:{}:{}",
+        "{}@{},{}:{}x{}:{}:{}:{}",
         chrome.id,
         chrome.x,
         chrome.y,
@@ -4418,7 +4411,6 @@ fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
         chrome.scene.cell_size.width_px,
         chrome.scene.id().0,
         visual_hash,
-        labels,
     )
 }
 
