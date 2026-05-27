@@ -202,6 +202,14 @@ fn raw_compositor_app_placement_options(image_id: u32) -> kittui_kitty::Placemen
     kittui_kitty::PlacementOptions::stable_absolute(image_id).with_z_index(native_app_z_index())
 }
 
+fn raw_compositor_error_key(message: &str, log_path: &str) -> String {
+    format!("{message}\n{log_path}")
+}
+
+fn should_write_raw_compositor_error(last_key: Option<&str>, next_key: &str) -> bool {
+    last_key != Some(next_key)
+}
+
 fn native_idle_frame_target(active_target: Duration) -> Duration {
     let idle_fps = std::env::var("KITTWM_IDLE_FPS")
         .ok()
@@ -3952,6 +3960,15 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_error_repaint_skips_unchanged_panel() {
+        let key = raw_compositor_error_key("capture denied", "/tmp/kittui-wm.log");
+        assert!(should_write_raw_compositor_error(None, &key));
+        assert!(!should_write_raw_compositor_error(Some(&key), &key));
+        let changed = raw_compositor_error_key("backend died", "/tmp/kittui-wm.log");
+        assert!(should_write_raw_compositor_error(Some(&key), &changed));
+    }
+
+    #[test]
     fn native_idle_frame_pacing_uses_active_then_idle_target() {
         let active = Duration::from_millis(33);
         let idle = Duration::from_millis(100);
@@ -6451,6 +6468,7 @@ pub fn run_loop_with<S: XServer>(
     let mut last_footer_row: Option<u16> = None;
     let mut last_launcher_overlay_key = String::new();
     let mut last_picker_overlay_key = String::new();
+    let mut last_error_key: Option<String> = None;
     // Triple-Ctrl-C kill switch (bd-2776ad): single Ctrl-C is forwarded to
     // the focused window like any other key; three within 1s exits cleanly.
     let mut ctrl_c_guard = CtrlCGuard::new();
@@ -6827,6 +6845,7 @@ pub fn run_loop_with<S: XServer>(
         // never leaks the terminal.
         match compositor.raw_frames(&layout) {
             Ok(frames) => {
+                last_error_key = None;
                 let last_window_count = frames.len();
                 if frame % 30 == 0 {
                     dbg.log(&format!("frame {frame}: {} raw frames", frames.len()));
@@ -6994,17 +7013,21 @@ pub fn run_loop_with<S: XServer>(
             }
             Err(e) => {
                 let msg = e.to_string();
-                dbg.log(&format!("compose err: {msg}"));
-                let stdout = io::stdout();
-                let mut handle = stdout.lock();
-                write!(
-                    handle,
-                    "\x1b[H\x1b[J\x1b[1mkittui-wm error\x1b[0m\n\n  {}\n\n  q/Esc to quit. On macOS, grant Screen Recording + Accessibility.\n  (log: {})\n",
-                    msg,
-                    dbg.path_display()
-                )?;
+                let error_key = raw_compositor_error_key(&msg, &dbg.path_display());
+                if should_write_raw_compositor_error(last_error_key.as_deref(), &error_key) {
+                    dbg.log(&format!("compose err: {msg}"));
+                    let stdout = io::stdout();
+                    let mut handle = stdout.lock();
+                    write!(
+                        handle,
+                        "\x1b[H\x1b[J\x1b[1mkittui-wm error\x1b[0m\n\n  {}\n\n  q/Esc to quit. On macOS, grant Screen Recording + Accessibility.\n  (log: {})\n",
+                        msg,
+                        dbg.path_display()
+                    )?;
+                    handle.flush()?;
+                    last_error_key = Some(error_key);
+                }
                 launcher_overlay_was_active = launcher_overlay.active;
-                handle.flush()?;
             }
         }
 
