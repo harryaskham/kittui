@@ -80,6 +80,8 @@ The `--scroll top` option is useful for long command output such as `kittwm help
 
 `kittui-ghostty --pty-command COMMAND` runs a command in a pseudo-terminal sized by `--cols`/`--rows`, captures the VT byte stream, then renders it through the same libghostty-vt PNG path. Use it for command evidence that depends on terminal dimensions, colors, or TTY detection.
 
+`kittui-ghostty --kittwm-proof-command COMMAND --out proof.png --cols 100 --rows 28` is the preferred agent proof path for kittwm screenshots. It runs the command in a PTY with kittwm-friendly terminal-renderer environment (`KITTWM_NATIVE_RENDERER=terminal`, terminal chrome, no startup terminal) and renders the resulting VT state to a PNG. Use this for caco file image proofs so artifacts show the actual rendered kittwm feature/output instead of text-note PNGs.
+
 `kittui-ghostty --pty-timelapse-command COMMAND --out-dir DIR` captures a PTY command once, replays the captured VT bytes into libghostty-vt in line-sized chunks, and emits `frame-*.png` plus `manifest.json` for deterministic command-output timelapses.
 
 The `--montage PATH` option works with `--timelapse-demo` and `--pty-timelapse-command` to stitch a representative set of emitted frames into one PNG directly from the Rust CLI. The montage includes frame/cursor labels so preview evidence remains readable outside the output directory. This keeps preview evidence generation self-contained.

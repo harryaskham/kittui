@@ -19,6 +19,7 @@ struct Args {
     timelapse_demo: bool,
     command: Option<String>,
     pty_command: Option<String>,
+    kittwm_proof_command: Option<String>,
     pty_timelapse_command: Option<String>,
     scroll: ScrollMode,
 }
@@ -104,6 +105,7 @@ fn parse_args() -> anyhow::Result<Args> {
     let mut timelapse_demo = false;
     let mut command = None;
     let mut pty_command = None;
+    let mut kittwm_proof_command = None;
     let mut pty_timelapse_command = None;
     let mut scroll = ScrollMode::Current;
     let mut iter = std::env::args().skip(1);
@@ -163,6 +165,12 @@ fn parse_args() -> anyhow::Result<Args> {
                         .ok_or_else(|| anyhow::anyhow!("--pty-command COMMAND"))?,
                 );
             }
+            "--kittwm-proof-command" => {
+                kittwm_proof_command = Some(
+                    iter.next()
+                        .ok_or_else(|| anyhow::anyhow!("--kittwm-proof-command COMMAND"))?,
+                );
+            }
             "--pty-timelapse-command" => {
                 pty_timelapse_command = Some(
                     iter.next()
@@ -194,14 +202,28 @@ fn parse_args() -> anyhow::Result<Args> {
         timelapse_demo,
         command,
         pty_command,
+        kittwm_proof_command,
         pty_timelapse_command,
         scroll,
     })
 }
 
 fn input_bytes(args: &Args) -> anyhow::Result<Vec<u8>> {
-    if args.command.is_some() && args.pty_command.is_some() {
-        anyhow::bail!("--command and --pty-command are mutually exclusive");
+    let command_modes = [
+        args.command.is_some(),
+        args.pty_command.is_some(),
+        args.kittwm_proof_command.is_some(),
+    ]
+    .into_iter()
+    .filter(|enabled| *enabled)
+    .count();
+    if command_modes > 1 {
+        anyhow::bail!(
+            "--command, --pty-command, and --kittwm-proof-command are mutually exclusive"
+        );
+    }
+    if let Some(command) = &args.kittwm_proof_command {
+        return pty_command_bytes_with_env(command, args.cols, args.rows, kittwm_proof_env());
     }
     if let Some(command) = &args.pty_command {
         return pty_command_bytes(command, args.cols, args.rows);
@@ -236,6 +258,15 @@ fn command_bytes(command: &str) -> anyhow::Result<Vec<u8>> {
 }
 
 fn pty_command_bytes(command: &str, cols: u16, rows: u16) -> anyhow::Result<Vec<u8>> {
+    pty_command_bytes_with_env(command, cols, rows, [])
+}
+
+fn pty_command_bytes_with_env<const N: usize>(
+    command: &str,
+    cols: u16,
+    rows: u16,
+    extra_env: [(&'static str, &'static str); N],
+) -> anyhow::Result<Vec<u8>> {
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows,
@@ -252,6 +283,9 @@ fn pty_command_bytes(command: &str, cols: u16, rows: u16) -> anyhow::Result<Vec<
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLUMNS", cols.to_string());
     cmd.env("LINES", rows.to_string());
+    for (key, value) in extra_env {
+        cmd.env(key, value);
+    }
 
     let mut reader = pair.master.try_clone_reader()?;
     let mut child = pair.slave.spawn_command(cmd)?;
@@ -276,6 +310,18 @@ fn pty_command_bytes(command: &str, cols: u16, rows: u16) -> anyhow::Result<Vec<
         bytes.extend_from_slice(format!("\r\n[exit {}]\r\n", status.exit_code()).as_bytes());
     }
     Ok(bytes)
+}
+
+fn kittwm_proof_env() -> [(&'static str, &'static str); 7] {
+    [
+        ("KITTWM_NATIVE_RENDERER", "terminal"),
+        ("KITTWM_NATIVE_CHROME_RENDERER", "terminal"),
+        ("KITTWM_DISABLE_NATIVE_GRAPHICS", "1"),
+        ("KITTWM_STARTUP_TERMINAL", "0"),
+        ("KITTWM_BROWSER_FRAME", "0"),
+        ("TERM_PROGRAM", "kittui-ghostty-proof"),
+        ("NO_COLOR", "1"),
+    ]
 }
 
 fn line_chunks(bytes: &[u8], lines_per_chunk: usize) -> Vec<&[u8]> {
@@ -325,11 +371,13 @@ fn print_help() {
            kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo] [--scroll top|bottom|current]\n\
            kittui-ghostty --command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --pty-command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
+           kittui-ghostty --kittwm-proof-command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --pty-timelapse-command COMMAND [--out-dir DIR] [--montage PATH] [--cols N] [--rows N] [--chunk-lines N]\n\
            kittui-ghostty --timelapse-demo [--out-dir DIR] [--montage PATH] [--cols N] [--rows N]\n\n\
          Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
          --command/-c runs COMMAND through sh -c and renders stdout/stderr.\n\
          --pty-command runs COMMAND in a PTY sized by --cols/--rows and renders captured VT bytes.\n\
+         --kittwm-proof-command runs COMMAND in a PTY with kittwm-friendly terminal-renderer env for real screenshot proof artifacts.\n\
          --pty-timelapse-command replays captured PTY bytes into frame-*.png plus manifest.json.\n\
          --chunk-lines controls PTY timelapse replay density; default is 1.\n\
          --timelapse-demo emits frame-*.png plus manifest.json into --out-dir.\n\
@@ -461,4 +509,18 @@ fn write_manifest(out_dir: &Path, frames: &[(usize, PathBuf, u16, u16)]) -> anyh
         ),
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kittwm_proof_env_forces_terminal_rendering() {
+        let env = kittwm_proof_env();
+        assert!(env.contains(&("KITTWM_NATIVE_RENDERER", "terminal")));
+        assert!(env.contains(&("KITTWM_NATIVE_CHROME_RENDERER", "terminal")));
+        assert!(env.contains(&("KITTWM_STARTUP_TERMINAL", "0")));
+        assert!(env.contains(&("TERM_PROGRAM", "kittui-ghostty-proof")));
+    }
 }
