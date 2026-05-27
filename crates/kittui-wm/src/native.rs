@@ -1869,9 +1869,11 @@ impl TerminalState {
     }
 
     fn text_snapshot(&self) -> String {
-        let mut out = String::new();
+        let mut out = String::with_capacity(
+            usize::from(self.rows).saturating_mul(usize::from(self.cols).saturating_add(1)),
+        );
         for row in 0..self.rows {
-            out.push_str(&self.line_snapshot(row));
+            self.append_line_snapshot(row, &mut out);
             out.push('\n');
         }
         out
@@ -1912,14 +1914,21 @@ impl TerminalState {
     }
 
     fn line_snapshot(&self, row: u16) -> String {
+        let mut out = String::new();
+        self.append_line_snapshot(row, &mut out);
+        out
+    }
+
+    fn append_line_snapshot(&self, row: u16, out: &mut String) {
         let start = usize::from(row) * usize::from(self.cols);
         let end = start + usize::from(self.cols);
-        self.cells[start..end]
+        let cells = &self.cells[start..end];
+        let visible_end = cells
             .iter()
-            .map(|cell| cell.ch)
-            .collect::<String>()
-            .trim_end()
-            .into()
+            .rposition(|cell| cell.ch != ' ')
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+        out.extend(cells[..visible_end].iter().map(|cell| cell.ch));
     }
 
     fn push_scrollback_line(&mut self, line: String) {
@@ -4242,6 +4251,16 @@ mod tests {
             cache.lock().as_ref().map(|(revision, _)| *revision),
             Some(0)
         );
+    }
+
+    #[test]
+    fn terminal_text_snapshot_appends_trimmed_rows_directly() {
+        let mut state = TerminalState::new(4, 2);
+        state.cells[0].ch = 'a';
+        state.cells[1].ch = 'b';
+        state.cells[4].ch = 'c';
+        assert_eq!(state.line_snapshot(0), "ab");
+        assert_eq!(state.text_snapshot(), "ab\nc\n");
     }
 
     #[test]
