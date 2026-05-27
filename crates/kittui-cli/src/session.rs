@@ -3742,6 +3742,18 @@ fn native_help_overlay_scene(
     rows: u16,
     lines: &[&str],
 ) -> (u16, u16, Scene) {
+    if lines.is_empty() {
+        return (
+            0,
+            0,
+            Scene {
+                footprint: CellRect::new(0, 0, 1, 1),
+                cell_size,
+                layers: Vec::new(),
+                animation: None,
+            },
+        );
+    }
     let colors = native_glass_chrome_colors();
     let max_line = lines
         .iter()
@@ -6564,6 +6576,14 @@ mod native_pane_tests {
             }
             node => panic!("expected empty workspace backdrop rect, got {node:?}"),
         }
+    }
+
+    #[test]
+    fn native_help_overlay_scene_skips_blank_content() {
+        let (x, y, scene) = native_help_overlay_scene(CellSize::new(8, 16), 80, 24, &[]);
+        assert_eq!((x, y), (0, 0));
+        assert_eq!(scene.footprint, CellRect::new(0, 0, 1, 1));
+        assert!(scene.layers.is_empty());
     }
 
     #[test]
