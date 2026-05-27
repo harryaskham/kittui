@@ -1216,7 +1216,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if quit_confirm_overlay.active {
             let overlay_key = quit_confirm_overlay_key(&quit_confirm_overlay);
             if redraw_static || overlay_key != last_quit_confirm_overlay_key {
-                quit_confirm_overlay.render(&mut frame_out)?;
+                quit_confirm_overlay.render(&mut frame_out, rows)?;
                 last_quit_confirm_overlay_key = overlay_key;
             }
         } else {
@@ -7328,6 +7328,33 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn text_overlay_renderers_bound_rows_to_terminal_height() {
+        let mut out = Vec::new();
+        let mut confirm = QuitConfirmOverlay::default();
+        confirm.open(Instant::now());
+        confirm.render(&mut out, 4).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("\x1b[4;2H"), "{text:?}");
+        assert!(!text.contains("\x1b[5;2H"), "{text:?}");
+
+        let mut out = Vec::new();
+        let mut picker = PickerOverlay::default();
+        picker.open();
+        picker.render(&mut out, 6).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("\x1b[6;2H"), "{text:?}");
+        assert!(!text.contains("\x1b[7;2H"), "{text:?}");
+
+        let mut out = Vec::new();
+        let mut launcher = LauncherOverlay::default();
+        launcher.active = true;
+        launcher.render(&mut out, 8).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("\x1b[8;2H"), "{text:?}");
+        assert!(!text.contains("\x1b[9;2H"), "{text:?}");
+    }
+
+    #[test]
     fn overlay_keys_change_when_visual_state_changes() {
         let mut launcher = LauncherOverlay::default();
         launcher.active = true;
@@ -8730,7 +8757,8 @@ pub fn run_loop_with<S: XServer>(
                 if launcher_overlay.active {
                     let overlay_key = launcher_overlay_key(&launcher_overlay);
                     if last_launcher_overlay_key != overlay_key {
-                        launcher_overlay.render(&mut frame_out)?;
+                        let (_, terminal_rows) = host_terminal_cells().unwrap_or((80, 24));
+                        launcher_overlay.render(&mut frame_out, terminal_rows)?;
                         wrote_frame_output = true;
                         last_launcher_overlay_key = overlay_key;
                     }
@@ -8740,7 +8768,8 @@ pub fn run_loop_with<S: XServer>(
                 if picker_overlay.active {
                     let overlay_key = picker_overlay_key(&picker_overlay);
                     if last_picker_overlay_key != overlay_key {
-                        picker_overlay.render(&mut frame_out)?;
+                        let (_, terminal_rows) = host_terminal_cells().unwrap_or((80, 24));
+                        picker_overlay.render(&mut frame_out, terminal_rows)?;
                         wrote_frame_output = true;
                         last_picker_overlay_key = overlay_key;
                     }
@@ -8750,7 +8779,8 @@ pub fn run_loop_with<S: XServer>(
                 if quit_confirm_overlay.active {
                     let overlay_key = quit_confirm_overlay_key(&quit_confirm_overlay);
                     if last_quit_confirm_overlay_key != overlay_key {
-                        quit_confirm_overlay.render(&mut frame_out)?;
+                        let (_, terminal_rows) = host_terminal_cells().unwrap_or((80, 24));
+                        quit_confirm_overlay.render(&mut frame_out, terminal_rows)?;
                         wrote_frame_output = true;
                         last_quit_confirm_overlay_key = overlay_key;
                     }
@@ -9440,6 +9470,10 @@ fn quit_confirm_overlay_key(overlay: &QuitConfirmOverlay) -> String {
     )
 }
 
+fn overlay_row_visible(row: u16, terminal_rows: u16) -> bool {
+    row >= 1 && row <= terminal_rows
+}
+
 impl QuitConfirmOverlay {
     fn open(&mut self, now: Instant) {
         self.active = true;
@@ -9477,17 +9511,29 @@ impl QuitConfirmOverlay {
         }
     }
 
-    fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
+    fn render<W: Write>(&self, handle: &mut W, terminal_rows: u16) -> Result<()> {
         let width = overlay_inner_width(64);
-        write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
+        if overlay_row_visible(2, terminal_rows) {
+            write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
+        }
         let title = truncate_cells("confirm quit kittwm", width);
-        write!(handle, "\x1b[3;2H│{:^width$}│", title, width = width)?;
-        write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
+        if overlay_row_visible(3, terminal_rows) {
+            write!(handle, "\x1b[3;2H│{:^width$}│", title, width = width)?;
+        }
+        if overlay_row_visible(4, terminal_rows) {
+            write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
+        }
         let prompt = truncate_cells("Triple Ctrl-C received. Quit the window manager?", width);
-        write!(handle, "\x1b[5;2H│{:<width$}│", prompt, width = width)?;
+        if overlay_row_visible(5, terminal_rows) {
+            write!(handle, "\x1b[5;2H│{:<width$}│", prompt, width = width)?;
+        }
         let hint = truncate_cells("Press y to quit, n/Esc to cancel. Times out in 5s.", width);
-        write!(handle, "\x1b[6;2H│{:<width$}│", hint, width = width)?;
-        write!(handle, "\x1b[7;2H└{}┘", "─".repeat(width))?;
+        if overlay_row_visible(6, terminal_rows) {
+            write!(handle, "\x1b[6;2H│{:<width$}│", hint, width = width)?;
+        }
+        if overlay_row_visible(7, terminal_rows) {
+            write!(handle, "\x1b[7;2H└{}┘", "─".repeat(width))?;
+        }
         Ok(())
     }
 }
@@ -9542,13 +9588,23 @@ impl PickerOverlay {
             .unwrap_or_else(|| "<none>".to_string())
     }
 
-    fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
+    fn render<W: Write>(&self, handle: &mut W, terminal_rows: u16) -> Result<()> {
         let width = overlay_inner_width(64);
-        write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
+        if overlay_row_visible(2, terminal_rows) {
+            write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
+        }
         let title = truncate_cells("kittwm picker", width);
-        write!(handle, "\x1b[3;2H│{:^width$}│", title, width = width)?;
-        write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
+        if overlay_row_visible(3, terminal_rows) {
+            write!(handle, "\x1b[3;2H│{:^width$}│", title, width = width)?;
+        }
+        if overlay_row_visible(4, terminal_rows) {
+            write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
+        }
         for row in 0..8usize {
+            let terminal_row = 5 + row as u16;
+            if !overlay_row_visible(terminal_row, terminal_rows) {
+                break;
+            }
             let line = if let Some(entry) = self.entries.get(row) {
                 let marker = if row == self.selected { "▶" } else { " " };
                 format!("{marker} {}", entry)
@@ -9558,15 +9614,21 @@ impl PickerOverlay {
             write!(
                 handle,
                 "\x1b[{};2H│{:<width$}│",
-                5 + row as u16,
+                terminal_row,
                 truncate_cells(&line, width),
                 width = width
             )?;
         }
-        write!(handle, "\x1b[13;2H├{}┤", "─".repeat(width))?;
+        if overlay_row_visible(13, terminal_rows) {
+            write!(handle, "\x1b[13;2H├{}┤", "─".repeat(width))?;
+        }
         let hint = truncate_cells("Enter select · Esc close · ↑/↓/Tab navigate", width);
-        write!(handle, "\x1b[14;2H│{:<width$}│", hint, width = width)?;
-        write!(handle, "\x1b[15;2H└{}┘", "─".repeat(width))?;
+        if overlay_row_visible(14, terminal_rows) {
+            write!(handle, "\x1b[14;2H│{:<width$}│", hint, width = width)?;
+        }
+        if overlay_row_visible(15, terminal_rows) {
+            write!(handle, "\x1b[15;2H└{}┘", "─".repeat(width))?;
+        }
         Ok(())
     }
 }
@@ -9643,21 +9705,35 @@ impl LauncherOverlay {
             .cloned()
     }
 
-    fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
+    fn render<W: Write>(&self, handle: &mut W, terminal_rows: u16) -> Result<()> {
         let candidates = self.candidates();
         let width = overlay_inner_width(58);
-        write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
+        if overlay_row_visible(2, terminal_rows) {
+            write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
+        }
         let title = truncate_cells("kittwm launcher", width);
-        write!(handle, "\x1b[3;2H│{:^width$}│", title, width = width)?;
-        write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
+        if overlay_row_visible(3, terminal_rows) {
+            write!(handle, "\x1b[3;2H│{:^width$}│", title, width = width)?;
+        }
+        if overlay_row_visible(4, terminal_rows) {
+            write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
+        }
         let query_line = if width > 8 {
             format!(" query: {}", truncate_cells(&self.query, width - 8))
         } else {
             truncate_cells(&self.query, width)
         };
-        write!(handle, "\x1b[5;2H│{:<width$}│", query_line, width = width)?;
-        write!(handle, "\x1b[6;2H├{}┤", "─".repeat(width))?;
+        if overlay_row_visible(5, terminal_rows) {
+            write!(handle, "\x1b[5;2H│{:<width$}│", query_line, width = width)?;
+        }
+        if overlay_row_visible(6, terminal_rows) {
+            write!(handle, "\x1b[6;2H├{}┤", "─".repeat(width))?;
+        }
         for row in 0..8usize {
+            let terminal_row = 7 + row as u16;
+            if !overlay_row_visible(terminal_row, terminal_rows) {
+                break;
+            }
             let line = if let Some(c) = candidates.get(row) {
                 let marker = if row == self.selected { "▶" } else { " " };
                 format!(
@@ -9672,15 +9748,21 @@ impl LauncherOverlay {
             write!(
                 handle,
                 "\x1b[{};2H│{:<width$}│",
-                7 + row as u16,
+                terminal_row,
                 truncate_cells(&line, width),
                 width = width
             )?;
         }
-        write!(handle, "\x1b[15;2H├{}┤", "─".repeat(width))?;
+        if overlay_row_visible(15, terminal_rows) {
+            write!(handle, "\x1b[15;2H├{}┤", "─".repeat(width))?;
+        }
         let hint = truncate_cells("Enter launch · Esc close · type filter · ↑/↓ select", width);
-        write!(handle, "\x1b[16;2H│{:<width$}│", hint, width = width)?;
-        write!(handle, "\x1b[17;2H└{}┘", "─".repeat(width))?;
+        if overlay_row_visible(16, terminal_rows) {
+            write!(handle, "\x1b[16;2H│{:<width$}│", hint, width = width)?;
+        }
+        if overlay_row_visible(17, terminal_rows) {
+            write!(handle, "\x1b[17;2H└{}┘", "─".repeat(width))?;
+        }
         Ok(())
     }
 }
