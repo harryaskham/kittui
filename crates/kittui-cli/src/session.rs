@@ -3767,11 +3767,7 @@ fn native_help_overlay_scene(
         );
     }
     let colors = native_glass_chrome_colors();
-    let max_line = lines
-        .iter()
-        .map(|line| line.chars().count() as u16)
-        .max()
-        .unwrap_or(20);
+    let max_line = native_help_overlay_max_line_cols(lines);
     let available_cols = cols.max(1);
     let panel_cols = max_line
         .saturating_add(4)
@@ -3779,10 +3775,7 @@ fn native_help_overlay_scene(
         .min(available_cols);
     let y = 2.min(rows.saturating_sub(1));
     let available_rows = rows.saturating_sub(y).max(1);
-    let panel_rows = (lines.len() as u16)
-        .saturating_add(2)
-        .max(4)
-        .min(available_rows);
+    let panel_rows = native_help_overlay_panel_rows(lines.len(), available_rows);
     let x = cols.saturating_sub(panel_cols).saturating_div(2);
     let rect = CellRect::new(0, 0, panel_cols, panel_rows).to_pixels(cell_size);
     let row_h = cell_size.height_px.max(1) as f32;
@@ -3871,6 +3864,19 @@ fn native_help_overlay_scene(
             animation: None,
         },
     )
+}
+
+fn native_help_overlay_max_line_cols(lines: &[&str]) -> u16 {
+    lines
+        .iter()
+        .map(|line| line.chars().count().min(u16::MAX as usize) as u16)
+        .max()
+        .unwrap_or(20)
+}
+
+fn native_help_overlay_panel_rows(line_count: usize, available_rows: u16) -> u16 {
+    let rows = line_count.saturating_add(2).min(u16::MAX as usize) as u16;
+    rows.max(4).min(available_rows)
 }
 
 fn native_help_overlay_control_layers(
@@ -6744,6 +6750,19 @@ mod native_pane_tests {
         assert_eq!((x, y), (0, 0));
         assert_eq!(scene.footprint, CellRect::new(0, 0, 1, 1));
         assert!(scene.layers.is_empty());
+    }
+
+    #[test]
+    fn native_help_overlay_dimensions_saturate_long_inputs() {
+        let long = "x".repeat(u16::MAX as usize);
+        let long_ref: &str = &long;
+        assert_eq!(native_help_overlay_max_line_cols(&[long_ref]), u16::MAX);
+        assert_eq!(native_help_overlay_panel_rows(usize::MAX, 24), 24);
+        assert_eq!(native_help_overlay_panel_rows(0, 24), 4);
+
+        let (_x, _y, scene) = native_help_overlay_scene(CellSize::new(8, 16), 80, 24, &[long_ref]);
+        assert!(scene.footprint.cols <= 80);
+        assert!(scene.footprint.rows <= 24);
     }
 
     #[test]
