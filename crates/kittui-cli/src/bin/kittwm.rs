@@ -1107,7 +1107,7 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
         .lines()
         .filter(|line| !line.trim().is_empty())
         .collect::<Vec<_>>();
-    let rows = (content_lines.len() as u16 + 4).clamp(8, 30);
+    let rows = help_topic_scene_rows(content_lines.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -1183,6 +1183,11 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn help_topic_scene_rows(line_count: usize) -> u16 {
+    let rows = line_count.saturating_add(4).min(u16::MAX as usize) as u16;
+    rows.clamp(8, 30)
 }
 
 fn help_topic_text(topic: &str) -> Result<&'static str> {
@@ -6835,6 +6840,20 @@ mod tests {
                 .any(|label| label.contains("kittwm-chrome-row:7:gap_rows=2")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn help_topic_scene_rows_saturate_large_help_text() {
+        assert_eq!(help_topic_scene_rows(0), 8);
+        assert_eq!(help_topic_scene_rows(8), 12);
+        assert_eq!(help_topic_scene_rows(usize::MAX), 30);
+
+        let text = (0..128)
+            .map(|idx| format!("kittwm help line {idx}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let scene = help_topic_scene_for_cols("stress", &text, 80);
+        assert_eq!(scene.footprint.rows, 30);
     }
 
     #[test]
