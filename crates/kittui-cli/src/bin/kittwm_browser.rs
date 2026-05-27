@@ -711,7 +711,7 @@ struct BrowserSemanticPublisher {
     idle_interval: Duration,
     unchanged_payloads: u16,
     last_attempt: Option<Instant>,
-    last_payload_key: Option<(usize, u64)>,
+    last_snapshot: Option<SemanticSurfaceSnapshot>,
 }
 
 impl BrowserSemanticPublisher {
@@ -728,7 +728,7 @@ impl BrowserSemanticPublisher {
             idle_interval: browser_semantic_idle_interval(active_interval),
             unchanged_payloads: 0,
             last_attempt: None,
-            last_payload_key: None,
+            last_snapshot: None,
         }
     }
 
@@ -744,10 +744,7 @@ impl BrowserSemanticPublisher {
         let Ok(snapshot) = browser.semantic_snapshot() else {
             return;
         };
-        let Ok(payload) = serde_json::to_string(&snapshot) else {
-            return;
-        };
-        if !self.record_payload(&payload) {
+        if !self.record_snapshot(&snapshot) {
             return;
         }
         if let Some(socket) = self.socket.as_ref() {
@@ -774,22 +771,15 @@ impl BrowserSemanticPublisher {
         self.last_attempt = None;
     }
 
-    fn record_payload(&mut self, payload: &str) -> bool {
-        let payload_key = browser_payload_key(payload);
-        if self.last_payload_key == Some(payload_key) {
+    fn record_snapshot(&mut self, snapshot: &SemanticSurfaceSnapshot) -> bool {
+        if self.last_snapshot.as_ref() == Some(snapshot) {
             self.unchanged_payloads = self.unchanged_payloads.saturating_add(1);
             return false;
         }
-        self.last_payload_key = Some(payload_key);
+        self.last_snapshot = Some(snapshot.clone());
         self.unchanged_payloads = 0;
         true
     }
-}
-
-fn browser_payload_key(payload: &str) -> (usize, u64) {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    payload.hash(&mut hasher);
-    (payload.len(), hasher.finish())
 }
 
 fn publish_semantic_snapshot(
@@ -1676,7 +1666,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_publisher_debounces_and_skips_unchanged_payloads() {
+    fn semantic_publisher_debounces_and_skips_unchanged_snapshots() {
         let start = Instant::now();
         let mut publisher = BrowserSemanticPublisher {
             socket: Some(PathBuf::from("/tmp/unused.sock")),
@@ -1685,17 +1675,19 @@ mod tests {
             idle_interval: Duration::from_millis(2000),
             unchanged_payloads: 0,
             last_attempt: None,
-            last_payload_key: None,
+            last_snapshot: None,
         };
+        let snapshot_1 = semantic_test_snapshot("snapshot-1");
+        let snapshot_2 = semantic_test_snapshot("snapshot-2");
 
         assert!(publisher.due(start));
         publisher.last_attempt = Some(start);
         assert!(!publisher.due(start + Duration::from_millis(499)));
         assert!(publisher.due(start + Duration::from_millis(500)));
-        assert!(publisher.record_payload("{\"revision\":1}"));
-        assert!(!publisher.record_payload("{\"revision\":1}"));
+        assert!(publisher.record_snapshot(&snapshot_1));
+        assert!(!publisher.record_snapshot(&snapshot_1));
         assert_eq!(publisher.unchanged_payloads, 1);
-        assert!(!publisher.record_payload("{\"revision\":1}"));
+        assert!(!publisher.record_snapshot(&snapshot_1));
         assert_eq!(publisher.unchanged_payloads, 2);
         assert_eq!(publisher.current_interval(), Duration::from_millis(2000));
         publisher.last_attempt = Some(start + Duration::from_millis(500));
@@ -1704,13 +1696,13 @@ mod tests {
         publisher.reset_after_activity();
         assert_eq!(publisher.unchanged_payloads, 0);
         assert!(publisher.due(start + Duration::from_millis(501)));
-        assert!(publisher.record_payload("{\"revision\":2}"));
+        assert!(publisher.record_snapshot(&snapshot_2));
         assert_eq!(publisher.unchanged_payloads, 0);
         assert_eq!(publisher.current_interval(), Duration::from_millis(500));
     }
 
     #[test]
-    fn semantic_publisher_stores_payload_fingerprint_only() {
+    fn semantic_publisher_stores_last_snapshot_without_serializing_json() {
         let mut publisher = BrowserSemanticPublisher {
             socket: Some(PathBuf::from("/tmp/unused.sock")),
             window: "native-1".to_string(),
@@ -1718,21 +1710,16 @@ mod tests {
             idle_interval: Duration::from_millis(2000),
             unchanged_payloads: 0,
             last_attempt: None,
-            last_payload_key: None,
+            last_snapshot: None,
         };
-        let large = "x".repeat(4096);
-        assert!(publisher.record_payload(&large));
-        assert_eq!(
-            publisher.last_payload_key,
-            Some(browser_payload_key(&large))
-        );
-        assert!(!publisher.record_payload(&large));
+        let snapshot = semantic_test_snapshot("large-ish");
+        assert!(publisher.record_snapshot(&snapshot));
+        assert_eq!(publisher.last_snapshot.as_ref(), Some(&snapshot));
+        assert!(!publisher.record_snapshot(&snapshot));
         assert_eq!(publisher.unchanged_payloads, 1);
-        assert!(publisher.record_payload("tiny"));
-        assert_eq!(
-            publisher.last_payload_key,
-            Some(browser_payload_key("tiny"))
-        );
+        let changed = semantic_test_snapshot("changed");
+        assert!(publisher.record_snapshot(&changed));
+        assert_eq!(publisher.last_snapshot.as_ref(), Some(&changed));
     }
 
     #[test]
@@ -1744,9 +1731,17 @@ mod tests {
             idle_interval: Duration::from_millis(2000),
             unchanged_payloads: 0,
             last_attempt: None,
-            last_payload_key: None,
+            last_snapshot: None,
         };
         assert!(publisher.socket.is_none());
         assert_eq!(publisher.window, "focused");
+    }
+
+    fn semantic_test_snapshot(label: &str) -> SemanticSurfaceSnapshot {
+        SemanticSurfaceSnapshot::new(
+            "browser-test",
+            1,
+            kittwm_sdk::ComponentNode::new("root", kittwm_sdk::ComponentRole::Group).labeled(label),
+        )
     }
 }
