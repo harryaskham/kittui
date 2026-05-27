@@ -6104,7 +6104,7 @@ mod native_pane_tests {
         assert!(
             labels
                 .iter()
-                .any(|label| label.starts_with("kittwm-live-top-bar-text:| 1 | 2 | 3 |")),
+                .any(|label| label.starts_with("kittwm-live-top-bar-text:|[1]| 2 | 3 |")),
             "{labels:?}"
         );
         assert_eq!(scene.footprint.rows, 1);

@@ -149,10 +149,15 @@ impl BarModel {
         let cell_w = scene.cell_size.width_px.max(1) as f32;
         let cell_h = scene.cell_size.height_px.max(1) as f32;
         let chip_h = (cell_h - 4.0).max(6.0);
+        let scene_w = cols.max(1) as f32 * cell_w;
         let mut chip_x = 1.0;
         for label in self.workspace_chip_labels() {
             let active = self.workspace.trim() == label;
-            let chip_w = (label.chars().count() as f32 + 2.0).max(3.0) * cell_w;
+            let natural_chip_w = (label.chars().count() as f32 + 2.0).max(3.0) * cell_w;
+            let Some(chip_w) = top_bar_bounded_chip_width(scene_w, chip_x, natural_chip_w, cell_w)
+            else {
+                break;
+            };
             let x = chip_x;
             let y = ((cell_h - chip_h) / 2.0).max(0.0);
             scene.layers.push(Layer::new(
@@ -349,6 +354,17 @@ fn top_bar_clock_chip_x(total_width: f32, chip_end_x: f32, clock_width: f32) -> 
     (chip_end_x + gap <= right_aligned).then_some(right_aligned)
 }
 
+fn top_bar_bounded_chip_width(
+    total_width: f32,
+    chip_x: f32,
+    natural_width: f32,
+    cell_width: f32,
+) -> Option<f32> {
+    let min_width = 3.0 * cell_width.max(1.0);
+    let available = (total_width - chip_x - 1.0).max(0.0);
+    (available >= min_width).then_some(natural_width.min(available))
+}
+
 /// Workspace label from environment, defaulting to `1`.
 pub fn workspace_label() -> String {
     std::env::var("KITTWM_WORKSPACE")
@@ -478,6 +494,29 @@ mod tests {
         assert_eq!(theme.border, Rgba(0xdd, 0xee, 0xff, 255));
         assert_eq!(theme.clock_fg, Rgba(0xdd, 0xee, 0xff, 255));
         assert_eq!(theme.chip_active, Rgba(0x44, 0x55, 0x66, 235));
+    }
+
+    #[test]
+    fn graphical_workspace_chip_geometry_is_bounded_to_scene_width() {
+        let model = BarModel::new("super-long-workspace-name", 0, "-", false, UNIX_EPOCH);
+        let scene = model.scene(18);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in scene.layers.iter().filter(|layer| {
+            layer
+                .label
+                .as_deref()
+                .unwrap_or_default()
+                .contains("workspace-chip")
+        }) {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
+        assert_eq!(top_bar_bounded_chip_width(24.0, 1.0, 80.0, 8.0), None);
+        assert_eq!(
+            top_bar_bounded_chip_width(80.0, 1.0, 200.0, 8.0),
+            Some(78.0)
+        );
     }
 
     #[test]
