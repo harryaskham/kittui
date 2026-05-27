@@ -192,7 +192,7 @@ impl BarModel {
             ));
             scene.layers.push(Layer::new(
                 format!(
-                    "{label_prefix}-workspace-chip:{label}:{}:action=workspace.switch.{label}",
+                    "{label_prefix}-workspace-chip:{label}:{}",
                     if active { "active" } else { "inactive" }
                 ),
                 Node::Rect {
@@ -613,7 +613,12 @@ mod tests {
             .label
             .as_deref()
             .unwrap_or_default()
-            .contains("workspace-chip:dev:active:action=workspace.switch.dev")));
+            .contains("workspace-chip:dev:active")));
+        assert!(!scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("action=workspace.switch")));
     }
 
     #[test]
