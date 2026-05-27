@@ -95,12 +95,16 @@ impl BarModel {
     }
 
     fn workspace_chips_text_constrained(&self) -> String {
+        self.workspace_chips_text_from_labels(self.workspace_chip_labels_active_first())
+    }
+
+    pub fn workspace_chip_labels_active_first(&self) -> Vec<String> {
         let workspace = self.workspace.trim();
         let mut labels = self.workspace_chip_labels();
-        if !matches!(workspace, "" | "1" | "2" | "3") {
+        if !workspace.is_empty() {
             labels.sort_by_key(|label| usize::from(label != workspace));
         }
-        self.workspace_chips_text_from_labels(labels)
+        labels
     }
 
     fn workspace_chips_text_from_labels(&self, labels: Vec<String>) -> String {
@@ -430,11 +434,19 @@ mod tests {
     }
 
     #[test]
-    fn narrow_text_bar_prioritizes_custom_active_workspace() {
-        let model = BarModel::new("dev", 1, "native-1", true, UNIX_EPOCH);
-        let rendered = model.render_i3bar(8);
+    fn narrow_text_bar_prioritizes_active_workspace() {
+        let custom = BarModel::new("dev", 1, "native-1", true, UNIX_EPOCH);
+        let rendered = custom.render_i3bar(8);
         assert!(rendered.starts_with("|[dev]"), "{rendered}");
         assert!(!rendered.contains("| 1 | 2"), "{rendered}");
+
+        let numeric = BarModel::new("3", 1, "native-1", true, UNIX_EPOCH);
+        let rendered = numeric.render_i3bar(8);
+        assert!(rendered.starts_with("|[3]"), "{rendered}");
+        assert_eq!(
+            numeric.workspace_chip_labels_active_first(),
+            vec!["3", "1", "2"]
+        );
     }
 
     #[test]

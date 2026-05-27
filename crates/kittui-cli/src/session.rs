@@ -4063,14 +4063,13 @@ fn native_graphical_top_bar_overlay_clear(row: u16) -> String {
 }
 
 fn native_graphical_top_bar_overlay_labels(model: &BarModel, cols: u16) -> Vec<String> {
-    let mut labels = model.workspace_chip_labels();
+    let labels = model.workspace_chip_labels();
     let total_cols = labels
         .iter()
         .map(|label| label.chars().count() as u16 + 3)
         .sum::<u16>();
-    let workspace = model.workspace.trim();
-    if total_cols > cols && !matches!(workspace, "" | "1" | "2" | "3") {
-        labels.sort_by_key(|label| usize::from(label != workspace));
+    if total_cols > cols {
+        return model.workspace_chip_labels_active_first();
     }
     labels
 }
@@ -4518,7 +4517,7 @@ mod native_pane_tests {
     }
 
     #[test]
-    fn graphical_top_bar_overlay_labels_prioritize_custom_when_constrained() {
+    fn graphical_top_bar_overlay_labels_prioritize_active_when_constrained() {
         let model = BarModel::new("dev", 0, "-", true, std::time::UNIX_EPOCH);
         assert_eq!(
             native_graphical_top_bar_overlay_labels(&model, 80),
@@ -4531,7 +4530,7 @@ mod native_pane_tests {
         let numeric = BarModel::new("2", 0, "-", true, std::time::UNIX_EPOCH);
         assert_eq!(
             native_graphical_top_bar_overlay_labels(&numeric, 8),
-            vec!["1", "2", "3"]
+            vec!["2", "1", "3"]
         );
     }
 
