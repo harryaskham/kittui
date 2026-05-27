@@ -512,7 +512,12 @@ fn parse_args() -> Result<Cli> {
                 let text = args
                     .next()
                     .ok_or_else(|| anyhow!("--send-text WINDOW TEXT"))?;
-                out.automation_request = Some(automation_request("SEND_TEXT", &window, &text)?);
+                out.automation_request = Some(text_payload_request(
+                    "SEND_TEXT",
+                    &window,
+                    &text,
+                    "--send-text",
+                )?);
             }
             "--send-line" => {
                 let window = args
@@ -521,7 +526,12 @@ fn parse_args() -> Result<Cli> {
                 let text = args
                     .next()
                     .ok_or_else(|| anyhow!("--send-line WINDOW TEXT"))?;
-                out.automation_request = Some(automation_request("SEND_LINE", &window, &text)?);
+                out.automation_request = Some(text_payload_request(
+                    "SEND_LINE",
+                    &window,
+                    &text,
+                    "--send-line",
+                )?);
             }
             "--send-key" => {
                 let window = args
@@ -1471,7 +1481,7 @@ fn default_window_payload_alias(verb: &str, label: &str, argv: &[String]) -> Res
         [] => return Err(anyhow!("usage: kittwm {label} [WINDOW] VALUE")),
         _ => return Err(anyhow!("usage: kittwm {label} [WINDOW] VALUE")),
     };
-    automation_request(verb, window, payload)
+    text_payload_request(verb, window, payload, label)
 }
 
 fn parse_pane_control_alias(alias: &str, mut args: impl Iterator<Item = String>) -> Result<String> {
@@ -2731,6 +2741,13 @@ fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String>
     } else {
         Ok(format!("{verb} {window} {payload}"))
     }
+}
+
+fn text_payload_request(verb: &str, window: &str, text: &str, label: &str) -> Result<String> {
+    if text.is_empty() {
+        return Err(anyhow!("{label} text must be nonempty"));
+    }
+    automation_request(verb, window, text)
 }
 
 fn semantic_snapshot_request(window: &str) -> Result<String> {
@@ -7441,9 +7458,14 @@ END
     #[test]
     fn automation_request_preserves_payload_case_and_spaces() {
         assert_eq!(
-            automation_request("send_line", "focused", "echo Mixed Case").unwrap(),
+            text_payload_request("send_line", "focused", "echo Mixed Case", "line").unwrap(),
             "SEND_LINE focused echo Mixed Case"
         );
+        assert_eq!(
+            text_payload_request("send_text", "focused", "   ", "type").unwrap(),
+            "SEND_TEXT focused    "
+        );
+        assert!(text_payload_request("send_text", "focused", "", "type").is_err());
         assert_eq!(
             automation_request("read_text", "native-2", "").unwrap(),
             "READ_TEXT native-2"
