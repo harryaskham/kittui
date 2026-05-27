@@ -75,7 +75,7 @@ impl BarModel {
     pub fn render_i3bar(&self, cols: usize) -> String {
         let mut left = self.workspace_chips_text();
         let clock = self.time.strip_suffix(" UTC").unwrap_or(&self.time);
-        let right = format!(" {clock} ");
+        let right = top_bar_clock_text(clock);
         if cols == 0 {
             let mut out = String::with_capacity(left.len().saturating_add(right.len()));
             out.push_str(&left);
@@ -276,6 +276,14 @@ impl BarModel {
         ));
         scene
     }
+}
+
+fn top_bar_clock_text(clock: &str) -> String {
+    let mut out = String::with_capacity(clock.len().saturating_add(2));
+    out.push(' ');
+    out.push_str(clock);
+    out.push(' ');
+    out
 }
 
 fn push_chars_until(out: &mut String, text: &str, max_chars: usize) {
@@ -614,6 +622,12 @@ mod tests {
     fn top_bar_clock_chip_skips_when_workspace_chips_overlap() {
         assert_eq!(top_bar_clock_chip_x(320.0, 80.0, 72.0), Some(247.0));
         assert_eq!(top_bar_clock_chip_x(160.0, 100.0, 72.0), None);
+    }
+
+    #[test]
+    fn top_bar_clock_text_wraps_trimmed_clock() {
+        assert_eq!(top_bar_clock_text("09:05"), " 09:05 ");
+        assert_eq!(top_bar_clock_text(""), "  ");
     }
 
     #[test]
