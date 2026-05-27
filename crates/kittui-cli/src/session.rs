@@ -3492,7 +3492,7 @@ fn native_toast_scene(
         } else {
             InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Neon)
         };
-    let msg_cols = trimmed.chars().count() as u16;
+    let msg_cols = native_toast_message_cols(trimmed);
     let toast_cols = msg_cols
         .saturating_add(4)
         .clamp(20, cols.saturating_sub(4).max(20));
@@ -3570,6 +3570,10 @@ fn native_toast_scene(
             animation: None,
         },
     ))
+}
+
+fn native_toast_message_cols(message: &str) -> u16 {
+    message.chars().count().min(u16::MAX as usize) as u16
 }
 
 fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str) -> Scene {
@@ -6399,6 +6403,20 @@ mod native_pane_tests {
         assert!(metrics["total_pixels"].as_u64().unwrap() > 0, "{metrics}");
         assert_eq!(metrics["cell_width_px"], NATIVE_CELL_WIDTH_PX);
         assert_eq!(metrics["cell_height_px"], NATIVE_CELL_HEIGHT_PX);
+    }
+
+    #[test]
+    fn native_toast_scene_saturates_long_message_width() {
+        let long = format!("launcher.error {}", "x".repeat(u16::MAX as usize));
+        assert_eq!(native_toast_message_cols(&long), u16::MAX);
+        let (_x, _y, scene) = native_toast_scene(CellSize::new(8, 16), 80, 24, &long).unwrap();
+        assert_eq!(scene.footprint.cols, 76);
+        assert_eq!(scene.footprint.rows, 3);
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("toast-text:")));
     }
 
     #[test]
