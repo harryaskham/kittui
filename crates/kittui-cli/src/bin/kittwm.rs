@@ -6061,16 +6061,44 @@ fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> V
 }
 
 fn candidate_match_score(item: &str, lower_query: &str) -> Option<u8> {
-    let lower_item = item.to_ascii_lowercase();
-    if lower_item == lower_query {
+    if ascii_casefold_eq_lower(item, lower_query) {
         Some(0)
-    } else if lower_item.starts_with(lower_query) {
+    } else if ascii_casefold_starts_with_lower(item, lower_query) {
         Some(1)
-    } else if lower_item.contains(lower_query) {
+    } else if ascii_casefold_contains_lower(item, lower_query) {
         Some(2)
     } else {
         None
     }
+}
+
+fn ascii_casefold_eq_lower(item: &str, lower_query: &str) -> bool {
+    item.len() == lower_query.len() && ascii_casefold_starts_with_lower(item, lower_query)
+}
+
+fn ascii_casefold_starts_with_lower(item: &str, lower_query: &str) -> bool {
+    let item = item.as_bytes();
+    let query = lower_query.as_bytes();
+    item.len() >= query.len()
+        && item
+            .iter()
+            .zip(query.iter())
+            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+}
+
+fn ascii_casefold_contains_lower(item: &str, lower_query: &str) -> bool {
+    let item = item.as_bytes();
+    let query = lower_query.as_bytes();
+    if query.is_empty() {
+        return true;
+    }
+    item.len() >= query.len()
+        && item.windows(query.len()).any(|window| {
+            window
+                .iter()
+                .zip(query.iter())
+                .all(|(a, b)| a.to_ascii_lowercase() == *b)
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -7374,6 +7402,33 @@ mod tests {
                 .all(|label| !label.contains(&"row-".repeat(32))),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn filter_candidates_prefers_exact_then_prefix_matches() {
+        let items = vec![
+            "multixterm".to_string(),
+            "xterm".to_string(),
+            "xtermcontrol".to_string(),
+        ];
+        assert_eq!(
+            filter_candidates(items, Some("xterm"), 10),
+            vec![
+                "xterm".to_string(),
+                "xtermcontrol".to_string(),
+                "multixterm".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn candidate_match_score_avoids_candidate_lowercase_allocation() {
+        let huge = format!("{}Needle{}", "x".repeat(10_000), "y".repeat(10_000));
+        assert_eq!(candidate_match_score("Needle", "needle"), Some(0));
+        assert_eq!(candidate_match_score("NeedleSuffix", "needle"), Some(1));
+        assert_eq!(candidate_match_score(&huge, "needle"), Some(2));
+        assert_eq!(candidate_match_score(&huge, "missing"), None);
+        assert!(ascii_casefold_contains_lower("RésuméNeedle", "needle"));
     }
 
     #[test]
