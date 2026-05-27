@@ -4579,7 +4579,7 @@ fn panes_scene_for_cols(panes: &serde_json::Value, cols: u16) -> Scene {
         .get("layout")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("-");
-    let rows = (details.len() as u16 + 4).clamp(5, 18);
+    let rows = panes_scene_rows(details.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -4665,6 +4665,11 @@ fn panes_scene_for_cols(panes: &serde_json::Value, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn panes_scene_rows(detail_count: usize) -> u16 {
+    let rows = detail_count.saturating_add(4).min(u16::MAX as usize) as u16;
+    rows.clamp(5, 18)
 }
 
 fn session_graphical_cmd(kitty: bool) -> Result<()> {
@@ -7705,6 +7710,33 @@ END
                 .any(|label| label.contains("kittwm-event-row:2:pane_frame_presented")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn panes_scene_rows_saturate_large_detail_counts() {
+        assert_eq!(panes_scene_rows(0), 5);
+        assert_eq!(panes_scene_rows(3), 7);
+        assert_eq!(panes_scene_rows(usize::MAX), 18);
+
+        let details = (0..128)
+            .map(|idx| {
+                serde_json::json!({
+                    "window": format!("native-{idx}"),
+                    "title": "shell",
+                    "focused": false,
+                    "app_cols": 80,
+                    "app_rows": 24
+                })
+            })
+            .collect::<Vec<_>>();
+        let panes = serde_json::json!({
+            "panes": details.len(),
+            "focus": "native-1",
+            "layout": "columns",
+            "panes_detail": details
+        });
+        let scene = panes_scene_for_cols(&panes, 80);
+        assert_eq!(scene.footprint.rows, 18);
     }
 
     #[test]
