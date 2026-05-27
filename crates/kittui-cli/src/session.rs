@@ -308,6 +308,14 @@ fn update_native_idle_counter(counter: &mut u16, emitted: bool) {
     }
 }
 
+fn raw_compositor_current_frame_target(
+    active_target: Duration,
+    idle_target: Duration,
+    consecutive_idle_frames: u16,
+) -> Duration {
+    native_current_frame_target(active_target, idle_target, consecutive_idle_frames)
+}
+
 fn native_pane_statuses_changed(
     last: &[crate::daemon::NativePaneStatus],
     next: &[crate::daemon::NativePaneStatus],
@@ -4380,6 +4388,15 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_idle_pacing_uses_native_idle_policy() {
+        let active = Duration::from_millis(16);
+        let idle = Duration::from_millis(100);
+        assert_eq!(raw_compositor_current_frame_target(active, idle, 0), active);
+        assert_eq!(raw_compositor_current_frame_target(active, idle, 1), active);
+        assert_eq!(raw_compositor_current_frame_target(active, idle, 2), idle);
+    }
+
+    #[test]
     fn native_pane_statuses_changed_detects_stable_snapshots() {
         let status = crate::daemon::NativePaneStatus {
             window: "native-1".to_string(),
@@ -7598,6 +7615,8 @@ pub fn run_loop_with<S: XServer>(
 
     let fps = opts.fps.clamp(1, 240);
     let frame_target = Duration::from_micros(1_000_000 / fps as u64);
+    let idle_frame_target = native_idle_frame_target(frame_target);
+    let mut consecutive_idle_frames = 0u16;
     // Live fps tracking: instantaneous over the last 30 frames + peak.
     let mut fps_window_start = std::time::Instant::now();
     let mut fps_window_frames = 0u32;
@@ -8237,9 +8256,12 @@ pub fn run_loop_with<S: XServer>(
                 }
                 launcher_overlay_was_active = launcher_overlay.active;
                 picker_overlay_was_active = picker_overlay.active;
-                if should_flush_compositor_frame(wrote_frame_output) {
-                    frame_out.write_to(&mut handle)?;
-                }
+                let emitted = if should_flush_compositor_frame(wrote_frame_output) {
+                    frame_out.write_to(&mut handle)?
+                } else {
+                    false
+                };
+                update_native_idle_counter(&mut consecutive_idle_frames, emitted);
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -8255,15 +8277,25 @@ pub fn run_loop_with<S: XServer>(
                         dbg.path_display()
                     )?;
                     handle.flush()?;
+                    update_native_idle_counter(&mut consecutive_idle_frames, true);
                     last_error_key = Some(error_key);
+                } else {
+                    update_native_idle_counter(&mut consecutive_idle_frames, false);
                 }
                 launcher_overlay_was_active = launcher_overlay.active;
                 picker_overlay_was_active = picker_overlay.active;
             }
         }
 
+        let current_frame_target = raw_compositor_current_frame_target(
+            frame_target,
+            idle_frame_target,
+            consecutive_idle_frames,
+        );
         let elapsed = frame_start.elapsed();
-        let remaining = frame_target.checked_sub(elapsed).unwrap_or_default();
+        let remaining = current_frame_target
+            .checked_sub(elapsed)
+            .unwrap_or_default();
         if remaining > Duration::ZERO {
             let mut chunk = [0u8; 512];
             // Brief stdin poll with a 1ms cap so even on a fd that returns
@@ -8285,7 +8317,7 @@ pub fn run_loop_with<S: XServer>(
             // responsiveness on a backgrounded stdin).
             loop {
                 let used = frame_start.elapsed();
-                let Some(slack) = frame_target.checked_sub(used) else {
+                let Some(slack) = current_frame_target.checked_sub(used) else {
                     break;
                 };
                 if slack < Duration::from_micros(500) {
@@ -8297,7 +8329,7 @@ pub fn run_loop_with<S: XServer>(
             dbg.log(&format!(
                 "frame {frame} budget blown: {} ms (target {} ms)",
                 elapsed.as_millis(),
-                frame_target.as_millis()
+                current_frame_target.as_millis()
             ));
         }
 
