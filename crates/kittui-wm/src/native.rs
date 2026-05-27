@@ -3618,6 +3618,16 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key_with_modifiers("End", "End", 35, BROWSER_SHIFT_MODIFIER)
     }
 
+    /// Dispatch a Ctrl+Home key press/release to the focused page element.
+    pub fn send_ctrl_home(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Home", "Home", 36, BROWSER_CTRL_MODIFIER)
+    }
+
+    /// Dispatch a Ctrl+End key press/release to the focused page element.
+    pub fn send_ctrl_end(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("End", "End", 35, BROWSER_CTRL_MODIFIER)
+    }
+
     /// Dispatch an arrow-key press/release to the focused page element.
     pub fn send_arrow_key(&mut self, direction: BrowserArrowKey) -> Result<()> {
         let (key, code, key_code) = direction.key_fields();
@@ -5956,6 +5966,20 @@ mod tests {
         assert_eq!(shift_end["windowsVirtualKeyCode"], 35);
         assert_eq!(shift_end["nativeVirtualKeyCode"], 35);
         assert_eq!(shift_end["modifiers"], BROWSER_SHIFT_MODIFIER);
+        let ctrl_home =
+            browser_key_event_params_with_modifiers("Home", "Home", 36, BROWSER_CTRL_MODIFIER);
+        assert_eq!(ctrl_home["key"], "Home");
+        assert_eq!(ctrl_home["code"], "Home");
+        assert_eq!(ctrl_home["windowsVirtualKeyCode"], 36);
+        assert_eq!(ctrl_home["nativeVirtualKeyCode"], 36);
+        assert_eq!(ctrl_home["modifiers"], BROWSER_CTRL_MODIFIER);
+        let ctrl_end =
+            browser_key_event_params_with_modifiers("End", "End", 35, BROWSER_CTRL_MODIFIER);
+        assert_eq!(ctrl_end["key"], "End");
+        assert_eq!(ctrl_end["code"], "End");
+        assert_eq!(ctrl_end["windowsVirtualKeyCode"], 35);
+        assert_eq!(ctrl_end["nativeVirtualKeyCode"], 35);
+        assert_eq!(ctrl_end["modifiers"], BROWSER_CTRL_MODIFIER);
         let (page_up_key, page_up_code, page_up_code_num) = BrowserPageKey::Up.key_fields();
         let page_up = browser_key_event_params(page_up_key, page_up_code, page_up_code_num);
         assert_eq!(page_up["key"], "PageUp");
