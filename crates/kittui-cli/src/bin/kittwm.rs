@@ -5736,7 +5736,6 @@ fn path_commands(limit: usize) -> Vec<String> {
     out.into_iter().take(limit).collect()
 }
 
-#[cfg(target_os = "macos")]
 fn macos_apps(limit: usize) -> Vec<String> {
     let mut out = std::collections::BTreeSet::new();
     for root in ["/Applications", "/System/Applications"] {
@@ -6822,6 +6821,42 @@ mod tests {
                 .any(|label| label.contains("kittwm-launcher-row:2:macos:Terminal:selected=true")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn apps_scene_row_rects_fit_narrow_widths() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_INFO_COLS", "8");
+        let summary = AppsSummary {
+            default_cmd: "xterm".to_string(),
+            default_resolved: Some("/usr/bin/xterm".to_string()),
+            filter: Some("term".to_string()),
+            limit: 5,
+            path_commands: vec!["xterm".to_string(), "alacritty".to_string()],
+            macos_apps: vec!["Terminal".to_string()],
+        };
+        let scene = apps_scene(&summary);
+        assert_eq!(scene.footprint.cols, 8);
+        let width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if layer
+                .label
+                .as_deref()
+                .unwrap_or_default()
+                .contains("kittwm-app-row:")
+            {
+                let Node::Rect { rect, .. } = &layer.root else {
+                    panic!("expected row rect");
+                };
+                assert!(rect.origin.0 >= 0.0, "{rect:?}");
+                assert!(rect.width >= 1.0, "{rect:?}");
+                assert!(
+                    rect.origin.0 + rect.width <= width + 0.01,
+                    "{rect:?} > {width}"
+                );
+            }
+        }
+        std::env::remove_var("KITTWM_INFO_COLS");
     }
 
     #[test]
