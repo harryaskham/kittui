@@ -336,7 +336,7 @@ fn terminal_scene_label_text(text: &str, max: usize) -> String {
     let mut out = String::with_capacity(max);
     for _ in 0..max {
         let Some(ch) = chars.next() else {
-            return text.to_string();
+            return out;
         };
         out.push(ch);
     }
@@ -345,7 +345,7 @@ fn terminal_scene_label_text(text: &str, max: usize) -> String {
         out.push('…');
         out
     } else {
-        text.to_string()
+        out
     }
 }
 
@@ -692,7 +692,9 @@ mod tests {
         assert_eq!(clipped, "terminal-event-…");
         assert_eq!(clipped.chars().count(), 16);
         assert!(clipped.capacity() >= 16);
-        assert_eq!(terminal_scene_label_text("short", 16), "short");
+        let short = terminal_scene_label_text("short", 16);
+        assert_eq!(short, "short");
+        assert!(short.capacity() >= 16);
         assert_eq!(terminal_scene_label_text("anything", 1), "…");
         assert_eq!(terminal_scene_label_text("anything", 0), "");
     }
