@@ -6271,12 +6271,13 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
     let height = rows as f32 * cell.height_px as f32;
     let selected = candidates
         .get(selected_idx)
-        .map(|candidate| format!("{}:{}", candidate.kind, candidate.name))
+        .map(|candidate| format!("{}:{}", candidate.kind, truncate(&candidate.name, 48)))
         .unwrap_or_else(|| "none:<none>".to_string());
+    let query_label = truncate(query, 48);
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-launcher-backdrop:query={query}:selected={}:count={}",
+                "kittwm-launcher-backdrop:query={query_label}:selected={}:count={}",
                 selected_idx + 1,
                 candidates.len()
             )),
@@ -6314,12 +6315,12 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
     for (idx, candidate) in candidates.iter().take(18).enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         let selected = idx == selected_idx;
+        let name_label = truncate(&candidate.name, 48);
         layers.push(Layer {
             label: Some(format!(
-                "kittwm-launcher-row:{}:{}:{}:selected={selected}",
+                "kittwm-launcher-row:{}:{}:{name_label}:selected={selected}",
                 idx + 1,
-                candidate.kind,
-                candidate.name
+                candidate.kind
             )),
             root: Node::Rect {
                 rect: launcher_scene_row_rect(width, y),
@@ -7458,6 +7459,58 @@ mod tests {
                 .any(|label| label.contains("kittwm-launcher-row:2:macos:Terminal:selected=true")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn launcher_scene_clips_pathological_label_fields() {
+        let candidates = vec![
+            AppCandidate {
+                kind: "path",
+                name: "path-command-name-that-is-pathologically-long-and-bloats-labels".to_string(),
+            },
+            AppCandidate {
+                kind: "macos",
+                name: "macOS Application Name That Is Pathologically Long And Bloats Labels"
+                    .to_string(),
+            },
+        ];
+        let scene = launcher_scene(
+            "query-value-that-is-pathologically-long-and-would-bloat-labels",
+            1,
+            &candidates,
+        );
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let backdrop = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-launcher-backdrop:"))
+            .unwrap();
+        assert!(
+            backdrop.contains("query=query-value-that-is-pathologically-long-and-wou…"),
+            "{backdrop}"
+        );
+        assert!(backdrop.len() < 120, "{backdrop}");
+        let heading = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-launcher-heading:"))
+            .unwrap();
+        assert!(
+            heading.contains("selected=macos:macOS Application Name That Is Pathologically L…"),
+            "{heading}"
+        );
+        assert!(heading.len() < 100, "{heading}");
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-launcher-row:1:path:path-command-name-that-is-pathologically-long-a…"
+            )),
+            "{labels:?}"
+        );
+        assert!(labels
+            .iter()
+            .any(|label| label.contains("kittwm-launcher-row:2:macos:macOS Application Name That Is Pathologically L…:selected=true")), "{labels:?}");
     }
 
     #[test]
