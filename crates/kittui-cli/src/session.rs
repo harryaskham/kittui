@@ -295,11 +295,13 @@ fn reset_native_app_frame_memos_for_clear(
     }
 }
 
+const DEFAULT_NATIVE_IDLE_FPS: u32 = 4;
+
 fn native_idle_frame_target(active_target: Duration) -> Duration {
     let idle_fps = std::env::var("KITTWM_IDLE_FPS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(10u32)
+        .unwrap_or(DEFAULT_NATIVE_IDLE_FPS)
         .clamp(1, 60);
     Duration::from_micros(1_000_000 / idle_fps as u64).max(active_target)
 }
@@ -5079,6 +5081,22 @@ mod native_pane_tests {
         assert_eq!(counter, 2);
         update_native_idle_counter_for_activity(&mut counter, false, true);
         assert_eq!(counter, 0);
+    }
+
+    #[test]
+    fn native_idle_frame_target_defaults_to_calm_four_fps() {
+        std::env::remove_var("KITTWM_IDLE_FPS");
+        assert_eq!(DEFAULT_NATIVE_IDLE_FPS, 4);
+        assert_eq!(
+            native_idle_frame_target(Duration::from_millis(16)),
+            Duration::from_millis(250)
+        );
+        std::env::set_var("KITTWM_IDLE_FPS", "20");
+        assert_eq!(
+            native_idle_frame_target(Duration::from_millis(16)),
+            Duration::from_millis(50)
+        );
+        std::env::remove_var("KITTWM_IDLE_FPS");
     }
 
     #[test]
