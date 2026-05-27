@@ -29,6 +29,11 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
         description: "toggle this help",
     },
     NativeShortcut {
+        id: "switch_workspace",
+        keys: "C-a 1..9",
+        description: "switch/create workspace on demand",
+    },
+    NativeShortcut {
         id: "split_columns",
         keys: "C-a % / C-a |",
         description: "split columns",
@@ -65,8 +70,8 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
     },
     NativeShortcut {
         id: "exit_kittwm",
-        keys: "Ctrl-]",
-        description: "exit kittwm",
+        keys: "Ctrl-C×3 then y / Ctrl-]",
+        description: "confirm and exit kittwm",
     },
 ];
 
@@ -82,6 +87,7 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a Enter / C-a t  launch terminal",
     "C-a g              open launcher",
     "C-a ?              toggle this help",
+    "C-a 1..9           switch/create workspace on demand",
     "C-a % / C-a |      split columns",
     "C-a -              split rows",
     "C-a Tab            focus next pane",
@@ -89,7 +95,8 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a +/-            resize focused pane",
     "C-a [ / C-a ]      move focused pane",
     "C-a b              balance panes",
-    "Ctrl-]             exit kittwm",
+    "Ctrl-C×3 then y    confirm and exit kittwm",
+    "Ctrl-]             emergency/direct exit",
     NATIVE_SHORTCUT_COMMAND_HINTS[0],
     NATIVE_SHORTCUT_COMMAND_HINTS[1],
 ];
@@ -133,6 +140,9 @@ mod tests {
         assert!(text.contains("launch terminal"), "{text}");
         assert!(text.contains("open launcher"), "{text}");
         assert!(text.contains("toggle this help"), "{text}");
+        assert!(text.contains("C-a 1..9"), "{text}");
+        assert!(text.contains("switch/create workspace"), "{text}");
+        assert!(text.contains("Ctrl-C×3 then y"), "{text}");
         assert!(text.contains("Ctrl-]"), "{text}");
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("kittwm cheat"), "{text}");
@@ -150,7 +160,12 @@ mod tests {
             .any(|entry| entry["id"] == "launch_terminal"));
         assert!(shortcuts.iter().any(|entry| entry["id"] == "open_launcher"));
         assert!(shortcuts.iter().any(|entry| entry["id"] == "toggle_help"));
-        assert!(shortcuts.iter().any(|entry| entry["keys"] == "Ctrl-]"));
+        assert!(shortcuts
+            .iter()
+            .any(|entry| entry["id"] == "switch_workspace" && entry["keys"] == "C-a 1..9"));
+        assert!(shortcuts
+            .iter()
+            .any(|entry| entry["keys"] == "Ctrl-C×3 then y / Ctrl-]"));
         assert!(shortcuts
             .iter()
             .all(|entry| entry["id"] != "daily_driver_commands"));

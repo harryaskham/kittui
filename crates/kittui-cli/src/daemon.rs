@@ -3787,7 +3787,12 @@ mod tests {
             .iter()
             .any(|entry| entry["id"] == "launch_terminal"));
         assert!(shortcuts.iter().any(|entry| entry["id"] == "toggle_help"));
-        assert!(shortcuts.iter().any(|entry| entry["keys"] == "Ctrl-]"));
+        assert!(shortcuts
+            .iter()
+            .any(|entry| entry["id"] == "switch_workspace"));
+        assert!(shortcuts
+            .iter()
+            .any(|entry| entry["keys"] == "Ctrl-C×3 then y / Ctrl-]"));
     }
 
     #[test]
