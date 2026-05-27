@@ -4722,12 +4722,7 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
-    let summary = kinds
-        .iter()
-        .take(6)
-        .map(|kind| truncate(kind, 32))
-        .collect::<Vec<_>>()
-        .join(",");
+    let summary = events_summary_label(kinds);
     let mut layers = vec![
         Layer {
             label: Some(format!(
@@ -4786,6 +4781,17 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn events_summary_label(kinds: &[String]) -> String {
+    let mut summary = String::with_capacity(kinds.len().min(6).saturating_mul(33));
+    for kind in kinds.iter().take(6) {
+        if !summary.is_empty() {
+            summary.push(',');
+        }
+        summary.push_str(&truncate(kind, 32));
+    }
+    summary
 }
 
 fn events_scene_rows(kind_count: usize) -> u16 {
@@ -8947,6 +8953,8 @@ END
             "pane_frame_presented_with_a_pathologically_long_event_kind".to_string(),
             "another_pathologically_long_event_kind_for_heading".to_string(),
         ];
+        let summary = events_summary_label(&kinds);
+        assert!(summary.capacity() >= 3 * 33);
         let scene = events_scene_for_cols(250, &kinds, 8);
         let labels = scene
             .layers
