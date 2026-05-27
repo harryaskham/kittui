@@ -4468,7 +4468,10 @@ fn event_kinds_from_lines(lines: &str) -> Vec<String> {
 }
 
 fn events_scene(ms: u64, kinds: &[String]) -> Scene {
-    let cols = info_scene_cols();
+    events_scene_for_cols(ms, kinds, info_scene_cols())
+}
+
+fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
     let rows = (kinds.len() as u16 + 4).clamp(5, 18);
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
@@ -4516,7 +4519,7 @@ fn events_scene(ms: u64, kinds: &[String]) -> Scene {
         layers.push(Layer {
             label: Some(format!("kittwm-event-row:{idx}:{kind}")),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: info_indicator_rect(width, y),
                 fill: Paint::Solid {
                     color: Rgba::rgba(235, 203, 139, 255),
                 },
@@ -7356,6 +7359,19 @@ mod tests {
                 .any(|label| label.contains("kittwm-info-pane:native-2:focused=true:title=editor")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn events_scene_rows_fit_narrow_width() {
+        let kinds = vec!["status".to_string(), "pane_frame_presented".to_string()];
+        let scene = events_scene_for_cols(250, &kinds, 1);
+        assert_eq!(scene.footprint.cols, 1);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
     }
 
     #[test]
