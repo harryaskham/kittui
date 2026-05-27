@@ -303,12 +303,15 @@ fn kittwm_bar_overlay_fit_chip_text(label: &str, cols: u16, used_cols: u16) -> O
 }
 
 fn kittwm_bar_overlay_clock_col(cols: u16, workspace_cols: u16, clock_cols: u16) -> Option<u16> {
+    if clock_cols > cols {
+        return None;
+    }
     let min_gap = 1;
     (workspace_cols
         .saturating_add(min_gap)
         .saturating_add(clock_cols)
         <= cols)
-        .then(|| cols.saturating_sub(clock_cols).saturating_add(1).max(1))
+        .then(|| cols - clock_cols + 1)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -634,6 +637,7 @@ mod tests {
         assert!(!overlay.contains(" 09:05 "), "{overlay:?}");
         assert_eq!(kittwm_bar_overlay_clock_col(40, 12, 7), Some(34));
         assert_eq!(kittwm_bar_overlay_clock_col(18, 20, 7), None);
+        assert_eq!(kittwm_bar_overlay_clock_col(4, 0, 7), None);
     }
 
     #[test]
