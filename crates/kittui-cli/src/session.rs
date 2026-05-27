@@ -83,6 +83,23 @@ struct NativeAppPlacementDecision {
     write_placement: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct NativeFrameWriteBytes {
+    upload: usize,
+    placement: usize,
+    embed: usize,
+}
+
+impl NativeFrameWriteBytes {
+    fn add(&mut self, placement: &kittui::Placement, include_upload: bool) {
+        if include_upload {
+            self.upload += placement.upload.as_bytes().len();
+        }
+        self.placement += placement.placement.as_bytes().len();
+        self.embed += placement.embed.as_bytes().len();
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct NativePngFrameDecision {
     upload: bool,
@@ -811,6 +828,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     let placement_options =
                         kittui_kitty::PlacementOptions::stable_absolute(pane.image_id)
                             .with_z_index(native_app_z_index());
+                    let mut write_bytes = NativeFrameWriteBytes::default();
                     if placement_write.write_upload {
                         let p = runtime.place_raw_frame_with_options(
                             pane.image_id,
@@ -824,6 +842,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         if placement_write.write_placement {
                             frame_out.write_all(p.placement.as_bytes())?;
                             frame_out.write_all(p.embed.as_bytes())?;
+                            write_bytes.add(&p, true);
+                        } else {
+                            write_bytes.upload += p.upload.as_bytes().len();
                         }
                     } else if placement_write.write_placement {
                         let p = runtime.place_uploaded_image_with_options(
@@ -833,6 +854,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         );
                         frame_out.write_all(p.placement.as_bytes())?;
                         frame_out.write_all(p.embed.as_bytes())?;
+                        write_bytes.add(&p, false);
                     }
                     if should_publish_native_frame_event(
                         decision.upload,
@@ -853,13 +875,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 skipped_upload: decision.metrics.skipped_upload,
                                 changed_tiles: Some(decision.metrics.changed_tiles),
                                 total_tiles: Some(decision.metrics.total_tiles),
-                                upload_bytes: if decision.upload {
-                                    Some(rgba.len())
-                                } else {
-                                    Some(0)
-                                },
-                                placement_bytes: Some(usize::from(placement_write.write_placement)),
-                                embed_bytes: Some(0),
+                                upload_bytes: Some(write_bytes.upload),
+                                placement_bytes: Some(write_bytes.placement),
+                                embed_bytes: Some(write_bytes.embed),
                                 elapsed_us: Some(
                                     frame_start.elapsed().as_micros().min(u128::from(u64::MAX))
                                         as u64,
@@ -888,6 +906,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     let placement_options =
                         kittui_kitty::PlacementOptions::stable_absolute(pane.image_id)
                             .with_z_index(native_app_z_index());
+                    let mut write_bytes = NativeFrameWriteBytes::default();
                     if decision.upload {
                         let p = runtime.place_png_frame_with_options(
                             pane.image_id,
@@ -899,6 +918,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         if decision.placement.write_placement {
                             frame_out.write_all(p.placement.as_bytes())?;
                             frame_out.write_all(p.embed.as_bytes())?;
+                            write_bytes.add(&p, true);
+                        } else {
+                            write_bytes.upload += p.upload.as_bytes().len();
                         }
                     } else if decision.placement.write_placement {
                         let p = runtime.place_uploaded_image_with_options(
@@ -908,6 +930,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         );
                         frame_out.write_all(p.placement.as_bytes())?;
                         frame_out.write_all(p.embed.as_bytes())?;
+                        write_bytes.add(&p, false);
                     }
                     pane.dirty_frame = Some(NativeDirtyFrameMetrics {
                         changed_tiles: 0,
@@ -934,15 +957,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 skipped_upload: !decision.upload,
                                 changed_tiles: None,
                                 total_tiles: None,
-                                upload_bytes: if decision.upload {
-                                    Some(bytes.len())
-                                } else {
-                                    Some(0)
-                                },
-                                placement_bytes: Some(usize::from(
-                                    decision.placement.write_placement,
-                                )),
-                                embed_bytes: Some(0),
+                                upload_bytes: Some(write_bytes.upload),
+                                placement_bytes: Some(write_bytes.placement),
+                                embed_bytes: Some(write_bytes.embed),
                                 elapsed_us: Some(
                                     frame_start.elapsed().as_micros().min(u128::from(u64::MAX))
                                         as u64,
@@ -3946,6 +3963,29 @@ mod native_pane_tests {
         );
         assert!(changed.upload);
         assert!(!changed.placement.write_placement);
+    }
+
+    #[test]
+    fn native_frame_write_bytes_counts_actual_sequences() {
+        let placement = kittui::Placement {
+            image_id: 42,
+            upload: "\x1b_Gupload\x1b\\".to_string(),
+            placement: "\x1b_Gplace\x1b\\".to_string(),
+            embed: "▓▓".to_string(),
+            footprint: CellRect::new(0, 0, 2, 1),
+        };
+        let mut bytes = NativeFrameWriteBytes::default();
+        bytes.add(&placement, true);
+        assert_eq!(bytes.upload, placement.upload.as_bytes().len());
+        assert_eq!(bytes.placement, placement.placement.as_bytes().len());
+        assert_eq!(bytes.embed, placement.embed.as_bytes().len());
+        assert!(bytes.embed > placement.embed.chars().count());
+
+        let mut move_only = NativeFrameWriteBytes::default();
+        move_only.add(&placement, false);
+        assert_eq!(move_only.upload, 0);
+        assert_eq!(move_only.placement, placement.placement.as_bytes().len());
+        assert_eq!(move_only.embed, placement.embed.as_bytes().len());
     }
 
     #[test]
