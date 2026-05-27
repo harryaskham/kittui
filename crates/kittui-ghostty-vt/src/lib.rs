@@ -18,6 +18,7 @@ mod ffi {
 
     pub type GhosttyResult = i32;
     pub const GHOSTTY_SUCCESS: GhosttyResult = 0;
+    pub const GHOSTTY_NO_VALUE: GhosttyResult = -4;
     pub const GHOSTTY_OUT_OF_SPACE: GhosttyResult = -3;
 
     #[repr(C)]
@@ -27,6 +28,9 @@ mod ffi {
 
     pub type GhosttyTerminal = *mut c_void;
     pub type GhosttyFormatter = *mut c_void;
+    pub type GhosttyKittyGraphics = *mut c_void;
+    pub type GhosttyKittyGraphicsImage = *const c_void;
+    pub type GhosttyKittyGraphicsPlacementIterator = *mut c_void;
     pub type GhosttyRenderState = *mut c_void;
     pub type GhosttyRenderStateRowIterator = *mut c_void;
     pub type GhosttyRenderStateRowCells = *mut c_void;
@@ -111,6 +115,23 @@ mod ffi {
     }
 
     #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
+    pub struct GhosttyKittyGraphicsPlacementRenderInfo {
+        pub size: usize,
+        pub pixel_width: u32,
+        pub pixel_height: u32,
+        pub grid_cols: u32,
+        pub grid_rows: u32,
+        pub viewport_col: i32,
+        pub viewport_row: i32,
+        pub viewport_visible: bool,
+        pub source_x: u32,
+        pub source_y: u32,
+        pub source_width: u32,
+        pub source_height: u32,
+    }
+
+    #[repr(C)]
     #[derive(Clone, Copy)]
     pub union GhosttyStyleColorValue {
         pub palette: u8,
@@ -148,6 +169,24 @@ mod ffi {
     pub const GHOSTTY_TERMINAL_DATA_CURSOR_X: i32 = 3;
     pub const GHOSTTY_TERMINAL_DATA_CURSOR_Y: i32 = 4;
     pub const GHOSTTY_TERMINAL_DATA_TITLE: i32 = 12;
+    pub const GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS: i32 = 30;
+
+    pub const GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT: i32 = 15;
+
+    pub const GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR: i32 = 1;
+    pub const GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID: i32 = 1;
+    pub const GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID: i32 = 2;
+    pub const GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL: i32 = 3;
+    pub const GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS: i32 = 10;
+    pub const GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS: i32 = 11;
+    pub const GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z: i32 = 12;
+    pub const GHOSTTY_KITTY_IMAGE_FORMAT_RGB: i32 = 0;
+    pub const GHOSTTY_KITTY_IMAGE_FORMAT_RGBA: i32 = 1;
+    pub const GHOSTTY_KITTY_IMAGE_DATA_WIDTH: i32 = 3;
+    pub const GHOSTTY_KITTY_IMAGE_DATA_HEIGHT: i32 = 4;
+    pub const GHOSTTY_KITTY_IMAGE_DATA_FORMAT: i32 = 5;
+    pub const GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR: i32 = 7;
+    pub const GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN: i32 = 8;
 
     pub const GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR: i32 = 4;
     pub const GHOSTTY_RENDER_STATE_ROW_DATA_CELLS: i32 = 3;
@@ -164,6 +203,11 @@ mod ffi {
             options: GhosttyTerminalOptions,
         ) -> GhosttyResult;
         pub fn ghostty_terminal_free(terminal: GhosttyTerminal);
+        pub fn ghostty_terminal_set(
+            terminal: GhosttyTerminal,
+            option: i32,
+            value: *const c_void,
+        ) -> GhosttyResult;
         pub fn ghostty_terminal_vt_write(terminal: GhosttyTerminal, data: *const u8, len: usize);
         pub fn ghostty_terminal_scroll_viewport(
             terminal: GhosttyTerminal,
@@ -188,6 +232,42 @@ mod ffi {
             out_written: *mut usize,
         ) -> GhosttyResult;
         pub fn ghostty_formatter_free(formatter: GhosttyFormatter);
+
+        pub fn ghostty_kitty_graphics_get(
+            graphics: GhosttyKittyGraphics,
+            data: i32,
+            out: *mut c_void,
+        ) -> GhosttyResult;
+        pub fn ghostty_kitty_graphics_image(
+            graphics: GhosttyKittyGraphics,
+            image_id: u32,
+        ) -> GhosttyKittyGraphicsImage;
+        pub fn ghostty_kitty_graphics_image_get(
+            image: GhosttyKittyGraphicsImage,
+            data: i32,
+            out: *mut c_void,
+        ) -> GhosttyResult;
+        pub fn ghostty_kitty_graphics_placement_iterator_new(
+            allocator: *const GhosttyAllocator,
+            out_iterator: *mut GhosttyKittyGraphicsPlacementIterator,
+        ) -> GhosttyResult;
+        pub fn ghostty_kitty_graphics_placement_iterator_free(
+            iterator: GhosttyKittyGraphicsPlacementIterator,
+        );
+        pub fn ghostty_kitty_graphics_placement_next(
+            iterator: GhosttyKittyGraphicsPlacementIterator,
+        ) -> bool;
+        pub fn ghostty_kitty_graphics_placement_get(
+            iterator: GhosttyKittyGraphicsPlacementIterator,
+            data: i32,
+            out: *mut c_void,
+        ) -> GhosttyResult;
+        pub fn ghostty_kitty_graphics_placement_render_info(
+            iterator: GhosttyKittyGraphicsPlacementIterator,
+            image: GhosttyKittyGraphicsImage,
+            terminal: GhosttyTerminal,
+            out_info: *mut GhosttyKittyGraphicsPlacementRenderInfo,
+        ) -> GhosttyResult;
 
         pub fn ghostty_render_state_new(
             allocator: *const GhosttyAllocator,
@@ -266,6 +346,51 @@ pub struct GhosttyCellSnapshot {
     pub underline: i32,
 }
 
+/// Kitty graphics placement metadata extracted from libghostty-vt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GhosttyKittyPlacementSnapshot {
+    /// Image id backing the placement.
+    pub image_id: u32,
+    /// Placement id reported by the terminal.
+    pub placement_id: u32,
+    /// Whether this placement is virtual/placeholder-only.
+    pub is_virtual: bool,
+    /// Grid columns occupied by the placement.
+    pub columns: u32,
+    /// Grid rows occupied by the placement.
+    pub rows: u32,
+    /// Z-index for ordering relative to text.
+    pub z: i32,
+    /// Backing image width in pixels, when available.
+    pub image_width: Option<u32>,
+    /// Backing image height in pixels, when available.
+    pub image_height: Option<u32>,
+    /// Backing image data length in bytes, when available.
+    pub image_data_len: Option<usize>,
+    /// Backing image pixel format from libghostty-vt, when available.
+    pub image_format: Option<i32>,
+    /// Backing image bytes for renderable raw RGB/RGBA images.
+    pub image_data: Option<Vec<u8>>,
+    /// Rendered pixel width of the placement.
+    pub pixel_width: u32,
+    /// Rendered pixel height of the placement.
+    pub pixel_height: u32,
+    /// Viewport-relative column for the placement.
+    pub viewport_col: i32,
+    /// Viewport-relative row for the placement.
+    pub viewport_row: i32,
+    /// Whether libghostty-vt considers the placement visible in the viewport.
+    pub viewport_visible: bool,
+    /// Source rectangle x origin in image pixels.
+    pub source_x: u32,
+    /// Source rectangle y origin in image pixels.
+    pub source_y: u32,
+    /// Source rectangle width in image pixels.
+    pub source_width: u32,
+    /// Source rectangle height in image pixels.
+    pub source_height: u32,
+}
+
 /// Render-state rows/cells extracted from libghostty-vt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GhosttyRenderSnapshot {
@@ -279,6 +404,8 @@ pub struct GhosttyRenderSnapshot {
     pub cursor_y: u16,
     /// Row-major cell data.
     pub cells: Vec<Vec<GhosttyCellSnapshot>>,
+    /// Kitty graphics placements known to libghostty-vt.
+    pub kitty_placements: Vec<GhosttyKittyPlacementSnapshot>,
 }
 
 /// Owned libghostty-vt terminal.
@@ -308,6 +435,17 @@ impl GhosttyVtTerminal {
         if raw.is_null() {
             bail!("ghostty_terminal_new returned a null terminal");
         }
+        let storage_limit = 32_u64 * 1024 * 1024;
+        check(
+            unsafe {
+                ffi::ghostty_terminal_set(
+                    raw,
+                    ffi::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
+                    (&storage_limit as *const u64).cast::<c_void>(),
+                )
+            },
+            "ghostty_terminal_set(kitty_image_storage_limit)",
+        )?;
         Ok(Self { raw })
     }
 
@@ -416,6 +554,7 @@ impl GhosttyVtTerminal {
             cursor_x: self.get_u16(ffi::GHOSTTY_TERMINAL_DATA_CURSOR_X, "cursor_x")?,
             cursor_y: self.get_u16(ffi::GHOSTTY_TERMINAL_DATA_CURSOR_Y, "cursor_y")?,
             cells: rows,
+            kitty_placements: self.kitty_placements()?,
         })
     }
 
@@ -439,6 +578,98 @@ impl GhosttyVtTerminal {
         };
         check(result, label)?;
         Ok(out)
+    }
+
+    fn kitty_placements(&self) -> Result<Vec<GhosttyKittyPlacementSnapshot>> {
+        let mut graphics: ffi::GhosttyKittyGraphics = ptr::null_mut();
+        let result = unsafe {
+            ffi::ghostty_terminal_get(
+                self.raw,
+                ffi::GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
+                (&mut graphics as *mut ffi::GhosttyKittyGraphics).cast::<c_void>(),
+            )
+        };
+        if result == ffi::GHOSTTY_NO_VALUE || graphics.is_null() {
+            return Ok(Vec::new());
+        }
+        check(result, "kitty_graphics")?;
+
+        let mut iter: ffi::GhosttyKittyGraphicsPlacementIterator = ptr::null_mut();
+        check(
+            unsafe { ffi::ghostty_kitty_graphics_placement_iterator_new(ptr::null(), &mut iter) },
+            "ghostty_kitty_graphics_placement_iterator_new",
+        )?;
+        if iter.is_null() {
+            bail!("ghostty_kitty_graphics_placement_iterator_new returned null");
+        }
+        let mut iter = KittyPlacementIteratorGuard(iter);
+        check(
+            unsafe {
+                ffi::ghostty_kitty_graphics_get(
+                    graphics,
+                    ffi::GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR,
+                    (&mut iter.0 as *mut ffi::GhosttyKittyGraphicsPlacementIterator)
+                        .cast::<c_void>(),
+                )
+            },
+            "ghostty_kitty_graphics_get(placement_iterator)",
+        )?;
+
+        let mut placements = Vec::new();
+        while unsafe { ffi::ghostty_kitty_graphics_placement_next(iter.0) } {
+            let image_id = kitty_placement_u32(
+                iter.0,
+                ffi::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID,
+                "image_id",
+            )?;
+            let image = unsafe { ffi::ghostty_kitty_graphics_image(graphics, image_id) };
+            let image_format =
+                kitty_image_i32(image, ffi::GHOSTTY_KITTY_IMAGE_DATA_FORMAT).transpose()?;
+            let image_data_len =
+                kitty_image_usize(image, ffi::GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN).transpose()?;
+            let render_info = kitty_placement_render_info(iter.0, image, self.raw)?;
+            placements.push(GhosttyKittyPlacementSnapshot {
+                image_id,
+                placement_id: kitty_placement_u32(
+                    iter.0,
+                    ffi::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID,
+                    "placement_id",
+                )?,
+                is_virtual: kitty_placement_bool(
+                    iter.0,
+                    ffi::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_VIRTUAL,
+                    "is_virtual",
+                )?,
+                columns: kitty_placement_u32(
+                    iter.0,
+                    ffi::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS,
+                    "columns",
+                )?,
+                rows: kitty_placement_u32(
+                    iter.0,
+                    ffi::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS,
+                    "rows",
+                )?,
+                z: kitty_placement_i32(iter.0, ffi::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z, "z")?,
+                image_width: kitty_image_u32(image, ffi::GHOSTTY_KITTY_IMAGE_DATA_WIDTH)
+                    .transpose()?,
+                image_height: kitty_image_u32(image, ffi::GHOSTTY_KITTY_IMAGE_DATA_HEIGHT)
+                    .transpose()?,
+                image_data_len,
+                image_format,
+                image_data: kitty_image_bytes(image, image_format, image_data_len).transpose()?,
+                pixel_width: render_info.pixel_width,
+                pixel_height: render_info.pixel_height,
+                viewport_col: render_info.viewport_col,
+                viewport_row: render_info.viewport_row,
+                viewport_visible: render_info.viewport_visible,
+                source_x: render_info.source_x,
+                source_y: render_info.source_y,
+                source_width: render_info.source_width,
+                source_height: render_info.source_height,
+            });
+        }
+        Ok(placements)
     }
 
     fn title(&self) -> Result<String> {
@@ -516,6 +747,195 @@ impl Drop for RenderStateGuard {
     fn drop(&mut self) {
         unsafe { ffi::ghostty_render_state_free(self.0) };
     }
+}
+
+struct KittyPlacementIteratorGuard(ffi::GhosttyKittyGraphicsPlacementIterator);
+
+impl Drop for KittyPlacementIteratorGuard {
+    fn drop(&mut self) {
+        unsafe { ffi::ghostty_kitty_graphics_placement_iterator_free(self.0) };
+    }
+}
+
+fn kitty_placement_u32(
+    iter: ffi::GhosttyKittyGraphicsPlacementIterator,
+    data: i32,
+    label: &str,
+) -> Result<u32> {
+    let mut out = 0u32;
+    check(
+        unsafe {
+            ffi::ghostty_kitty_graphics_placement_get(
+                iter,
+                data,
+                (&mut out as *mut u32).cast::<c_void>(),
+            )
+        },
+        label,
+    )?;
+    Ok(out)
+}
+
+fn kitty_placement_i32(
+    iter: ffi::GhosttyKittyGraphicsPlacementIterator,
+    data: i32,
+    label: &str,
+) -> Result<i32> {
+    let mut out = 0i32;
+    check(
+        unsafe {
+            ffi::ghostty_kitty_graphics_placement_get(
+                iter,
+                data,
+                (&mut out as *mut i32).cast::<c_void>(),
+            )
+        },
+        label,
+    )?;
+    Ok(out)
+}
+
+fn kitty_placement_bool(
+    iter: ffi::GhosttyKittyGraphicsPlacementIterator,
+    data: i32,
+    label: &str,
+) -> Result<bool> {
+    let mut out = false;
+    check(
+        unsafe {
+            ffi::ghostty_kitty_graphics_placement_get(
+                iter,
+                data,
+                (&mut out as *mut bool).cast::<c_void>(),
+            )
+        },
+        label,
+    )?;
+    Ok(out)
+}
+
+fn kitty_image_u32(image: ffi::GhosttyKittyGraphicsImage, data: i32) -> Option<Result<u32>> {
+    if image.is_null() {
+        return None;
+    }
+    let mut out = 0u32;
+    Some(
+        check(
+            unsafe {
+                ffi::ghostty_kitty_graphics_image_get(
+                    image,
+                    data,
+                    (&mut out as *mut u32).cast::<c_void>(),
+                )
+            },
+            "kitty_image_u32",
+        )
+        .map(|_| out),
+    )
+}
+
+fn kitty_image_usize(image: ffi::GhosttyKittyGraphicsImage, data: i32) -> Option<Result<usize>> {
+    if image.is_null() {
+        return None;
+    }
+    let mut out = 0usize;
+    Some(
+        check(
+            unsafe {
+                ffi::ghostty_kitty_graphics_image_get(
+                    image,
+                    data,
+                    (&mut out as *mut usize).cast::<c_void>(),
+                )
+            },
+            "kitty_image_usize",
+        )
+        .map(|_| out),
+    )
+}
+
+fn kitty_image_i32(image: ffi::GhosttyKittyGraphicsImage, data: i32) -> Option<Result<i32>> {
+    if image.is_null() {
+        return None;
+    }
+    let mut out = 0i32;
+    Some(
+        check(
+            unsafe {
+                ffi::ghostty_kitty_graphics_image_get(
+                    image,
+                    data,
+                    (&mut out as *mut i32).cast::<c_void>(),
+                )
+            },
+            "kitty_image_i32",
+        )
+        .map(|_| out),
+    )
+}
+
+fn kitty_image_bytes(
+    image: ffi::GhosttyKittyGraphicsImage,
+    format: Option<i32>,
+    len: Option<usize>,
+) -> Option<Result<Vec<u8>>> {
+    if image.is_null()
+        || !matches!(
+            format,
+            Some(ffi::GHOSTTY_KITTY_IMAGE_FORMAT_RGB | ffi::GHOSTTY_KITTY_IMAGE_FORMAT_RGBA)
+        )
+    {
+        return None;
+    }
+    let len = len?;
+    let mut ptr: *const u8 = ptr::null();
+    Some(
+        check(
+            unsafe {
+                ffi::ghostty_kitty_graphics_image_get(
+                    image,
+                    ffi::GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR,
+                    (&mut ptr as *mut *const u8).cast::<c_void>(),
+                )
+            },
+            "kitty_image_data_ptr",
+        )
+        .map(|_| {
+            if ptr.is_null() || len == 0 {
+                Vec::new()
+            } else {
+                unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
+            }
+        }),
+    )
+}
+
+fn kitty_placement_render_info(
+    iter: ffi::GhosttyKittyGraphicsPlacementIterator,
+    image: ffi::GhosttyKittyGraphicsImage,
+    terminal: ffi::GhosttyTerminal,
+) -> Result<ffi::GhosttyKittyGraphicsPlacementRenderInfo> {
+    let mut info = ffi::GhosttyKittyGraphicsPlacementRenderInfo {
+        size: std::mem::size_of::<ffi::GhosttyKittyGraphicsPlacementRenderInfo>(),
+        pixel_width: 0,
+        pixel_height: 0,
+        grid_cols: 0,
+        grid_rows: 0,
+        viewport_col: 0,
+        viewport_row: 0,
+        viewport_visible: false,
+        source_x: 0,
+        source_y: 0,
+        source_width: 0,
+        source_height: 0,
+    };
+    check(
+        unsafe {
+            ffi::ghostty_kitty_graphics_placement_render_info(iter, image, terminal, &mut info)
+        },
+        "kitty_placement_render_info",
+    )?;
+    Ok(info)
 }
 
 struct RowIteratorGuard(ffi::GhosttyRenderStateRowIterator);
@@ -734,6 +1154,19 @@ mod tests {
             "{render:?}"
         );
     }
+
+    #[test]
+    fn extracts_kitty_graphics_placement_metadata() {
+        let mut term = GhosttyVtTerminal::new(10, 4, 100).unwrap();
+        term.write(b"\x1b_Ga=T,f=32,s=1,v=1,i=7;/wAA/w==\x1b\\");
+        let render = term.render_snapshot().unwrap();
+        assert_eq!(render.kitty_placements.len(), 1, "{render:?}");
+        let placement = &render.kitty_placements[0];
+        assert_eq!(placement.image_id, 7);
+        assert_eq!(placement.image_width, Some(1));
+        assert_eq!(placement.image_height, Some(1));
+        assert_eq!(placement.image_data_len, Some(4));
+    }
 }
 
 /// Styling options for deterministic PNG previews produced from a
@@ -807,6 +1240,7 @@ pub fn snapshot_preview_png(
             cursor_x: snapshot.cursor_x,
             cursor_y: snapshot.cursor_y,
             cells,
+            kitty_placements: Vec::new(),
         },
         options,
     )
@@ -863,6 +1297,7 @@ pub fn render_snapshot_preview_png(
             }
         }
     }
+    draw_kitty_placements(&mut img, &snapshot.kitty_placements, options);
     draw_cursor(&mut img, snapshot.cursor_x, snapshot.cursor_y, options);
 
     let mut bytes = Vec::new();
@@ -877,6 +1312,88 @@ pub fn render_snapshot_preview_png(
 
 fn rgba3(rgb: [u8; 3]) -> [u8; 4] {
     [rgb[0], rgb[1], rgb[2], 255]
+}
+
+fn draw_kitty_placements(
+    img: &mut image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    placements: &[GhosttyKittyPlacementSnapshot],
+    options: &PreviewOptions,
+) {
+    for placement in placements {
+        draw_kitty_placement(img, placement, options);
+    }
+}
+
+fn draw_kitty_placement(
+    img: &mut image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    placement: &GhosttyKittyPlacementSnapshot,
+    options: &PreviewOptions,
+) {
+    if !placement.viewport_visible || placement.is_virtual {
+        return;
+    }
+    let Some(data) = placement.image_data.as_deref() else {
+        return;
+    };
+    let Some(format) = placement.image_format else {
+        return;
+    };
+    let Some(image_width) = placement.image_width else {
+        return;
+    };
+    let Some(image_height) = placement.image_height else {
+        return;
+    };
+    let bytes_per_pixel = match format {
+        ffi::GHOSTTY_KITTY_IMAGE_FORMAT_RGB => 3,
+        ffi::GHOSTTY_KITTY_IMAGE_FORMAT_RGBA => 4,
+        _ => return,
+    };
+    if image_width == 0
+        || image_height == 0
+        || placement.pixel_width == 0
+        || placement.pixel_height == 0
+    {
+        return;
+    }
+    let dest_x0 = placement.viewport_col * options.cell_width as i32;
+    let dest_y0 = placement.viewport_row * options.cell_height as i32;
+    let source_width = placement.source_width.max(1);
+    let source_height = placement.source_height.max(1);
+    for dy in 0..placement.pixel_height {
+        let y = dest_y0 + dy as i32;
+        if y < 0 || y >= img.height() as i32 {
+            continue;
+        }
+        let sy = placement.source_y
+            + (dy * source_height / placement.pixel_height).min(source_height - 1);
+        if sy >= image_height {
+            continue;
+        }
+        for dx in 0..placement.pixel_width {
+            let x = dest_x0 + dx as i32;
+            if x < 0 || x >= img.width() as i32 {
+                continue;
+            }
+            let sx = placement.source_x
+                + (dx * source_width / placement.pixel_width).min(source_width - 1);
+            if sx >= image_width {
+                continue;
+            }
+            let idx = ((sy as usize * image_width as usize) + sx as usize) * bytes_per_pixel;
+            if idx + bytes_per_pixel > data.len() {
+                continue;
+            }
+            let rgba = if bytes_per_pixel == 4 {
+                image::Rgba([data[idx], data[idx + 1], data[idx + 2], data[idx + 3]])
+            } else {
+                image::Rgba([data[idx], data[idx + 1], data[idx + 2], 255])
+            };
+            if rgba[3] != 0 {
+                img.put_pixel(x as u32, y as u32, rgba);
+            }
+        }
+    }
 }
 
 fn fill_cell(
@@ -1007,5 +1524,42 @@ mod preview_tests {
         let png = snapshot_preview_png(&snapshot, &PreviewOptions::default()).unwrap();
         assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert!(png.len() > 100);
+    }
+
+    #[test]
+    fn render_preview_composites_kitty_rgba_placements() {
+        let options = PreviewOptions::default();
+        let snapshot = GhosttyRenderSnapshot {
+            cols: 4,
+            rows: 2,
+            cursor_x: 3,
+            cursor_y: 1,
+            cells: Vec::new(),
+            kitty_placements: vec![GhosttyKittyPlacementSnapshot {
+                image_id: 1,
+                placement_id: 1,
+                is_virtual: false,
+                columns: 1,
+                rows: 1,
+                z: 0,
+                image_width: Some(1),
+                image_height: Some(1),
+                image_data_len: Some(4),
+                image_format: Some(ffi::GHOSTTY_KITTY_IMAGE_FORMAT_RGBA),
+                image_data: Some(vec![255, 0, 0, 255]),
+                pixel_width: options.cell_width,
+                pixel_height: options.cell_height,
+                viewport_col: 1,
+                viewport_row: 0,
+                viewport_visible: true,
+                source_x: 0,
+                source_y: 0,
+                source_width: 1,
+                source_height: 1,
+            }],
+        };
+        let png = render_snapshot_preview_png(&snapshot, &options).unwrap();
+        let image = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(image.get_pixel(options.cell_width, 0).0, [255, 0, 0, 255]);
     }
 }
