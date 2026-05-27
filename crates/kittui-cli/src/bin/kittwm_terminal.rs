@@ -222,7 +222,9 @@ fn terminal_status_scene_for_cols(model: &TerminalStatusModel, cols: u16) -> Sce
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
     let content_rect = terminal_card_content_rect(width, cell);
-    let focus = model.focus.chars().take(24).collect::<String>();
+    let focus = terminal_scene_label_text(&model.focus, 24);
+    let layout = terminal_scene_label_text(&model.layout, 24);
+    let details = terminal_scene_label_text(&model.details.to_string(), 12);
     Scene {
         footprint: CellRect::new(0, 0, cols, rows),
         cell_size: cell,
@@ -262,7 +264,7 @@ fn terminal_status_scene_for_cols(model: &TerminalStatusModel, cols: u16) -> Sce
             Layer {
                 label: Some(format!(
                     "kittwm-terminal-status-text:panes={} focus={} layout={} details={}",
-                    model.panes, focus, model.layout, model.details
+                    model.panes, focus, layout, details
                 )),
                 root: Node::Rect {
                     rect: content_rect,
@@ -326,6 +328,16 @@ fn render_events_text(model: &TerminalEventsModel) -> String {
     out
 }
 
+fn terminal_scene_label_text(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_string()
+    } else {
+        let mut out = text.chars().take(max.saturating_sub(1)).collect::<String>();
+        out.push('…');
+        out
+    }
+}
+
 fn terminal_events_scene(model: &TerminalEventsModel) -> Scene {
     terminal_events_scene_for_cols(model, terminal_status_scene_cols())
 }
@@ -340,7 +352,7 @@ fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Sce
         .kinds
         .iter()
         .take(5)
-        .cloned()
+        .map(|kind| terminal_scene_label_text(kind, 24))
         .collect::<Vec<_>>()
         .join(",");
     Scene {
@@ -663,6 +675,26 @@ mod tests {
     }
 
     #[test]
+    fn terminal_status_scene_bounds_text_label_payloads() {
+        let model = TerminalStatusModel {
+            panes: 123,
+            focus: "focused-window-with-a-pathologically-long-id".to_string(),
+            layout: "layout-name-that-is-far-too-long-for-a-scene-label".to_string(),
+            details: usize::MAX,
+        };
+        let scene = terminal_status_scene_for_cols(&model, 8);
+        let label = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .find(|label| label.starts_with("kittwm-terminal-status-text:"))
+            .unwrap();
+        assert!(label.contains("focused-window-with-a-p…"), "{label}");
+        assert!(label.contains("layout-name-that-is-far…"), "{label}");
+        assert!(label.len() < 150, "{label}");
+    }
+
+    #[test]
     fn terminal_status_kitty_uses_absolute_no_placeholder_options() {
         let options = terminal_scene_placement_options();
         assert!(!options.unicode_placeholder);
@@ -703,6 +735,32 @@ mod tests {
                 .any(|label| label.contains("status,pane_opened,pane_frame_presented")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn terminal_events_scene_bounds_event_label_payloads() {
+        let model = terminal_events_model(
+            250,
+            vec![
+                "status".to_string(),
+                "pane_frame_presented_with_a_pathologically_long_kind_name".to_string(),
+                "layout".to_string(),
+                "input".to_string(),
+                "another_pathologically_long_event_kind_name".to_string(),
+                "not-included".to_string(),
+            ],
+        );
+        let scene = terminal_events_scene_for_cols(&model, 8);
+        let label = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .find(|label| label.starts_with("kittwm-terminal-events-kinds:"))
+            .unwrap();
+        assert!(label.contains("pane_frame_presented_wi…"), "{label}");
+        assert!(label.contains("another_pathologically_…"), "{label}");
+        assert!(!label.contains("not-included"), "{label}");
+        assert!(label.len() < 150, "{label}");
     }
 
     #[test]
