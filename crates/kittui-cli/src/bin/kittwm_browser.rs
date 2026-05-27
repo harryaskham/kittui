@@ -6,6 +6,7 @@
 //! full-terminal replacement app; the socket spawn/replace protocol will make
 //! the same binary ask a live kittwm host to create or replace panes.
 
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -153,6 +154,7 @@ fn real_main() -> Result<()> {
     let _guard = TtyGuard::enter()?;
     let mut semantic_publisher = BrowserSemanticPublisher::from_env();
     let mut placed = false;
+    let mut last_frame_key: Option<(usize, u64)> = None;
     let mut frame = 0u64;
     let mut last_status: Option<(u16, String)> = None;
     let show_status_frame = browser_status_frame_counter_enabled();
@@ -186,6 +188,7 @@ fn real_main() -> Result<()> {
                 viewport = new_viewport;
                 browser.resize(viewport.cols, viewport.content_rows)?;
                 placed = false;
+                last_frame_key = None;
             }
         }
         let NativeFrame::Png {
@@ -206,7 +209,11 @@ fn real_main() -> Result<()> {
             fp,
             &browser_image_placement_options(),
         );
-        handle.write_all(placement.upload.as_bytes())?;
+        let frame_key = browser_frame_key(&bytes);
+        if should_upload_browser_frame(last_frame_key, frame_key) {
+            handle.write_all(placement.upload.as_bytes())?;
+            last_frame_key = Some(frame_key);
+        }
         if !placed {
             handle.write_all(placement.placement.as_bytes())?;
             placed = true;
@@ -469,6 +476,16 @@ fn should_write_browser_status(
     }
 }
 
+fn browser_frame_key(bytes: &[u8]) -> (usize, u64) {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    (bytes.len(), hasher.finish())
+}
+
+fn should_upload_browser_frame(last_key: Option<(usize, u64)>, next_key: (usize, u64)) -> bool {
+    last_key != Some(next_key)
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 struct BrowserViewport {
     cols: u16,
@@ -665,6 +682,15 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry == "--semantic-scene-json"));
+    }
+
+    #[test]
+    fn browser_frame_upload_skips_unchanged_png_content() {
+        let key = browser_frame_key(b"same png bytes");
+        assert!(should_upload_browser_frame(None, key));
+        assert!(!should_upload_browser_frame(Some(key), key));
+        let changed = browser_frame_key(b"different png bytes");
+        assert!(should_upload_browser_frame(Some(key), changed));
     }
 
     #[test]
