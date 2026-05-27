@@ -3430,6 +3430,16 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key("Delete", "Delete", 46)
     }
 
+    /// Dispatch a Home key press/release to the focused page element.
+    pub fn send_home(&mut self) -> Result<()> {
+        self.dispatch_browser_key("Home", "Home", 36)
+    }
+
+    /// Dispatch an End key press/release to the focused page element.
+    pub fn send_end(&mut self) -> Result<()> {
+        self.dispatch_browser_key("End", "End", 35)
+    }
+
     /// Dispatch an arrow-key press/release to the focused page element.
     pub fn send_arrow_key(&mut self, direction: BrowserArrowKey) -> Result<()> {
         let (key, code, key_code) = direction.key_fields();
@@ -5492,7 +5502,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_key_event_params_map_enter_and_delete_keys() {
+    fn browser_key_event_params_map_editing_keys() {
         let params = browser_key_event_params("Enter", "Enter", 13);
         assert_eq!(params["key"], "Enter");
         assert_eq!(params["code"], "Enter");
@@ -5503,6 +5513,16 @@ mod tests {
         assert_eq!(delete["code"], "Delete");
         assert_eq!(delete["windowsVirtualKeyCode"], 46);
         assert_eq!(delete["nativeVirtualKeyCode"], 46);
+        let home = browser_key_event_params("Home", "Home", 36);
+        assert_eq!(home["key"], "Home");
+        assert_eq!(home["code"], "Home");
+        assert_eq!(home["windowsVirtualKeyCode"], 36);
+        assert_eq!(home["nativeVirtualKeyCode"], 36);
+        let end = browser_key_event_params("End", "End", 35);
+        assert_eq!(end["key"], "End");
+        assert_eq!(end["code"], "End");
+        assert_eq!(end["windowsVirtualKeyCode"], 35);
+        assert_eq!(end["nativeVirtualKeyCode"], 35);
     }
 
     #[test]

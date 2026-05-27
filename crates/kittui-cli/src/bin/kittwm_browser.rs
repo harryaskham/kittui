@@ -181,6 +181,8 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::Tab => browser.send_tab()?,
                     BrowserInputAction::Enter => browser.send_enter()?,
                     BrowserInputAction::Delete => browser.send_delete()?,
+                    BrowserInputAction::Home => browser.send_home()?,
+                    BrowserInputAction::End => browser.send_end()?,
                     BrowserInputAction::Arrow(direction) => browser.send_arrow_key(direction)?,
                 }
                 user_activity = true;
@@ -264,7 +266,28 @@ enum BrowserInputAction {
     Tab,
     Enter,
     Delete,
+    Home,
+    End,
     Arrow(BrowserArrowKey),
+}
+
+fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize) {
+    let consumed = bytes
+        .iter()
+        .position(|b| (0x40..=0x7e).contains(b))
+        .unwrap_or(bytes.len().saturating_sub(1));
+    let sequence = &bytes[..=consumed.min(bytes.len().saturating_sub(1))];
+    let action = match sequence {
+        [b'A'] => Some(BrowserInputAction::Arrow(BrowserArrowKey::Up)),
+        [b'B'] => Some(BrowserInputAction::Arrow(BrowserArrowKey::Down)),
+        [b'C'] => Some(BrowserInputAction::Arrow(BrowserArrowKey::Right)),
+        [b'D'] => Some(BrowserInputAction::Arrow(BrowserArrowKey::Left)),
+        [b'H'] | [b'1', b'~'] | [b'7', b'~'] => Some(BrowserInputAction::Home),
+        [b'F'] | [b'4', b'~'] | [b'8', b'~'] => Some(BrowserInputAction::End),
+        [b'3', b'~'] => Some(BrowserInputAction::Delete),
+        _ => None,
+    };
+    (action, consumed)
 }
 
 fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
@@ -292,27 +315,14 @@ fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
                 actions.push(BrowserInputAction::Tab);
             }
             0x1b if idx + 2 < bytes.len() && bytes[idx + 1] == b'[' => {
-                let arrow = match bytes[idx + 2] {
-                    b'A' => Some(BrowserArrowKey::Up),
-                    b'B' => Some(BrowserArrowKey::Down),
-                    b'C' => Some(BrowserArrowKey::Right),
-                    b'D' => Some(BrowserArrowKey::Left),
-                    _ => None,
-                };
-                if let Some(direction) = arrow {
+                let (action, consumed) = browser_csi_input_action(&bytes[idx + 2..]);
+                if let Some(action) = action {
                     if !text.is_empty() {
                         actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
                     }
-                    actions.push(BrowserInputAction::Arrow(direction));
-                    idx += 2;
-                } else if idx + 3 < bytes.len() && bytes[idx + 2] == b'3' && bytes[idx + 3] == b'~'
-                {
-                    if !text.is_empty() {
-                        actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
-                    }
-                    actions.push(BrowserInputAction::Delete);
-                    idx += 3;
+                    actions.push(action);
                 }
+                idx += consumed + 2;
             }
             0x20..=0x7e => text.push(bytes[idx] as char),
             _ => {}
@@ -933,7 +943,7 @@ mod tests {
     #[test]
     fn browser_input_actions_preserve_text_backspace_tab_enter_and_arrow_order() {
         assert_eq!(
-            browser_input_actions(b"ab\x7fc\tde\x1b[D\x1b[3~\x08\rfg\n"),
+            browser_input_actions(b"ab\x7fc\tde\x1b[D\x1b[3~\x1b[H\x1b[F\x08\rfg\n"),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
                 BrowserInputAction::Backspace,
@@ -942,6 +952,8 @@ mod tests {
                 BrowserInputAction::Text("de".to_string()),
                 BrowserInputAction::Arrow(BrowserArrowKey::Left),
                 BrowserInputAction::Delete,
+                BrowserInputAction::Home,
+                BrowserInputAction::End,
                 BrowserInputAction::Backspace,
                 BrowserInputAction::Enter,
                 BrowserInputAction::Text("fg".to_string()),
@@ -956,6 +968,22 @@ mod tests {
                 BrowserInputAction::Arrow(BrowserArrowKey::Right),
                 BrowserInputAction::Arrow(BrowserArrowKey::Left),
             ]
+        );
+        assert_eq!(
+            browser_input_actions(b"x\x1b[1~y\x1b[4~z\x1b[7~\x1b[8~"),
+            vec![
+                BrowserInputAction::Text("x".to_string()),
+                BrowserInputAction::Home,
+                BrowserInputAction::Text("y".to_string()),
+                BrowserInputAction::End,
+                BrowserInputAction::Text("z".to_string()),
+                BrowserInputAction::Home,
+                BrowserInputAction::End,
+            ]
+        );
+        assert_eq!(
+            browser_input_actions(b"x\x1b[200~y"),
+            vec![BrowserInputAction::Text("xy".to_string())]
         );
         assert_eq!(
             browser_input_actions(&[0x1b]),
