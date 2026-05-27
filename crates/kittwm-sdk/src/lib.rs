@@ -2854,7 +2854,7 @@ impl Kittwm {
     pub fn surface(&self, id: impl Into<String>) -> SurfaceHandle {
         SurfaceHandle {
             client: self.clone(),
-            id: id.into(),
+            id: id.into().trim().to_string(),
         }
     }
 
@@ -3959,6 +3959,7 @@ mod tests {
         let client = Kittwm::connect_path("/tmp/kittwm-sdk.sock");
         let focused = client.focused_surface();
         assert_eq!(focused.id, "focused");
+        assert_eq!(client.surface(" native-1 ").id, "native-1");
         assert_eq!(
             focused.client.socket_path(),
             Path::new("/tmp/kittwm-sdk.sock")
