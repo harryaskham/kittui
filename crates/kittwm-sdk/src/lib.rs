@@ -2895,6 +2895,17 @@ impl Kittwm {
     }
 }
 
+fn validated_base64_payload<'a>(payload_b64: &'a str, verb: &str) -> Result<&'a str> {
+    let payload_b64 = payload_b64.trim();
+    if payload_b64.is_empty() {
+        return Err(Error::Daemon(format!("{verb} requires nonempty base64")));
+    }
+    BASE64_STANDARD
+        .decode(payload_b64)
+        .map_err(|err| Error::Daemon(format!("{verb} invalid base64: {err}")))?;
+    Ok(payload_b64)
+}
+
 impl SurfaceHandle {
     /// Focus this surface/window.
     pub fn focus(&self) -> Result<String> {
@@ -2968,11 +2979,9 @@ impl SurfaceHandle {
     /// Send an already-base64-encoded exact byte payload.
     pub fn send_bytes_b64(&self, payload_b64: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::SendInput)?;
-        self.client.request_protocol(format!(
-            "SEND_BYTES_B64 {} {}",
-            self.id,
-            payload_b64.as_ref()
-        ))
+        let payload_b64 = validated_base64_payload(payload_b64.as_ref(), "SEND_BYTES_B64")?;
+        self.client
+            .request_protocol(format!("SEND_BYTES_B64 {} {payload_b64}", self.id))
     }
 
     /// Paste exact bytes, base64-encoding them for `PASTE_BYTES_B64`.
@@ -2983,11 +2992,9 @@ impl SurfaceHandle {
     /// Paste an already-base64-encoded byte payload.
     pub fn paste_bytes_b64(&self, payload_b64: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::SendInput)?;
-        self.client.request_protocol(format!(
-            "PASTE_BYTES_B64 {} {}",
-            self.id,
-            payload_b64.as_ref()
-        ))
+        let payload_b64 = validated_base64_payload(payload_b64.as_ref(), "PASTE_BYTES_B64")?;
+        self.client
+            .request_protocol(format!("PASTE_BYTES_B64 {} {payload_b64}", self.id))
     }
 
     /// Send a pane-local mouse event at cell coordinates.
@@ -5033,7 +5040,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..6 {
+            for _ in 0..7 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -5048,8 +5055,12 @@ mod tests {
 
         let surface = Kittwm::connect_path(&path).surface("native-1");
         assert_eq!(surface.send_bytes(b"hi\n\0").unwrap().trim(), "OK");
-        assert_eq!(surface.send_bytes_b64("AQID").unwrap().trim(), "OK");
+        assert_eq!(surface.send_bytes_b64(" AQID ").unwrap().trim(), "OK");
         assert_eq!(surface.paste_bytes(b"paste me").unwrap().trim(), "OK");
+        assert_eq!(
+            surface.paste_bytes_b64(" AP8bWzMxbQ== ").unwrap().trim(),
+            "OK"
+        );
         assert_eq!(surface.paste_bytes(b"\0\xff\x1b[31m").unwrap().trim(), "OK");
         assert_eq!(
             surface
@@ -5074,10 +5085,24 @@ mod tests {
                 "SEND_BYTES_B64 native-1 AQID",
                 "PASTE_BYTES_B64 native-1 cGFzdGUgbWU=",
                 "PASTE_BYTES_B64 native-1 AP8bWzMxbQ==",
+                "PASTE_BYTES_B64 native-1 AP8bWzMxbQ==",
                 "SEND_MOUSE native-1 press-left 7 9",
                 "SEND_MOUSE native-1 release-right 7 9"
             ]
         );
+    }
+
+    #[test]
+    fn base64_byte_helpers_validate_payloads_before_io() {
+        let surface = Kittwm::connect_path("/tmp/does-not-exist.sock").surface("focused");
+        assert!(matches!(
+            surface.send_bytes_b64(""),
+            Err(Error::Daemon(message)) if message.contains("nonempty base64")
+        ));
+        assert!(matches!(
+            surface.paste_bytes_b64("!!!"),
+            Err(Error::Daemon(message)) if message.contains("invalid base64")
+        ));
     }
 
     #[test]
