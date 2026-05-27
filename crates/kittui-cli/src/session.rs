@@ -4718,6 +4718,17 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn truncate_cells_uses_bounded_prefix_for_huge_fields() {
+        let huge = "workspace-".repeat(10_000);
+        let clipped = truncate_cells(&huge, 12);
+        assert_eq!(clipped, "workspace-w…");
+        assert_eq!(clipped.chars().count(), 12);
+        assert_eq!(truncate_cells("short", 12), "short");
+        assert_eq!(truncate_cells("anything", 1), "…");
+        assert_eq!(truncate_cells("anything", 0), "");
+    }
+
+    #[test]
     fn graphical_top_bar_overlay_text_cols_saturate_pathological_labels() {
         let long = "x".repeat(u16::MAX as usize + 32);
         assert_eq!(native_top_bar_overlay_text_cols(&long, 0), u16::MAX);
@@ -9998,12 +10009,23 @@ fn overlay_inner_width_for_cols(preferred: usize, terminal_cols: Option<usize>) 
 }
 
 fn truncate_cells(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(n.saturating_sub(1)).collect();
+    if n == 0 {
+        return String::new();
+    }
+    let mut chars = s.chars();
+    let mut out = String::new();
+    for _ in 0..n {
+        let Some(ch) = chars.next() else {
+            return s.to_string();
+        };
+        out.push(ch);
+    }
+    if chars.next().is_some() {
+        out.pop();
         out.push('…');
         out
+    } else {
+        s.to_string()
     }
 }
 
