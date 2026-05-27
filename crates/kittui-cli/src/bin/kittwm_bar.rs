@@ -301,16 +301,19 @@ fn kittwm_bar_overlay_fit_chip_text(label: &str, cols: u16, used_cols: u16) -> O
     if max_chip_cols < 3 {
         return None;
     }
-    let chip = format!(" {label} ");
-    if chip.chars().count() <= max_chip_cols {
-        return Some(chip);
-    }
     let label_width = max_chip_cols.saturating_sub(2);
+    if kittwm_bar_label_fits_cells(label, label_width) {
+        return Some(format!(" {label} "));
+    }
     if label_width == 0 {
         return None;
     }
     let clipped = label.chars().take(label_width).collect::<String>();
     Some(format!(" {clipped} "))
+}
+
+fn kittwm_bar_label_fits_cells(label: &str, max_label_cols: usize) -> bool {
+    label.chars().take(max_label_cols.saturating_add(1)).count() <= max_label_cols
 }
 
 fn kittwm_bar_overlay_clock_col(cols: u16, workspace_cols: u16, clock_cols: u16) -> Option<u16> {
@@ -672,6 +675,12 @@ mod tests {
             Some(" abc ".to_string())
         );
         assert_eq!(kittwm_bar_overlay_fit_chip_text("abcdef", 2, 0), None);
+        let long = "x".repeat(u16::MAX as usize);
+        assert!(!kittwm_bar_label_fits_cells(&long, 8));
+        assert_eq!(
+            kittwm_bar_overlay_fit_chip_text(&long, 12, 0),
+            Some(" xxxxxxxxx ".to_string())
+        );
     }
 
     #[test]

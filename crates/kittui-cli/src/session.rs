@@ -4226,20 +4226,23 @@ fn native_graphical_top_bar_fit_label(label: &str, cols: u16, used_cols: u16) ->
     if remaining == 0 {
         return None;
     }
-    let max_label_cols = remaining.saturating_sub(1) as usize;
-    if max_label_cols < 3 {
+    let max_chip_cols = remaining.saturating_sub(1) as usize;
+    if max_chip_cols < 3 {
         return None;
     }
-    let chip = format!(" {label} ");
-    if chip.chars().count() <= max_label_cols {
-        return Some(chip);
+    let label_width = max_chip_cols.saturating_sub(2);
+    if native_top_bar_label_fits_cells(label, label_width) {
+        return Some(format!(" {label} "));
     }
-    let label_width = max_label_cols.saturating_sub(2);
     if label_width == 0 {
         return None;
     }
     let clipped = label.chars().take(label_width).collect::<String>();
     Some(format!(" {clipped} "))
+}
+
+fn native_top_bar_label_fits_cells(label: &str, max_label_cols: usize) -> bool {
+    label.chars().take(max_label_cols.saturating_add(1)).count() <= max_label_cols
 }
 
 #[cfg(test)]
@@ -4766,6 +4769,12 @@ mod native_pane_tests {
         assert_eq!(
             native_graphical_top_bar_fit_label("dev", 12, 4),
             Some(" dev ".to_string())
+        );
+        let long = "x".repeat(u16::MAX as usize);
+        assert!(!native_top_bar_label_fits_cells(&long, 8));
+        assert_eq!(
+            native_graphical_top_bar_fit_label(&long, 12, 0),
+            Some(" xxxxxxxxx ".to_string())
         );
     }
 
