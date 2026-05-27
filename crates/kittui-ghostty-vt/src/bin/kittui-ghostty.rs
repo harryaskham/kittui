@@ -21,6 +21,8 @@ struct Args {
     pty_command: Option<String>,
     kittwm_proof_command: Option<String>,
     pty_timelapse_command: Option<String>,
+    pty_input: Option<String>,
+    pty_input_delay_ms: u64,
     scroll: ScrollMode,
 }
 
@@ -107,6 +109,8 @@ fn parse_args() -> anyhow::Result<Args> {
     let mut pty_command = None;
     let mut kittwm_proof_command = None;
     let mut pty_timelapse_command = None;
+    let mut pty_input = None;
+    let mut pty_input_delay_ms = 100u64;
     let mut scroll = ScrollMode::Current;
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
@@ -177,6 +181,18 @@ fn parse_args() -> anyhow::Result<Args> {
                         .ok_or_else(|| anyhow::anyhow!("--pty-timelapse-command COMMAND"))?,
                 );
             }
+            "--pty-input" => {
+                pty_input = Some(
+                    iter.next()
+                        .ok_or_else(|| anyhow::anyhow!("--pty-input TEXT"))?,
+                );
+            }
+            "--pty-input-delay-ms" => {
+                pty_input_delay_ms = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--pty-input-delay-ms N"))?
+                    .parse()?;
+            }
             "--scroll" => {
                 scroll = parse_scroll(
                     &iter
@@ -204,6 +220,8 @@ fn parse_args() -> anyhow::Result<Args> {
         pty_command,
         kittwm_proof_command,
         pty_timelapse_command,
+        pty_input,
+        pty_input_delay_ms,
         scroll,
     })
 }
@@ -222,11 +240,29 @@ fn input_bytes(args: &Args) -> anyhow::Result<Vec<u8>> {
             "--command, --pty-command, and --kittwm-proof-command are mutually exclusive"
         );
     }
+    let pty_input = args
+        .pty_input
+        .as_deref()
+        .map(decode_pty_input)
+        .transpose()?;
     if let Some(command) = &args.kittwm_proof_command {
-        return pty_command_bytes_with_env(command, args.cols, args.rows, kittwm_proof_env());
+        return pty_command_bytes_with_env_and_input(
+            command,
+            args.cols,
+            args.rows,
+            kittwm_proof_env(),
+            pty_input.as_deref(),
+            args.pty_input_delay_ms,
+        );
     }
     if let Some(command) = &args.pty_command {
-        return pty_command_bytes(command, args.cols, args.rows);
+        return pty_command_bytes_with_input(
+            command,
+            args.cols,
+            args.rows,
+            pty_input.as_deref(),
+            args.pty_input_delay_ms,
+        );
     }
     if let Some(command) = &args.command {
         return command_bytes(command);
@@ -258,14 +294,26 @@ fn command_bytes(command: &str) -> anyhow::Result<Vec<u8>> {
 }
 
 fn pty_command_bytes(command: &str, cols: u16, rows: u16) -> anyhow::Result<Vec<u8>> {
-    pty_command_bytes_with_env(command, cols, rows, [])
+    pty_command_bytes_with_input(command, cols, rows, None, 0)
 }
 
-fn pty_command_bytes_with_env<const N: usize>(
+fn pty_command_bytes_with_input(
+    command: &str,
+    cols: u16,
+    rows: u16,
+    pty_input: Option<&[u8]>,
+    pty_input_delay_ms: u64,
+) -> anyhow::Result<Vec<u8>> {
+    pty_command_bytes_with_env_and_input(command, cols, rows, [], pty_input, pty_input_delay_ms)
+}
+
+fn pty_command_bytes_with_env_and_input<const N: usize>(
     command: &str,
     cols: u16,
     rows: u16,
     extra_env: [(&'static str, &'static str); N],
+    pty_input: Option<&[u8]>,
+    pty_input_delay_ms: u64,
 ) -> anyhow::Result<Vec<u8>> {
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
@@ -288,8 +336,21 @@ fn pty_command_bytes_with_env<const N: usize>(
     }
 
     let mut reader = pair.master.try_clone_reader()?;
+    let mut writer = if pty_input.is_some() {
+        Some(pair.master.take_writer()?)
+    } else {
+        None
+    };
     let mut child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
+    if let (Some(input), Some(writer)) = (pty_input, writer.as_mut()) {
+        if pty_input_delay_ms > 0 {
+            thread::sleep(std::time::Duration::from_millis(pty_input_delay_ms));
+        }
+        use std::io::Write as _;
+        writer.write_all(input)?;
+        writer.flush()?;
+    }
     let handle = thread::spawn(move || {
         let mut output = Vec::new();
         let _ = reader.read_to_end(&mut output);
@@ -310,6 +371,37 @@ fn pty_command_bytes_with_env<const N: usize>(
         bytes.extend_from_slice(format!("\r\n[exit {}]\r\n", status.exit_code()).as_bytes());
     }
     Ok(bytes)
+}
+
+fn decode_pty_input(input: &str) -> anyhow::Result<Vec<u8>> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut chars = input.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.extend_from_slice(ch.to_string().as_bytes());
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push(b'\n'),
+            Some('r') => out.push(b'\r'),
+            Some('t') => out.push(b'\t'),
+            Some('e') => out.push(0x1b),
+            Some('x') => {
+                let hi = chars
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--pty-input has incomplete \\xHH escape"))?;
+                let lo = chars
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--pty-input has incomplete \\xHH escape"))?;
+                let hex = format!("{hi}{lo}");
+                out.push(u8::from_str_radix(&hex, 16)?);
+            }
+            Some('\\') => out.push(b'\\'),
+            Some(other) => anyhow::bail!("unsupported --pty-input escape \\{other}"),
+            None => anyhow::bail!("--pty-input ends with a trailing backslash"),
+        }
+    }
+    Ok(out)
 }
 
 fn kittwm_proof_env() -> [(&'static str, &'static str); 7] {
@@ -371,13 +463,14 @@ fn print_help() {
            kittui-ghostty [--out PATH] [--cols N] [--rows N] [--demo] [--scroll top|bottom|current]\n\
            kittui-ghostty --command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --pty-command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
-           kittui-ghostty --kittwm-proof-command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
+           kittui-ghostty --kittwm-proof-command COMMAND [--pty-input TEXT] [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --pty-timelapse-command COMMAND [--out-dir DIR] [--montage PATH] [--cols N] [--rows N] [--chunk-lines N]\n\
            kittui-ghostty --timelapse-demo [--out-dir DIR] [--montage PATH] [--cols N] [--rows N]\n\n\
          Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
          --command/-c runs COMMAND through sh -c and renders stdout/stderr.\n\
          --pty-command runs COMMAND in a PTY sized by --cols/--rows and renders captured VT bytes.\n\
          --kittwm-proof-command runs COMMAND in a PTY with kittwm-friendly terminal-renderer env for real screenshot proof artifacts.\n\
+         --pty-input sends escaped interactive input after spawn (\\r, \\n, \\t, \\e, \\x1d); tune with --pty-input-delay-ms.\n\
          --pty-timelapse-command replays captured PTY bytes into frame-*.png plus manifest.json.\n\
          --chunk-lines controls PTY timelapse replay density; default is 1.\n\
          --timelapse-demo emits frame-*.png plus manifest.json into --out-dir.\n\
@@ -522,5 +615,23 @@ mod tests {
         assert!(env.contains(&("KITTWM_NATIVE_CHROME_RENDERER", "terminal")));
         assert!(env.contains(&("KITTWM_STARTUP_TERMINAL", "0")));
         assert!(env.contains(&("TERM_PROGRAM", "kittui-ghostty-proof")));
+    }
+
+    #[test]
+    fn decode_pty_input_supports_interactive_escapes() {
+        assert_eq!(decode_pty_input(r"hello\r\n").unwrap(), b"hello\r\n");
+        assert_eq!(
+            decode_pty_input(r"tab\tquit\x1d").unwrap(),
+            b"tab\tquit\x1d"
+        );
+        assert_eq!(decode_pty_input(r"esc\e").unwrap(), b"esc\x1b");
+        assert_eq!(decode_pty_input(r"slash\\").unwrap(), b"slash\\");
+    }
+
+    #[test]
+    fn decode_pty_input_rejects_malformed_escapes() {
+        assert!(decode_pty_input(r"bad\q").is_err());
+        assert!(decode_pty_input(r"bad\x1").is_err());
+        assert!(decode_pty_input(r"bad\").is_err());
     }
 }
