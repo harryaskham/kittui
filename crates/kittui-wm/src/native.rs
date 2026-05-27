@@ -18,7 +18,9 @@ use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use kittui::Scene;
 use kittui_core::geom::CellSize;
-use kittui_ghostty_vt::{render_snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
+use kittui_ghostty_vt::{
+    render_snapshot_preview_png, GhosttyRenderSnapshot, GhosttyVtTerminal, PreviewOptions,
+};
 use kittui_xvfb::{XButton, XCapture, XPointerEvent, XServer, XWindow, XWindowId};
 use kittwm_sdk::{
     ActionKind, ComponentAction, ComponentNode, ComponentRole, ComponentState, ComponentValue,
@@ -1171,6 +1173,19 @@ impl TerminalSurface {
     }
 }
 
+fn ghostty_snapshot_text(snapshot: &GhosttyRenderSnapshot) -> String {
+    snapshot
+        .cells
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.text.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 impl GhosttyTerminalApp {
     /// Spawn a shell command in a PTY rendered by libghostty-vt.
     pub fn spawn(command: &str, cols: u16, rows: u16) -> Result<Self> {
@@ -1272,6 +1287,17 @@ impl GhosttyTerminalApp {
     /// Return the latest text snapshot captured from libghostty-vt.
     pub fn text_snapshot(&self) -> String {
         self.last_text_snapshot.clone()
+    }
+
+    /// Refresh the text snapshot without rendering a PNG frame.
+    pub fn refresh_text_snapshot(&mut self) -> Result<bool> {
+        let had_output = self.drain_output();
+        if !had_output && !self.last_text_snapshot.is_empty() {
+            return Ok(false);
+        }
+        let snapshot = self.terminal.render_snapshot()?;
+        self.last_text_snapshot = ghostty_snapshot_text(&snapshot);
+        Ok(true)
     }
 
     /// Return whether bracketed paste is known to be enabled.
@@ -1389,16 +1415,7 @@ impl NativeSurface for GhosttyTerminalApp {
             }
         }
         let snapshot = self.terminal.render_snapshot()?;
-        self.last_text_snapshot = snapshot
-            .cells
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|cell| cell.text.as_str())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        self.last_text_snapshot = ghostty_snapshot_text(&snapshot);
         let png = render_snapshot_preview_png(&snapshot, &self.preview_options)?;
         let frame = NativeFrame::Png {
             width: u32::from(snapshot.cols) * u32::from(default_virtual_cell_size().width_px),
@@ -3880,6 +3897,56 @@ fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ghostty_snapshot_text_joins_cell_rows() {
+        let snapshot = GhosttyRenderSnapshot {
+            cols: 2,
+            rows: 2,
+            cursor_x: 0,
+            cursor_y: 0,
+            cells: vec![
+                vec![
+                    kittui_ghostty_vt::GhosttyCellSnapshot {
+                        text: "a".to_string(),
+                        fg: None,
+                        bg: None,
+                        bold: false,
+                        italic: false,
+                        underline: 0,
+                    },
+                    kittui_ghostty_vt::GhosttyCellSnapshot {
+                        text: "b".to_string(),
+                        fg: None,
+                        bg: None,
+                        bold: false,
+                        italic: false,
+                        underline: 0,
+                    },
+                ],
+                vec![
+                    kittui_ghostty_vt::GhosttyCellSnapshot {
+                        text: "c".to_string(),
+                        fg: None,
+                        bg: None,
+                        bold: false,
+                        italic: false,
+                        underline: 0,
+                    },
+                    kittui_ghostty_vt::GhosttyCellSnapshot {
+                        text: "d".to_string(),
+                        fg: None,
+                        bg: None,
+                        bold: false,
+                        italic: false,
+                        underline: 0,
+                    },
+                ],
+            ],
+        };
+
+        assert_eq!(ghostty_snapshot_text(&snapshot), "ab\ncd");
+    }
 
     #[test]
     fn cached_revision_frame_requires_matching_revision() {

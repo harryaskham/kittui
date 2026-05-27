@@ -816,6 +816,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         let redraw_static = clear;
         if pure_terminal_renderer {
+            for pane in &mut panes {
+                pane.app.refresh_text_snapshot()?;
+            }
             let pre_capture_shell_view = native_shell_view(
                 cols,
                 rows,
@@ -1160,6 +1163,13 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.scrollback_snapshot(),
             Self::Ghostty(_) => String::new(),
+        }
+    }
+
+    fn refresh_text_snapshot(&mut self) -> Result<bool> {
+        match self {
+            Self::Pty(_) => Ok(false),
+            Self::Ghostty(app) => app.refresh_text_snapshot(),
         }
     }
 
