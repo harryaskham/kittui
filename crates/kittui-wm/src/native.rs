@@ -3624,6 +3624,16 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key("Delete", "Delete", 46)
     }
 
+    /// Dispatch a Shift+Insert key press/release to the focused page element.
+    pub fn send_shift_insert(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Insert", "Insert", 45, BROWSER_SHIFT_MODIFIER)
+    }
+
+    /// Dispatch a Shift+Delete key press/release to the focused page element.
+    pub fn send_shift_delete(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Delete", "Delete", 46, BROWSER_SHIFT_MODIFIER)
+    }
+
     /// Dispatch a Home key press/release to the focused page element.
     pub fn send_home(&mut self) -> Result<()> {
         self.dispatch_browser_key("Home", "Home", 36)
@@ -6075,6 +6085,20 @@ mod tests {
         assert_eq!(delete["code"], "Delete");
         assert_eq!(delete["windowsVirtualKeyCode"], 46);
         assert_eq!(delete["nativeVirtualKeyCode"], 46);
+        let shift_insert =
+            browser_key_event_params_with_modifiers("Insert", "Insert", 45, BROWSER_SHIFT_MODIFIER);
+        assert_eq!(shift_insert["key"], "Insert");
+        assert_eq!(shift_insert["code"], "Insert");
+        assert_eq!(shift_insert["windowsVirtualKeyCode"], 45);
+        assert_eq!(shift_insert["nativeVirtualKeyCode"], 45);
+        assert_eq!(shift_insert["modifiers"], BROWSER_SHIFT_MODIFIER);
+        let shift_delete =
+            browser_key_event_params_with_modifiers("Delete", "Delete", 46, BROWSER_SHIFT_MODIFIER);
+        assert_eq!(shift_delete["key"], "Delete");
+        assert_eq!(shift_delete["code"], "Delete");
+        assert_eq!(shift_delete["windowsVirtualKeyCode"], 46);
+        assert_eq!(shift_delete["nativeVirtualKeyCode"], 46);
+        assert_eq!(shift_delete["modifiers"], BROWSER_SHIFT_MODIFIER);
         let home = browser_key_event_params("Home", "Home", 36);
         assert_eq!(home["key"], "Home");
         assert_eq!(home["code"], "Home");
