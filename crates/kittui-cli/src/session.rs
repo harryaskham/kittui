@@ -7546,6 +7546,14 @@ mod native_pane_tests {
         let base = launcher_overlay_key(&launcher);
         launcher.selected = 1;
         assert_ne!(base, launcher_overlay_key(&launcher));
+        launcher.query = "query-".repeat(10_000);
+        let bounded_launcher = launcher_overlay_key(&launcher);
+        assert!(bounded_launcher.len() < 160, "{bounded_launcher}");
+        assert!(bounded_launcher.contains('…'), "{bounded_launcher}");
+        assert!(
+            !bounded_launcher.contains(&"query-".repeat(32)),
+            "{bounded_launcher}"
+        );
 
         let mut picker = PickerOverlay::default();
         picker.active = true;
@@ -9703,10 +9711,13 @@ struct PickerOverlay {
     entries: Vec<String>,
 }
 
+const LAUNCHER_OVERLAY_KEY_QUERY_MAX_CHARS: usize = 96;
+
 fn launcher_overlay_key(overlay: &LauncherOverlay) -> String {
+    let query = bounded_ellipsis(&overlay.query, LAUNCHER_OVERLAY_KEY_QUERY_MAX_CHARS);
     format!(
-        "active={};query={};selected={}",
-        overlay.active, overlay.query, overlay.selected
+        "active={};query={query};selected={}",
+        overlay.active, overlay.selected
     )
 }
 
