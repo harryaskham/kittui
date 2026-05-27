@@ -835,16 +835,24 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
             rows = new_rows;
-            resize_native_panes_for_layout_with_reservation(
-                &mut panes,
+            let layouts = native_layouts_for_panes_with_reservation(
                 cols,
                 rows,
+                &panes,
                 layout_axis,
                 &last_chrome_reservation,
-            )?;
+            );
+            let resize_failures =
+                resize_native_panes_logged(&mut panes, layouts.clone(), Some(&dbg))?;
+            last_resized_layouts = layouts.clone();
+            publish_native_pane_statuses_if_changed(
+                &queue,
+                &mut last_published_pane_statuses,
+                native_pane_statuses(&panes, focused, &layouts),
+            );
             clear = true;
             dbg.log(&format!(
-                "native terminal resized to {cols}x{rows} panes={}",
+                "native terminal resized to {cols}x{rows} panes={} resize_failures={resize_failures}",
                 panes.len()
             ));
         }
@@ -2628,15 +2636,45 @@ fn native_app_frame_footprint(layout: NativePaneLayout) -> CellRect {
     CellRect::new(layout.app_x, layout.app_y, layout.app_cols, layout.app_rows)
 }
 
-fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>) -> Result<()> {
+fn native_resize_failure_log_line(
+    window: &str,
+    layout: NativePaneLayout,
+    err: &dyn std::fmt::Display,
+) -> String {
+    format!(
+        "native pane resize failed: window={window} app={}x{} layout={}x{}+{},{} err={err}",
+        layout.app_cols.max(1),
+        layout.app_rows.max(1),
+        layout.cols,
+        layout.rows,
+        layout.x,
+        layout.y
+    )
+}
+
+fn resize_native_panes_logged(
+    panes: &mut [NativePane],
+    layouts: Vec<NativePaneLayout>,
+    dbg: Option<&Debugger>,
+) -> Result<usize> {
+    let mut failures = 0usize;
     for (pane, layout) in panes.iter_mut().zip(layouts) {
-        NativeSurface::resize_surface(
+        if let Err(err) = NativeSurface::resize_surface(
             &mut pane.app,
             layout.app_cols.max(1),
             layout.app_rows.max(1),
-        )?;
+        ) {
+            failures = failures.saturating_add(1);
+            if let Some(dbg) = dbg {
+                dbg.log(&native_resize_failure_log_line(&pane.window, layout, &err));
+            }
+        }
     }
-    Ok(())
+    Ok(failures)
+}
+
+fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>) -> Result<()> {
+    resize_native_panes_logged(panes, layouts, None).map(|_| ())
 }
 
 fn resize_native_panes_for_layout_with_reservation(
@@ -7433,6 +7471,25 @@ mod native_pane_tests {
         assert_eq!(clamp_native_terminal_size(0, 0, (100, 40)), (1, 1));
         assert_eq!(clamp_native_terminal_size(80, 24, (0, 0)), (1, 1));
         assert_eq!(clamp_native_terminal_size(80, 24, (100, 40)), (80, 24));
+    }
+
+    #[test]
+    fn native_resize_failure_log_includes_window_and_canvas() {
+        let layout = NativePaneLayout {
+            x: 2,
+            y: 3,
+            cols: 40,
+            rows: 12,
+            app_x: 3,
+            app_y: 4,
+            app_cols: 38,
+            app_rows: 10,
+        };
+        let line = native_resize_failure_log_line("native-2", layout, &"boom");
+        assert!(line.contains("window=native-2"), "{line}");
+        assert!(line.contains("app=38x10"), "{line}");
+        assert!(line.contains("layout=40x12+2,3"), "{line}");
+        assert!(line.contains("err=boom"), "{line}");
     }
 
     #[test]
