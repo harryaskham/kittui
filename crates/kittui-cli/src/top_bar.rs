@@ -406,12 +406,17 @@ fn workspace_chip_label_cols(label: &str) -> u16 {
 
 fn top_bar_display_label(label: &str) -> String {
     let mut chars = label.chars();
-    let mut out: String = chars.by_ref().take(TOP_BAR_LABEL_MAX_CHARS).collect();
-    if chars.next().is_none() {
-        return out;
+    let mut out = String::with_capacity(TOP_BAR_LABEL_MAX_CHARS.min(label.len()));
+    for _ in 0..TOP_BAR_LABEL_MAX_CHARS {
+        let Some(ch) = chars.next() else {
+            return out;
+        };
+        out.push(ch);
     }
-    out.pop();
-    out.push('…');
+    if chars.next().is_some() {
+        out.pop();
+        out.push('…');
+    }
     out
 }
 
@@ -575,12 +580,13 @@ mod tests {
     #[test]
     fn text_and_scene_workspace_labels_are_bounded_for_pathological_input() {
         let long = "workspace-".repeat(10_000);
-        assert_eq!(top_bar_display_label("dev"), "dev");
-        assert_eq!(
-            top_bar_display_label(&long).chars().count(),
-            TOP_BAR_LABEL_MAX_CHARS
-        );
-        assert!(top_bar_display_label(&long).ends_with('…'));
+        let short = top_bar_display_label("dev");
+        assert_eq!(short, "dev");
+        assert!(short.capacity() >= "dev".len());
+        let display = top_bar_display_label(&long);
+        assert_eq!(display.chars().count(), TOP_BAR_LABEL_MAX_CHARS);
+        assert!(display.capacity() >= TOP_BAR_LABEL_MAX_CHARS);
+        assert!(display.ends_with('…'));
         let model = BarModel::new(long, 1, "native-1", true, UNIX_EPOCH);
         let rendered = model.render();
         assert!(
