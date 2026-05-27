@@ -3663,6 +3663,11 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key_with_modifiers("Tab", "Tab", 9, BROWSER_SHIFT_MODIFIER)
     }
 
+    /// Dispatch a Ctrl+Tab key press/release to the focused page element.
+    pub fn send_ctrl_tab(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Tab", "Tab", 9, BROWSER_CTRL_MODIFIER)
+    }
+
     /// Dispatch an Enter key press/release to the focused page element.
     pub fn send_enter(&mut self) -> Result<()> {
         self.dispatch_browser_key("Enter", "Enter", 13)
@@ -6419,6 +6424,13 @@ mod tests {
         assert_eq!(shift_tab["windowsVirtualKeyCode"], 9);
         assert_eq!(shift_tab["nativeVirtualKeyCode"], 9);
         assert_eq!(shift_tab["modifiers"], BROWSER_SHIFT_MODIFIER);
+        let ctrl_tab =
+            browser_key_event_params_with_modifiers("Tab", "Tab", 9, BROWSER_CTRL_MODIFIER);
+        assert_eq!(ctrl_tab["key"], "Tab");
+        assert_eq!(ctrl_tab["code"], "Tab");
+        assert_eq!(ctrl_tab["windowsVirtualKeyCode"], 9);
+        assert_eq!(ctrl_tab["nativeVirtualKeyCode"], 9);
+        assert_eq!(ctrl_tab["modifiers"], BROWSER_CTRL_MODIFIER);
     }
 
     #[test]
