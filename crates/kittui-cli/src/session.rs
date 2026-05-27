@@ -4926,6 +4926,9 @@ mod native_pane_tests {
         assert_eq!(overlay_inner_width_for_cols(64, Some(8)), 5);
         assert_eq!(overlay_inner_width_for_cols(64, Some(2)), 1);
         assert_eq!(overlay_inner_width_for_cols(58, Some(120)), 58);
+        assert_eq!(overlay_inner_width_for_sources(64, None, Some(20)), 17);
+        assert_eq!(overlay_inner_width_for_sources(64, Some(30), Some(20)), 27);
+        assert_eq!(overlay_inner_width_for_sources(64, Some(0), Some(20)), 17);
     }
 
     #[test]
@@ -10574,11 +10577,25 @@ fn ascii_casefold_contains(item: &str, query: &str) -> bool {
 }
 
 fn overlay_inner_width(preferred: usize) -> usize {
-    let terminal_cols = std::env::var("COLUMNS")
+    let env_cols = std::env::var("COLUMNS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|cols| *cols > 0);
-    overlay_inner_width_for_cols(preferred, terminal_cols)
+    let detected_cols = host_terminal_cells().map(|(cols, _)| cols as usize);
+    overlay_inner_width_for_sources(preferred, env_cols, detected_cols)
+}
+
+fn overlay_inner_width_for_sources(
+    preferred: usize,
+    env_cols: Option<usize>,
+    detected_cols: Option<usize>,
+) -> usize {
+    overlay_inner_width_for_cols(
+        preferred,
+        env_cols
+            .filter(|cols| *cols > 0)
+            .or_else(|| detected_cols.filter(|cols| *cols > 0)),
+    )
 }
 
 fn overlay_inner_width_for_cols(preferred: usize, terminal_cols: Option<usize>) -> usize {
