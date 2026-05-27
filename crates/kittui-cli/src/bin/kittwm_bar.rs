@@ -308,8 +308,11 @@ fn kittwm_bar_overlay_fit_chip_text(label: &str, cols: u16, used_cols: u16) -> O
     if label_width == 0 {
         return None;
     }
-    let clipped = label.chars().take(label_width).collect::<String>();
-    Some(format!(" {clipped} "))
+    let mut chip = String::with_capacity(label_width.saturating_add(2));
+    chip.push(' ');
+    chip.extend(label.chars().take(label_width));
+    chip.push(' ');
+    Some(chip)
 }
 
 fn kittwm_bar_label_fits_cells(label: &str, max_label_cols: usize) -> bool {
