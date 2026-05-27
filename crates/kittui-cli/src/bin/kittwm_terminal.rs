@@ -320,7 +320,17 @@ fn terminal_events_model(ms: u64, kinds: Vec<String>) -> TerminalEventsModel {
 }
 
 fn render_events_text(model: &TerminalEventsModel) -> String {
-    let mut out = format!("events count={} ms={}\n", model.count, model.ms);
+    let body_len: usize = model
+        .kinds
+        .iter()
+        .map(|kind| kind.len().saturating_add(1))
+        .sum();
+    let mut out = String::with_capacity(32usize.saturating_add(body_len));
+    out.push_str("events count=");
+    out.push_str(&model.count.to_string());
+    out.push_str(" ms=");
+    out.push_str(&model.ms.to_string());
+    out.push('\n');
     for kind in &model.kinds {
         out.push_str(kind);
         out.push('\n');
