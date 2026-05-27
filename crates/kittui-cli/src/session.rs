@@ -25,9 +25,9 @@ use anyhow::{anyhow, Result};
 use kittui::{
     CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Runtime, Scene, Stroke,
 };
-use kittui_affordances::{
-    button, text_input, ControlState, InlineChipColors, InlineStyle, InlineTheme,
-};
+#[cfg(test)]
+use kittui_affordances::{button, text_input, ControlState};
+use kittui_affordances::{InlineChipColors, InlineStyle, InlineTheme};
 use kittui_ghostty_vt::PreviewOptions;
 use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
@@ -1165,7 +1165,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             )?;
             last_top_bar = shell_view.top_bar.text.clone();
         }
-        if shell_view.help_overlay && !affordance_scene_chrome {
+        if shell_view.help_overlay {
             write_native_help_overlay(&mut frame_out, cols, rows)?;
         }
         for (idx, chrome) in shell_view.panes.iter().enumerate() {
@@ -3308,7 +3308,7 @@ fn render_native_shell_view_affordance_scenes(
     view: &NativeShellView,
     cell_size: CellSize,
     cols: u16,
-    rows: u16,
+    _rows: u16,
 ) -> Vec<NativeShellChromeScene> {
     let mut scenes = Vec::new();
     scenes.push(NativeShellChromeScene {
@@ -3351,16 +3351,6 @@ fn render_native_shell_view_affordance_scenes(
                 });
             }
         }
-    }
-    if view.help_overlay {
-        let (x, y, scene) =
-            native_help_overlay_scene(cell_size, cols, rows, native_help_overlay_lines());
-        scenes.push(NativeShellChromeScene {
-            id: "help-overlay".to_string(),
-            x,
-            y,
-            scene,
-        });
     }
     scenes
 }
@@ -3766,6 +3756,7 @@ fn rgba_with_alpha(color: Rgba, alpha: u8) -> Rgba {
     Rgba::rgba(color.0, color.1, color.2, alpha)
 }
 
+#[cfg(test)]
 fn native_help_overlay_scene(
     cell_size: CellSize,
     cols: u16,
@@ -3884,6 +3875,7 @@ fn native_help_overlay_scene(
     )
 }
 
+#[cfg(test)]
 fn native_help_overlay_max_line_cols(lines: &[&str]) -> u16 {
     lines
         .iter()
@@ -3892,11 +3884,13 @@ fn native_help_overlay_max_line_cols(lines: &[&str]) -> u16 {
         .unwrap_or(20)
 }
 
+#[cfg(test)]
 fn native_help_overlay_panel_rows(line_count: usize, available_rows: u16) -> u16 {
     let rows = line_count.saturating_add(2).min(u16::MAX as usize) as u16;
     rows.max(4).min(available_rows)
 }
 
+#[cfg(test)]
 fn native_help_overlay_control_layers(
     cell_size: CellSize,
     panel_cols: u16,
@@ -3945,6 +3939,7 @@ fn native_help_overlay_control_layers(
     ));
 }
 
+#[cfg(test)]
 fn native_prefix_and_offset_control_layers(
     scene: &mut Scene,
     prefix: &str,
@@ -3961,6 +3956,7 @@ fn native_prefix_and_offset_control_layers(
     }
 }
 
+#[cfg(test)]
 fn native_offset_node(node: &mut Node, dx: f32, dy: f32) {
     match node {
         Node::Rect { rect, .. }
@@ -6396,7 +6392,7 @@ mod native_pane_tests {
     }
 
     #[test]
-    fn native_graphical_top_bar_and_shortcut_overlay_have_scene_metadata() {
+    fn native_graphical_top_bar_uses_ansi_shortcut_overlay_text() {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
@@ -6417,20 +6413,7 @@ mod native_pane_tests {
             .as_deref()
             .unwrap_or_default()
             .starts_with("kittwm-live-top-bar:")));
-        let help_overlay = scenes
-            .iter()
-            .find(|scene| scene.id == "help-overlay")
-            .unwrap();
-        assert!(help_overlay
-            .scene
-            .layers
-            .iter()
-            .any(|layer| layer.label.as_deref() == Some("help-overlay-backdrop")));
-        assert!(help_overlay.scene.layers.iter().any(|layer| layer
-            .label
-            .as_deref()
-            .unwrap_or_default()
-            .starts_with("help-overlay-key-chip-")));
+        assert!(scenes.iter().all(|scene| scene.id != "help-overlay"));
 
         let fallback = render_native_shell_view_terminal(&view, 80, 12);
         assert!(fallback.contains("| 1 | 2 | 3 |"), "{fallback:?}");
@@ -6438,7 +6421,7 @@ mod native_pane_tests {
     }
 
     #[test]
-    fn graphical_help_overlay_path_does_not_emit_ansi_help_text() {
+    fn graphical_help_overlay_path_emits_ansi_help_text() {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
@@ -6465,10 +6448,11 @@ mod native_pane_tests {
         let mut out = Vec::new();
         let mut last = HashMap::new();
         write_native_shell_affordance_chrome(&mut out, &runtime, &view, 80, 24, &mut last).unwrap();
+        write_native_help_overlay(&mut out, 80, 24).unwrap();
         let text = String::from_utf8_lossy(&out);
         assert!(text.contains("_G"), "{text:?}");
-        assert!(!text.contains("kittwm shortcuts"), "{text:?}");
-        assert!(last.contains_key("help-overlay"));
+        assert!(text.contains("kittwm shortcuts"), "{text:?}");
+        assert!(!last.contains_key("help-overlay"));
     }
 
     #[test]
