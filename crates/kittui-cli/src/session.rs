@@ -704,11 +704,6 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             dbg.path_display(),
             help_overlay,
         );
-        publish_native_pane_statuses_if_changed(
-            &queue,
-            &mut last_published_pane_statuses,
-            native_pane_statuses(&panes, focused, &layouts),
-        );
         let stdout = io::stdout();
         let mut handle = stdout.lock();
         let mut frame_out = NativeFrameWriteBatch::default();
@@ -739,6 +734,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if pure_terminal_renderer {
             let rendered = render_native_shell_view_terminal(&shell_view, cols, rows);
             let has_pending_output = !frame_out.is_empty();
+            publish_native_pane_statuses_if_changed(
+                &queue,
+                &mut last_published_pane_statuses,
+                native_pane_statuses(&panes, focused, &layouts),
+            );
             if should_write_pure_terminal_frame(
                 &last_terminal_render,
                 &rendered,
@@ -976,6 +976,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 }
             }
         }
+        publish_native_pane_statuses_if_changed(
+            &queue,
+            &mut last_published_pane_statuses,
+            native_pane_statuses(&panes, focused, &layouts),
+        );
         if affordance_scene_chrome {
             write_native_shell_affordance_chrome(
                 &mut frame_out,
