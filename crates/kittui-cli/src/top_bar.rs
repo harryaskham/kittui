@@ -179,34 +179,35 @@ impl BarModel {
         let clock = self.time.strip_suffix(" UTC").unwrap_or(&self.time);
         let clock_cols = clock.chars().count().max(5) as f32 + 2.0;
         let clock_w = (clock_cols * cell_w).min(cols.max(1) as f32 * cell_w);
-        let clock_x = (cols.max(1) as f32 * cell_w - clock_w - 1.0).max(0.0);
-        scene.layers.push(Layer::new(
-            format!("{label_prefix}-clock-chip:{clock}:high-contrast"),
-            Node::Rect {
-                rect: PxRect::new(clock_x + 1.0, 1.0, clock_w, chip_h),
-                fill: Paint::Solid {
-                    color: theme.shadow,
-                },
-                stroke: None,
-                corners: Corners::uniform(7.0),
-            },
-        ));
-        scene.layers.push(Layer::new(
-            format!("{label_prefix}-clock-chip-foreground:{clock}"),
-            Node::Rect {
-                rect: PxRect::new(clock_x, ((cell_h - chip_h) / 2.0).max(0.0), clock_w, chip_h),
-                fill: Paint::Solid {
-                    color: theme.clock_bg,
-                },
-                stroke: Some(Stroke::inside(
-                    1.0,
-                    Paint::Solid {
-                        color: theme.clock_fg,
+        if let Some(clock_x) = top_bar_clock_chip_x(cols.max(1) as f32 * cell_w, chip_x, clock_w) {
+            scene.layers.push(Layer::new(
+                format!("{label_prefix}-clock-chip:{clock}:high-contrast"),
+                Node::Rect {
+                    rect: PxRect::new(clock_x + 1.0, 1.0, clock_w, chip_h),
+                    fill: Paint::Solid {
+                        color: theme.shadow,
                     },
-                )),
-                corners: Corners::uniform(7.0),
-            },
-        ));
+                    stroke: None,
+                    corners: Corners::uniform(7.0),
+                },
+            ));
+            scene.layers.push(Layer::new(
+                format!("{label_prefix}-clock-chip-foreground:{clock}"),
+                Node::Rect {
+                    rect: PxRect::new(clock_x, ((cell_h - chip_h) / 2.0).max(0.0), clock_w, chip_h),
+                    fill: Paint::Solid {
+                        color: theme.clock_bg,
+                    },
+                    stroke: Some(Stroke::inside(
+                        1.0,
+                        Paint::Solid {
+                            color: theme.clock_fg,
+                        },
+                    )),
+                    corners: Corners::uniform(7.0),
+                },
+            ));
+        }
         scene.layers.push(Layer::new(
             format!(
                 "{label_prefix}-text:{}",
@@ -327,6 +328,12 @@ fn with_alpha(color: Rgba, alpha: u8) -> Rgba {
     Rgba(color.0, color.1, color.2, alpha)
 }
 
+fn top_bar_clock_chip_x(total_width: f32, chip_end_x: f32, clock_width: f32) -> Option<f32> {
+    let gap = 4.0;
+    let right_aligned = (total_width - clock_width - 1.0).max(0.0);
+    (chip_end_x + gap <= right_aligned).then_some(right_aligned)
+}
+
 /// Workspace label from environment, defaulting to `1`.
 pub fn workspace_label() -> String {
     std::env::var("KITTWM_WORKSPACE")
@@ -395,6 +402,12 @@ mod tests {
     }
 
     #[test]
+    fn top_bar_clock_chip_skips_when_workspace_chips_overlap() {
+        assert_eq!(top_bar_clock_chip_x(320.0, 80.0, 72.0), Some(247.0));
+        assert_eq!(top_bar_clock_chip_x(160.0, 100.0, 72.0), None);
+    }
+
+    #[test]
     fn top_bar_theme_colors_remain_visible_after_config_resolution() {
         let (active_fill, active_border) = top_bar_theme_colors(true, "active");
         assert!(active_fill.3 >= 190, "{active_fill:?}");
@@ -433,6 +446,22 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("workspace-chip:dev:active:action=workspace.switch.dev")));
+    }
+
+    #[test]
+    fn scene_shape_omits_clock_when_custom_workspace_would_overlap() {
+        let model = BarModel::new("very-long-workspace-name", 0, "-", false, UNIX_EPOCH);
+        let scene = model.scene(24);
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("workspace-chip:very-long-workspace-name:active")));
+        assert!(!scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("clock-chip-foreground")));
     }
 
     #[test]
