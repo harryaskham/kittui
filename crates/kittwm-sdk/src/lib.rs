@@ -2923,6 +2923,16 @@ fn validated_pane_title<'a>(title: &'a str) -> Result<&'a str> {
     Ok(title)
 }
 
+fn validated_protocol_token<'a>(token: &'a str, label: &str) -> Result<&'a str> {
+    let token = token.trim();
+    if token.is_empty() || token.contains(char::is_whitespace) {
+        return Err(Error::Daemon(format!(
+            "{label} must be a single nonempty token"
+        )));
+    }
+    Ok(token)
+}
+
 impl SurfaceHandle {
     /// Focus this surface/window.
     pub fn focus(&self) -> Result<String> {
@@ -2987,8 +2997,9 @@ impl SurfaceHandle {
     /// Send a named key such as `ctrl-c`, `escape`, or `up`.
     pub fn send_key(&self, key: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::SendInput)?;
+        let key = validated_protocol_token(key.as_ref(), "SEND_KEY key")?;
         self.client
-            .request_protocol(format!("SEND_KEY {} {}", self.id, key.as_ref()))
+            .request_protocol(format!("SEND_KEY {} {key}", self.id))
     }
 
     /// Send exact bytes, base64-encoding them for `SEND_BYTES_B64`.
@@ -5071,7 +5082,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..9 {
+            for _ in 0..10 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -5087,6 +5098,7 @@ mod tests {
         let surface = Kittwm::connect_path(&path).surface("native-1");
         assert_eq!(surface.send_text("   ").unwrap().trim(), "OK");
         assert_eq!(surface.send_line("echo hi").unwrap().trim(), "OK");
+        assert_eq!(surface.send_key(" ctrl-c ").unwrap().trim(), "OK");
         assert_eq!(surface.send_bytes(b"hi\n\0").unwrap().trim(), "OK");
         assert_eq!(surface.send_bytes_b64(" AQID ").unwrap().trim(), "OK");
         assert_eq!(surface.paste_bytes(b"paste me").unwrap().trim(), "OK");
@@ -5116,6 +5128,7 @@ mod tests {
             [
                 "SEND_TEXT native-1",
                 "SEND_LINE native-1 echo hi",
+                "SEND_KEY native-1 ctrl-c",
                 "SEND_BYTES_B64 native-1 aGkKAA==",
                 "SEND_BYTES_B64 native-1 AQID",
                 "PASTE_BYTES_B64 native-1 cGFzdGUgbWU=",
@@ -5150,6 +5163,19 @@ mod tests {
         assert!(matches!(
             surface.send_line(""),
             Err(Error::Daemon(message)) if message.contains("nonempty text")
+        ));
+    }
+
+    #[test]
+    fn send_key_helper_validates_token_before_io() {
+        let surface = Kittwm::connect_path("/tmp/does-not-exist.sock").surface("focused");
+        assert!(matches!(
+            surface.send_key("   "),
+            Err(Error::Daemon(message)) if message.contains("single nonempty token")
+        ));
+        assert!(matches!(
+            surface.send_key("page down"),
+            Err(Error::Daemon(message)) if message.contains("single nonempty token")
         ));
     }
 
