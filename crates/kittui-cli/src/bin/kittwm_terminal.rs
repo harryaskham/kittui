@@ -372,13 +372,7 @@ fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Sce
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
     let content_rect = terminal_card_content_rect(width, cell);
-    let summary = model
-        .kinds
-        .iter()
-        .take(5)
-        .map(|kind| terminal_scene_label_text(kind, 24))
-        .collect::<Vec<_>>()
-        .join(",");
+    let summary = terminal_events_summary_label(&model.kinds);
     Scene {
         footprint: CellRect::new(0, 0, cols, rows),
         cell_size: cell,
@@ -432,6 +426,17 @@ fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Sce
         ],
         animation: None,
     }
+}
+
+fn terminal_events_summary_label(kinds: &[String]) -> String {
+    let mut summary = String::with_capacity(kinds.len().min(5).saturating_mul(25));
+    for kind in kinds.iter().take(5) {
+        if !summary.is_empty() {
+            summary.push(',');
+        }
+        summary.push_str(&terminal_scene_label_text(kind, 24));
+    }
+    summary
 }
 
 fn render_events_kitty(model: &TerminalEventsModel) -> Result<String, String> {
@@ -810,6 +815,8 @@ mod tests {
             .filter_map(|layer| layer.label.as_deref())
             .find(|label| label.starts_with("kittwm-terminal-events-kinds:"))
             .unwrap();
+        let summary = terminal_events_summary_label(&model.kinds);
+        assert!(summary.capacity() >= 5 * 25);
         assert!(label.contains("pane_frame_presented_wi…"), "{label}");
         assert!(label.contains("another_pathologically_…"), "{label}");
         assert!(!label.contains("not-included"), "{label}");
