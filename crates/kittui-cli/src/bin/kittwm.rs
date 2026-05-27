@@ -4700,7 +4700,7 @@ fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
         .and_then(serde_json::Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let rows = (panes.len() as u16 + 5).clamp(8, 24);
+    let rows = session_scene_rows(panes.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -4809,6 +4809,11 @@ fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
 
 fn session_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn session_scene_rows(pane_count: usize) -> u16 {
+    let rows = pane_count.saturating_add(5).min(u16::MAX as usize) as u16;
+    rows.clamp(8, 24)
 }
 
 fn chrome_graphical_cmd(kitty: bool) -> Result<()> {
@@ -6659,6 +6664,35 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn session_scene_rows_saturate_large_manifest_counts() {
+        assert_eq!(session_scene_rows(0), 8);
+        assert_eq!(session_scene_rows(4), 9);
+        assert_eq!(session_scene_rows(usize::MAX), 24);
+
+        let panes = (0..128)
+            .map(|idx| {
+                serde_json::json!({
+                    "index": idx,
+                    "window": format!("native-{idx}"),
+                    "title": "shell",
+                    "command": "bash",
+                    "weight": 1,
+                    "focused": false
+                })
+            })
+            .collect::<Vec<_>>();
+        let session = serde_json::json!({
+            "schema_version": 1,
+            "kind": "kittwm-native-session",
+            "layout": "rows",
+            "focus": "native-1",
+            "panes": panes
+        });
+        let scene = session_scene_for_cols(&session, 80);
+        assert_eq!(scene.footprint.rows, 24);
     }
 
     #[test]
