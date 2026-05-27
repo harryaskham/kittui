@@ -2613,7 +2613,14 @@ fn native_mouse_event_name_and_position(
             MouseButton::ScrollDown => Some(("scroll-down", *col, *row, false)),
             _ => None,
         },
-        InputEvent::MouseRelease { col, row, .. } => Some(("release", *col, *row, false)),
+        InputEvent::MouseRelease {
+            button, col, row, ..
+        } => match button {
+            MouseButton::Left => Some(("release-left", *col, *row, false)),
+            MouseButton::Middle => Some(("release-middle", *col, *row, false)),
+            MouseButton::Right => Some(("release-right", *col, *row, false)),
+            _ => Some(("release", *col, *row, false)),
+        },
         InputEvent::MouseMove {
             button, col, row, ..
         } => match button {
@@ -2675,7 +2682,12 @@ fn native_mouse_event_payload(
         "press-left" if click_capable => (0, 'M'),
         "press-middle" if click_capable => (1, 'M'),
         "press-right" if click_capable => (2, 'M'),
-        "release" if click_capable => (3, 'm'),
+        "release-left" if click_capable && modes.sgr => (0, 'm'),
+        "release-middle" if click_capable && modes.sgr => (1, 'm'),
+        "release-right" if click_capable && modes.sgr => (2, 'm'),
+        "release" | "release-left" | "release-middle" | "release-right" if click_capable => {
+            (3, 'm')
+        }
         "move" if modes.all_motion => (35, 'M'),
         "move-left" if modes.button_motion || modes.all_motion => (32, 'M'),
         "move-middle" if modes.button_motion || modes.all_motion => (33, 'M'),
@@ -5085,8 +5097,16 @@ mod native_pane_tests {
             b"\x1b[<0;7;9M".to_vec()
         );
         assert_eq!(
-            native_mouse_event_payload("release", 7, 9, modes).unwrap(),
-            b"\x1b[<3;7;9m".to_vec()
+            native_mouse_event_payload("release-left", 7, 9, modes).unwrap(),
+            b"\x1b[<0;7;9m".to_vec()
+        );
+        assert_eq!(
+            native_mouse_event_payload("release-middle", 7, 9, modes).unwrap(),
+            b"\x1b[<1;7;9m".to_vec()
+        );
+        assert_eq!(
+            native_mouse_event_payload("release-right", 7, 9, modes).unwrap(),
+            b"\x1b[<2;7;9m".to_vec()
         );
         assert_eq!(
             native_mouse_event_payload("scroll-down", 7, 9, modes).unwrap(),
@@ -5131,7 +5151,7 @@ mod native_pane_tests {
         );
         assert_eq!(
             native_mouse_event_payload(
-                "release",
+                "release-left",
                 7,
                 9,
                 MouseReportingModes {
@@ -5186,6 +5206,15 @@ mod native_pane_tests {
 
     #[test]
     fn native_mouse_event_mapping_preserves_drag_buttons() {
+        assert_eq!(
+            native_mouse_event_name_and_position(&InputEvent::MouseRelease {
+                button: MouseButton::Right,
+                col: 5,
+                row: 6,
+                mods: Default::default(),
+            }),
+            Some(("release-right", 5, 6, false))
+        );
         assert_eq!(
             native_mouse_event_name_and_position(&InputEvent::MousePress {
                 button: MouseButton::ScrollDown,
