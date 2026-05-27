@@ -342,6 +342,18 @@ fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize)
     (action, consumed)
 }
 
+fn browser_ss3_input_action(byte: u8) -> Option<BrowserInputAction> {
+    match byte {
+        b'A' => Some(BrowserInputAction::Arrow(BrowserArrowKey::Up)),
+        b'B' => Some(BrowserInputAction::Arrow(BrowserArrowKey::Down)),
+        b'C' => Some(BrowserInputAction::Arrow(BrowserArrowKey::Right)),
+        b'D' => Some(BrowserInputAction::Arrow(BrowserArrowKey::Left)),
+        b'H' => Some(BrowserInputAction::Home),
+        b'F' => Some(BrowserInputAction::End),
+        _ => None,
+    }
+}
+
 fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
     let mut actions = Vec::new();
     let mut text = Vec::new();
@@ -367,6 +379,13 @@ fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
                     actions.push(action);
                 }
                 idx += consumed + 2;
+            }
+            0x1b if idx + 2 < bytes.len() && bytes[idx + 1] == b'O' => {
+                if let Some(action) = browser_ss3_input_action(bytes[idx + 2]) {
+                    flush_browser_text_action(&mut actions, &mut text);
+                    actions.push(action);
+                }
+                idx += 2;
             }
             0x1b => {
                 flush_browser_text_action(&mut actions, &mut text);
@@ -1109,6 +1128,17 @@ mod tests {
                 BrowserInputAction::Arrow(BrowserArrowKey::Down),
                 BrowserInputAction::Arrow(BrowserArrowKey::Right),
                 BrowserInputAction::Arrow(BrowserArrowKey::Left),
+            ]
+        );
+        assert_eq!(
+            browser_input_actions(b"\x1bOA\x1bOB\x1bOC\x1bOD\x1bOH\x1bOF"),
+            vec![
+                BrowserInputAction::Arrow(BrowserArrowKey::Up),
+                BrowserInputAction::Arrow(BrowserArrowKey::Down),
+                BrowserInputAction::Arrow(BrowserArrowKey::Right),
+                BrowserInputAction::Arrow(BrowserArrowKey::Left),
+                BrowserInputAction::Home,
+                BrowserInputAction::End,
             ]
         );
         assert_eq!(
