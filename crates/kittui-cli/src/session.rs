@@ -4706,6 +4706,15 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn text_overlay_inner_width_respects_narrow_terminal_columns() {
+        assert_eq!(overlay_inner_width_for_cols(64, None), 64);
+        assert_eq!(overlay_inner_width_for_cols(64, Some(20)), 17);
+        assert_eq!(overlay_inner_width_for_cols(64, Some(8)), 5);
+        assert_eq!(overlay_inner_width_for_cols(64, Some(2)), 1);
+        assert_eq!(overlay_inner_width_for_cols(58, Some(120)), 58);
+    }
+
+    #[test]
     fn graphical_top_bar_overlay_text_cols_saturate_pathological_labels() {
         let long = "x".repeat(u16::MAX as usize + 32);
         assert_eq!(native_top_bar_overlay_text_cols(&long, 0), u16::MAX);
@@ -9469,27 +9478,15 @@ impl QuitConfirmOverlay {
     }
 
     fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
-        let width = 64usize;
+        let width = overlay_inner_width(64);
         write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
-        write!(
-            handle,
-            "\x1b[3;2H│{:^width$}│",
-            "confirm quit kittwm",
-            width = width
-        )?;
+        let title = truncate_cells("confirm quit kittwm", width);
+        write!(handle, "\x1b[3;2H│{:^width$}│", title, width = width)?;
         write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
-        write!(
-            handle,
-            "\x1b[5;2H│{:<width$}│",
-            "Triple Ctrl-C received. Quit the window manager?",
-            width = width
-        )?;
-        write!(
-            handle,
-            "\x1b[6;2H│{:<width$}│",
-            "Press y to quit, n/Esc to cancel. Times out in 5s.",
-            width = width
-        )?;
+        let prompt = truncate_cells("Triple Ctrl-C received. Quit the window manager?", width);
+        write!(handle, "\x1b[5;2H│{:<width$}│", prompt, width = width)?;
+        let hint = truncate_cells("Press y to quit, n/Esc to cancel. Times out in 5s.", width);
+        write!(handle, "\x1b[6;2H│{:<width$}│", hint, width = width)?;
         write!(handle, "\x1b[7;2H└{}┘", "─".repeat(width))?;
         Ok(())
     }
@@ -9546,14 +9543,10 @@ impl PickerOverlay {
     }
 
     fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
-        let width = 64usize;
+        let width = overlay_inner_width(64);
         write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
-        write!(
-            handle,
-            "\x1b[3;2H│{:^width$}│",
-            "kittwm picker",
-            width = width
-        )?;
+        let title = truncate_cells("kittwm picker", width);
+        write!(handle, "\x1b[3;2H│{:^width$}│", title, width = width)?;
         write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
         for row in 0..8usize {
             let line = if let Some(entry) = self.entries.get(row) {
@@ -9571,12 +9564,8 @@ impl PickerOverlay {
             )?;
         }
         write!(handle, "\x1b[13;2H├{}┤", "─".repeat(width))?;
-        write!(
-            handle,
-            "\x1b[14;2H│ {:<w$}│",
-            "Enter select · Esc close · ↑/↓/Tab navigate",
-            w = width - 1
-        )?;
+        let hint = truncate_cells("Enter select · Esc close · ↑/↓/Tab navigate", width);
+        write!(handle, "\x1b[14;2H│{:<width$}│", hint, width = width)?;
         write!(handle, "\x1b[15;2H└{}┘", "─".repeat(width))?;
         Ok(())
     }
@@ -9656,21 +9645,17 @@ impl LauncherOverlay {
 
     fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
         let candidates = self.candidates();
-        let width = 58usize;
+        let width = overlay_inner_width(58);
         write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
-        write!(
-            handle,
-            "\x1b[3;2H│{:^width$}│",
-            "kittwm launcher",
-            width = width
-        )?;
+        let title = truncate_cells("kittwm launcher", width);
+        write!(handle, "\x1b[3;2H│{:^width$}│", title, width = width)?;
         write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
-        write!(
-            handle,
-            "\x1b[5;2H│ query: {:<qwidth$}│",
-            truncate_cells(&self.query, width - 8),
-            qwidth = width - 8
-        )?;
+        let query_line = if width > 8 {
+            format!(" query: {}", truncate_cells(&self.query, width - 8))
+        } else {
+            truncate_cells(&self.query, width)
+        };
+        write!(handle, "\x1b[5;2H│{:<width$}│", query_line, width = width)?;
         write!(handle, "\x1b[6;2H├{}┤", "─".repeat(width))?;
         for row in 0..8usize {
             let line = if let Some(c) = candidates.get(row) {
@@ -9693,12 +9678,8 @@ impl LauncherOverlay {
             )?;
         }
         write!(handle, "\x1b[15;2H├{}┤", "─".repeat(width))?;
-        write!(
-            handle,
-            "\x1b[16;2H│ {:<w$}│",
-            "Enter launch · Esc close · type filter · ↑/↓ select",
-            w = width - 1
-        )?;
+        let hint = truncate_cells("Enter launch · Esc close · type filter · ↑/↓ select", width);
+        write!(handle, "\x1b[16;2H│{:<width$}│", hint, width = width)?;
         write!(handle, "\x1b[17;2H└{}┘", "─".repeat(width))?;
         Ok(())
     }
@@ -9908,6 +9889,21 @@ fn launcher_match_score(item: &str, lower_query: &str) -> Option<u8> {
     } else {
         None
     }
+}
+
+fn overlay_inner_width(preferred: usize) -> usize {
+    let terminal_cols = std::env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|cols| *cols > 0);
+    overlay_inner_width_for_cols(preferred, terminal_cols)
+}
+
+fn overlay_inner_width_for_cols(preferred: usize, terminal_cols: Option<usize>) -> usize {
+    terminal_cols
+        .map(|cols| preferred.min(cols.saturating_sub(3).max(1)))
+        .unwrap_or(preferred)
+        .max(1)
 }
 
 fn truncate_cells(s: &str, n: usize) -> String {
