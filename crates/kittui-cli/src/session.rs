@@ -1160,6 +1160,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 runtime,
                 &shell_view,
                 cols,
+                rows,
                 &mut affordance_chrome_keys,
             )?;
             if redraw_static || shell_view.top_bar.text != last_top_bar {
@@ -3274,13 +3275,14 @@ fn native_showcase_scenes(cols: u16, rows: u16, help_overlay: bool) -> Vec<Nativ
         },
         help_overlay,
     };
-    render_native_shell_view_affordance_scenes(&view, native_cell_size(), cols)
+    render_native_shell_view_affordance_scenes(&view, native_cell_size(), cols, rows)
 }
 
 fn render_native_shell_view_affordance_scenes(
     view: &NativeShellView,
     cell_size: CellSize,
     cols: u16,
+    rows: u16,
 ) -> Vec<NativeShellChromeScene> {
     let mut scenes = Vec::new();
     scenes.push(NativeShellChromeScene {
@@ -3325,7 +3327,8 @@ fn render_native_shell_view_affordance_scenes(
         }
     }
     if view.help_overlay {
-        let (x, y, scene) = native_help_overlay_scene(cell_size, cols, native_help_overlay_lines());
+        let (x, y, scene) =
+            native_help_overlay_scene(cell_size, cols, rows, native_help_overlay_lines());
         scenes.push(NativeShellChromeScene {
             id: "help-overlay".to_string(),
             x,
@@ -3709,7 +3712,12 @@ fn rgba_with_alpha(color: Rgba, alpha: u8) -> Rgba {
     Rgba::rgba(color.0, color.1, color.2, alpha)
 }
 
-fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> (u16, u16, Scene) {
+fn native_help_overlay_scene(
+    cell_size: CellSize,
+    cols: u16,
+    rows: u16,
+    lines: &[&str],
+) -> (u16, u16, Scene) {
     let colors = native_glass_chrome_colors();
     let max_line = lines
         .iter()
@@ -3721,9 +3729,13 @@ fn native_help_overlay_scene(cell_size: CellSize, cols: u16, lines: &[&str]) -> 
         .saturating_add(4)
         .min(cols.saturating_sub(4).max(20))
         .min(available_cols);
-    let panel_rows = (lines.len() as u16).saturating_add(2).max(4);
+    let y = 2.min(rows.saturating_sub(1));
+    let available_rows = rows.saturating_sub(y).max(1);
+    let panel_rows = (lines.len() as u16)
+        .saturating_add(2)
+        .max(4)
+        .min(available_rows);
     let x = cols.saturating_sub(panel_cols).saturating_div(2);
-    let y = 2;
     let rect = CellRect::new(0, 0, panel_cols, panel_rows).to_pixels(cell_size);
     let row_h = cell_size.height_px.max(1) as f32;
     let chip_h = (row_h - 5.0).max(6.0);
@@ -4155,9 +4167,10 @@ fn write_native_shell_affordance_chrome<W: Write>(
     runtime: &Runtime,
     view: &NativeShellView,
     cols: u16,
+    rows: u16,
     last_keys: &mut HashMap<String, NativeChromePlacementMemo>,
 ) -> Result<()> {
-    let scenes = render_native_shell_view_affordance_scenes(view, native_cell_size(), cols);
+    let scenes = render_native_shell_view_affordance_scenes(view, native_cell_size(), cols, rows);
     let current_ids = scenes
         .iter()
         .map(|chrome| chrome.id.clone())
@@ -5708,7 +5721,8 @@ mod native_pane_tests {
             },
             help_overlay: false,
         };
-        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+        let scenes =
+            render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80, 24);
         assert_eq!(scenes.len(), 1, "{scenes:?}");
         assert_eq!(scenes[0].id, "top-bar");
     }
@@ -5758,7 +5772,8 @@ mod native_pane_tests {
             },
             help_overlay: false,
         };
-        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 18);
+        let scenes =
+            render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 18, 24);
         assert_eq!(scenes.len(), 6);
         assert_eq!(scenes[0].id, "top-bar");
         assert_eq!((scenes[0].x, scenes[0].y), (0, 0));
@@ -5864,7 +5879,7 @@ mod native_pane_tests {
             help_overlay: false,
         };
         let mut scenes =
-            render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+            render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80, 24);
         let baseline = native_shell_chrome_scene_key(&scenes[0]);
         assert_eq!(baseline, native_shell_chrome_scene_key(&scenes[0]));
 
@@ -5891,7 +5906,8 @@ mod native_pane_tests {
             },
             help_overlay: false,
         };
-        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+        let scenes =
+            render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80, 24);
         let mut changed_scene = scenes[0].clone();
         let baseline = native_shell_chrome_scene_key(&changed_scene);
         match &mut changed_scene.scene.layers[0].root {
@@ -5945,8 +5961,12 @@ mod native_pane_tests {
             }
         }
 
-        let (_x, _y, overlay) =
-            native_help_overlay_scene(native_cell_size(), 80, &["kittwm shortcuts", "C-a ? help"]);
+        let (_x, _y, overlay) = native_help_overlay_scene(
+            native_cell_size(),
+            80,
+            24,
+            &["kittwm shortcuts", "C-a ? help"],
+        );
         match &overlay.layers[0].root {
             Node::Rect {
                 fill: Paint::Solid { color },
@@ -6145,7 +6165,8 @@ mod native_pane_tests {
             },
             help_overlay: false,
         };
-        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+        let scenes =
+            render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80, 24);
         let title = scenes
             .iter()
             .find(|scene| scene.id == "pane-0-title")
@@ -6178,7 +6199,8 @@ mod native_pane_tests {
             },
             help_overlay: true,
         };
-        let scenes = render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+        let scenes =
+            render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80, 24);
         let top_bar = scenes.iter().find(|scene| scene.id == "top-bar").unwrap();
         assert!(top_bar.scene.layers.iter().any(|layer| layer
             .label
@@ -6232,7 +6254,7 @@ mod native_pane_tests {
             .unwrap();
         let mut out = Vec::new();
         let mut last = HashMap::new();
-        write_native_shell_affordance_chrome(&mut out, &runtime, &view, 80, &mut last).unwrap();
+        write_native_shell_affordance_chrome(&mut out, &runtime, &view, 80, 24, &mut last).unwrap();
         let text = String::from_utf8_lossy(&out);
         assert!(text.contains("_G"), "{text:?}");
         assert!(!text.contains("kittwm shortcuts"), "{text:?}");
@@ -6418,11 +6440,36 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_help_overlay_scene_height_fits_short_terminals() {
+        for rows in [0, 1, 2, 3] {
+            let (x, y, scene) = native_help_overlay_scene(
+                CellSize::new(8, 16),
+                80,
+                rows,
+                &[
+                    "kittwm shortcuts",
+                    "C-a ? help",
+                    "C-a x close",
+                    "C-a g launcher",
+                ],
+            );
+            assert!(x < 80, "x={x}");
+            assert!(y < rows.max(1), "rows={rows} y={y}");
+            assert!(
+                y.saturating_add(scene.footprint.rows) <= rows.max(1),
+                "rows={rows} y={y} scene={:?}",
+                scene.footprint
+            );
+        }
+    }
+
+    #[test]
     fn native_help_overlay_scene_width_fits_tiny_terminals() {
         for cols in [0, 1, 8, 19] {
             let (x, _y, scene) = native_help_overlay_scene(
                 CellSize::new(8, 16),
                 cols,
+                24,
                 &["kittwm shortcuts", "C-a ? help"],
             );
             assert!(
@@ -6439,6 +6486,7 @@ mod native_pane_tests {
         let (_x, y, scene) = native_help_overlay_scene(
             CellSize::new(8, 16),
             80,
+            24,
             &[
                 "kittwm shortcuts",
                 "C-a ?              toggle this help",
