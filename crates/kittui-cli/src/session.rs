@@ -3943,6 +3943,10 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
             (palette.inactive_fg, palette.inactive_bg)
         };
         let label = format!(" {workspace} ");
+        let label_cols = label.chars().count() as u16 + 1;
+        if !native_graphical_top_bar_label_fits(cols, workspace_cols, label_cols) {
+            break;
+        }
         write!(
             out,
             "\x1b[1m{}{}{}\x1b[0m ",
@@ -3950,7 +3954,7 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
             ansi_bg(bg),
             label
         )?;
-        workspace_cols = workspace_cols.saturating_add(label.chars().count() as u16 + 1);
+        workspace_cols = workspace_cols.saturating_add(label_cols);
     }
     let clock_text = format!(" {clock} ");
     if let Some(clock_col) =
@@ -3971,6 +3975,10 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
 
 fn native_graphical_top_bar_overlay_clear(row: u16) -> String {
     format!("\x1b[{row};1H\x1b[K")
+}
+
+fn native_graphical_top_bar_label_fits(cols: u16, used_cols: u16, label_cols: u16) -> bool {
+    label_cols > 0 && used_cols.saturating_add(label_cols) <= cols
 }
 
 fn native_graphical_top_bar_clock_col(
@@ -4332,6 +4340,14 @@ mod native_pane_tests {
     fn graphical_top_bar_overlay_clears_row_before_rewrite() {
         assert_eq!(native_graphical_top_bar_overlay_clear(1), "\x1b[1;1H\x1b[K");
         assert_eq!(native_graphical_top_bar_overlay_clear(3), "\x1b[3;1H\x1b[K");
+    }
+
+    #[test]
+    fn graphical_top_bar_label_fit_prevents_wrapping() {
+        assert!(native_graphical_top_bar_label_fits(12, 0, 4));
+        assert!(native_graphical_top_bar_label_fits(12, 8, 4));
+        assert!(!native_graphical_top_bar_label_fits(12, 9, 4));
+        assert!(!native_graphical_top_bar_label_fits(12, 0, 0));
     }
 
     #[test]
