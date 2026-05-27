@@ -271,6 +271,15 @@ fn publish_native_pane_statuses_if_changed(
     true
 }
 
+fn should_publish_native_layout(last: &mut String, next: &str) -> bool {
+    if last == next {
+        return false;
+    }
+    last.clear();
+    last.push_str(next);
+    true
+}
+
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
 /// `compositor` and `layout` are passed in so callers can wire any
@@ -319,6 +328,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     );
     let mut last_resized_layouts = initial_layouts.clone();
     let mut last_published_pane_statuses = native_pane_statuses(&panes, focused, &initial_layouts);
+    let mut last_published_layout = layout_axis.label().to_string();
     queue.update_panes(last_published_pane_statuses.clone());
     queue.update_layout(layout_axis.label());
 
@@ -703,7 +713,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 }
             }
         }
-        queue.update_layout(layout_axis.label());
+        let layout_label = layout_axis.label();
+        if should_publish_native_layout(&mut last_published_layout, layout_label) {
+            queue.update_layout(layout_label);
+        }
         let (new_cols, new_rows) = native_terminal_size();
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
@@ -3969,6 +3982,16 @@ mod native_pane_tests {
         assert_eq!(colors.border, Rgba(0xab, 0xcd, 0xef, 255));
         assert_eq!(colors.fg, Rgba(0xab, 0xcd, 0xef, 255));
         assert_eq!(colors.highlight, Rgba(0x44, 0x55, 0x66, 107));
+    }
+
+    #[test]
+    fn native_layout_publish_decision_skips_unchanged_label() {
+        let mut last = "columns".to_string();
+        assert!(!should_publish_native_layout(&mut last, "columns"));
+        assert_eq!(last, "columns");
+        assert!(should_publish_native_layout(&mut last, "rows"));
+        assert_eq!(last, "rows");
+        assert!(!should_publish_native_layout(&mut last, "rows"));
     }
 
     #[test]
