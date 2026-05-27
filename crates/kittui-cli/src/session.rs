@@ -3878,6 +3878,93 @@ mod native_pane_tests {
         assert_eq!(native_pane_at_host_cell(&layouts, 41, 10), None);
     }
 
+    fn dummy_native_pane(window: &str, command: &str, weight: u16) -> NativePane {
+        NativePane {
+            window: window.to_string(),
+            image_id: 1,
+            command: command.to_string(),
+            pid: None,
+            display_title: None,
+            weight,
+            app: dummy_native_pane_app(),
+            dirty_frame: None,
+        }
+    }
+
+    #[test]
+    fn native_route_mouse_focuses_chrome_and_app_without_top_bar_leakage() {
+        let mut panes = vec![
+            dummy_native_pane("native-1", "left", 1),
+            dummy_native_pane("native-2", "right", 1),
+        ];
+        let mut focused = 0usize;
+        let mut clear = false;
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+
+        // Top-bar row is reserved chrome outside any pane; clicking it should
+        // be consumed by the WM but must not change pane focus.
+        assert!(native_route_mouse_event(
+            InputEvent::MousePress {
+                col: 1,
+                row: 1,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            &reservation,
+            &mut clear,
+        )
+        .unwrap());
+        assert_eq!(focused, 0);
+        assert!(!clear);
+
+        // Pane title chrome should focus the pane and force a redraw so focus
+        // visuals cannot lag behind input routing.
+        assert!(native_route_mouse_event(
+            InputEvent::MousePress {
+                col: 42,
+                row: 2,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            &reservation,
+            &mut clear,
+        )
+        .unwrap());
+        assert_eq!(focused, 1);
+        assert!(clear);
+
+        // App-area clicks keep focus aligned with the pane that receives input.
+        clear = false;
+        assert!(native_route_mouse_event(
+            InputEvent::MousePress {
+                col: 2,
+                row: 3,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            &reservation,
+            &mut clear,
+        )
+        .unwrap());
+        assert_eq!(focused, 0);
+        assert!(clear);
+    }
+
     #[test]
     fn native_mouse_hit_testing_separates_top_bar_chrome_and_app_area() {
         let layouts = reserve_native_top_bar(native_pane_layouts_weighted(
