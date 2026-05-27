@@ -700,7 +700,7 @@ fn truncate(s: &str, max: usize) -> String {
         return String::new();
     }
     let mut chars = s.chars();
-    let mut out = String::new();
+    let mut out = String::with_capacity(max.min(s.len()));
     for _ in 0..max {
         let Some(ch) = chars.next() else {
             return s.to_string();
@@ -868,7 +868,13 @@ fn clip_to_cols(s: &str, cols: usize) -> String {
         return String::new();
     }
     let mut chars = s.chars();
-    let mut out: String = chars.by_ref().take(cols).collect();
+    let mut out = String::with_capacity(cols.min(s.len()));
+    for _ in 0..cols {
+        let Some(ch) = chars.next() else {
+            return out;
+        };
+        out.push(ch);
+    }
     if chars.next().is_none() {
         return out;
     }
