@@ -134,6 +134,10 @@ fn decide_native_png_frame_write(
     }
 }
 
+fn should_publish_native_frame_event(uploaded: bool, placement_changed: bool) -> bool {
+    uploaded || placement_changed
+}
+
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
 /// `compositor` and `layout` are passed in so callers can wire any
@@ -767,33 +771,39 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         frame_out.write_all(p.placement.as_bytes())?;
                         frame_out.write_all(p.embed.as_bytes())?;
                     }
-                    queue.publish_frame_presented(
-                        pane.window.clone(),
-                        crate::daemon::NativeFramePresented {
-                            renderer: "kitty".to_string(),
-                            format: "rgba".to_string(),
-                            pixel_width: width,
-                            pixel_height: height,
-                            app_x: Some(layout.app_x),
-                            app_y: Some(layout.app_y),
-                            app_cols: Some(layout.app_cols),
-                            app_rows: Some(layout.app_rows),
-                            uploaded: decision.upload,
-                            skipped_upload: decision.metrics.skipped_upload,
-                            changed_tiles: Some(decision.metrics.changed_tiles),
-                            total_tiles: Some(decision.metrics.total_tiles),
-                            upload_bytes: if decision.upload {
-                                Some(rgba.len())
-                            } else {
-                                Some(0)
+                    if should_publish_native_frame_event(
+                        decision.upload,
+                        placement_write.write_placement,
+                    ) {
+                        queue.publish_frame_presented(
+                            pane.window.clone(),
+                            crate::daemon::NativeFramePresented {
+                                renderer: "kitty".to_string(),
+                                format: "rgba".to_string(),
+                                pixel_width: width,
+                                pixel_height: height,
+                                app_x: Some(layout.app_x),
+                                app_y: Some(layout.app_y),
+                                app_cols: Some(layout.app_cols),
+                                app_rows: Some(layout.app_rows),
+                                uploaded: decision.upload,
+                                skipped_upload: decision.metrics.skipped_upload,
+                                changed_tiles: Some(decision.metrics.changed_tiles),
+                                total_tiles: Some(decision.metrics.total_tiles),
+                                upload_bytes: if decision.upload {
+                                    Some(rgba.len())
+                                } else {
+                                    Some(0)
+                                },
+                                placement_bytes: Some(usize::from(placement_write.write_placement)),
+                                embed_bytes: Some(0),
+                                elapsed_us: Some(
+                                    frame_start.elapsed().as_micros().min(u128::from(u64::MAX))
+                                        as u64,
+                                ),
                             },
-                            placement_bytes: Some(usize::from(placement_write.write_placement)),
-                            embed_bytes: Some(0),
-                            elapsed_us: Some(
-                                frame_start.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
-                            ),
-                        },
-                    );
+                        );
+                    }
                 }
                 NativeFrame::Png {
                     width,
@@ -842,33 +852,41 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         changed_fraction: 1.0,
                         skipped_upload: !decision.upload,
                     });
-                    queue.publish_frame_presented(
-                        pane.window.clone(),
-                        crate::daemon::NativeFramePresented {
-                            renderer: "kitty".to_string(),
-                            format: "png".to_string(),
-                            pixel_width: width,
-                            pixel_height: height,
-                            app_x: Some(layout.app_x),
-                            app_y: Some(layout.app_y),
-                            app_cols: Some(layout.app_cols),
-                            app_rows: Some(layout.app_rows),
-                            uploaded: decision.upload,
-                            skipped_upload: !decision.upload,
-                            changed_tiles: None,
-                            total_tiles: None,
-                            upload_bytes: if decision.upload {
-                                Some(bytes.len())
-                            } else {
-                                Some(0)
+                    if should_publish_native_frame_event(
+                        decision.upload,
+                        decision.placement.write_placement,
+                    ) {
+                        queue.publish_frame_presented(
+                            pane.window.clone(),
+                            crate::daemon::NativeFramePresented {
+                                renderer: "kitty".to_string(),
+                                format: "png".to_string(),
+                                pixel_width: width,
+                                pixel_height: height,
+                                app_x: Some(layout.app_x),
+                                app_y: Some(layout.app_y),
+                                app_cols: Some(layout.app_cols),
+                                app_rows: Some(layout.app_rows),
+                                uploaded: decision.upload,
+                                skipped_upload: !decision.upload,
+                                changed_tiles: None,
+                                total_tiles: None,
+                                upload_bytes: if decision.upload {
+                                    Some(bytes.len())
+                                } else {
+                                    Some(0)
+                                },
+                                placement_bytes: Some(usize::from(
+                                    decision.placement.write_placement,
+                                )),
+                                embed_bytes: Some(0),
+                                elapsed_us: Some(
+                                    frame_start.elapsed().as_micros().min(u128::from(u64::MAX))
+                                        as u64,
+                                ),
                             },
-                            placement_bytes: Some(usize::from(decision.placement.write_placement)),
-                            embed_bytes: Some(0),
-                            elapsed_us: Some(
-                                frame_start.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
-                            ),
-                        },
-                    );
+                        );
+                    }
                 }
             }
         }
@@ -3812,6 +3830,14 @@ mod native_pane_tests {
         );
         assert!(changed.upload);
         assert!(!changed.placement.write_placement);
+    }
+
+    #[test]
+    fn native_frame_event_publish_decision_suppresses_clean_static_frames() {
+        assert!(should_publish_native_frame_event(true, false));
+        assert!(should_publish_native_frame_event(false, true));
+        assert!(should_publish_native_frame_event(true, true));
+        assert!(!should_publish_native_frame_event(false, false));
     }
 
     #[test]
