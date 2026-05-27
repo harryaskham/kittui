@@ -8119,6 +8119,7 @@ pub fn run_loop_with<S: XServer>(
     let mut prefix_active = false;
     let mut last_keymap_action: Option<String> = None;
     let mut workspaces = WorkspaceState::default();
+    publish_workspace_label_for_status(&workspaces.active_label());
     let mut focus_state = FocusState::default();
     let mut swap_state = SwapState::default();
     let mut toggle_state = ToggleState::default();
@@ -8344,6 +8345,7 @@ pub fn run_loop_with<S: XServer>(
                                 | Action::WorkspacePrev
                                 | Action::WorkspaceSwitch(_) => {
                                     let msg = workspaces.apply(&action);
+                                    publish_workspace_label_for_status(&workspaces.active_label());
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&format!("workspace action: {msg}"));
                                 }
@@ -10188,16 +10190,27 @@ impl WorkspaceState {
     fn label(&self) -> String {
         format!("{}/{}", self.current + 1, self.count)
     }
+
+    fn active_label(&self) -> String {
+        (self.current + 1).to_string()
+    }
+}
+
+fn publish_workspace_label_for_status(label: &str) {
+    std::env::set_var("KITTWM_WORKSPACE", label.trim());
 }
 
 #[cfg(test)]
 mod workspace_state_tests {
     use super::*;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn workspace_state_create_and_cycle() {
         let mut ws = WorkspaceState::default();
         assert_eq!(ws.label(), "1/1");
+        assert_eq!(ws.active_label(), "1");
         assert_eq!(ws.apply(&Action::WorkspaceNew), "workspace.new -> 2/2");
         assert_eq!(ws.apply(&Action::WorkspaceNew), "workspace.new -> 3/3");
         assert_eq!(ws.apply(&Action::WorkspaceNext), "workspace.next -> 1/3");
@@ -10206,6 +10219,11 @@ mod workspace_state_tests {
             ws.apply(&Action::WorkspaceSwitch(7)),
             "workspace.switch.7 -> 7/7"
         );
+        assert_eq!(ws.active_label(), "7");
+        let _guard = ENV_LOCK.lock().unwrap();
+        publish_workspace_label_for_status(&ws.active_label());
+        assert_eq!(std::env::var("KITTWM_WORKSPACE").as_deref(), Ok("7"));
+        std::env::remove_var("KITTWM_WORKSPACE");
         assert_eq!(
             ws.apply(&Action::WorkspaceSwitch(2)),
             "workspace.switch.2 -> 2/7"

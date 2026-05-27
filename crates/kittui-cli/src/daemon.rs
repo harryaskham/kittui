@@ -304,6 +304,7 @@ struct NativeSpawnQueueState {
     semantic_snapshots: HashMap<String, SemanticSurfaceSnapshot>,
     clipboard: Option<NativeClipboardCache>,
     chrome_reservation: NativeChromeReservationConfig,
+    workspace: Option<String>,
 }
 
 /// In-process socket queue used by the live native PTY session.
@@ -392,6 +393,13 @@ impl NativeSpawnQueue {
     pub fn publish_frame_presented(&self, window: impl Into<String>, frame: NativeFramePresented) {
         if let Ok(mut state) = self.pending.lock() {
             publish_native_frame_presented_event(&mut state, window.into(), frame);
+        }
+    }
+
+    /// Publish the live workspace label for STATUS/CHROME/PANES requests.
+    pub fn update_workspace(&self, workspace: impl Into<String>) {
+        if let Ok(mut state) = self.pending.lock() {
+            state.workspace = normalize_workspace_label(Some(workspace.into().as_str()));
         }
     }
 
@@ -1806,7 +1814,7 @@ fn native_spawn_status_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -
             "panes": state.panes.len(),
             "focus": focused,
             "layout": state.layout.as_deref().unwrap_or("-"),
-            "workspace": native_workspace_id(),
+            "workspace": native_workspace_id_for_state(&state),
             "chrome": native_chrome_status_value(&state),
             "focused_pane": focused_pane,
             "panes_detail": state.panes,
@@ -1825,12 +1833,24 @@ fn native_shortcuts_json_reply() -> String {
     crate::shortcuts::render_native_shortcuts_json()
 }
 
-fn native_workspace_id() -> String {
-    std::env::var("KITTWM_WORKSPACE")
-        .ok()
-        .map(|value| value.trim().to_string())
+fn normalize_workspace_label(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
         .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn native_workspace_id() -> String {
+    normalize_workspace_label(std::env::var("KITTWM_WORKSPACE").ok().as_deref())
         .unwrap_or_else(|| "1".to_string())
+}
+
+fn native_workspace_id_for_state(state: &NativeSpawnQueueState) -> String {
+    state
+        .workspace
+        .as_deref()
+        .and_then(|value| normalize_workspace_label(Some(value)))
+        .unwrap_or_else(native_workspace_id)
 }
 
 fn native_chrome_status_value(state: &NativeSpawnQueueState) -> serde_json::Value {
@@ -1845,7 +1865,7 @@ fn native_chrome_status_value(state: &NativeSpawnQueueState) -> serde_json::Valu
                 .saturating_sub(u32::from(reservation.top_bar_rows))
                 .saturating_sub(u32::from(reservation.bottom_bar_rows))
         });
-    let workspace = native_workspace_id();
+    let workspace = native_workspace_id_for_state(state);
     serde_json::json!({
         "workspace": workspace,
         "top_bar_rows": reservation.top_bar_rows,
@@ -2659,7 +2679,7 @@ fn native_spawn_panes_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) ->
             "panes": state.panes.len(),
             "focus": focused,
             "layout": state.layout.as_deref().unwrap_or("-"),
-            "workspace": native_workspace_id(),
+            "workspace": native_workspace_id_for_state(&state),
             "chrome": native_chrome_status_value(&state),
             "panes_detail": state.panes,
         })
@@ -3989,6 +4009,20 @@ mod tests {
         assert_eq!(status["chrome"]["workspace"], "dev");
         std::env::set_var("KITTWM_WORKSPACE", "   ");
         assert_eq!(native_workspace_id(), "1");
+        std::env::remove_var("KITTWM_WORKSPACE");
+    }
+
+    #[test]
+    fn native_chrome_json_prefers_published_workspace_label() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_WORKSPACE", " env ");
+        let mut state = NativeSpawnQueueState::default();
+        state.workspace = Some(" 4 ".to_string());
+        assert_eq!(native_workspace_id_for_state(&state), "4");
+        let chrome = native_chrome_status_value(&state);
+        assert_eq!(chrome["workspace"], "4");
+        state.workspace = Some("   ".to_string());
+        assert_eq!(native_workspace_id_for_state(&state), "env");
         std::env::remove_var("KITTWM_WORKSPACE");
     }
 
