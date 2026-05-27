@@ -7520,6 +7520,25 @@ mod native_pane_tests {
                 CellRect::new(2, 2, 10, 4),
             )
         );
+        let huge_a = format!("{}A", "title-".repeat(10_000));
+        let huge_b = format!("{}B", "title-".repeat(10_000));
+        let key_a = raw_frame_chrome_key(
+            &huge_a,
+            true,
+            kittui_wm::compositor::WindowMode::Tiled,
+            false,
+            CellRect::new(1, 2, 12, 4),
+        );
+        let key_b = raw_frame_chrome_key(
+            &huge_b,
+            true,
+            kittui_wm::compositor::WindowMode::Tiled,
+            false,
+            CellRect::new(1, 2, 12, 4),
+        );
+        assert_eq!(key_a, key_b);
+        assert!(key_a.len() < 80, "{key_a}");
+        assert!(!key_a.contains(&"title-".repeat(16)), "{key_a}");
     }
 
     #[test]
@@ -9190,8 +9209,9 @@ fn raw_frame_chrome_key(
     fullscreen: bool,
     footprint: CellRect,
 ) -> String {
+    let visible = raw_frame_chrome_text(title, focused, mode, fullscreen, footprint.cols);
     format!(
-        "title={title};focused={focused};mode={mode:?};fullscreen={fullscreen};x={};y={};cols={};rows={}",
+        "visible={visible};x={};y={};cols={};rows={}",
         footprint.x, footprint.y, footprint.cols, footprint.rows
     )
 }
