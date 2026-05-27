@@ -3119,23 +3119,38 @@ fn should_write_pure_terminal_frame(
     redraw_static || has_pending_output || last_rendered != rendered
 }
 
+fn native_terminal_chrome_styles(colors: InlineChipColors) -> (String, String, String) {
+    (
+        ansi_fg_bg(colors.fg, colors.fill),
+        ansi_fg_bg(colors.fg, colors.border),
+        ansi_fg_bg(colors.fg, rgba_with_alpha(colors.fill, 180)),
+    )
+}
+
 fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u16) -> String {
     let colors = native_glass_chrome_colors();
+    let (top_bar_style, focused_title_style, unfocused_title_style) =
+        native_terminal_chrome_styles(colors);
     let frame_cells = (cols as usize).saturating_mul(rows as usize);
     let ansi_overhead = view.panes.len().saturating_add(3).saturating_mul(64);
     let mut out = String::with_capacity(frame_cells.saturating_add(ansi_overhead));
     out.push_str("\x1b[H");
     if let Some(top_bar_row) = terminal_visible_row_opt(view.top_bar.row, rows) {
-        let style = ansi_fg_bg(colors.fg, colors.fill);
         let text = clip_and_pad(&view.top_bar.text, cols as usize);
-        let _ = write!(out, "\x1b[{};1H{}{}\x1b[0m", top_bar_row + 1, style, text);
+        let _ = write!(
+            out,
+            "\x1b[{};1H{}{}\x1b[0m",
+            top_bar_row + 1,
+            top_bar_style,
+            text
+        );
     }
     // Empty workspaces intentionally render only the top bar by default.
     for pane in &view.panes {
         let title_style = if pane.focused {
-            ansi_fg_bg(colors.fg, colors.border)
+            focused_title_style.as_str()
         } else {
-            ansi_fg_bg(colors.fg, rgba_with_alpha(colors.fill, 180))
+            unfocused_title_style.as_str()
         };
         if let (Some(title_row), Some(title_width)) = (
             terminal_visible_row_opt(pane.y, rows),
@@ -6033,6 +6048,20 @@ mod native_pane_tests {
         hidden.y = 4;
         write_native_pane_chrome(&mut offscreen, &hidden, 6, 4).unwrap();
         assert!(offscreen.is_empty());
+    }
+
+    #[test]
+    fn native_terminal_chrome_styles_are_precomputed_once_per_frame() {
+        let colors = InlineChipColors {
+            fg: Rgba::rgba(1, 2, 3, 255),
+            fill: Rgba::rgba(4, 5, 6, 255),
+            border: Rgba::rgba(7, 8, 9, 255),
+            highlight: Rgba::rgba(0, 0, 0, 0),
+        };
+        let (top, focused, unfocused) = native_terminal_chrome_styles(colors);
+        assert_eq!(top, "\x1b[38;2;1;2;3m\x1b[48;2;4;5;6m");
+        assert_eq!(focused, "\x1b[38;2;1;2;3m\x1b[48;2;7;8;9m");
+        assert_eq!(unfocused, "\x1b[38;2;1;2;3m\x1b[48;2;4;5;6m");
     }
 
     #[test]
