@@ -266,6 +266,19 @@ fn raw_compositor_footer_row_for_overlays(
     (row <= terminal_rows).then_some(row)
 }
 
+fn reset_native_app_frame_memos_for_clear(
+    placements: &mut HashMap<u32, CellRect>,
+    png_hashes: &mut HashMap<u32, u64>,
+    dirty_frames: &mut NativeDirtyFramePolicy,
+    panes: &[NativePane],
+) {
+    placements.clear();
+    png_hashes.clear();
+    for pane in panes {
+        dirty_frames.forget(pane.image_id);
+    }
+}
+
 fn native_idle_frame_target(active_target: Duration) -> Duration {
     let idle_fps = std::env::var("KITTWM_IDLE_FPS")
         .ok()
@@ -909,6 +922,12 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             for memo in affordance_chrome_keys.values() {
                 frame_out.write_all(runtime.unplace(memo.image_id).as_bytes())?;
             }
+            reset_native_app_frame_memos_for_clear(
+                &mut native_app_placements,
+                &mut native_png_hashes,
+                &mut dirty_frames,
+                &panes,
+            );
             last_title_rows.clear();
             last_top_bar.clear();
             last_footer.clear();
@@ -4633,6 +4652,29 @@ mod native_pane_tests {
         assert!(third.upload);
         assert_eq!(third.metrics.changed_tiles, 1);
         std::env::remove_var("KITTWM_DIRTY_FRAMES");
+    }
+
+    #[test]
+    fn native_clear_resets_app_frame_memos() {
+        let pane = dummy_native_pane("native-1", "sh", 1);
+        let image_id = pane.image_id;
+        let mut placements = HashMap::from([(image_id, CellRect::new(1, 2, 3, 4))]);
+        let mut png_hashes = HashMap::from([(image_id, 99u64)]);
+        let rgba = vec![0u8; 4 * 4 * 4];
+        let mut dirty_frames = NativeDirtyFramePolicy::from_env();
+        assert!(dirty_frames.decide(image_id, 4, 4, &rgba).upload);
+        assert!(!dirty_frames.decide(image_id, 4, 4, &rgba).upload);
+
+        reset_native_app_frame_memos_for_clear(
+            &mut placements,
+            &mut png_hashes,
+            &mut dirty_frames,
+            &[pane],
+        );
+
+        assert!(placements.is_empty());
+        assert!(png_hashes.is_empty());
+        assert!(dirty_frames.decide(image_id, 4, 4, &rgba).upload);
     }
 
     #[test]
