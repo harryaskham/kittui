@@ -94,7 +94,7 @@ impl BarModel {
             .map(|idx| {
                 let label = idx.to_string();
                 if label == workspace {
-                    format!("| {label} ")
+                    format!("|[{label}]")
                 } else {
                     format!("| {label} ")
                 }
@@ -351,9 +351,16 @@ mod tests {
         assert_eq!(model.state, "empty");
         assert!(!model.connected);
         let rendered = model.render();
-        assert!(rendered.contains("| 1 | 2 | 3 |"), "{rendered}");
+        assert!(rendered.contains("|[1]| 2 | 3 |"), "{rendered}");
         assert!(rendered.contains("12:34"), "{rendered}");
         assert!(!rendered.contains("kittui-bar"), "{rendered}");
+    }
+
+    #[test]
+    fn text_bar_marks_active_workspace() {
+        let model = BarModel::new("2", 1, "native-1", true, UNIX_EPOCH);
+        let rendered = model.render();
+        assert!(rendered.contains("| 1 |[2]| 3 |"), "{rendered}");
     }
 
     #[test]
@@ -406,7 +413,7 @@ mod tests {
             .label
             .as_deref()
             .unwrap_or_default()
-            .contains("| 1 | 2 | 3 |")));
+            .contains("|[1]| 2 | 3 |")));
         assert!(scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
