@@ -690,9 +690,9 @@ impl BrowserSemanticPublisher {
     }
 
     fn maybe_publish(&mut self, browser: &mut HeadlessBrowserApp) {
-        let Some(socket) = self.socket.clone() else {
+        if self.socket.is_none() {
             return;
-        };
+        }
         let now = Instant::now();
         if !self.due(now) {
             return;
@@ -707,7 +707,9 @@ impl BrowserSemanticPublisher {
         if !self.record_payload(&payload) {
             return;
         }
-        let _ = publish_semantic_snapshot(&socket, &self.window, &snapshot);
+        if let Some(socket) = self.socket.as_ref() {
+            let _ = publish_semantic_snapshot(socket, &self.window, &snapshot);
+        }
     }
 
     fn due(&self, now: Instant) -> bool {
