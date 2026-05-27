@@ -3174,10 +3174,19 @@ fn blend_rgba_pixel_at_index(rgba: &mut [u8], idx: usize, color: TerminalColor, 
 }
 
 fn set_rgba_pixel(rgba: &mut [u8], width: u32, x: u32, y: u32, color: TerminalColor) {
-    let idx = ((y * width + x) as usize) * 4;
+    let idx = rgba_pixel_index(width, x, y);
     if idx + 3 >= rgba.len() {
         return;
     }
+    set_rgba_pixel_at_index(rgba, idx, color);
+}
+
+fn set_rgba_pixel_in_bounds(rgba: &mut [u8], width: u32, x: u32, y: u32, color: TerminalColor) {
+    let idx = rgba_pixel_index(width, x, y);
+    set_rgba_pixel_at_index(rgba, idx, color);
+}
+
+fn set_rgba_pixel_at_index(rgba: &mut [u8], idx: usize, color: TerminalColor) {
     rgba[idx] = color.0;
     rgba[idx + 1] = color.1;
     rgba[idx + 2] = color.2;
@@ -3216,7 +3225,7 @@ fn draw_box_drawing_glyph(
     let mut draw_rect = |x_start: u32, y_start: u32, w: u32, h: u32| {
         for y in y_start..y_start.saturating_add(h).min(cell_h) {
             for x in x_start..x_start.saturating_add(w).min(cell_w) {
-                set_rgba_pixel(rgba, width, x0 + x, y0 + y, color);
+                set_rgba_pixel_in_bounds(rgba, width, x0 + x, y0 + y, color);
             }
         }
     };
@@ -4883,6 +4892,17 @@ mod tests {
         blend_rgba_pixel(&mut checked, 1, 0, 0, color, 128);
         blend_rgba_pixel_in_bounds(&mut in_bounds, 1, 0, 0, color, 128);
         assert_eq!(checked, in_bounds);
+    }
+
+    #[test]
+    fn checked_and_in_bounds_set_pixel_match_for_valid_pixel() {
+        let color = TerminalColor(3, 4, 5);
+        let mut checked = vec![0; 16];
+        let mut in_bounds = checked.clone();
+        set_rgba_pixel(&mut checked, 2, 1, 1, color);
+        set_rgba_pixel_in_bounds(&mut in_bounds, 2, 1, 1, color);
+        assert_eq!(checked, in_bounds);
+        assert_eq!(&checked[12..16], &[3, 4, 5, 255]);
     }
 
     #[test]
