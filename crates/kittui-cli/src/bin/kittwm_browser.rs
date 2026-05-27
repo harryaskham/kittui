@@ -317,53 +317,75 @@ fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize)
 
 fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
     let mut actions = Vec::new();
-    let mut text = String::new();
+    let mut text = Vec::new();
     let mut idx = 0usize;
     while idx < bytes.len() {
         match bytes[idx] {
             b'\r' | b'\n' => {
-                if !text.is_empty() {
-                    actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
-                }
+                flush_browser_text_action(&mut actions, &mut text);
                 actions.push(BrowserInputAction::Enter);
             }
             0x08 | 0x7f => {
-                if !text.is_empty() {
-                    actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
-                }
+                flush_browser_text_action(&mut actions, &mut text);
                 actions.push(BrowserInputAction::Backspace);
             }
             b'\t' => {
-                if !text.is_empty() {
-                    actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
-                }
+                flush_browser_text_action(&mut actions, &mut text);
                 actions.push(BrowserInputAction::Tab);
             }
             0x1b if idx + 1 < bytes.len() && bytes[idx + 1] == b'[' => {
                 let (action, consumed) = browser_csi_input_action(&bytes[idx + 2..]);
                 if let Some(action) = action {
-                    if !text.is_empty() {
-                        actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
-                    }
+                    flush_browser_text_action(&mut actions, &mut text);
                     actions.push(action);
                 }
                 idx += consumed + 2;
             }
             0x1b => {
-                if !text.is_empty() {
-                    actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
-                }
+                flush_browser_text_action(&mut actions, &mut text);
                 actions.push(BrowserInputAction::Escape);
             }
-            0x20..=0x7e => text.push(bytes[idx] as char),
+            0x20..=0x7e | 0x80..=0xff => text.push(bytes[idx]),
             _ => {}
         }
         idx += 1;
     }
-    if !text.is_empty() {
-        actions.push(BrowserInputAction::Text(text));
-    }
+    flush_browser_text_action(&mut actions, &mut text);
     actions
+}
+
+fn flush_browser_text_action(actions: &mut Vec<BrowserInputAction>, text: &mut Vec<u8>) {
+    if text.is_empty() {
+        return;
+    }
+    let decoded = decode_browser_text_bytes(text);
+    text.clear();
+    if !decoded.is_empty() {
+        actions.push(BrowserInputAction::Text(decoded));
+    }
+}
+
+fn decode_browser_text_bytes(mut bytes: &[u8]) -> String {
+    let mut out = String::new();
+    while !bytes.is_empty() {
+        match std::str::from_utf8(bytes) {
+            Ok(valid) => {
+                out.push_str(valid);
+                break;
+            }
+            Err(err) => {
+                let valid_up_to = err.valid_up_to();
+                if valid_up_to > 0 {
+                    out.push_str(std::str::from_utf8(&bytes[..valid_up_to]).unwrap_or(""));
+                }
+                let Some(error_len) = err.error_len() else {
+                    break;
+                };
+                bytes = &bytes[valid_up_to + error_len..];
+            }
+        }
+    }
+    out
 }
 
 fn print_semantic_snapshot(url: &str, compact: bool) -> Result<()> {
@@ -1065,6 +1087,14 @@ mod tests {
         assert_eq!(
             browser_input_actions(b"x\x1b[2"),
             vec![BrowserInputAction::Text("x".to_string())]
+        );
+        assert_eq!(
+            browser_input_actions("hé🙂\x08水".as_bytes()),
+            vec![
+                BrowserInputAction::Text("hé🙂".to_string()),
+                BrowserInputAction::Backspace,
+                BrowserInputAction::Text("水".to_string()),
+            ]
         );
     }
 
