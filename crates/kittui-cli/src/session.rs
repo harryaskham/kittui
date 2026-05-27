@@ -4515,6 +4515,35 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_footer_text_clips_to_terminal_width() {
+        let text = raw_compositor_footer_text(
+            123,
+            "dev",
+            "split",
+            "columns",
+            "cfg",
+            "focus",
+            "swap",
+            "normal",
+            2,
+            60.0,
+            120.0,
+            120,
+            " — last launch pid=12345",
+            " — action=very-long-action-name",
+            "Ctrl-] exit",
+            "/tmp/a/very/long/kittui-wm.log",
+            24,
+        );
+        assert_eq!(text.chars().count(), 24, "{text:?}");
+        assert!(text.starts_with("kittui-wm frame 123"), "{text:?}");
+        let tiny = raw_compositor_footer_text(
+            1, "w", "s", "l", "c", "f", "sw", "m", 0, 0.0, 0.0, 60, "", "", "q", "log", 1,
+        );
+        assert_eq!(tiny.chars().count(), 1, "{tiny:?}");
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -8474,7 +8503,7 @@ pub fn run_loop_with<S: XServer>(
                 } else {
                     last_picker_overlay_key.clear();
                 }
-                let terminal_rows = host_terminal_cells().map(|(_, rows)| rows).unwrap_or(24);
+                let (terminal_cols, terminal_rows) = host_terminal_cells().unwrap_or((80, 24));
                 let safe_footer_row = raw_compositor_footer_row_for_overlays(
                     footer_row,
                     launcher_overlay.active,
@@ -8515,26 +8544,29 @@ pub fn run_loop_with<S: XServer>(
                                 write!(frame_out, "\x1b[0m\x1b[{};1H\x1b[K", old_row)?;
                             }
                         }
-                        write!(
-                            frame_out,
-                            "\x1b[0m\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — {} (log: {})",
-                            footer_row,
+                        let footer_text = raw_compositor_footer_text(
                             frame,
-                            workspaces.label(),
-                            split_state.label(),
-                            layout_state.label(),
-                            config_state.label(),
-                            focus_state.label(),
-                            swap_state.label(),
-                            toggle_state.label(),
+                            &workspaces.label(),
+                            &split_state.label(),
+                            &layout_state.label(),
+                            &config_state.label(),
+                            &focus_state.label(),
+                            &swap_state.label(),
+                            &toggle_state.label(),
                             last_window_count,
                             live_fps,
                             peak_fps,
                             fps,
-                            launch_note,
-                            keymap_note,
+                            &launch_note,
+                            &keymap_note,
                             ctrl_c_guard.quit_hint(last_window_count > 0),
-                            dbg.path_display()
+                            &dbg.path_display(),
+                            terminal_cols,
+                        );
+                        write!(
+                            frame_out,
+                            "\x1b[0m\x1b[{};1H\x1b[K{}",
+                            footer_row, footer_text
                         )?;
                         wrote_frame_output = true;
                         last_footer_key = footer_key;
@@ -8645,6 +8677,31 @@ pub fn run_loop_with<S: XServer>(
 
 fn frame_sleep_chunk(slack: Duration) -> Duration {
     slack.min(Duration::from_millis(16))
+}
+
+fn raw_compositor_footer_text(
+    frame: u64,
+    workspace: &str,
+    split: &str,
+    layout: &str,
+    config: &str,
+    focus: &str,
+    swap: &str,
+    mode: &str,
+    window_count: usize,
+    live_fps: f32,
+    peak_fps: f32,
+    cap_fps: u32,
+    launch_note: &str,
+    keymap_note: &str,
+    quit_hint: &str,
+    log_path: &str,
+    terminal_cols: u16,
+) -> String {
+    let text = format!(
+        "kittui-wm frame {frame} — ws {workspace} — panes {split} — layout {layout} — cfg {config} — focus {focus} — swap {swap} — mode {mode} — {window_count} windows — {live_fps:.0} fps (peak {peak_fps:.0}, cap {cap_fps}){launch_note}{keymap_note} — {quit_hint} (log: {log_path})"
+    );
+    truncate_cells(&text, terminal_cols.max(1) as usize)
 }
 
 fn raw_compositor_footer_refresh_interval() -> u64 {
