@@ -3141,6 +3141,7 @@ fn rgba_pixel_index(width: u32, x: u32, y: u32) -> usize {
     ((y * width + x) as usize) * 4
 }
 
+#[cfg(test)]
 fn blend_rgba_pixel(rgba: &mut [u8], width: u32, x: u32, y: u32, color: TerminalColor, alpha: u8) {
     let idx = rgba_pixel_index(width, x, y);
     if idx + 3 >= rgba.len() {
@@ -3170,6 +3171,7 @@ fn blend_rgba_pixel_at_index(rgba: &mut [u8], idx: usize, color: TerminalColor, 
     rgba[idx + 3] = 0xff;
 }
 
+#[cfg(test)]
 fn set_rgba_pixel(rgba: &mut [u8], width: u32, x: u32, y: u32, color: TerminalColor) {
     let idx = rgba_pixel_index(width, x, y);
     if idx + 3 >= rgba.len() {
