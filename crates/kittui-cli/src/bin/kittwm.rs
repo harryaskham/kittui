@@ -2123,8 +2123,8 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
             println!("{}", serde_json::to_string(&scene)?);
         } else {
             let runtime = Runtime::builder().terminal(terminal_info).build()?;
-            let mut options = kittui_kitty::PlacementOptions::unicode();
-            options.z_index = kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Decoration);
+            let options =
+                kittwm_scene_placement_options(kittwm_sdk::SurfacePlacementRole::Decoration);
             let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
             print!("{}", placement.to_bytes());
         }
@@ -4200,8 +4200,8 @@ fn info_cmd(scene_json: bool, kitty: bool) -> Result<()> {
             let runtime = Runtime::builder()
                 .terminal(TerminalInfo::detect())
                 .build()?;
-            let mut options = kittui_kitty::PlacementOptions::unicode();
-            options.z_index = kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Decoration);
+            let options =
+                kittwm_scene_placement_options(kittwm_sdk::SurfacePlacementRole::Decoration);
             let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
             print!("{}", placement.to_bytes());
         }
@@ -4520,6 +4520,14 @@ fn kittwm_z_index(role: kittwm_sdk::SurfacePlacementRole) -> i32 {
         .expect("current kittwm architecture contract defines all placement roles")
 }
 
+fn kittwm_scene_placement_options(
+    role: kittwm_sdk::SurfacePlacementRole,
+) -> kittui_kitty::PlacementOptions {
+    let mut options = kittui_kitty::PlacementOptions::absolute();
+    options.z_index = kittwm_z_index(role);
+    options
+}
+
 fn print_scene_or_kitty(
     scene: &Scene,
     kitty: bool,
@@ -4529,8 +4537,7 @@ fn print_scene_or_kitty(
         let runtime = Runtime::builder()
             .terminal(TerminalInfo::detect())
             .build()?;
-        let mut options = kittui_kitty::PlacementOptions::unicode();
-        options.z_index = kittwm_z_index(role);
+        let options = kittwm_scene_placement_options(role);
         let placement = runtime.place_at_with_options(scene, scene.footprint, &options)?;
         print!("{}", placement.to_bytes());
     } else {
@@ -5296,8 +5303,7 @@ fn shortcuts_kitty_cmd() -> Result<()> {
     let runtime = Runtime::builder()
         .terminal(TerminalInfo::detect())
         .build()?;
-    let mut options = kittui_kitty::PlacementOptions::unicode();
-    options.z_index = kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Overlay);
+    let options = kittwm_scene_placement_options(kittwm_sdk::SurfacePlacementRole::Overlay);
     let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
     print!("{}", placement.to_bytes());
     Ok(())
@@ -6478,6 +6484,23 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn kittwm_scene_placement_options_are_absolute_no_placeholder() {
+        let decoration =
+            kittwm_scene_placement_options(kittwm_sdk::SurfacePlacementRole::Decoration);
+        assert!(!decoration.unicode_placeholder);
+        assert_eq!(
+            decoration.z_index,
+            kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Decoration)
+        );
+        let overlay = kittwm_scene_placement_options(kittwm_sdk::SurfacePlacementRole::Overlay);
+        assert!(!overlay.unicode_placeholder);
+        assert_eq!(
+            overlay.z_index,
+            kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Overlay)
+        );
     }
 
     #[test]
