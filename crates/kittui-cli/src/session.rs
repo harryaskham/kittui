@@ -153,13 +153,15 @@ fn decide_native_raw_frame_write(
     rgba: &[u8],
 ) -> NativePngFrameDecision {
     let hash = native_raw_frame_hash(width, height, rgba);
-    let upload = raw_hashes.get(&image_id).copied() != Some(hash);
-    if upload {
+    let content_changed = raw_hashes.get(&image_id).copied() != Some(hash);
+    if content_changed {
         raw_hashes.insert(image_id, hash);
     }
+    let placement =
+        decide_native_app_placement_write(placements, image_id, footprint, content_changed);
     NativePngFrameDecision {
-        upload,
-        placement: decide_native_app_placement_write(placements, image_id, footprint, upload),
+        upload: content_changed || placement.write_placement,
+        placement,
     }
 }
 
@@ -171,6 +173,10 @@ fn raw_frame_write_with_chrome_change(
         decision.placement.write_placement = true;
     }
     decision
+}
+
+fn should_unplace_raw_frame_before_move(had_previous: bool, footprint_changed: bool) -> bool {
+    had_previous && footprint_changed
 }
 
 fn decide_native_png_frame_write(
@@ -4255,8 +4261,12 @@ mod native_pane_tests {
             2,
             &rgba,
         );
-        assert!(!moved.upload);
+        assert!(moved.upload);
         assert!(moved.placement.write_placement);
+        assert!(should_unplace_raw_frame_before_move(
+            true,
+            moved.placement.write_placement
+        ));
 
         let mut changed_rgba = rgba.clone();
         changed_rgba[0] ^= 0xff;
@@ -4271,6 +4281,10 @@ mod native_pane_tests {
         );
         assert!(changed.upload);
         assert!(!changed.placement.write_placement);
+        assert!(!should_unplace_raw_frame_before_move(
+            false,
+            first.placement.write_placement
+        ));
     }
 
     #[test]
@@ -7054,6 +7068,8 @@ pub fn run_loop_with<S: XServer>(
                         footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
                         continue;
                     }
+                    let had_previous_placement = last_placed.contains_key(&f.image_id);
+                    let footprint_changed = last_placed.get(&f.image_id) != Some(&f.footprint);
                     let chrome_key = raw_frame_chrome_key(
                         &f.title,
                         f.focused,
@@ -7075,6 +7091,13 @@ pub fn run_loop_with<S: XServer>(
                         chrome_changed,
                     );
                     let placement_options = raw_compositor_app_placement_options(f.image_id);
+                    if should_unplace_raw_frame_before_move(
+                        had_previous_placement,
+                        footprint_changed,
+                    ) {
+                        handle.write_all(runtime.unplace(f.image_id).as_bytes())?;
+                        wrote_frame_output = true;
+                    }
                     if decision.upload {
                         let p = runtime.place_raw_frame_with_options(
                             f.image_id,
