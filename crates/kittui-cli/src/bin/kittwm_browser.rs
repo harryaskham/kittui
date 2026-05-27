@@ -380,12 +380,16 @@ fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
                 }
                 idx += consumed + 2;
             }
-            0x1b if idx + 2 < bytes.len() && bytes[idx + 1] == b'O' => {
-                if let Some(action) = browser_ss3_input_action(bytes[idx + 2]) {
-                    flush_browser_text_action(&mut actions, &mut text);
-                    actions.push(action);
+            0x1b if idx + 1 < bytes.len() && bytes[idx + 1] == b'O' => {
+                if idx + 2 < bytes.len() {
+                    if let Some(action) = browser_ss3_input_action(bytes[idx + 2]) {
+                        flush_browser_text_action(&mut actions, &mut text);
+                        actions.push(action);
+                    }
+                    idx += 2;
+                } else {
+                    idx += 1;
                 }
-                idx += 2;
             }
             0x1b => {
                 flush_browser_text_action(&mut actions, &mut text);
@@ -1167,6 +1171,10 @@ mod tests {
         );
         assert_eq!(
             browser_input_actions(b"x\x1b[2"),
+            vec![BrowserInputAction::Text("x".to_string())]
+        );
+        assert_eq!(
+            browser_input_actions(b"x\x1bO"),
             vec![BrowserInputAction::Text("x".to_string())]
         );
         assert_eq!(
