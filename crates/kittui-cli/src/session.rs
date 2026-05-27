@@ -3985,11 +3985,11 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         } else {
             (palette.inactive_fg, palette.inactive_bg)
         };
-        let label = format!(" {workspace} ");
-        let label_cols = label.chars().count() as u16 + 1;
-        if !native_graphical_top_bar_label_fits(cols, workspace_cols, label_cols) {
+        let Some(label) = native_graphical_top_bar_fit_label(&workspace, cols, workspace_cols)
+        else {
             break;
-        }
+        };
+        let label_cols = label.chars().count() as u16 + 1;
         write!(
             out,
             "\x1b[1m{}{}{}\x1b[0m ",
@@ -4020,6 +4020,28 @@ fn native_graphical_top_bar_overlay_clear(row: u16) -> String {
     format!("\x1b[{row};1H\x1b[K")
 }
 
+fn native_graphical_top_bar_fit_label(label: &str, cols: u16, used_cols: u16) -> Option<String> {
+    let remaining = cols.saturating_sub(used_cols);
+    if remaining == 0 {
+        return None;
+    }
+    let max_label_cols = remaining.saturating_sub(1) as usize;
+    if max_label_cols < 3 {
+        return None;
+    }
+    let chip = format!(" {label} ");
+    if chip.chars().count() <= max_label_cols {
+        return Some(chip);
+    }
+    let label_width = max_label_cols.saturating_sub(2);
+    if label_width == 0 {
+        return None;
+    }
+    let clipped = label.chars().take(label_width).collect::<String>();
+    Some(format!(" {clipped} "))
+}
+
+#[cfg(test)]
 fn native_graphical_top_bar_label_fits(cols: u16, used_cols: u16, label_cols: u16) -> bool {
     label_cols > 0 && used_cols.saturating_add(label_cols) <= cols
 }
@@ -4406,6 +4428,19 @@ mod native_pane_tests {
         assert!(native_graphical_top_bar_label_fits(12, 8, 4));
         assert!(!native_graphical_top_bar_label_fits(12, 9, 4));
         assert!(!native_graphical_top_bar_label_fits(12, 0, 0));
+    }
+
+    #[test]
+    fn graphical_top_bar_fit_label_clips_long_custom_workspace() {
+        assert_eq!(
+            native_graphical_top_bar_fit_label("abcdef", 6, 0),
+            Some(" abc ".to_string())
+        );
+        assert_eq!(native_graphical_top_bar_fit_label("abcdef", 2, 0), None);
+        assert_eq!(
+            native_graphical_top_bar_fit_label("dev", 12, 4),
+            Some(" dev ".to_string())
+        );
     }
 
     #[test]
