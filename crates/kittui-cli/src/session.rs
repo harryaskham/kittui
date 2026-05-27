@@ -3398,7 +3398,7 @@ fn native_pane_title_status_scene(
     cell_size: CellSize,
 ) -> Scene {
     let colors = native_glass_chrome_colors();
-    let cols = pane.cols.max(6);
+    let cols = pane.cols.max(1);
     let rect = CellRect::new(0, 0, cols, 1).to_pixels(cell_size);
     let cell_w = cell_size.width_px.max(1) as f32;
     let chip_h = (cell_size.height_px.max(1) as f32 - 4.0).max(6.0);
@@ -3442,12 +3442,10 @@ fn native_pane_title_status_scene(
             corners: Corners::uniform(4.0),
         },
     ));
-    let status_x = (cols.saturating_sub(12).max(4) as f32) * cell_w;
-    let status_w = (rect.width - status_x - 4.0).max(cell_w);
     layers.push(Layer::new(
         format!("pane-{idx}-status-chip:{}", pane.status),
         Node::Rect {
-            rect: PxRect::new(status_x, 2.0, status_w, chip_h),
+            rect: native_pane_status_chip_rect(cols, rect.width, cell_w, chip_h),
             fill: Paint::Solid {
                 color: rgba_with_alpha(colors.border, if pane.focused { 70 } else { 42 }),
             },
@@ -3961,6 +3959,18 @@ fn native_offset_node(node: &mut Node, dx: f32, dy: f32) {
             native_offset_node(child, dx, dy);
         }
     }
+}
+
+fn native_pane_status_chip_rect(cols: u16, rect_width: f32, cell_w: f32, chip_h: f32) -> PxRect {
+    let min_w = cell_w.max(1.0).min(rect_width.max(1.0));
+    let right_pad = 4.0_f32.min((rect_width - min_w).max(0.0));
+    let preferred_x = (cols.saturating_sub(12).max(4) as f32) * cell_w.max(1.0);
+    let max_x = (rect_width - min_w).max(0.0);
+    let x = preferred_x.min(max_x).max(0.0);
+    let w = (rect_width - x - right_pad)
+        .max(min_w)
+        .min((rect_width - x).max(1.0));
+    PxRect::new(x, 2.0, w, chip_h)
 }
 
 fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: CellSize) -> Scene {
@@ -5810,6 +5820,48 @@ mod native_pane_tests {
             render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80, 24);
         assert_eq!(scenes.len(), 1, "{scenes:?}");
         assert_eq!(scenes[0].id, "top-bar");
+    }
+
+    #[test]
+    fn native_pane_title_status_chip_stays_inside_tiny_width() {
+        let pane = NativePaneChrome {
+            x: 0,
+            y: 1,
+            focused: true,
+            text: "* tiny".to_string(),
+            cache_key: "tiny".to_string(),
+            status: "status".to_string(),
+            app_x: 0,
+            app_y: 2,
+            app_cols: 1,
+            app_rows: 3,
+            cols: 1,
+            rows: 4,
+            text_snapshot: String::new(),
+        };
+        let scene = native_pane_title_status_scene(0, &pane, CellSize::new(8, 16));
+        assert_eq!(scene.footprint.cols, 1);
+        let width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        let chip = scene
+            .layers
+            .iter()
+            .find(|layer| {
+                layer
+                    .label
+                    .as_deref()
+                    .unwrap_or_default()
+                    .starts_with("pane-0-status-chip:")
+            })
+            .expect("status chip layer");
+        let Node::Rect { rect, .. } = &chip.root else {
+            panic!("expected rect");
+        };
+        assert!(rect.origin.0 >= 0.0, "{rect:?}");
+        assert!(rect.width >= 1.0, "{rect:?}");
+        assert!(
+            rect.origin.0 + rect.width <= width + 0.01,
+            "{rect:?} > {width}"
+        );
     }
 
     #[test]
