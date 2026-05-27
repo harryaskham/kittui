@@ -171,16 +171,21 @@ fn apply_reservation_options(opts: &BarOptions) -> Result<(), String> {
             .clear_chrome_reservation()
             .map_err(|err| format!("clear chrome reservation: {err}"))?;
     } else {
-        let owner = std::env::var("KITTWM_WINDOW")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "kittwm-bar".to_string());
+        let owner = reservation_owner_from_env();
         let request = ChromeReservationRequest::top_bar(1).owner(owner);
         client
             .reserve_chrome(&request)
             .map_err(|err| format!("reserve chrome: {err}"))?;
     }
     Ok(())
+}
+
+fn reservation_owner_from_env() -> String {
+    std::env::var("KITTWM_WINDOW")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "kittwm-bar".to_string())
 }
 
 fn render_kitty_bar(model: &BarOutputModel) -> Result<String, String> {
@@ -417,6 +422,16 @@ mod tests {
         let opts = parse_options(["--kitty".to_string(), "--reserve".to_string()]).unwrap();
         assert_eq!(opts.mode, OutputMode::Kitty);
         assert!(opts.reserve);
+    }
+
+    #[test]
+    fn reservation_owner_trims_window_env_and_defaults_blank_values() {
+        std::env::set_var("KITTWM_WINDOW", " bar ");
+        assert_eq!(reservation_owner_from_env(), "bar");
+        std::env::set_var("KITTWM_WINDOW", "   ");
+        assert_eq!(reservation_owner_from_env(), "kittwm-bar");
+        std::env::remove_var("KITTWM_WINDOW");
+        assert_eq!(reservation_owner_from_env(), "kittwm-bar");
     }
 
     #[test]
