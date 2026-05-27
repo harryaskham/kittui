@@ -6,6 +6,7 @@
 //! full-terminal replacement app; the socket spawn/replace protocol will make
 //! the same binary ask a live kittwm host to create or replace panes.
 
+use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -161,7 +162,7 @@ fn real_main() -> Result<()> {
     let mut last_status: Option<(u16, String)> = None;
     let show_status_frame = browser_status_frame_counter_enabled();
     let status_metadata = BrowserStatusMetadata::from_env();
-    let status_url = truncate(&url, 40);
+    let status_url = truncate(&url, 40).into_owned();
     let active_interval = browser_active_frame_interval();
     let idle_interval = browser_idle_frame_interval(active_interval);
     let static_interval = browser_static_frame_interval(idle_interval);
@@ -786,24 +787,24 @@ fn publish_semantic_snapshot(
         .map_err(|e| anyhow!(e))
 }
 
-fn truncate(s: &str, max: usize) -> String {
+fn truncate(s: &str, max: usize) -> Cow<'_, str> {
     if max == 0 {
-        return String::new();
+        return Cow::Borrowed("");
     }
     let mut chars = s.chars();
     let mut out = String::with_capacity(max.min(s.len()));
     for _ in 0..max {
         let Some(ch) = chars.next() else {
-            return s.to_string();
+            return Cow::Borrowed(s);
         };
         out.push(ch);
     }
     if chars.next().is_some() {
         out.pop();
         out.push('…');
-        out
+        Cow::Owned(out)
     } else {
-        s.to_string()
+        Cow::Borrowed(s)
     }
 }
 
@@ -904,11 +905,13 @@ impl BrowserStatusMetadata {
             window: truncate(
                 &std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "<none>".into()),
                 32,
-            ),
+            )
+            .into_owned(),
             socket: truncate(
                 &std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<none>".into()),
                 48,
-            ),
+            )
+            .into_owned(),
         }
     }
 }
@@ -1440,6 +1443,7 @@ mod tests {
         assert!(!browser_status_frame_counter_enabled());
         let huge_url = format!("https://example.com/{}", "path/".repeat(10_000));
         assert_eq!(truncate(&huge_url, 12), "https://exa…");
+        assert!(matches!(truncate("short", 12), Cow::Borrowed("short")));
         assert_eq!(truncate("short", 12), "short");
         assert_eq!(truncate("anything", 1), "…");
         assert_eq!(truncate("anything", 0), "");
