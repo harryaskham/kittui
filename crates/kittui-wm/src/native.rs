@@ -375,6 +375,18 @@ fn cached_surface_frame(
     Some(SurfaceFrame { metadata, frame })
 }
 
+fn cached_revision_frame(
+    revision: u64,
+    cached_revision: u64,
+    cached_frame: &Option<NativeFrame>,
+) -> Option<NativeFrame> {
+    if revision == cached_revision {
+        cached_frame.clone()
+    } else {
+        None
+    }
+}
+
 /// Semantic side effects emitted by a surface while parsing/applying output.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SurfaceEvent {
@@ -976,6 +988,8 @@ pub struct TerminalSurface {
     _reader: JoinHandle<()>,
     cell_width: u32,
     cell_height: u32,
+    cached_revision: u64,
+    cached_frame: Option<NativeFrame>,
 }
 
 /// A nested PTY terminal rendered into an RGBA frame.
@@ -1025,6 +1039,7 @@ impl TerminalSurface {
                 let responses = {
                     let mut state = reader_state.lock();
                     parser.advance(&mut *state, &buf[..n]);
+                    state.bump_revision();
                     state.take_pending_responses()
                 };
                 if !responses.is_empty() {
@@ -1042,6 +1057,8 @@ impl TerminalSurface {
             _reader: join,
             cell_width,
             cell_height,
+            cached_revision: 0,
+            cached_frame: None,
         })
     }
 
@@ -1110,6 +1127,7 @@ impl TerminalSurface {
             pixel_height: rows.saturating_mul(self.cell_height.min(u32::from(u16::MAX)) as u16),
         })?;
         self.state.lock().resize(cols, rows);
+        self.cached_frame = None;
         Ok(())
     }
 
@@ -1137,11 +1155,19 @@ impl TerminalSurface {
     /// Render the current terminal state as an RGBA frame.
     pub fn capture(&mut self) -> Result<NativeFrame> {
         let state = self.state.lock().clone();
-        Ok(NativeFrame::Rgba {
+        if let Some(frame) =
+            cached_revision_frame(state.revision, self.cached_revision, &self.cached_frame)
+        {
+            return Ok(frame);
+        }
+        let frame = NativeFrame::Rgba {
             width: u32::from(state.cols) * self.cell_width,
             height: u32::from(state.rows) * self.cell_height,
             rgba: render_terminal_rgba(&state, self.cell_width, self.cell_height),
-        })
+        };
+        self.cached_revision = state.revision;
+        self.cached_frame = Some(frame.clone());
+        Ok(frame)
     }
 }
 
@@ -1664,6 +1690,7 @@ struct TerminalState {
     focus_reporting: bool,
     mouse_modes: MouseReportingModes,
     title: Option<String>,
+    revision: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1740,12 +1767,18 @@ impl TerminalState {
             focus_reporting: false,
             mouse_modes: MouseReportingModes::default(),
             title: None,
+            revision: 0,
         }
+    }
+
+    fn bump_revision(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
     }
 
     fn resize(&mut self, cols: u16, rows: u16) {
         let old = self.clone();
         *self = Self::new(cols, rows);
+        self.revision = old.revision.wrapping_add(1);
         self.title = old.title.clone();
         self.scrollback = old.scrollback.clone();
         self.pending_responses = old.pending_responses;
@@ -3819,6 +3852,29 @@ fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_revision_frame_requires_matching_revision() {
+        let cached = Some(NativeFrame::Rgba {
+            width: 2,
+            height: 1,
+            rgba: vec![0; 8],
+        });
+
+        assert!(cached_revision_frame(7, 7, &cached).is_some());
+        assert!(cached_revision_frame(8, 7, &cached).is_none());
+        assert!(cached_revision_frame(7, 7, &None).is_none());
+    }
+
+    #[test]
+    fn terminal_state_resize_bumps_revision() {
+        let mut state = TerminalState::new(2, 2);
+        assert_eq!(state.revision, 0);
+        state.bump_revision();
+        assert_eq!(state.revision, 1);
+        state.resize(3, 2);
+        assert_eq!(state.revision, 2);
+    }
 
     #[test]
     fn cached_surface_frame_reuses_payload_and_updates_metadata_size() {
