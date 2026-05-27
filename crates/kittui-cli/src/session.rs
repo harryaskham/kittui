@@ -7179,10 +7179,21 @@ mod native_pane_tests {
 
     #[test]
     fn raw_overlay_clear_decision_handles_picker_and_launcher_close() {
-        assert!(should_clear_raw_overlay_area(true, false, false, false));
-        assert!(should_clear_raw_overlay_area(false, false, true, false));
-        assert!(!should_clear_raw_overlay_area(true, true, true, true));
-        assert!(!should_clear_raw_overlay_area(false, true, false, true));
+        assert!(should_clear_raw_overlay_area(
+            true, false, false, false, false, false
+        ));
+        assert!(should_clear_raw_overlay_area(
+            false, false, true, false, false, false
+        ));
+        assert!(should_clear_raw_overlay_area(
+            false, false, false, false, true, false
+        ));
+        assert!(!should_clear_raw_overlay_area(
+            true, true, true, true, true, true
+        ));
+        assert!(!should_clear_raw_overlay_area(
+            false, true, false, true, false, true
+        ));
     }
 
     #[test]
@@ -8014,16 +8025,20 @@ pub fn run_loop_with<S: XServer>(
     let mut config_state = ConfigState::default();
     let mut launcher_overlay = LauncherOverlay::default();
     let mut picker_overlay = PickerOverlay::default();
+    let mut quit_confirm_overlay = QuitConfirmOverlay::default();
     let mut launcher_overlay_was_active = false;
     let mut picker_overlay_was_active = false;
+    let mut quit_confirm_overlay_was_active = false;
     let mut text_overlay_hid_raw_graphics = false;
     let mut last_footer_key = String::new();
     let mut last_footer_row: Option<u16> = None;
     let mut last_launcher_overlay_key = String::new();
     let mut last_picker_overlay_key = String::new();
+    let mut last_quit_confirm_overlay_key = String::new();
     let mut last_error_key: Option<String> = None;
-    // Triple-Ctrl-C kill switch (bd-2776ad): single Ctrl-C is forwarded to
-    // the focused window like any other key; three within 1s exits cleanly.
+    // Triple-Ctrl-C quit guard: single Ctrl-C is forwarded to the focused
+    // window like any other key; three within 1s opens an explicit
+    // confirmation dialog instead of exiting immediately.
     let mut ctrl_c_guard = CtrlCGuard::new();
     // Per-window placement and content memo. We only re-upload raw RGBA
     // payloads when pixels/dimensions change, and only re-emit placement when
@@ -8055,6 +8070,31 @@ pub fn run_loop_with<S: XServer>(
         let mut quit = false;
         while let Some((ev, consumed)) = kittui_input::parse(&input_buf) {
             input_buf.drain(..consumed);
+            let now = Instant::now();
+            if quit_confirm_overlay.expired(now) {
+                quit_confirm_overlay.close();
+                last_keymap_action = Some("quit.confirm.timeout".to_string());
+                dbg.log("quit confirmation timed out");
+            }
+            if quit_confirm_overlay.active {
+                match quit_confirm_overlay.handle_event(&ev, now) {
+                    QuitConfirmEvent::Consumed => continue,
+                    QuitConfirmEvent::Cancel => {
+                        quit_confirm_overlay.close();
+                        ctrl_c_guard.clear();
+                        last_keymap_action = Some("quit.cancel".to_string());
+                        dbg.log("quit confirmation cancelled");
+                        continue;
+                    }
+                    QuitConfirmEvent::Confirm => {
+                        dbg.log("quit confirmation accepted");
+                        last_keymap_action = Some("quit.confirm".to_string());
+                        quit = true;
+                        break;
+                    }
+                    QuitConfirmEvent::NotHandled => {}
+                }
+            }
             if picker_overlay.active {
                 match picker_overlay.handle_event(&ev) {
                     OverlayEvent::Consumed => continue,
@@ -8324,12 +8364,13 @@ pub fn run_loop_with<S: XServer>(
                 InputEvent::Char { ch: 'c', mods } if mods.ctrl && !mods.alt
             ) {
                 let count = ctrl_c_guard.record_press(Instant::now());
-                dbg.log(&format!("ctrl-c press #{count} within window"));
+                dbg.log(&format!("ctrl-c press #{count} within debounce window"));
                 if count >= CTRL_C_TRIGGER {
-                    dbg.log("ctrl-c triple-press exit triggered");
-                    last_keymap_action = Some("ctrl_c.triple_exit".to_string());
-                    quit = true;
-                    break;
+                    dbg.log("ctrl-c triple-press opened quit confirmation");
+                    ctrl_c_guard.clear();
+                    quit_confirm_overlay.open(Instant::now());
+                    last_keymap_action = Some("quit.confirm.open".to_string());
+                    continue;
                 }
                 // Forward single Ctrl-C to the focused window.
                 let _ = compositor.route_key(&ev);
@@ -8390,6 +8431,11 @@ pub fn run_loop_with<S: XServer>(
                 break;
             }
         }
+        if !quit && quit_confirm_overlay.expired(Instant::now()) {
+            quit_confirm_overlay.close();
+            last_keymap_action = Some("quit.confirm.timeout".to_string());
+            dbg.log("quit confirmation timed out");
+        }
         if quit {
             return Ok(());
         }
@@ -8420,6 +8466,7 @@ pub fn run_loop_with<S: XServer>(
                     last_raw_chrome_keys.clear();
                     last_launcher_overlay_key.clear();
                     last_picker_overlay_key.clear();
+                    last_quit_confirm_overlay_key.clear();
                     last_footer_key.clear();
                     last_footer_row = None;
                     wrote_frame_output = true;
@@ -8433,6 +8480,8 @@ pub fn run_loop_with<S: XServer>(
                     launcher_overlay.active,
                     picker_overlay_was_active,
                     picker_overlay.active,
+                    quit_confirm_overlay_was_active,
+                    quit_confirm_overlay.active,
                 ) {
                     clear_launcher_overlay_area(&mut frame_out)?;
                     wrote_frame_output = true;
@@ -8440,6 +8489,7 @@ pub fn run_loop_with<S: XServer>(
                     last_raw_hashes.clear();
                     last_raw_chrome_keys.clear();
                     last_launcher_overlay_key.clear();
+                    last_quit_confirm_overlay_key.clear();
                     last_footer_key.clear();
                     text_overlay_hid_raw_graphics = false;
                 }
@@ -8448,7 +8498,8 @@ pub fn run_loop_with<S: XServer>(
                 let mut current_ids: std::collections::HashSet<u32> =
                     std::collections::HashSet::with_capacity(frames.len());
                 let mut footer_row = 2u16;
-                let text_overlay_active = launcher_overlay.active || picker_overlay.active;
+                let text_overlay_active =
+                    launcher_overlay.active || picker_overlay.active || quit_confirm_overlay.active;
                 let render_app_graphics =
                     raw_compositor_should_render_app_graphics(text_overlay_active);
                 for f in &frames {
@@ -8562,6 +8613,16 @@ pub fn run_loop_with<S: XServer>(
                 } else {
                     last_picker_overlay_key.clear();
                 }
+                if quit_confirm_overlay.active {
+                    let overlay_key = quit_confirm_overlay_key(&quit_confirm_overlay);
+                    if last_quit_confirm_overlay_key != overlay_key {
+                        quit_confirm_overlay.render(&mut frame_out)?;
+                        wrote_frame_output = true;
+                        last_quit_confirm_overlay_key = overlay_key;
+                    }
+                } else {
+                    last_quit_confirm_overlay_key.clear();
+                }
                 let (terminal_cols, terminal_rows) = host_terminal_cells().unwrap_or((80, 24));
                 let safe_footer_row = raw_compositor_footer_row_for_overlays(
                     footer_row,
@@ -8642,6 +8703,7 @@ pub fn run_loop_with<S: XServer>(
                 }
                 launcher_overlay_was_active = launcher_overlay.active;
                 picker_overlay_was_active = picker_overlay.active;
+                quit_confirm_overlay_was_active = quit_confirm_overlay.active;
                 let emitted = if should_flush_compositor_frame(wrote_frame_output) {
                     frame_out.write_to(&mut handle)?
                 } else {
@@ -8682,6 +8744,7 @@ pub fn run_loop_with<S: XServer>(
                 }
                 launcher_overlay_was_active = launcher_overlay.active;
                 picker_overlay_was_active = picker_overlay.active;
+                quit_confirm_overlay_was_active = quit_confirm_overlay.active;
             }
         }
 
@@ -8805,8 +8868,12 @@ fn should_clear_raw_overlay_area(
     launcher_active: bool,
     picker_was_active: bool,
     picker_active: bool,
+    quit_confirm_was_active: bool,
+    quit_confirm_active: bool,
 ) -> bool {
-    (launcher_was_active && !launcher_active) || (picker_was_active && !picker_active)
+    (launcher_was_active && !launcher_active)
+        || (picker_was_active && !picker_active)
+        || (quit_confirm_was_active && !quit_confirm_active)
 }
 
 fn frame_sleep_chunks_for_budget(mut remaining: Duration) -> Vec<Duration> {
@@ -9161,6 +9228,22 @@ enum OverlayEvent {
     NotHandled,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum QuitConfirmEvent {
+    Consumed,
+    Cancel,
+    Confirm,
+    NotHandled,
+}
+
+const QUIT_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+struct QuitConfirmOverlay {
+    active: bool,
+    opened_at: Option<Instant>,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 struct LauncherOverlay {
     active: bool,
@@ -9189,6 +9272,78 @@ fn picker_overlay_key(overlay: &PickerOverlay) -> String {
         overlay.selected,
         overlay.entries.join("\u{1f}")
     )
+}
+
+fn quit_confirm_overlay_key(overlay: &QuitConfirmOverlay) -> String {
+    format!(
+        "active={};opened={}",
+        overlay.active,
+        overlay.opened_at.is_some()
+    )
+}
+
+impl QuitConfirmOverlay {
+    fn open(&mut self, now: Instant) {
+        self.active = true;
+        self.opened_at = Some(now);
+    }
+
+    fn close(&mut self) {
+        self.active = false;
+        self.opened_at = None;
+    }
+
+    fn expired(&self, now: Instant) -> bool {
+        self.active
+            && self
+                .opened_at
+                .and_then(|opened| now.checked_duration_since(opened))
+                .is_some_and(|elapsed| elapsed > QUIT_CONFIRM_TIMEOUT)
+    }
+
+    fn handle_event(&mut self, ev: &InputEvent, now: Instant) -> QuitConfirmEvent {
+        if self.expired(now) {
+            return QuitConfirmEvent::Cancel;
+        }
+        match ev {
+            InputEvent::Char { ch: 'y' | 'Y', .. } => QuitConfirmEvent::Confirm,
+            InputEvent::Char { ch: 'n' | 'N', .. }
+            | InputEvent::Char { ch: 'q' | 'Q', .. }
+            | InputEvent::Key {
+                key: Key::Escape, ..
+            } => QuitConfirmEvent::Cancel,
+            InputEvent::Char { ch: 'c', mods } if mods.ctrl && !mods.alt => {
+                QuitConfirmEvent::Consumed
+            }
+            _ => QuitConfirmEvent::NotHandled,
+        }
+    }
+
+    fn render<W: Write>(&self, handle: &mut W) -> Result<()> {
+        let width = 64usize;
+        write!(handle, "\x1b[2;2H┌{}┐", "─".repeat(width))?;
+        write!(
+            handle,
+            "\x1b[3;2H│{:^width$}│",
+            "confirm quit kittwm",
+            width = width
+        )?;
+        write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
+        write!(
+            handle,
+            "\x1b[5;2H│{:<width$}│",
+            "Triple Ctrl-C received. Quit the window manager?",
+            width = width
+        )?;
+        write!(
+            handle,
+            "\x1b[6;2H│{:<width$}│",
+            "Press y to quit, n/Esc to cancel. Times out in 5s.",
+            width = width
+        )?;
+        write!(handle, "\x1b[7;2H└{}┘", "─".repeat(width))?;
+        Ok(())
+    }
 }
 
 impl PickerOverlay {
@@ -9676,7 +9831,11 @@ fn macos_apps(limit: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod ctrl_c_guard_tests {
-    use super::{CtrlCGuard, CTRL_C_TRIGGER, CTRL_C_WINDOW};
+    use super::{
+        CtrlCGuard, QuitConfirmEvent, QuitConfirmOverlay, CTRL_C_TRIGGER, CTRL_C_WINDOW,
+        QUIT_CONFIRM_TIMEOUT,
+    };
+    use kittui_input::{InputEvent, Key, Modifiers};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -9688,7 +9847,7 @@ mod ctrl_c_guard_tests {
     }
 
     #[test]
-    fn three_presses_within_window_trigger() {
+    fn three_presses_within_window_open_confirmation_but_can_be_cleared() {
         let mut g = CtrlCGuard::new();
         let t0 = Instant::now();
         assert_eq!(g.record_press(t0), 1);
@@ -9697,6 +9856,8 @@ mod ctrl_c_guard_tests {
             g.record_press(t0 + Duration::from_millis(400)),
             CTRL_C_TRIGGER
         );
+        g.clear();
+        assert_eq!(g.record_press(t0 + Duration::from_millis(500)), 1);
     }
 
     #[test]
@@ -9716,7 +9877,50 @@ mod ctrl_c_guard_tests {
     fn footer_hint_switches_when_hosting_app() {
         let g = CtrlCGuard::new();
         assert_eq!(g.quit_hint(false), "q to quit");
-        assert_eq!(g.quit_hint(true), "q or Ctrl-C×3 to quit");
+        assert_eq!(g.quit_hint(true), "q or Ctrl-C×3 then y to quit");
+    }
+
+    #[test]
+    fn quit_confirmation_requires_explicit_yes_before_timeout() {
+        let t0 = Instant::now();
+        let mut overlay = QuitConfirmOverlay::default();
+        overlay.open(t0);
+        assert!(overlay.active);
+        assert!(!overlay.expired(t0 + Duration::from_secs(1)));
+        assert_eq!(
+            overlay.handle_event(
+                &InputEvent::Char {
+                    ch: 'c',
+                    mods: Modifiers {
+                        ctrl: true,
+                        ..Modifiers::default()
+                    }
+                },
+                t0
+            ),
+            QuitConfirmEvent::Consumed
+        );
+        assert_eq!(
+            overlay.handle_event(
+                &InputEvent::Key {
+                    key: Key::Escape,
+                    mods: Modifiers::default()
+                },
+                t0
+            ),
+            QuitConfirmEvent::Cancel
+        );
+        assert_eq!(
+            overlay.handle_event(
+                &InputEvent::Char {
+                    ch: 'y',
+                    mods: Modifiers::default()
+                },
+                t0
+            ),
+            QuitConfirmEvent::Confirm
+        );
+        assert!(overlay.expired(t0 + QUIT_CONFIRM_TIMEOUT + Duration::from_millis(1)));
     }
 }
 
@@ -10129,12 +10333,12 @@ mod launcher_overlay_tests {
     }
 }
 
-/// Triple-Ctrl-C kill switch with decay window. (bd-2776ad)
+/// Triple-Ctrl-C quit guard with decay window. (bd-2776ad)
 ///
-/// Single Ctrl-C is forwarded to the focused window; only three Ctrl-C
-/// presses within `CTRL_C_WINDOW` cause the WM to exit. Presses older
-/// than the window are discarded so a slow typist won't accidentally
-/// quit.
+/// Single Ctrl-C is forwarded to the focused window; three Ctrl-C presses
+/// within `CTRL_C_WINDOW` open a confirmation dialog. Presses older than
+/// the window are discarded so a slow typist won't accidentally reach the
+/// confirmation path.
 const CTRL_C_TRIGGER: usize = 3;
 const CTRL_C_WINDOW: Duration = Duration::from_secs(1);
 
@@ -10162,12 +10366,16 @@ impl CtrlCGuard {
         self.presses.len()
     }
 
+    fn clear(&mut self) {
+        self.presses.clear();
+    }
+
     /// Footer hint for the operator. Switches the visible quit message
     /// to mention the Ctrl-C kill switch whenever the WM is actually
     /// hosting an app that might swallow `q` / Esc.
     fn quit_hint(&self, hosting_app: bool) -> &'static str {
         if hosting_app {
-            "q or Ctrl-C×3 to quit"
+            "q or Ctrl-C×3 then y to quit"
         } else {
             "q to quit"
         }
