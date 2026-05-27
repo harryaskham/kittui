@@ -4523,9 +4523,7 @@ fn kittwm_z_index(role: kittwm_sdk::SurfacePlacementRole) -> i32 {
 fn kittwm_scene_placement_options(
     role: kittwm_sdk::SurfacePlacementRole,
 ) -> kittui_kitty::PlacementOptions {
-    let mut options = kittui_kitty::PlacementOptions::absolute();
-    options.z_index = kittwm_z_index(role);
-    options
+    kittui_kitty::PlacementOptions::absolute().with_z_index(kittwm_z_index(role))
 }
 
 fn print_scene_or_kitty(
@@ -7550,6 +7548,23 @@ mod tests {
                 .iter()
                 .any(|label| label.contains("kittwm-architecture-surface:kittwm-bar:kind=chrome")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn helper_scene_placement_options_avoid_unicode_placeholders() {
+        let decoration =
+            kittwm_scene_placement_options(kittwm_sdk::SurfacePlacementRole::Decoration);
+        assert!(!decoration.unicode_placeholder);
+        assert_eq!(
+            decoration.z_index,
+            kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Decoration)
+        );
+        let overlay = kittwm_scene_placement_options(kittwm_sdk::SurfacePlacementRole::Overlay);
+        assert!(!overlay.unicode_placeholder);
+        assert_eq!(
+            overlay.z_index,
+            kittwm_z_index(kittwm_sdk::SurfacePlacementRole::Overlay)
         );
     }
 
