@@ -158,6 +158,9 @@ fn real_main() -> Result<()> {
     let mut frame = 0u64;
     let mut last_status: Option<(u16, String)> = None;
     let show_status_frame = browser_status_frame_counter_enabled();
+    let active_interval = browser_active_frame_interval();
+    let idle_interval = browser_idle_frame_interval(active_interval);
+    let mut consecutive_idle_frames = 0u16;
     let mut stdin = std::io::stdin();
     loop {
         let start = Instant::now();
@@ -242,8 +245,11 @@ fn real_main() -> Result<()> {
         if wrote_output {
             handle.flush()?;
         }
+        update_browser_idle_counter(&mut consecutive_idle_frames, wrote_output);
         frame += 1;
-        if let Some(slack) = Duration::from_millis(250).checked_sub(start.elapsed()) {
+        let frame_interval =
+            browser_current_frame_interval(active_interval, idle_interval, consecutive_idle_frames);
+        if let Some(slack) = frame_interval.checked_sub(start.elapsed()) {
             std::thread::sleep(slack);
         }
     }
@@ -459,6 +465,44 @@ fn browser_status_frame_counter_enabled() -> bool {
     std::env::var("KITTWM_BROWSER_STATUS_FRAMES")
         .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
         .unwrap_or(false)
+}
+
+fn browser_interval_from_env(name: &str, default_ms: u64) -> Duration {
+    let ms = std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default_ms)
+        .clamp(16, 10_000);
+    Duration::from_millis(ms)
+}
+
+fn browser_active_frame_interval() -> Duration {
+    browser_interval_from_env("KITTWM_BROWSER_FRAME_MS", 250)
+}
+
+fn browser_idle_frame_interval(active: Duration) -> Duration {
+    browser_interval_from_env("KITTWM_BROWSER_IDLE_MS", 1000).max(active)
+}
+
+fn browser_current_frame_interval(
+    active: Duration,
+    idle: Duration,
+    consecutive_idle_frames: u16,
+) -> Duration {
+    if consecutive_idle_frames >= 2 {
+        idle
+    } else {
+        active
+    }
+}
+
+fn update_browser_idle_counter(counter: &mut u16, wrote_output: bool) {
+    if wrote_output {
+        *counter = 0;
+    } else {
+        *counter = counter.saturating_add(1);
+    }
 }
 
 fn browser_status_text(url: &str, frame: u64, show_frame: bool) -> String {
@@ -715,6 +759,27 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry == "--semantic-scene-json"));
+    }
+
+    #[test]
+    fn browser_idle_capture_pacing_uses_longer_interval_after_static_frames() {
+        let active = Duration::from_millis(250);
+        let idle = Duration::from_millis(1000);
+        assert_eq!(browser_current_frame_interval(active, idle, 0), active);
+        assert_eq!(browser_current_frame_interval(active, idle, 1), active);
+        assert_eq!(browser_current_frame_interval(active, idle, 2), idle);
+
+        let mut idle_frames = 0u16;
+        update_browser_idle_counter(&mut idle_frames, false);
+        assert_eq!(idle_frames, 1);
+        update_browser_idle_counter(&mut idle_frames, false);
+        assert_eq!(idle_frames, 2);
+        update_browser_idle_counter(&mut idle_frames, true);
+        assert_eq!(idle_frames, 0);
+        assert_eq!(
+            browser_idle_frame_interval(Duration::from_millis(1500)),
+            Duration::from_millis(1500)
+        );
     }
 
     #[test]
