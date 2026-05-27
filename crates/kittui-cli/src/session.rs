@@ -2950,7 +2950,7 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
                 title_row + 1,
                 pane.x + 1,
                 title_style,
-                truncate_cells(&pane.text, title_width)
+                clip_and_pad(&pane.text, title_width)
             ));
         }
         if pane.app_cols > 0 && pane.app_rows > 0 {
@@ -5390,11 +5390,48 @@ mod native_pane_tests {
         let rendered = render_native_shell_view_terminal(&view, 12, 5);
         assert!(rendered.contains("| 1 | 2 | 3"), "{rendered:?}");
         assert!(rendered.contains("\x1b[2;1H"), "{rendered:?}");
-        assert!(rendered.contains("* native-1 shell\x1b[0m"), "{rendered:?}");
+        assert!(rendered.contains("* native\x1b[0m"), "{rendered:?}");
+        assert!(
+            !rendered.contains("* native-1 shell\x1b[0m"),
+            "{rendered:?}"
+        );
         assert!(rendered.contains("\x1b[3;1Hhello   "), "{rendered:?}");
         assert!(rendered.contains("\x1b[4;1Hworld   "), "{rendered:?}");
         assert!(!rendered.contains("ignored"), "{rendered:?}");
         assert!(rendered.contains("footer"), "{rendered:?}");
+    }
+
+    #[test]
+    fn native_shell_terminal_renderer_pads_pane_titles_to_visible_width() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: "top".to_string(),
+            },
+            panes: vec![NativePaneChrome {
+                x: 0,
+                y: 1,
+                focused: true,
+                text: "sh".to_string(),
+                cache_key: "key".to_string(),
+                status: "status".to_string(),
+                app_x: 0,
+                app_y: 2,
+                app_cols: 8,
+                app_rows: 1,
+                cols: 8,
+                rows: 2,
+                text_snapshot: String::new(),
+            }],
+            footer: NativeFooterChrome {
+                row: 0,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let rendered = render_native_shell_view_terminal(&view, 10, 4);
+        assert!(rendered.contains("\x1b[2;1H"), "{rendered:?}");
+        assert!(rendered.contains("sh      \x1b[0m"), "{rendered:?}");
     }
 
     #[test]
