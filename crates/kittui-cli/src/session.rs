@@ -2650,7 +2650,7 @@ fn native_mouse_event_payload(
     row: u16,
     modes: MouseReportingModes,
 ) -> Option<Vec<u8>> {
-    if col == 0 || row == 0 || !modes.sgr {
+    if col == 0 || row == 0 {
         return None;
     }
     let (bits, suffix) = match event {
@@ -2666,7 +2666,24 @@ fn native_mouse_event_payload(
         "scroll-down" if modes.basic => (65, 'M'),
         _ => return None,
     };
-    Some(format!("\x1b[<{bits};{col};{row}{suffix}").into_bytes())
+    if modes.sgr {
+        return Some(format!("\x1b[<{bits};{col};{row}{suffix}").into_bytes());
+    }
+    native_legacy_mouse_payload(bits, col, row)
+}
+
+fn native_legacy_mouse_payload(bits: u16, col: u16, row: u16) -> Option<Vec<u8>> {
+    if bits > 223 || col == 0 || col > 223 || row == 0 || row > 223 {
+        return None;
+    }
+    Some(vec![
+        b'\x1b',
+        b'[',
+        b'M',
+        (bits + 32) as u8,
+        (col + 32) as u8,
+        (row + 32) as u8,
+    ])
 }
 
 fn native_key_event_payload(
@@ -5027,9 +5044,35 @@ mod native_pane_tests {
             }
         )
         .is_none());
+        assert_eq!(
+            native_mouse_event_payload(
+                "press-left",
+                7,
+                9,
+                MouseReportingModes {
+                    sgr: false,
+                    ..modes
+                }
+            )
+            .unwrap(),
+            vec![b'\x1b', b'[', b'M', 32, 39, 41]
+        );
+        assert_eq!(
+            native_mouse_event_payload(
+                "release",
+                7,
+                9,
+                MouseReportingModes {
+                    sgr: false,
+                    ..modes
+                }
+            )
+            .unwrap(),
+            vec![b'\x1b', b'[', b'M', 35, 39, 41]
+        );
         assert!(native_mouse_event_payload(
             "press-left",
-            7,
+            224,
             9,
             MouseReportingModes {
                 sgr: false,
