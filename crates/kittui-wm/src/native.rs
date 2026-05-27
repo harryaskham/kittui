@@ -3425,6 +3425,11 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key("Enter", "Enter", 13)
     }
 
+    /// Dispatch a Delete key press/release to the focused page element.
+    pub fn send_delete(&mut self) -> Result<()> {
+        self.dispatch_browser_key("Delete", "Delete", 46)
+    }
+
     /// Dispatch an arrow-key press/release to the focused page element.
     pub fn send_arrow_key(&mut self, direction: BrowserArrowKey) -> Result<()> {
         let (key, code, key_code) = direction.key_fields();
@@ -5487,12 +5492,17 @@ mod tests {
     }
 
     #[test]
-    fn browser_key_event_params_map_enter_key() {
+    fn browser_key_event_params_map_enter_and_delete_keys() {
         let params = browser_key_event_params("Enter", "Enter", 13);
         assert_eq!(params["key"], "Enter");
         assert_eq!(params["code"], "Enter");
         assert_eq!(params["windowsVirtualKeyCode"], 13);
         assert_eq!(params["nativeVirtualKeyCode"], 13);
+        let delete = browser_key_event_params("Delete", "Delete", 46);
+        assert_eq!(delete["key"], "Delete");
+        assert_eq!(delete["code"], "Delete");
+        assert_eq!(delete["windowsVirtualKeyCode"], 46);
+        assert_eq!(delete["nativeVirtualKeyCode"], 46);
     }
 
     #[test]

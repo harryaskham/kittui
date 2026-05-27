@@ -180,6 +180,7 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::Backspace => browser.send_backspace()?,
                     BrowserInputAction::Tab => browser.send_tab()?,
                     BrowserInputAction::Enter => browser.send_enter()?,
+                    BrowserInputAction::Delete => browser.send_delete()?,
                     BrowserInputAction::Arrow(direction) => browser.send_arrow_key(direction)?,
                 }
                 user_activity = true;
@@ -262,6 +263,7 @@ enum BrowserInputAction {
     Backspace,
     Tab,
     Enter,
+    Delete,
     Arrow(BrowserArrowKey),
 }
 
@@ -303,6 +305,13 @@ fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
                     }
                     actions.push(BrowserInputAction::Arrow(direction));
                     idx += 2;
+                } else if idx + 3 < bytes.len() && bytes[idx + 2] == b'3' && bytes[idx + 3] == b'~'
+                {
+                    if !text.is_empty() {
+                        actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
+                    }
+                    actions.push(BrowserInputAction::Delete);
+                    idx += 3;
                 }
             }
             0x20..=0x7e => text.push(bytes[idx] as char),
@@ -889,7 +898,7 @@ mod tests {
     #[test]
     fn browser_input_actions_preserve_text_backspace_tab_enter_and_arrow_order() {
         assert_eq!(
-            browser_input_actions(b"ab\x7fc\tde\x1b[D\x08\rfg\n"),
+            browser_input_actions(b"ab\x7fc\tde\x1b[D\x1b[3~\x08\rfg\n"),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
                 BrowserInputAction::Backspace,
@@ -897,6 +906,7 @@ mod tests {
                 BrowserInputAction::Tab,
                 BrowserInputAction::Text("de".to_string()),
                 BrowserInputAction::Arrow(BrowserArrowKey::Left),
+                BrowserInputAction::Delete,
                 BrowserInputAction::Backspace,
                 BrowserInputAction::Enter,
                 BrowserInputAction::Text("fg".to_string()),
