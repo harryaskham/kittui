@@ -5628,11 +5628,12 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_else(|| "<none>".to_string());
+    let prefix_label = truncate(&prefix, 32);
     let duplicates = keymap_duplicate_count(km);
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-keymap-backdrop:bindings={}:prefix={prefix}:duplicates={duplicates}",
+                "kittwm-keymap-backdrop:bindings={}:prefix={prefix_label}:duplicates={duplicates}",
                 km.bindings.len()
             )),
             root: Node::Rect {
@@ -5668,12 +5669,11 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
     ];
     for (idx, binding) in km.bindings.iter().take(20).enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        let chord_label = truncate(&binding.chord_string(), 48);
+        let action_label = truncate(&binding.action.to_string(), 48);
         layers.push(Layer {
             label: Some(format!(
-                "kittwm-keymap-row:{}:{}:{}",
-                idx,
-                binding.chord_string(),
-                binding.action
+                "kittwm-keymap-row:{idx}:{chord_label}:{action_label}"
             )),
             root: Node::Rect {
                 rect: keymap_scene_row_rect(width, y),
@@ -7946,6 +7946,61 @@ mod tests {
                 .any(|label| label.contains("launch") || label.contains("split.vertical.launcher")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn keymap_scene_clips_pathological_label_fields() {
+        let km = kittui_cli::keymap::Keymap {
+            prefix: Some(kittui_cli::keymap::KeySpec {
+                mods: kittui_cli::keymap::KeyMods {
+                    ctrl: true,
+                    alt: true,
+                    shift: true,
+                },
+                key: "prefix-key-that-is-pathologically-long".to_string(),
+            }),
+            bindings: vec![kittui_cli::keymap::Binding {
+                chord: vec![kittui_cli::keymap::KeySpec {
+                    mods: kittui_cli::keymap::KeyMods {
+                        ctrl: true,
+                        alt: true,
+                        shift: true,
+                    },
+                    key: "binding-key-that-is-pathologically-long".to_string(),
+                }],
+                action: kittui_cli::keymap::Action::Custom(
+                    "custom.action.with.pathologically.long.name".to_string(),
+                ),
+            }],
+        };
+        let scene = keymap_scene(&km);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let backdrop = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-keymap-backdrop:"))
+            .unwrap();
+        assert!(
+            backdrop.contains("prefix=C-M-S-prefix-key-that-is-pathol…"),
+            "{backdrop}"
+        );
+        assert!(backdrop.len() < 90, "{backdrop}");
+        let row = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-keymap-row:0:"))
+            .unwrap();
+        assert!(
+            row.contains("C-M-S-binding-key-that-is-pathologically-long"),
+            "{row}"
+        );
+        assert!(
+            row.contains("custom.action.with.pathologically.long.name"),
+            "{row}"
+        );
+        assert!(row.len() < 130, "{row}");
     }
 
     #[test]
