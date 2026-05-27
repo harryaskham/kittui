@@ -2913,6 +2913,16 @@ fn validated_text_payload<'a>(text: &'a str, verb: &str) -> Result<&'a str> {
     Ok(text)
 }
 
+fn validated_pane_title<'a>(title: &'a str) -> Result<&'a str> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(Error::Daemon(
+            "RENAME_PANE requires nonempty title".to_string(),
+        ));
+    }
+    Ok(title)
+}
+
 impl SurfaceHandle {
     /// Focus this surface/window.
     pub fn focus(&self) -> Result<String> {
@@ -2931,8 +2941,9 @@ impl SurfaceHandle {
     /// Rename this surface/window.
     pub fn rename(&self, title: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::ControlWindow)?;
+        let title = validated_pane_title(title.as_ref())?;
         self.client
-            .request_protocol(format!("RENAME_PANE {} {}", self.id, title.as_ref()))
+            .request_protocol(format!("RENAME_PANE {} {title}", self.id))
     }
 
     /// Resize this surface/window by a relative pane-weight delta.
@@ -4960,7 +4971,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..6 {
+            for _ in 0..7 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -4979,6 +4990,7 @@ mod tests {
         assert_eq!(client.layout(LayoutMode::Columns).unwrap().trim(), "OK");
         assert_eq!(client.balance_panes().unwrap().trim(), "OK");
         let surface = client.surface("native-2");
+        assert_eq!(surface.rename(" Editor Pane ").unwrap().trim(), "OK");
         assert_eq!(
             surface.move_pane(MoveDirection::First).unwrap().trim(),
             "OK"
@@ -4993,10 +5005,20 @@ mod tests {
                 "FOCUS_PREV",
                 "LAYOUT columns",
                 "BALANCE_PANES",
+                "RENAME_PANE native-2 Editor Pane",
                 "MOVE_PANE native-2 first",
                 "MOVE_PANE native-2 down"
             ]
         );
+    }
+
+    #[test]
+    fn rename_helper_validates_title_before_io() {
+        let surface = Kittwm::connect_path("/tmp/does-not-exist.sock").surface("focused");
+        assert!(matches!(
+            surface.rename("   "),
+            Err(Error::Daemon(message)) if message.contains("nonempty title")
+        ));
     }
 
     #[test]
