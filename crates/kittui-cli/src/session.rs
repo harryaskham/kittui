@@ -3844,20 +3844,18 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
     cols: u16,
 ) -> Result<()> {
     let row = view.top_bar.row + 1;
-    let clock = native_top_bar_model_from_view(view)
+    let model = native_top_bar_model_from_view(view);
+    let clock = model
         .time
         .strip_suffix(" UTC")
         .unwrap_or("00:00")
         .to_string();
+    let colors = native_glass_chrome_colors();
     write!(out, "\x1b[{};1H", row)?;
-    let active_workspace = native_top_bar_model_from_view(view).workspace;
+    let active_workspace = model.workspace;
     for idx in 1..=3 {
         let active = active_workspace == idx.to_string();
-        let (fg, bg) = if active {
-            (Rgba(0x2e, 0x34, 0x40, 255), Rgba(0x88, 0xc0, 0xd0, 255))
-        } else {
-            (Rgba(0xec, 0xef, 0xf4, 255), Rgba(0x3b, 0x42, 0x52, 235))
-        };
+        let (fg, bg) = native_graphical_top_bar_text_palette(&colors, active);
         write!(
             out,
             "\x1b[1m{}{} {} \x1b[0m ",
@@ -3871,16 +3869,33 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         .saturating_sub(clock_text.chars().count() as u16)
         .saturating_add(1)
         .max(1);
+    let (clock_fg, clock_bg) = native_graphical_top_bar_clock_palette(&colors);
     write!(
         out,
         "\x1b[{};{}H\x1b[1m{}{}{}\x1b[0m",
         row,
         clock_col,
-        ansi_fg(Rgba(0xec, 0xef, 0xf4, 255)),
-        ansi_bg(Rgba(0x2e, 0x34, 0x40, 240)),
+        ansi_fg(clock_fg),
+        ansi_bg(clock_bg),
         clock_text
     )?;
     Ok(())
+}
+
+fn native_graphical_top_bar_text_palette(colors: &InlineChipColors, active: bool) -> (Rgba, Rgba) {
+    if active {
+        (opaque_rgb(colors.fill), opaque_rgb(colors.highlight))
+    } else {
+        (opaque_rgb(colors.fg), rgba_with_alpha(colors.fill, 235))
+    }
+}
+
+fn native_graphical_top_bar_clock_palette(colors: &InlineChipColors) -> (Rgba, Rgba) {
+    (opaque_rgb(colors.fg), rgba_with_alpha(colors.fill, 240))
+}
+
+fn opaque_rgb(color: Rgba) -> Rgba {
+    Rgba(color.0, color.1, color.2, 255)
 }
 
 fn ansi_fg(color: Rgba) -> String {
@@ -4146,6 +4161,28 @@ mod native_pane_tests {
         assert!(should_write_raw_compositor_error(Some(&key), &changed));
         assert!(should_clear_raw_error_screen(Some(&key)));
         assert!(!should_clear_raw_error_screen(None));
+    }
+
+    #[test]
+    fn graphical_top_bar_text_overlay_palette_uses_chrome_colors() {
+        let colors = InlineChipColors {
+            fill: Rgba(1, 2, 3, 120),
+            border: Rgba(4, 5, 6, 200),
+            highlight: Rgba(7, 8, 9, 80),
+            fg: Rgba(10, 11, 12, 255),
+        };
+        assert_eq!(
+            native_graphical_top_bar_text_palette(&colors, true),
+            (Rgba(1, 2, 3, 255), Rgba(7, 8, 9, 255))
+        );
+        assert_eq!(
+            native_graphical_top_bar_text_palette(&colors, false),
+            (Rgba(10, 11, 12, 255), Rgba(1, 2, 3, 235))
+        );
+        assert_eq!(
+            native_graphical_top_bar_clock_palette(&colors),
+            (Rgba(10, 11, 12, 255), Rgba(1, 2, 3, 240))
+        );
     }
 
     #[test]
