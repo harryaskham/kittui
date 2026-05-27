@@ -4673,7 +4673,10 @@ fn load_session_snapshot() -> Result<serde_json::Value> {
 }
 
 fn session_scene(session: &serde_json::Value) -> Scene {
-    let cols = info_scene_cols();
+    session_scene_for_cols(session, info_scene_cols())
+}
+
+fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
     let panes = session
         .get("panes")
         .and_then(serde_json::Value::as_array)
@@ -6570,6 +6573,27 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn session_scene_rows_fit_narrow_width() {
+        let session = serde_json::json!({
+            "schema_version": 1,
+            "kind": "kittwm-native-session",
+            "layout": "rows",
+            "focus": "native-1",
+            "panes": [
+                {"index":0,"window":"native-1","title":"shell","command":"bash","weight":1,"focused":true}
+            ]
+        });
+        let scene = session_scene_for_cols(&session, 1);
+        assert_eq!(scene.footprint.cols, 1);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
     }
 
     #[test]
