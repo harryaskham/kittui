@@ -196,8 +196,56 @@ fn render_kitty_bar(model: &BarOutputModel) -> Result<String, String> {
             CellRect::new(0, 0, scene.footprint.cols, scene.footprint.rows),
             &options,
         )
-        .map(|placement| placement.to_bytes())
+        .map(|placement| {
+            let mut bytes = placement.to_bytes();
+            bytes.push_str(&kittwm_bar_kitty_text_overlay(model, scene.footprint.cols));
+            bytes
+        })
         .map_err(|err| err.to_string())
+}
+
+fn kittwm_bar_kitty_text_overlay(model: &BarOutputModel, cols: u16) -> String {
+    let mut out = String::from("\x1b[1;1H");
+    for idx in 1..=3 {
+        let active = model.bar.workspace == idx.to_string();
+        let (fg, bg) = if active {
+            ((0x2e, 0x34, 0x40), (0x88, 0xc0, 0xd0))
+        } else {
+            ((0xec, 0xef, 0xf4), (0x3b, 0x42, 0x52))
+        };
+        out.push_str(&format!(
+            "\x1b[1m{}{} {} \x1b[0m ",
+            ansi_fg(fg),
+            ansi_bg(bg),
+            idx
+        ));
+    }
+    let clock = model
+        .bar
+        .time
+        .strip_suffix(" UTC")
+        .unwrap_or(&model.bar.time);
+    let clock_text = format!(" {clock} ");
+    let clock_col = cols
+        .saturating_sub(clock_text.chars().count() as u16)
+        .saturating_add(1)
+        .max(1);
+    out.push_str(&format!(
+        "\x1b[1;{}H\x1b[1m{}{}{}\x1b[0m",
+        clock_col,
+        ansi_fg((0xec, 0xef, 0xf4)),
+        ansi_bg((0x2e, 0x34, 0x40)),
+        clock_text
+    ));
+    out
+}
+
+fn ansi_fg((r, g, b): (u8, u8, u8)) -> String {
+    format!("\x1b[38;2;{r};{g};{b}m")
+}
+
+fn ansi_bg((r, g, b): (u8, u8, u8)) -> String {
+    format!("\x1b[48;2;{r};{g};{b}m")
 }
 
 fn kittwm_bar_kitty_options(scene: &kittui::Scene) -> kittui_kitty::PlacementOptions {
@@ -288,6 +336,28 @@ mod tests {
         assert_eq!(options.placement_id, Some(scene.id().kitty_image_id()));
         assert_eq!(options.z_index, 20);
         assert!(!options.unicode_placeholder);
+    }
+
+    #[test]
+    fn kitty_bar_text_overlay_draws_visible_chips_and_clock() {
+        let model = BarOutputModel {
+            bar: BarModel::new(
+                "2",
+                0,
+                "-",
+                false,
+                UNIX_EPOCH + std::time::Duration::from_secs(9 * 3600 + 5 * 60),
+            ),
+            chrome: None,
+        };
+        let overlay = kittwm_bar_kitty_text_overlay(&model, 40);
+        assert!(overlay.starts_with("\x1b[1;1H"), "{overlay:?}");
+        assert!(overlay.contains(" 1 "), "{overlay:?}");
+        assert!(overlay.contains(" 2 "), "{overlay:?}");
+        assert!(overlay.contains(" 3 "), "{overlay:?}");
+        assert!(overlay.contains(" 09:05 "), "{overlay:?}");
+        assert!(overlay.contains("\x1b[38;2;46;52;64m"), "{overlay:?}");
+        assert!(overlay.contains("\x1b[48;2;136;192;208m"), "{overlay:?}");
     }
 
     #[test]
