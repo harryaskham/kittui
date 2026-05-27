@@ -428,12 +428,17 @@ fn render_launch_plan_kitty(plan: &LaunchPlan) -> Result<String, String> {
         .build()
         .map_err(|err| err.to_string())?;
     let scene = launch_plan_scene(plan);
-    let mut options = kittui_kitty::PlacementOptions::unicode();
-    options.z_index = 20;
+    let options = launch_plan_placement_options();
     runtime
         .place_at_with_options(&scene, scene.footprint, &options)
         .map(|placement| placement.to_bytes())
         .map_err(|err| err.to_string())
+}
+
+fn launch_plan_placement_options() -> kittui_kitty::PlacementOptions {
+    let mut options = kittui_kitty::PlacementOptions::absolute();
+    options.z_index = 20;
+    options
 }
 
 fn main() -> ExitCode {
@@ -576,6 +581,13 @@ mod tests {
             launch_plan_command_rect(8.0, CellSize::default()).origin.0,
             2.0
         );
+    }
+
+    #[test]
+    fn launch_plan_kitty_uses_absolute_no_placeholder_options() {
+        let options = launch_plan_placement_options();
+        assert!(!options.unicode_placeholder);
+        assert_eq!(options.z_index, 20);
     }
 
     #[test]
