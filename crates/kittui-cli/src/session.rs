@@ -3996,7 +3996,7 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
     let palette = native_top_bar_overlay_palette(native_glass_chrome_colors());
     write!(out, "{}", native_graphical_top_bar_overlay_clear(row))?;
     let mut workspace_cols = 0u16;
-    for workspace in model.workspace_chip_labels() {
+    for workspace in native_graphical_top_bar_overlay_labels(&model, cols) {
         let active = model.workspace.trim() == workspace;
         let (fg, bg) = if active {
             (palette.active_fg, palette.active_bg)
@@ -4036,6 +4036,19 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
 
 fn native_graphical_top_bar_overlay_clear(row: u16) -> String {
     format!("\x1b[{row};1H\x1b[K")
+}
+
+fn native_graphical_top_bar_overlay_labels(model: &BarModel, cols: u16) -> Vec<String> {
+    let mut labels = model.workspace_chip_labels();
+    let total_cols = labels
+        .iter()
+        .map(|label| label.chars().count() as u16 + 3)
+        .sum::<u16>();
+    let workspace = model.workspace.trim();
+    if total_cols > cols && !matches!(workspace, "" | "1" | "2" | "3") {
+        labels.sort_by_key(|label| usize::from(label != workspace));
+    }
+    labels
 }
 
 fn native_graphical_top_bar_fit_label(label: &str, cols: u16, used_cols: u16) -> Option<String> {
@@ -4462,6 +4475,24 @@ mod native_pane_tests {
         assert_eq!(native_help_overlay_ansi_width(4), None);
         assert_eq!(native_help_overlay_ansi_width(5), Some(1));
         assert_eq!(native_help_overlay_ansi_width(80), Some(76));
+    }
+
+    #[test]
+    fn graphical_top_bar_overlay_labels_prioritize_custom_when_constrained() {
+        let model = BarModel::new("dev", 0, "-", true, std::time::UNIX_EPOCH);
+        assert_eq!(
+            native_graphical_top_bar_overlay_labels(&model, 80),
+            vec!["1", "2", "3", "dev"]
+        );
+        assert_eq!(
+            native_graphical_top_bar_overlay_labels(&model, 8),
+            vec!["dev", "1", "2", "3"]
+        );
+        let numeric = BarModel::new("2", 0, "-", true, std::time::UNIX_EPOCH);
+        assert_eq!(
+            native_graphical_top_bar_overlay_labels(&numeric, 8),
+            vec!["1", "2", "3"]
+        );
     }
 
     #[test]
