@@ -163,6 +163,16 @@ fn decide_native_raw_frame_write(
     }
 }
 
+fn raw_frame_write_with_chrome_change(
+    mut decision: NativePngFrameDecision,
+    chrome_changed: bool,
+) -> NativePngFrameDecision {
+    if chrome_changed {
+        decision.placement.write_placement = true;
+    }
+    decision
+}
+
 fn decide_native_png_frame_write(
     png_hashes: &mut HashMap<u32, u64>,
     placements: &mut HashMap<u32, CellRect>,
@@ -4139,6 +4149,28 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_frame_chrome_change_forces_move_only_replacement() {
+        let clean = NativePngFrameDecision {
+            upload: false,
+            placement: NativeAppPlacementDecision {
+                write_upload: false,
+                write_placement: false,
+            },
+        };
+        assert_eq!(raw_frame_write_with_chrome_change(clean, false), clean);
+        assert_eq!(
+            raw_frame_write_with_chrome_change(clean, true),
+            NativePngFrameDecision {
+                upload: false,
+                placement: NativeAppPlacementDecision {
+                    write_upload: false,
+                    write_placement: true,
+                },
+            }
+        );
+    }
+
+    #[test]
     fn native_png_frame_write_decision_skips_unchanged_uploads() {
         let mut placements = HashMap::new();
         let mut hashes = HashMap::new();
@@ -7022,14 +7054,25 @@ pub fn run_loop_with<S: XServer>(
                         footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
                         continue;
                     }
-                    let decision = decide_native_raw_frame_write(
-                        &mut last_raw_hashes,
-                        &mut last_placed,
-                        f.image_id,
+                    let chrome_key = raw_frame_chrome_key(
+                        &f.title,
+                        f.focused,
+                        f.mode,
+                        f.fullscreen,
                         f.footprint,
-                        f.width,
-                        f.height,
-                        &f.rgba,
+                    );
+                    let chrome_changed = last_raw_chrome_keys.get(&f.image_id) != Some(&chrome_key);
+                    let decision = raw_frame_write_with_chrome_change(
+                        decide_native_raw_frame_write(
+                            &mut last_raw_hashes,
+                            &mut last_placed,
+                            f.image_id,
+                            f.footprint,
+                            f.width,
+                            f.height,
+                            &f.rgba,
+                        ),
+                        chrome_changed,
                     );
                     let placement_options = raw_compositor_app_placement_options(f.image_id);
                     if decision.upload {
@@ -7058,14 +7101,7 @@ pub fn run_loop_with<S: XServer>(
                         handle.write_all(p.embed.as_bytes())?;
                         wrote_frame_output = true;
                     }
-                    let chrome_key = raw_frame_chrome_key(
-                        &f.title,
-                        f.focused,
-                        f.mode,
-                        f.fullscreen,
-                        f.footprint,
-                    );
-                    if last_raw_chrome_keys.get(&f.image_id) != Some(&chrome_key) {
+                    if chrome_changed {
                         write_raw_frame_chrome(&mut handle, f)?;
                         wrote_frame_output = true;
                         last_raw_chrome_keys.insert(f.image_id, chrome_key);
