@@ -4313,12 +4313,7 @@ fn info_scene(
                 "kittwm-info-chrome:top_bar_rows={top_bar_rows}:tilable_rows={tilable_rows}"
             )),
             root: Node::Rect {
-                rect: KittuiPxRect::new(
-                    10.0,
-                    cell.height_px as f32 * 2.0,
-                    (width - 20.0).max(1.0),
-                    2.0,
-                ),
+                rect: info_indicator_rect(width, cell.height_px as f32 * 2.0),
                 fill: Paint::Solid {
                     color: Rgba::rgba(163, 190, 140, 255),
                 },
@@ -4351,7 +4346,7 @@ fn info_scene(
                     "kittwm-info-pane:{window}:focused={focused}:title={title}"
                 )),
                 root: Node::Rect {
-                    rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                    rect: info_indicator_rect(width, y),
                     fill: Paint::Solid {
                         color: if focused {
                             Rgba::rgba(235, 203, 139, 255)
@@ -4373,14 +4368,28 @@ fn info_scene(
     }
 }
 
+fn info_indicator_rect(width: f32, y: f32) -> KittuiPxRect {
+    let inset = (width * 0.12).min(10.0).floor().max(0.0);
+    let x = inset.min((width - 1.0).max(0.0));
+    let available = (width - x * 2.0).max(1.0).min(width.max(1.0));
+    KittuiPxRect::new(x, y, available, 2.0)
+}
+
 fn info_scene_cols() -> u16 {
-    std::env::var("KITTWM_INFO_COLS")
-        .or_else(|_| std::env::var("COLUMNS"))
-        .ok()
+    info_scene_cols_from_value(
+        std::env::var("KITTWM_INFO_COLS")
+            .or_else(|_| std::env::var("COLUMNS"))
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn info_scene_cols_from_value(value: Option<&str>) -> u16 {
+    value
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|cols| *cols > 0)
+        .map(|cols| cols.clamp(1, 140))
         .unwrap_or(72)
-        .clamp(40, 140)
 }
 
 fn panes_graphical_cmd(kitty: bool) -> Result<()> {
@@ -7138,6 +7147,60 @@ mod tests {
                 .any(|label| label.contains("displays=2:log-present")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn info_scene_cols_respect_narrow_positive_widths() {
+        assert_eq!(info_scene_cols_from_value(Some("1")), 1);
+        assert_eq!(info_scene_cols_from_value(Some("8")), 8);
+        assert_eq!(info_scene_cols_from_value(Some("39")), 39);
+        assert_eq!(info_scene_cols_from_value(Some("0")), 72);
+        assert_eq!(info_scene_cols_from_value(Some("240")), 140);
+        assert_eq!(info_scene_cols_from_value(None), 72);
+    }
+
+    #[test]
+    fn info_scene_respects_narrow_positive_columns() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_INFO_COLS", "8");
+        let status = serde_json::json!({
+            "panes": 2,
+            "focus": "native-2",
+            "layout": "columns",
+            "workspace": "dev"
+        });
+        let chrome = serde_json::json!({
+            "workspace": "dev",
+            "top_bar_rows": 1,
+            "tilable_rows": 5
+        });
+        let panes = serde_json::json!({
+            "panes_detail": [
+                {"window":"native-1","title":"shell","focused":false},
+                {"window":"native-2","title":"editor","focused":true}
+            ]
+        });
+        let scene = info_scene(
+            std::path::Path::new("/tmp/kittwm-test.sock"),
+            &status,
+            &chrome,
+            &panes,
+        );
+        assert_eq!(scene.footprint.cols, 8);
+        let width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = &layer.root {
+                assert!(rect.origin.0 >= 0.0, "{rect:?}");
+                assert!(rect.width >= 1.0, "{rect:?}");
+                assert!(
+                    rect.origin.0 + rect.width <= width + 0.01,
+                    "{rect:?} > {width}"
+                );
+            }
+        }
+        std::env::set_var("KITTWM_INFO_COLS", "200");
+        assert_eq!(info_scene_cols(), 140);
+        std::env::remove_var("KITTWM_INFO_COLS");
     }
 
     #[test]
