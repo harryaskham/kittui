@@ -161,6 +161,7 @@ fn real_main() -> Result<()> {
     let mut last_status: Option<(u16, String)> = None;
     let show_status_frame = browser_status_frame_counter_enabled();
     let status_metadata = BrowserStatusMetadata::from_env();
+    let status_url = truncate(&url, 40);
     let active_interval = browser_active_frame_interval();
     let idle_interval = browser_idle_frame_interval(active_interval);
     let static_interval = browser_static_frame_interval(idle_interval);
@@ -275,8 +276,8 @@ fn real_main() -> Result<()> {
                 wrote_output = true;
             }
         }
-        let status = browser_status_text_for_cols_with_metadata(
-            &url,
+        let status = browser_status_text_for_cols_with_precomputed_url(
+            &status_url,
             frame,
             show_status_frame,
             viewport.cols,
@@ -914,17 +915,25 @@ fn browser_status_text(url: &str, frame: u64, show_frame: bool) -> String {
     browser_status_text_with_metadata(url, frame, show_frame, &BrowserStatusMetadata::from_env())
 }
 
+#[cfg(test)]
 fn browser_status_text_with_metadata(
     url: &str,
     frame: u64,
     show_frame: bool,
     metadata: &BrowserStatusMetadata,
 ) -> String {
+    browser_status_text_with_precomputed_url(&truncate(url, 40), frame, show_frame, metadata)
+}
+
+fn browser_status_text_with_precomputed_url(
+    url_label: &str,
+    frame: u64,
+    show_frame: bool,
+    metadata: &BrowserStatusMetadata,
+) -> String {
     let mut status = format!(
         "kittwm-browser — {} — window={} socket={} — Ctrl-] exits",
-        truncate(url, 40),
-        metadata.window,
-        metadata.socket
+        url_label, metadata.window, metadata.socket
     );
     if show_frame {
         status.push_str(&format!(" — frame {frame}"));
@@ -937,15 +946,15 @@ fn browser_status_text_for_cols(url: &str, frame: u64, show_frame: bool, cols: u
     clip_to_cols(&browser_status_text(url, frame, show_frame), cols as usize)
 }
 
-fn browser_status_text_for_cols_with_metadata(
-    url: &str,
+fn browser_status_text_for_cols_with_precomputed_url(
+    url_label: &str,
     frame: u64,
     show_frame: bool,
     cols: u16,
     metadata: &BrowserStatusMetadata,
 ) -> String {
     clip_to_cols(
-        &browser_status_text_with_metadata(url, frame, show_frame, metadata),
+        &browser_status_text_with_precomputed_url(url_label, frame, show_frame, metadata),
         cols as usize,
     )
 }
@@ -1443,6 +1452,14 @@ mod tests {
         let with_frame =
             browser_status_text_with_metadata("https://example.com/a", 42, true, &metadata);
         assert!(with_frame.ends_with("frame 42"), "{with_frame}");
+        let precomputed = browser_status_text_for_cols_with_precomputed_url(
+            "https://example.com/a",
+            42,
+            false,
+            200,
+            &metadata,
+        );
+        assert_eq!(precomputed, stable);
         let narrow = browser_status_text_for_cols("https://example.com/a", 42, false, 12);
         assert_eq!(narrow.chars().count(), 12);
         assert!(narrow.ends_with('…'), "{narrow}");
