@@ -3558,11 +3558,20 @@ fn native_pane_title_status_scene(
 }
 
 fn native_should_show_footer_toast(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("error")
-        || lower.contains("failed")
-        || lower.contains("denied")
-        || lower.contains("launcher.error")
+    ascii_contains_ignore_case(message, "error")
+        || ascii_contains_ignore_case(message, "failed")
+        || ascii_contains_ignore_case(message, "denied")
+        || ascii_contains_ignore_case(message, "launcher.error")
+}
+
+fn ascii_contains_ignore_case(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
 fn native_toast_scene(
@@ -3655,7 +3664,7 @@ fn native_toast_scene(
 }
 
 fn native_toast_message_cols(message: &str) -> u16 {
-    message.chars().count().min(u16::MAX as usize) as u16
+    message.chars().take(u16::MAX as usize).count() as u16
 }
 
 fn native_toast_cols(message_cols: u16, terminal_cols: u16) -> u16 {
@@ -6744,7 +6753,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_toast_scene_saturates_long_message_width() {
-        let long = format!("launcher.error {}", "x".repeat(u16::MAX as usize));
+        let long = format!("launcher.error {}", "x".repeat(u16::MAX as usize + 4096));
         assert_eq!(native_toast_message_cols(&long), u16::MAX);
         let (_x, _y, scene) = native_toast_scene(CellSize::new(8, 16), 80, 24, &long).unwrap();
         assert_eq!(scene.footprint.cols, 76);
@@ -6766,6 +6775,11 @@ mod native_pane_tests {
         ));
         assert!(native_should_show_footer_toast("capture denied"));
         assert!(native_should_show_footer_toast("backend failed"));
+        assert!(native_should_show_footer_toast("LAUNCHER.ERROR boom"));
+        assert!(ascii_contains_ignore_case(
+            &format!("{}FAILED", "x".repeat(4096)),
+            "failed"
+        ));
     }
 
     #[test]
