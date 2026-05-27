@@ -406,6 +406,16 @@ mod tests {
     }
 
     #[test]
+    fn workspace_label_trims_env_and_defaults_blank_values() {
+        std::env::set_var("KITTWM_WORKSPACE", " dev ");
+        assert_eq!(workspace_label(), "dev");
+        std::env::set_var("KITTWM_WORKSPACE", "   ");
+        assert_eq!(workspace_label(), "1");
+        std::env::remove_var("KITTWM_WORKSPACE");
+        assert_eq!(workspace_label(), "1");
+    }
+
+    #[test]
     fn time_label_uses_utc_clock_minutes() {
         assert_eq!(time_label(UNIX_EPOCH), "00:00 UTC");
         assert_eq!(
