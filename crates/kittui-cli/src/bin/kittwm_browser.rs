@@ -224,7 +224,7 @@ fn real_main() -> Result<()> {
                 wrote_output = true;
             }
         }
-        let status = browser_status_text(&url, frame, show_status_frame);
+        let status = browser_status_text_for_cols(&url, frame, show_status_frame, viewport.cols);
         if should_write_browser_status(last_status.as_ref(), viewport.status_row, &status) {
             if let Some((old_row, _)) = last_status.as_ref() {
                 if *old_row != viewport.status_row {
@@ -472,6 +472,26 @@ fn browser_status_text(url: &str, frame: u64, show_frame: bool) -> String {
         status.push_str(&format!(" — frame {frame}"));
     }
     status
+}
+
+fn browser_status_text_for_cols(url: &str, frame: u64, show_frame: bool, cols: u16) -> String {
+    clip_to_cols(&browser_status_text(url, frame, show_frame), cols as usize)
+}
+
+fn clip_to_cols(s: &str, cols: usize) -> String {
+    let count = s.chars().count();
+    if count <= cols {
+        return s.to_string();
+    }
+    if cols == 0 {
+        return String::new();
+    }
+    if cols == 1 {
+        return "…".to_string();
+    }
+    let mut out: String = s.chars().take(cols - 1).collect();
+    out.push('…');
+    out
 }
 
 fn should_write_browser_status(
@@ -724,6 +744,17 @@ mod tests {
         assert!(!stable.contains("frame"), "{stable}");
         let with_frame = browser_status_text("https://example.com/a", 42, true);
         assert!(with_frame.ends_with("frame 42"), "{with_frame}");
+        let narrow = browser_status_text_for_cols("https://example.com/a", 42, false, 12);
+        assert_eq!(narrow.chars().count(), 12);
+        assert!(narrow.ends_with('…'), "{narrow}");
+        assert_eq!(
+            browser_status_text_for_cols("https://example.com/a", 42, false, 0),
+            ""
+        );
+        assert_eq!(
+            browser_status_text_for_cols("https://example.com/a", 42, false, 1),
+            "…"
+        );
         assert!(should_write_browser_status(None, 24, &stable));
         assert!(!should_write_browser_status(
             Some(&(24, stable.clone())),
