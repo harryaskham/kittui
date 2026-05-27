@@ -6336,6 +6336,18 @@ mod tests {
     }
 
     #[test]
+    fn architecture_scene_row_rect_fits_tiny_widths() {
+        for width in [0.0_f32, 1.0, 8.0, 40.0] {
+            let rect = architecture_scene_row_rect(width, 2.0);
+            assert!(rect.origin.0 >= 0.0, "{rect:?}");
+            assert!(
+                rect.origin.0 + rect.width <= width.max(1.0),
+                "width={width} rect={rect:?}"
+            );
+        }
+    }
+
+    #[test]
     fn commands_scene_row_rect_fits_tiny_widths() {
         for width in [0.0_f32, 1.0, 8.0, 40.0] {
             let rect = commands_scene_row_rect(width, 2.0);
