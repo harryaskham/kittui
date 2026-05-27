@@ -2873,6 +2873,10 @@ fn resize_pane_request(window: &str, amount: &str) -> Result<String> {
 
 fn rename_pane_request(window: &str, title: &str) -> Result<String> {
     let window = protocol_token(window, "window")?;
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(anyhow!("--rename-pane TITLE must be nonempty"));
+    }
     protocol_payload_request("RENAME_PANE", &format!("{window} {title}"))
 }
 
@@ -7408,9 +7412,10 @@ END
             "RESIZE_PANE focused +2"
         );
         assert_eq!(
-            rename_pane_request("native-2", "Editor Pane").unwrap(),
+            rename_pane_request("native-2", " Editor Pane ").unwrap(),
             "RENAME_PANE native-2 Editor Pane"
         );
+        assert!(rename_pane_request("native-2", "   ").is_err());
         assert_eq!(
             protocol_payload_request("apps_first", "Safari Browser").unwrap(),
             "APPS_FIRST Safari Browser"
