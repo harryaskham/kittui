@@ -77,19 +77,25 @@ impl BarModel {
         let clock = self.time.strip_suffix(" UTC").unwrap_or(&self.time);
         let right = format!(" {clock} ");
         if cols == 0 {
-            return format!("{left}{right}");
+            let mut out = String::with_capacity(left.len().saturating_add(right.len()));
+            out.push_str(&left);
+            out.push_str(&right);
+            return out;
         }
         let left_width = left.chars().count();
         let right_width = right.chars().count();
         if left_width + right_width > cols {
             left = self.workspace_chips_text_constrained();
-            let merged = format!("{left}{right}");
-            return merged.chars().take(cols).collect();
+            let mut out = String::with_capacity(cols);
+            push_chars_until(&mut out, &left, cols);
+            push_chars_until(&mut out, &right, cols);
+            return out;
         }
-        format!(
-            "{left}{}{right}",
-            " ".repeat(cols - left_width - right_width)
-        )
+        let mut out = String::with_capacity(cols);
+        out.push_str(&left);
+        out.extend(std::iter::repeat(' ').take(cols - left_width - right_width));
+        out.push_str(&right);
+        out
     }
 
     fn workspace_chips_text(&self) -> String {
@@ -270,6 +276,11 @@ impl BarModel {
         ));
         scene
     }
+}
+
+fn push_chars_until(out: &mut String, text: &str, max_chars: usize) {
+    let remaining = max_chars.saturating_sub(out.chars().count());
+    out.extend(text.chars().take(remaining));
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -501,6 +512,7 @@ mod tests {
         let rendered = numeric.render_i3bar(8);
         assert!(rendered.starts_with("|[3]"), "{rendered}");
         assert!(!rendered.starts_with("| 1 | 2"), "{rendered}");
+        assert!(rendered.capacity() >= 8);
         assert_eq!(numeric.workspace_chip_labels_active_first(), vec!["3"]);
     }
 
