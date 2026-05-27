@@ -1207,12 +1207,12 @@ fn native_should_use_affordance_scene_chrome() -> bool {
 }
 
 fn native_dirty_frames_skip_unchanged() -> bool {
-    matches!(
+    !matches!(
         std::env::var("KITTWM_DIRTY_FRAMES")
             .unwrap_or_default()
             .to_ascii_lowercase()
             .as_str(),
-        "skip-unchanged" | "skip_unchanged"
+        "always-upload" | "always_upload" | "off" | "0" | "false"
     )
 }
 
@@ -3744,15 +3744,10 @@ mod native_pane_tests {
     }
 
     #[test]
-    fn native_dirty_frame_policy_skips_only_identical_frames_when_enabled() {
+    fn native_dirty_frame_policy_skips_identical_frames_by_default() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_DIRTY_FRAMES");
         let rgba = vec![0u8; 4 * 4 * 4];
-        let mut disabled = NativeDirtyFramePolicy::from_env();
-        assert!(disabled.decide(1, 4, 4, &rgba).upload);
-        assert!(disabled.decide(1, 4, 4, &rgba).upload);
-
-        std::env::set_var("KITTWM_DIRTY_FRAMES", "skip-unchanged");
         let mut enabled = NativeDirtyFramePolicy::from_env();
         let first = enabled.decide(1, 4, 4, &rgba);
         assert!(first.upload);
@@ -3766,6 +3761,17 @@ mod native_pane_tests {
         let third = enabled.decide(1, 4, 4, &changed);
         assert!(third.upload);
         assert_eq!(third.metrics.changed_tiles, 1);
+        std::env::remove_var("KITTWM_DIRTY_FRAMES");
+    }
+
+    #[test]
+    fn native_dirty_frame_policy_can_force_every_upload() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_DIRTY_FRAMES", "always-upload");
+        let rgba = vec![0u8; 4 * 4 * 4];
+        let mut disabled = NativeDirtyFramePolicy::from_env();
+        assert!(disabled.decide(1, 4, 4, &rgba).upload);
+        assert!(disabled.decide(1, 4, 4, &rgba).upload);
         std::env::remove_var("KITTWM_DIRTY_FRAMES");
     }
 
