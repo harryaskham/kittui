@@ -3,10 +3,12 @@
 //! This module intentionally lives in `kittui-cli`: it is higher-level WM/app
 //! chrome, not a kittui-core primitive.
 
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kittui::{Corners, Layer, Node, Paint, PxRect, Rgba, Scene, Stroke};
 use kittui_affordances::{title_chrome, InlineChipColors, InlineStyle, InlineTheme};
+use kittwm_sdk::KittwmConfig;
 use ratatui::layout::Rect;
 use serde::Serialize;
 
@@ -216,6 +218,8 @@ struct TopBarTheme {
     shadow: Rgba,
 }
 
+static TOP_BAR_CONFIG_THEME: OnceLock<Option<KittwmConfig>> = OnceLock::new();
+
 fn top_bar_theme(connected: bool, state: &str) -> TopBarTheme {
     let style = match (connected, state) {
         (true, "active") => InlineStyle::Neon,
@@ -223,15 +227,80 @@ fn top_bar_theme(connected: bool, state: &str) -> TopBarTheme {
         (false, _) => InlineStyle::Metal,
     };
     let colors = InlineChipColors::resolve(InlineTheme::Nord, style);
-    TopBarTheme {
+    let mut theme = TopBarTheme {
         fill: with_alpha(colors.fill, colors.fill.3.max(190)),
         border: colors.border,
         chip_active: with_alpha(colors.highlight, colors.highlight.3.max(230)),
         chip_inactive: with_alpha(colors.fill, colors.fill.3.max(185)),
         clock_bg: Rgba(0x2e, 0x34, 0x40, 235),
         clock_fg: Rgba(0xec, 0xef, 0xf4, 255),
-        shadow: Rgba(0x00, 0x00, 0x00, 105),
+        shadow: Rgba(0x00, 0x00, 0x00, top_bar_shadow_alpha()),
+    };
+    if let Some(config) = TOP_BAR_CONFIG_THEME
+        .get_or_init(|| KittwmConfig::load_default().ok())
+        .as_ref()
+    {
+        apply_kittwm_config_to_top_bar_theme(&mut theme, config);
     }
+    theme
+}
+
+fn apply_kittwm_config_to_top_bar_theme(theme: &mut TopBarTheme, config: &KittwmConfig) {
+    if let Some(bg) = parse_bar_color(&config.background.color, 210) {
+        theme.fill = with_alpha(bg, config_alpha(config.background.opacity, 210));
+        theme.chip_inactive = with_alpha(bg, config_alpha(config.background.opacity, 195));
+        theme.clock_bg = with_alpha(bg, 240);
+    }
+    if let Some(fg) = parse_bar_color(&config.colorscheme.fg, 255) {
+        theme.clock_fg = fg;
+        theme.border = fg;
+    }
+    if let Some(accent) = config
+        .colorscheme
+        .ansi_color(4)
+        .and_then(|value| parse_bar_color(value, 235))
+    {
+        theme.chip_active = accent;
+    }
+    theme.shadow = with_alpha(theme.shadow, top_bar_shadow_alpha());
+}
+
+fn config_alpha(opacity: f32, fallback: u8) -> u8 {
+    (opacity.clamp(0.0, 1.0) * 255.0)
+        .round()
+        .max(fallback as f32) as u8
+}
+
+fn top_bar_shadow_alpha() -> u8 {
+    std::env::var("KITTWM_BAR_SHADOW_ALPHA")
+        .ok()
+        .and_then(|value| value.parse::<u8>().ok())
+        .unwrap_or(105)
+}
+
+fn parse_bar_color(value: &str, alpha: u8) -> Option<Rgba> {
+    let rgba = match value.trim().to_ascii_lowercase().as_str() {
+        "nord0" => Rgba(0x2e, 0x34, 0x40, alpha),
+        "nord1" => Rgba(0x3b, 0x42, 0x52, alpha),
+        "nord2" => Rgba(0x43, 0x4c, 0x5e, alpha),
+        "nord3" => Rgba(0x4c, 0x56, 0x6a, alpha),
+        "nord4" => Rgba(0xd8, 0xde, 0xe9, alpha),
+        "nord5" => Rgba(0xe5, 0xe9, 0xf0, alpha),
+        "nord6" => Rgba(0xec, 0xef, 0xf4, alpha),
+        "nord7" => Rgba(0x8f, 0xbc, 0xbb, alpha),
+        "nord8" => Rgba(0x88, 0xc0, 0xd0, alpha),
+        "nord9" => Rgba(0x81, 0xa1, 0xc1, alpha),
+        "nord10" => Rgba(0x5e, 0x81, 0xac, alpha),
+        "nord11" => Rgba(0xbf, 0x61, 0x6a, alpha),
+        "nord12" => Rgba(0xd0, 0x87, 0x70, alpha),
+        "nord13" => Rgba(0xeb, 0xcb, 0x8b, alpha),
+        "nord14" => Rgba(0xa3, 0xbe, 0x8c, alpha),
+        "nord15" => Rgba(0xb4, 0x8e, 0xad, alpha),
+        other => Rgba::parse(other)
+            .ok()
+            .map(|color| with_alpha(color, alpha))?,
+    };
+    Some(rgba)
 }
 
 #[cfg(test)]
@@ -297,17 +366,30 @@ mod tests {
     }
 
     #[test]
-    fn top_bar_theme_colors_use_shared_inline_tokens() {
+    fn top_bar_theme_colors_remain_visible_after_config_resolution() {
         let (active_fill, active_border) = top_bar_theme_colors(true, "active");
-        let active = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Neon);
-        assert_eq!((active_fill, active_border), (active.fill, active.border));
+        assert!(active_fill.3 >= 190, "{active_fill:?}");
+        assert_eq!(active_border.3, 255, "{active_border:?}");
 
         let (offline_fill, offline_border) = top_bar_theme_colors(false, "empty");
-        let offline = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Metal);
-        assert_eq!(
-            (offline_fill, offline_border),
-            (offline.fill, offline.border)
-        );
+        assert!(offline_fill.3 >= 190, "{offline_fill:?}");
+        assert_eq!(offline_border.3, 255, "{offline_border:?}");
+    }
+
+    #[test]
+    fn top_bar_theme_applies_configured_colors_and_shadow_alpha() {
+        let mut theme = top_bar_theme(false, "empty");
+        let mut config = KittwmConfig::default();
+        config.background.color = "#112233".to_string();
+        config.background.opacity = 0.5;
+        config.colorscheme.fg = "#ddeeff".to_string();
+        config.colorscheme.colors[4] = "#445566".to_string();
+        apply_kittwm_config_to_top_bar_theme(&mut theme, &config);
+        assert_eq!(theme.fill, Rgba(0x11, 0x22, 0x33, 210));
+        assert_eq!(theme.chip_inactive, Rgba(0x11, 0x22, 0x33, 195));
+        assert_eq!(theme.border, Rgba(0xdd, 0xee, 0xff, 255));
+        assert_eq!(theme.clock_fg, Rgba(0xdd, 0xee, 0xff, 255));
+        assert_eq!(theme.chip_active, Rgba(0x44, 0x55, 0x66, 235));
     }
 
     #[test]
