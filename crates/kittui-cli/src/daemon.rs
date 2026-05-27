@@ -3999,6 +3999,34 @@ mod tests {
     }
 
     #[test]
+    fn app_candidate_filter_matches_ascii_case_without_lowercasing_items() {
+        let huge = format!(
+            "{}KittWM-Terminal{}",
+            "x".repeat(10_000),
+            "y".repeat(10_000)
+        );
+        let filtered = filter_candidates(
+            vec![
+                "Browser.app".to_string(),
+                huge.clone(),
+                "Ghostty".to_string(),
+            ],
+            Some("wm-terminal"),
+            2,
+        );
+        assert_eq!(filtered, vec![huge]);
+        assert!(ascii_casefold_contains_lower("RésuméNeedle", "needle"));
+        assert!(!ascii_casefold_contains_lower("Résumé", "needle"));
+    }
+
+    #[test]
+    fn app_candidate_filter_preserves_limit_and_empty_query() {
+        let items = vec!["A".to_string(), "b".to_string(), "C".to_string()];
+        assert_eq!(filter_candidates(items.clone(), None, 2), vec!["A", "b"]);
+        assert_eq!(filter_candidates(items, Some(""), 2), vec!["A", "b"]);
+    }
+
+    #[test]
     fn native_chrome_json_honors_workspace_env_label() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("KITTWM_WORKSPACE", " dev ");
@@ -4777,7 +4805,22 @@ fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> V
     let q = query.to_ascii_lowercase();
     items
         .into_iter()
-        .filter(|item| item.to_ascii_lowercase().contains(&q))
+        .filter(|item| ascii_casefold_contains_lower(item, &q))
         .take(limit)
         .collect()
+}
+
+fn ascii_casefold_contains_lower(item: &str, lower_query: &str) -> bool {
+    let item = item.as_bytes();
+    let lower_query = lower_query.as_bytes();
+    if lower_query.is_empty() {
+        return true;
+    }
+    item.len() >= lower_query.len()
+        && item.windows(lower_query.len()).any(|window| {
+            window
+                .iter()
+                .zip(lower_query.iter())
+                .all(|(a, b)| a.to_ascii_lowercase() == *b)
+        })
 }
