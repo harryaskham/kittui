@@ -627,6 +627,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         for old_id in retired_native_image_ids(&prev_native_image_ids, &current_native_image_ids) {
             native_app_placements.remove(&old_id);
             native_png_hashes.remove(&old_id);
+            dirty_frames.forget(old_id);
             frame_out.write_all(runtime.unplace(old_id).as_bytes())?;
         }
         prev_native_image_ids = current_native_image_ids;
@@ -1288,6 +1289,10 @@ impl NativeDirtyFramePolicy {
             upload,
             metrics: NativeDirtyFrameMetrics::from_diff(&diff, !upload),
         }
+    }
+
+    fn forget(&mut self, image_id: u32) {
+        self.grids.remove(&image_id);
     }
 
     fn diff(
@@ -3865,6 +3870,18 @@ mod native_pane_tests {
         assert!(third.upload);
         assert_eq!(third.metrics.changed_tiles, 1);
         std::env::remove_var("KITTWM_DIRTY_FRAMES");
+    }
+
+    #[test]
+    fn native_dirty_frame_policy_forget_forces_reused_id_upload() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_DIRTY_FRAMES");
+        let rgba = vec![0u8; 4 * 4 * 4];
+        let mut policy = NativeDirtyFramePolicy::from_env();
+        assert!(policy.decide(9, 4, 4, &rgba).upload);
+        assert!(!policy.decide(9, 4, 4, &rgba).upload);
+        policy.forget(9);
+        assert!(policy.decide(9, 4, 4, &rgba).upload);
     }
 
     #[test]
