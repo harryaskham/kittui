@@ -7542,9 +7542,10 @@ pub fn run_loop_with<S: XServer>(
                 }
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
+                let mut frame_out = NativeFrameWriteBatch::default();
                 let mut wrote_frame_output = false;
                 if recovering_from_error {
-                    write!(handle, "\x1b[H\x1b[2J")?;
+                    write!(frame_out, "\x1b[H\x1b[2J")?;
                     last_placed.clear();
                     last_raw_hashes.clear();
                     last_raw_chrome_keys.clear();
@@ -7564,7 +7565,7 @@ pub fn run_loop_with<S: XServer>(
                     picker_overlay_was_active,
                     picker_overlay.active,
                 ) {
-                    clear_launcher_overlay_area(&mut handle)?;
+                    clear_launcher_overlay_area(&mut frame_out)?;
                     wrote_frame_output = true;
                     last_placed.clear();
                     last_raw_hashes.clear();
@@ -7614,7 +7615,7 @@ pub fn run_loop_with<S: XServer>(
                         had_previous_placement,
                         footprint_changed,
                     ) {
-                        handle.write_all(runtime.unplace(f.image_id).as_bytes())?;
+                        frame_out.write_all(runtime.unplace(f.image_id).as_bytes())?;
                         wrote_frame_output = true;
                     }
                     if decision.upload {
@@ -7626,11 +7627,11 @@ pub fn run_loop_with<S: XServer>(
                             f.footprint,
                             &placement_options,
                         );
-                        handle.write_all(p.upload.as_bytes())?;
+                        frame_out.write_all(p.upload.as_bytes())?;
                         wrote_frame_output = true;
                         if decision.placement.write_placement {
-                            handle.write_all(p.placement.as_bytes())?;
-                            handle.write_all(p.embed.as_bytes())?;
+                            frame_out.write_all(p.placement.as_bytes())?;
+                            frame_out.write_all(p.embed.as_bytes())?;
                             wrote_frame_output = true;
                         }
                     } else if decision.placement.write_placement {
@@ -7639,12 +7640,12 @@ pub fn run_loop_with<S: XServer>(
                             f.footprint,
                             &placement_options,
                         );
-                        handle.write_all(p.placement.as_bytes())?;
-                        handle.write_all(p.embed.as_bytes())?;
+                        frame_out.write_all(p.placement.as_bytes())?;
+                        frame_out.write_all(p.embed.as_bytes())?;
                         wrote_frame_output = true;
                     }
                     if chrome_changed {
-                        write_raw_frame_chrome(&mut handle, f)?;
+                        write_raw_frame_chrome(&mut frame_out, f)?;
                         wrote_frame_output = true;
                         last_raw_chrome_keys.insert(f.image_id, chrome_key);
                     }
@@ -7655,7 +7656,7 @@ pub fn run_loop_with<S: XServer>(
                     text_overlay_hid_raw_graphics,
                 ) {
                     for image_id in &current_ids {
-                        handle.write_all(runtime.unplace(*image_id).as_bytes())?;
+                        frame_out.write_all(runtime.unplace(*image_id).as_bytes())?;
                         wrote_frame_output = true;
                     }
                     last_placed.clear();
@@ -7665,7 +7666,7 @@ pub fn run_loop_with<S: XServer>(
                 }
                 // Delete any window that disappeared since last frame.
                 for old_id in prev_window_ids.difference(&current_ids) {
-                    handle.write_all(runtime.unplace(*old_id).as_bytes())?;
+                    frame_out.write_all(runtime.unplace(*old_id).as_bytes())?;
                     wrote_frame_output = true;
                     last_placed.remove(old_id);
                     last_raw_hashes.remove(old_id);
@@ -7675,7 +7676,7 @@ pub fn run_loop_with<S: XServer>(
                 if launcher_overlay.active {
                     let overlay_key = launcher_overlay_key(&launcher_overlay);
                     if last_launcher_overlay_key != overlay_key {
-                        launcher_overlay.render(&mut handle)?;
+                        launcher_overlay.render(&mut frame_out)?;
                         wrote_frame_output = true;
                         last_launcher_overlay_key = overlay_key;
                     }
@@ -7685,7 +7686,7 @@ pub fn run_loop_with<S: XServer>(
                 if picker_overlay.active {
                     let overlay_key = picker_overlay_key(&picker_overlay);
                     if last_picker_overlay_key != overlay_key {
-                        picker_overlay.render(&mut handle)?;
+                        picker_overlay.render(&mut frame_out)?;
                         wrote_frame_output = true;
                         last_picker_overlay_key = overlay_key;
                     }
@@ -7725,7 +7726,7 @@ pub fn run_loop_with<S: XServer>(
                     if should_write_compositor_footer(&last_footer_key, &footer_key, frame, 30) {
                         if let Some(old_row) = last_footer_row {
                             if old_row != footer_row {
-                                write!(handle, "\x1b[{};1H\x1b[K", old_row)?;
+                                write!(frame_out, "\x1b[{};1H\x1b[K", old_row)?;
                             }
                         }
                         write!(
@@ -7756,7 +7757,7 @@ pub fn run_loop_with<S: XServer>(
                 } else {
                     if let Some(old_row) = last_footer_row.take() {
                         if old_row <= terminal_rows {
-                            write!(handle, "\x1b[{};1H\x1b[K", old_row)?;
+                            write!(frame_out, "\x1b[{};1H\x1b[K", old_row)?;
                             wrote_frame_output = true;
                         }
                     }
@@ -7765,7 +7766,7 @@ pub fn run_loop_with<S: XServer>(
                 launcher_overlay_was_active = launcher_overlay.active;
                 picker_overlay_was_active = picker_overlay.active;
                 if should_flush_compositor_frame(wrote_frame_output) {
-                    handle.flush()?;
+                    frame_out.write_to(&mut handle)?;
                 }
             }
             Err(e) => {
