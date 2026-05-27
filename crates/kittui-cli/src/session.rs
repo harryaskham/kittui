@@ -5627,6 +5627,15 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn compositor_footer_write_decision_throttles_volatile_repaints() {
+        assert!(should_write_compositor_footer("", "state", 1, 30));
+        assert!(should_write_compositor_footer("old", "state", 1, 30));
+        assert!(!should_write_compositor_footer("state", "state", 29, 30));
+        assert!(should_write_compositor_footer("state", "state", 30, 30));
+        assert!(!should_write_compositor_footer("state", "state", 30, 0));
+    }
+
+    #[test]
     fn frame_sleep_chunk_caps_long_slack_for_responsiveness() {
         assert_eq!(
             frame_sleep_chunk(Duration::from_millis(100)),
@@ -6340,6 +6349,8 @@ pub fn run_loop_with<S: XServer>(
     let mut launcher_overlay = LauncherOverlay::default();
     let mut picker_overlay = PickerOverlay::default();
     let mut launcher_overlay_was_active = false;
+    let mut last_footer_key = String::new();
+    let mut last_footer_row: Option<u16> = None;
     // Triple-Ctrl-C kill switch (bd-2776ad): single Ctrl-C is forwarded to
     // the focused window like any other key; three within 1s exits cleanly.
     let mut ctrl_c_guard = CtrlCGuard::new();
@@ -6727,6 +6738,7 @@ pub fn run_loop_with<S: XServer>(
                 if launcher_overlay_was_active && !launcher_overlay.active {
                     clear_launcher_overlay_area(&mut handle)?;
                     last_placed.clear();
+                    last_footer_key.clear();
                 }
                 // Track which windows are present this frame so we can
                 // delete the ones that have disappeared.
@@ -6793,11 +6805,8 @@ pub fn run_loop_with<S: XServer>(
                         .map(|a| format!(" — action={a}"))
                         .unwrap_or_default()
                 };
-                write!(
-                    handle,
-                    "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — {} (log: {})",
-                    footer_row,
-                    frame,
+                let footer_key = format!(
+                    "row={footer_row};ws={};panes={};layout={};cfg={};focus={};swap={};mode={};windows={last_window_count};launch={launch_note};keymap={keymap_note};quit={}",
                     workspaces.label(),
                     split_state.label(),
                     layout_state.label(),
@@ -6805,15 +6814,38 @@ pub fn run_loop_with<S: XServer>(
                     focus_state.label(),
                     swap_state.label(),
                     toggle_state.label(),
-                    last_window_count,
-                    live_fps,
-                    peak_fps,
-                    fps,
-                    launch_note,
-                    keymap_note,
                     ctrl_c_guard.quit_hint(last_window_count > 0),
-                    dbg.path_display()
-                )?;
+                );
+                if should_write_compositor_footer(&last_footer_key, &footer_key, frame, 30) {
+                    if let Some(old_row) = last_footer_row {
+                        if old_row != footer_row {
+                            write!(handle, "\x1b[{};1H\x1b[K", old_row)?;
+                        }
+                    }
+                    write!(
+                        handle,
+                        "\x1b[{};1H\x1b[Kkittui-wm frame {} — ws {} — panes {} — layout {} — cfg {} — focus {} — swap {} — mode {} — {} windows — {:.0} fps (peak {:.0}, cap {}){}{} — {} (log: {})",
+                        footer_row,
+                        frame,
+                        workspaces.label(),
+                        split_state.label(),
+                        layout_state.label(),
+                        config_state.label(),
+                        focus_state.label(),
+                        swap_state.label(),
+                        toggle_state.label(),
+                        last_window_count,
+                        live_fps,
+                        peak_fps,
+                        fps,
+                        launch_note,
+                        keymap_note,
+                        ctrl_c_guard.quit_hint(last_window_count > 0),
+                        dbg.path_display()
+                    )?;
+                    last_footer_key = footer_key;
+                    last_footer_row = Some(footer_row);
+                }
                 launcher_overlay_was_active = launcher_overlay.active;
                 handle.flush()?;
             }
@@ -6889,6 +6921,15 @@ pub fn run_loop_with<S: XServer>(
 
 fn frame_sleep_chunk(slack: Duration) -> Duration {
     slack.min(Duration::from_millis(16))
+}
+
+fn should_write_compositor_footer(
+    last_key: &str,
+    next_key: &str,
+    frame: u64,
+    refresh_interval: u64,
+) -> bool {
+    last_key != next_key || (refresh_interval > 0 && frame % refresh_interval == 0)
 }
 
 fn frame_sleep_chunks_for_budget(mut remaining: Duration) -> Vec<Duration> {
