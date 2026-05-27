@@ -11,7 +11,7 @@ use std::time::SystemTime;
 
 use kittui::{CellRect, Rgba, Runtime, TerminalInfo};
 use kittui_cli::top_bar::{workspace_label, BarModel};
-use kittwm_sdk::{ChromeReservationRequest, ChromeReservationStatus, Kittwm, KittwmConfig};
+use kittwm_sdk::{ChromeReservationRequest, ChromeReservationStatus, Kittwm, KittwmConfig, Status};
 use serde::Serialize;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -54,14 +54,14 @@ struct BarChromeModel {
 impl From<&ChromeReservationStatus> for BarChromeModel {
     fn from(status: &ChromeReservationStatus) -> Self {
         Self {
-            workspace: status.workspace.clone(),
+            workspace: normalized_optional_string(status.workspace.as_deref()),
             top_bar_rows: status.top_bar_rows,
             bottom_bar_rows: status.bottom_bar_rows,
             left_cols: status.left_cols,
             right_cols: status.right_cols,
             gap_cols: status.gap_cols,
             gap_rows: status.gap_rows,
-            owner: status.owner.clone(),
+            owner: normalized_optional_string(status.owner.as_deref()),
             tilable_rows: status.tilable_rows,
         }
     }
@@ -180,12 +180,20 @@ fn apply_reservation_options(opts: &BarOptions) -> Result<(), String> {
     Ok(())
 }
 
-fn reservation_owner_from_env() -> String {
-    std::env::var("KITTWM_WINDOW")
-        .ok()
-        .map(|value| value.trim().to_string())
+fn normalized_optional_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
         .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn reservation_owner_from_env() -> String {
+    normalized_optional_string(std::env::var("KITTWM_WINDOW").ok().as_deref())
         .unwrap_or_else(|| "kittwm-bar".to_string())
+}
+
+fn status_workspace_label(status: &Status) -> String {
+    normalized_optional_string(status.workspace_id()).unwrap_or_else(workspace_label)
 }
 
 fn render_kitty_bar(model: &BarOutputModel) -> Result<String, String> {
@@ -384,10 +392,7 @@ fn load_bar_model(now: SystemTime) -> BarOutputModel {
     match client.status() {
         Ok(status) => {
             let panes = status.panes.unwrap_or(status.panes_detail.len() as u64);
-            let workspace = status
-                .workspace_id()
-                .map(str::to_string)
-                .unwrap_or_else(workspace_label);
+            let workspace = status_workspace_label(&status);
             let chrome = status.chrome_reservation().map(BarChromeModel::from);
             BarOutputModel {
                 bar: BarModel::new(
@@ -432,6 +437,51 @@ mod tests {
         assert_eq!(reservation_owner_from_env(), "kittwm-bar");
         std::env::remove_var("KITTWM_WINDOW");
         assert_eq!(reservation_owner_from_env(), "kittwm-bar");
+    }
+
+    #[test]
+    fn sdk_status_fields_are_normalized_for_bar_model() {
+        let status = Status {
+            pending: None,
+            panes: None,
+            focus: None,
+            layout: None,
+            workspace: Some(" dev ".to_string()),
+            chrome: Some(ChromeReservationStatus {
+                workspace: Some(" dev ".to_string()),
+                owner: Some(" bar ".to_string()),
+                top_bar_rows: Some(1),
+                ..ChromeReservationStatus::default()
+            }),
+            focused_pane: None,
+            panes_detail: Vec::new(),
+        };
+        assert_eq!(status_workspace_label(&status), "dev");
+        let chrome = BarChromeModel::from(status.chrome_reservation().unwrap());
+        assert_eq!(chrome.workspace.as_deref(), Some("dev"));
+        assert_eq!(chrome.owner.as_deref(), Some("bar"));
+
+        let blank = Status {
+            pending: None,
+            panes: None,
+            focus: None,
+            layout: None,
+            workspace: Some("   ".to_string()),
+            chrome: None,
+            focused_pane: None,
+            panes_detail: Vec::new(),
+        };
+        std::env::set_var("KITTWM_WORKSPACE", " fallback ");
+        assert_eq!(status_workspace_label(&blank), "fallback");
+        std::env::remove_var("KITTWM_WORKSPACE");
+
+        let blank_chrome = BarChromeModel::from(&ChromeReservationStatus {
+            workspace: Some("   ".to_string()),
+            owner: Some("   ".to_string()),
+            ..ChromeReservationStatus::default()
+        });
+        assert_eq!(blank_chrome.workspace, None);
+        assert_eq!(blank_chrome.owner, None);
     }
 
     #[test]
