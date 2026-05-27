@@ -410,7 +410,13 @@ fn bounded_label(text: &str, max_chars: usize) -> String {
         return String::new();
     }
     let mut chars = text.chars();
-    let mut out: String = chars.by_ref().take(max_chars).collect();
+    let mut out = String::with_capacity(max_chars.min(text.len()));
+    for _ in 0..max_chars {
+        let Some(ch) = chars.next() else {
+            return out;
+        };
+        out.push(ch);
+    }
     if chars.next().is_none() {
         return out;
     }
