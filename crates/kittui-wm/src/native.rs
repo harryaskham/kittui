@@ -3538,6 +3538,8 @@ impl BrowserPageKey {
 pub enum BrowserFunctionKey {
     /// F5 / refresh key.
     F5,
+    /// F6 / browser focus traversal key.
+    F6,
     /// F7 / caret-browsing key.
     F7,
 }
@@ -3546,6 +3548,7 @@ impl BrowserFunctionKey {
     fn key_fields(self) -> (&'static str, &'static str, u32) {
         match self {
             BrowserFunctionKey::F5 => ("F5", "F5", 116),
+            BrowserFunctionKey::F6 => ("F6", "F6", 117),
             BrowserFunctionKey::F7 => ("F7", "F7", 118),
         }
     }
@@ -6441,6 +6444,12 @@ mod tests {
         assert_eq!(f5["code"], "F5");
         assert_eq!(f5["windowsVirtualKeyCode"], 116);
         assert_eq!(f5["nativeVirtualKeyCode"], 116);
+        let (function_key, function_code, function_code_num) = BrowserFunctionKey::F6.key_fields();
+        let f6 = browser_key_event_params(function_key, function_code, function_code_num);
+        assert_eq!(f6["key"], "F6");
+        assert_eq!(f6["code"], "F6");
+        assert_eq!(f6["windowsVirtualKeyCode"], 117);
+        assert_eq!(f6["nativeVirtualKeyCode"], 117);
         let (function_key, function_code, function_code_num) = BrowserFunctionKey::F7.key_fields();
         let f7 = browser_key_event_params(function_key, function_code, function_code_num);
         assert_eq!(f7["key"], "F7");
