@@ -5667,6 +5667,14 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_overlay_clear_decision_handles_picker_and_launcher_close() {
+        assert!(should_clear_raw_overlay_area(true, false, false, false));
+        assert!(should_clear_raw_overlay_area(false, false, true, false));
+        assert!(!should_clear_raw_overlay_area(true, true, true, true));
+        assert!(!should_clear_raw_overlay_area(false, true, false, true));
+    }
+
+    #[test]
     fn overlay_keys_change_when_visual_state_changes() {
         let mut launcher = LauncherOverlay::default();
         launcher.active = true;
@@ -6464,6 +6472,7 @@ pub fn run_loop_with<S: XServer>(
     let mut launcher_overlay = LauncherOverlay::default();
     let mut picker_overlay = PickerOverlay::default();
     let mut launcher_overlay_was_active = false;
+    let mut picker_overlay_was_active = false;
     let mut last_footer_key = String::new();
     let mut last_footer_row: Option<u16> = None;
     let mut last_launcher_overlay_key = String::new();
@@ -6853,11 +6862,16 @@ pub fn run_loop_with<S: XServer>(
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
                 let mut wrote_frame_output = false;
-                // If the launcher overlay just closed, erase its text rows
-                // and force image placeholders to be re-emitted underneath.
-                // Without this, the boxed menu remains burned into the
+                // If a text overlay just closed, erase its rows and force
+                // image/chrome placeholders to be re-emitted underneath.
+                // Without this, boxed overlay glyphs remain burned into the
                 // terminal cells even though the overlay state is inactive.
-                if launcher_overlay_was_active && !launcher_overlay.active {
+                if should_clear_raw_overlay_area(
+                    launcher_overlay_was_active,
+                    launcher_overlay.active,
+                    picker_overlay_was_active,
+                    picker_overlay.active,
+                ) {
                     clear_launcher_overlay_area(&mut handle)?;
                     wrote_frame_output = true;
                     last_placed.clear();
@@ -7007,6 +7021,7 @@ pub fn run_loop_with<S: XServer>(
                     last_footer_row = Some(footer_row);
                 }
                 launcher_overlay_was_active = launcher_overlay.active;
+                picker_overlay_was_active = picker_overlay.active;
                 if should_flush_compositor_frame(wrote_frame_output) {
                     handle.flush()?;
                 }
@@ -7028,6 +7043,7 @@ pub fn run_loop_with<S: XServer>(
                     last_error_key = Some(error_key);
                 }
                 launcher_overlay_was_active = launcher_overlay.active;
+                picker_overlay_was_active = picker_overlay.active;
             }
         }
 
@@ -7100,6 +7116,15 @@ fn should_write_compositor_footer(
 
 fn should_flush_compositor_frame(wrote_output: bool) -> bool {
     wrote_output
+}
+
+fn should_clear_raw_overlay_area(
+    launcher_was_active: bool,
+    launcher_active: bool,
+    picker_was_active: bool,
+    picker_active: bool,
+) -> bool {
+    (launcher_was_active && !launcher_active) || (picker_was_active && !picker_active)
 }
 
 fn frame_sleep_chunks_for_budget(mut remaining: Duration) -> Vec<Duration> {
