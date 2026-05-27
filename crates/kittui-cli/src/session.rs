@@ -241,6 +241,21 @@ fn should_hide_raw_graphics_for_text_overlay(
     text_overlay_active && !already_hidden
 }
 
+fn raw_compositor_footer_row_for_overlays(
+    footer_row: u16,
+    launcher_active: bool,
+    picker_active: bool,
+) -> u16 {
+    let overlay_bottom = if launcher_active {
+        17
+    } else if picker_active {
+        15
+    } else {
+        0
+    };
+    footer_row.max(overlay_bottom + 1)
+}
+
 fn native_idle_frame_target(active_target: Duration) -> Duration {
     let idle_fps = std::env::var("KITTWM_IDLE_FPS")
         .ok()
@@ -4110,6 +4125,9 @@ mod native_pane_tests {
         assert!(!should_hide_raw_graphics_for_text_overlay(false, false));
         assert!(!raw_compositor_should_render_app_graphics(true || false));
         assert!(!raw_compositor_should_render_app_graphics(false || true));
+        assert_eq!(raw_compositor_footer_row_for_overlays(2, true, false), 18);
+        assert_eq!(raw_compositor_footer_row_for_overlays(2, false, true), 16);
+        assert_eq!(raw_compositor_footer_row_for_overlays(22, true, false), 22);
     }
 
     #[test]
@@ -7213,7 +7231,6 @@ pub fn run_loop_with<S: XServer>(
                         wrote_frame_output = true;
                         last_launcher_overlay_key = overlay_key;
                     }
-                    footer_row = footer_row.max(12);
                 } else {
                     last_launcher_overlay_key.clear();
                 }
@@ -7224,10 +7241,14 @@ pub fn run_loop_with<S: XServer>(
                         wrote_frame_output = true;
                         last_picker_overlay_key = overlay_key;
                     }
-                    footer_row = footer_row.max(14);
                 } else {
                     last_picker_overlay_key.clear();
                 }
+                footer_row = raw_compositor_footer_row_for_overlays(
+                    footer_row,
+                    launcher_overlay.active,
+                    picker_overlay.active,
+                );
                 let launch_note = last_launch_pid
                     .map(|pid| format!(" — last launch pid={pid}"))
                     .unwrap_or_default();
