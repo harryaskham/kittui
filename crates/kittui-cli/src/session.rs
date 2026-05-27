@@ -3593,21 +3593,28 @@ fn native_pane_title_status_scene(
     }
 }
 
+const NATIVE_TOAST_TRIGGER_KEYWORDS: &[&str] = &["error", "failed", "denied", "launcher.error"];
+
 fn native_should_show_footer_toast(message: &str) -> bool {
-    ascii_contains_ignore_case(message, "error")
-        || ascii_contains_ignore_case(message, "failed")
-        || ascii_contains_ignore_case(message, "denied")
-        || ascii_contains_ignore_case(message, "launcher.error")
+    ascii_contains_any_ignore_case(message, NATIVE_TOAST_TRIGGER_KEYWORDS)
 }
 
-fn ascii_contains_ignore_case(haystack: &str, needle: &str) -> bool {
-    if needle.is_empty() {
+fn ascii_contains_any_ignore_case(haystack: &str, needles: &[&str]) -> bool {
+    if needles.iter().any(|needle| needle.is_empty()) {
         return true;
     }
-    haystack
-        .as_bytes()
-        .windows(needle.len())
-        .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
+    let haystack = haystack.as_bytes();
+    for start in 0..haystack.len() {
+        if needles.iter().any(|needle| {
+            let needle = needle.as_bytes();
+            haystack
+                .get(start..start.saturating_add(needle.len()))
+                .is_some_and(|window| window.eq_ignore_ascii_case(needle))
+        }) {
+            return true;
+        }
+    }
+    false
 }
 
 fn native_toast_scene(
@@ -6891,9 +6898,13 @@ mod native_pane_tests {
         assert!(native_should_show_footer_toast("capture denied"));
         assert!(native_should_show_footer_toast("backend failed"));
         assert!(native_should_show_footer_toast("LAUNCHER.ERROR boom"));
-        assert!(ascii_contains_ignore_case(
+        assert!(ascii_contains_any_ignore_case(
             &format!("{}FAILED", "x".repeat(4096)),
-            "failed"
+            NATIVE_TOAST_TRIGGER_KEYWORDS
+        ));
+        assert!(!ascii_contains_any_ignore_case(
+            &format!("{}healthy", "x".repeat(4096)),
+            NATIVE_TOAST_TRIGGER_KEYWORDS
         ));
     }
 
