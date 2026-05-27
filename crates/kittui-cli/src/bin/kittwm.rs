@@ -4488,7 +4488,7 @@ fn events_scene(ms: u64, kinds: &[String]) -> Scene {
 }
 
 fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
-    let rows = (kinds.len() as u16 + 4).clamp(5, 18);
+    let rows = events_scene_rows(kinds.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -4550,6 +4550,11 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn events_scene_rows(kind_count: usize) -> u16 {
+    let rows = kind_count.saturating_add(4).min(u16::MAX as usize) as u16;
+    rows.clamp(5, 18)
 }
 
 fn panes_scene(panes: &serde_json::Value) -> Scene {
@@ -7641,6 +7646,19 @@ mod tests {
                 .any(|label| label.contains("kittwm-info-pane:native-2:focused=true:title=editor")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn events_scene_rows_saturate_large_event_counts() {
+        assert_eq!(events_scene_rows(0), 5);
+        assert_eq!(events_scene_rows(3), 7);
+        assert_eq!(events_scene_rows(usize::MAX), 18);
+
+        let kinds = (0..128)
+            .map(|idx| format!("pane_frame_presented_{idx}"))
+            .collect::<Vec<_>>();
+        let scene = events_scene_for_cols(250, &kinds, 80);
+        assert_eq!(scene.footprint.rows, 18);
     }
 
     #[test]
