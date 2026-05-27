@@ -2907,9 +2907,12 @@ fn draw_terminal_glyph(
             }
             for sy in 0..scale_y {
                 for sx in 0..scale_x {
-                    let px = x0 + left + gx * scale_x + sx;
-                    let py = y0 + top + gy as u32 * scale_y + sy;
-                    set_rgba_pixel(rgba, width, px, py, color);
+                    let cell_x = left + gx * scale_x + sx;
+                    let cell_y = top + gy as u32 * scale_y + sy;
+                    if cell_x >= cell_w || cell_y >= cell_h {
+                        continue;
+                    }
+                    set_rgba_pixel_in_bounds(rgba, width, x0 + cell_x, y0 + cell_y, color);
                 }
             }
         }
@@ -4834,6 +4837,13 @@ mod tests {
             first_cell_bg > first_cell_fg,
             "glyph should not be a filled box"
         );
+    }
+
+    #[test]
+    fn terminal_bitmap_glyph_clips_tiny_cells_before_in_bounds_writes() {
+        let mut rgba = vec![0; 4];
+        draw_terminal_glyph(&mut rgba, 1, 0, 0, 1, 1, 'A', TerminalColor(1, 2, 3));
+        assert_eq!(rgba.len(), 4);
     }
 
     #[test]
