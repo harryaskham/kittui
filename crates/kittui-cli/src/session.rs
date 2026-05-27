@@ -1562,6 +1562,8 @@ fn retired_native_image_ids(previous: &HashSet<u32>, current: &HashSet<u32>) -> 
     retired
 }
 
+const NATIVE_PANE_STATUS_COMMAND_MAX_CHARS: usize = 64;
+
 fn native_pane_status_chip_text(pane: &NativePane) -> String {
     let pid = pane
         .pid
@@ -1578,7 +1580,22 @@ fn native_pane_status_chip_text(pane: &NativePane) -> String {
             }
         })
         .unwrap_or_else(|| "frame:new".to_string());
-    format!("{} · {pid} · {dirty}", pane.command)
+    let command = bounded_ellipsis(&pane.command, NATIVE_PANE_STATUS_COMMAND_MAX_CHARS);
+    format!("{command} · {pid} · {dirty}")
+}
+
+fn bounded_ellipsis(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let mut chars = text.chars();
+    let mut out: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_none() {
+        return out;
+    }
+    out.pop();
+    out.push('…');
+    out
 }
 
 fn native_footer_row(rows: u16) -> u16 {
@@ -6049,6 +6066,21 @@ mod native_pane_tests {
             render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80, 24);
         assert_eq!(scenes.len(), 1, "{scenes:?}");
         assert_eq!(scenes[0].id, "top-bar");
+    }
+
+    #[test]
+    fn native_pane_status_chip_command_text_is_bounded() {
+        let long = "cmd-".repeat(10_000);
+        let bounded = bounded_ellipsis(&long, NATIVE_PANE_STATUS_COMMAND_MAX_CHARS);
+        assert_eq!(
+            bounded.chars().count(),
+            NATIVE_PANE_STATUS_COMMAND_MAX_CHARS
+        );
+        assert!(bounded.ends_with('…'));
+        assert_eq!(
+            bounded_ellipsis("shell", NATIVE_PANE_STATUS_COMMAND_MAX_CHARS),
+            "shell"
+        );
     }
 
     #[test]
