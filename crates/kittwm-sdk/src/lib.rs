@@ -2394,9 +2394,11 @@ pub struct PanesStatus {
 impl PanesStatus {
     /// Workspace id, preferring the top-level field and falling back to chrome metadata.
     pub fn workspace_id(&self) -> Option<&str> {
-        self.workspace
-            .as_deref()
-            .or_else(|| self.chrome.as_ref()?.workspace.as_deref())
+        normalized_workspace_str(self.workspace.as_deref()).or_else(|| {
+            self.chrome
+                .as_ref()
+                .and_then(|chrome| normalized_workspace_str(chrome.workspace.as_deref()))
+        })
     }
 
     /// Chrome reservation metadata, if present.
@@ -2416,6 +2418,10 @@ impl PanesStatus {
     pub fn tilable_rows(&self) -> Option<u16> {
         self.chrome.as_ref().and_then(|chrome| chrome.tilable_rows)
     }
+}
+
+fn normalized_workspace_str(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 /// Minimal status response shape shared by standalone and native daemons.
@@ -2450,9 +2456,11 @@ pub struct Status {
 impl Status {
     /// Workspace id, preferring the top-level field and falling back to chrome metadata.
     pub fn workspace_id(&self) -> Option<&str> {
-        self.workspace
-            .as_deref()
-            .or_else(|| self.chrome.as_ref()?.workspace.as_deref())
+        normalized_workspace_str(self.workspace.as_deref()).or_else(|| {
+            self.chrome
+                .as_ref()
+                .and_then(|chrome| normalized_workspace_str(chrome.workspace.as_deref()))
+        })
     }
 
     /// Chrome reservation metadata, if present.
@@ -4123,6 +4131,34 @@ mod tests {
         assert_eq!(chrome.workspace.as_deref(), Some("1"));
         assert_eq!(chrome.top_bar_rows_or_zero(), 1);
         assert_eq!(chrome.tilable_rows(), Some(23));
+    }
+
+    #[test]
+    fn status_workspace_id_trims_and_falls_back_to_chrome() {
+        let status: Status = serde_json::from_str(
+            r#"{
+              "pending": 0,
+              "panes": 0,
+              "focus": null,
+              "layout": "columns",
+              "workspace": "   ",
+              "chrome": {"workspace":" dev ","top_bar_rows":1}
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(status.workspace_id(), Some("dev"));
+
+        let panes: PanesStatus = serde_json::from_str(
+            r#"{
+              "panes": 0,
+              "focus": "-",
+              "layout": "columns",
+              "workspace": "   ",
+              "chrome": {"workspace":" ops ","top_bar_rows":1}
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(panes.workspace_id(), Some("ops"));
     }
 
     #[test]
