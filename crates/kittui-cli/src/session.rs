@@ -413,6 +413,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut clear = true;
     let mut help_overlay = false;
     let mut ctrl_c_exit_guard = NativeCtrlCExitGuard::default();
+    let mut quit_confirm_overlay = QuitConfirmOverlay::default();
+    let mut last_quit_confirm_overlay_key = String::new();
     let mut last_title_rows = Vec::<String>::new();
     let mut last_top_bar = String::new();
     let mut last_footer = String::new();
@@ -477,6 +479,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             &mut clear,
                             &mut help_overlay,
                             &mut ctrl_c_exit_guard,
+                            &mut quit_confirm_overlay,
                             &dbg,
                         )? {
                             return Ok(());
@@ -498,6 +501,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         &mut clear,
                         &mut help_overlay,
                         &mut ctrl_c_exit_guard,
+                        &mut quit_confirm_overlay,
                         &dbg,
                     )? {
                         return Ok(());
@@ -505,6 +509,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     offset += 1;
                 }
             }
+        }
+
+        if quit_confirm_overlay.expired(Instant::now()) {
+            quit_confirm_overlay.close();
+            last_quit_confirm_overlay_key.clear();
+            clear = true;
+            dbg.log("native terminal quit confirmation timed out");
         }
 
         focused = reap_exited_native_panes(&mut panes, focused, &dbg)?;
@@ -1202,6 +1213,15 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             )?;
             last_footer = shell_view.footer.text;
         }
+        if quit_confirm_overlay.active {
+            let overlay_key = quit_confirm_overlay_key(&quit_confirm_overlay);
+            if redraw_static || overlay_key != last_quit_confirm_overlay_key {
+                quit_confirm_overlay.render(&mut frame_out)?;
+                last_quit_confirm_overlay_key = overlay_key;
+            }
+        } else {
+            last_quit_confirm_overlay_key.clear();
+        }
         let emitted = frame_out.write_to(&mut handle)?;
         update_native_idle_counter_for_activity(
             &mut consecutive_idle_frames,
@@ -1821,7 +1841,7 @@ impl NativeCtrlCExitGuard {
 
 fn native_ctrl_c_action(guard: &mut NativeCtrlCExitGuard, now: Instant) -> NativeCtrlCAction {
     if guard.observe(now) {
-        NativeCtrlCAction::Exit
+        NativeCtrlCAction::Confirm
     } else {
         NativeCtrlCAction::Forward
     }
@@ -1830,7 +1850,34 @@ fn native_ctrl_c_action(guard: &mut NativeCtrlCExitGuard, now: Instant) -> Nativ
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NativeCtrlCAction {
     Forward,
-    Exit,
+    Confirm,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeQuitConfirmByteAction {
+    Consumed,
+    Cancel,
+    Confirm,
+}
+
+fn native_quit_confirm_byte_action(
+    overlay: &mut QuitConfirmOverlay,
+    byte: u8,
+    now: Instant,
+) -> NativeQuitConfirmByteAction {
+    if overlay.expired(now) {
+        overlay.close();
+        return NativeQuitConfirmByteAction::Cancel;
+    }
+    match byte {
+        b'y' | b'Y' => NativeQuitConfirmByteAction::Confirm,
+        b'n' | b'N' | b'q' | b'Q' | 0x1b => {
+            overlay.close();
+            NativeQuitConfirmByteAction::Cancel
+        }
+        0x03 => NativeQuitConfirmByteAction::Consumed,
+        _ => NativeQuitConfirmByteAction::Consumed,
+    }
 }
 
 fn native_terminal_command(config: &KittwmConfig) -> String {
@@ -1970,8 +2017,24 @@ fn process_native_terminal_byte(
     clear: &mut bool,
     help_overlay: &mut bool,
     ctrl_c_exit_guard: &mut NativeCtrlCExitGuard,
+    quit_confirm_overlay: &mut QuitConfirmOverlay,
     dbg: &Debugger,
 ) -> Result<bool> {
+    if quit_confirm_overlay.active {
+        match native_quit_confirm_byte_action(quit_confirm_overlay, byte, Instant::now()) {
+            NativeQuitConfirmByteAction::Confirm => {
+                dbg.log("native terminal quit confirmation accepted");
+                return Ok(true);
+            }
+            NativeQuitConfirmByteAction::Cancel => {
+                ctrl_c_exit_guard.reset();
+                *clear = true;
+                dbg.log("native terminal quit confirmation cancelled");
+                return Ok(false);
+            }
+            NativeQuitConfirmByteAction::Consumed => return Ok(false),
+        }
+    }
     if byte == 0x1d {
         dbg.log("native terminal loop: Ctrl-] exit");
         return Ok(true);
@@ -2186,9 +2249,12 @@ fn process_native_terminal_byte(
                 }
                 return Ok(false);
             }
-            NativeCtrlCAction::Exit => {
-                dbg.log("native terminal loop: triple Ctrl-C exit");
-                return Ok(true);
+            NativeCtrlCAction::Confirm => {
+                dbg.log("native terminal loop: triple Ctrl-C opened quit confirmation");
+                ctrl_c_exit_guard.reset();
+                quit_confirm_overlay.open(Instant::now());
+                *clear = true;
+                return Ok(false);
             }
         }
     }
@@ -5626,7 +5692,7 @@ mod native_pane_tests {
     }
 
     #[test]
-    fn native_ctrl_c_action_forwards_only_non_quit_presses() {
+    fn native_ctrl_c_action_forwards_until_confirmation_threshold() {
         let start = Instant::now();
         let mut guard = NativeCtrlCExitGuard::default();
         assert_eq!(
@@ -5639,7 +5705,38 @@ mod native_pane_tests {
         );
         assert_eq!(
             native_ctrl_c_action(&mut guard, start + Duration::from_millis(900)),
-            NativeCtrlCAction::Exit
+            NativeCtrlCAction::Confirm
+        );
+    }
+
+    #[test]
+    fn native_quit_confirm_byte_action_requires_explicit_yes() {
+        let start = Instant::now();
+        let mut overlay = QuitConfirmOverlay::default();
+        overlay.open(start);
+        assert_eq!(
+            native_quit_confirm_byte_action(&mut overlay, 0x03, start),
+            NativeQuitConfirmByteAction::Consumed
+        );
+        assert!(overlay.active);
+        assert_eq!(
+            native_quit_confirm_byte_action(&mut overlay, b'n', start),
+            NativeQuitConfirmByteAction::Cancel
+        );
+        assert!(!overlay.active);
+        overlay.open(start);
+        assert_eq!(
+            native_quit_confirm_byte_action(&mut overlay, b'y', start),
+            NativeQuitConfirmByteAction::Confirm
+        );
+        overlay.open(start);
+        assert_eq!(
+            native_quit_confirm_byte_action(
+                &mut overlay,
+                b'x',
+                start + QUIT_CONFIRM_TIMEOUT + Duration::from_millis(1),
+            ),
+            NativeQuitConfirmByteAction::Cancel
         );
     }
 
