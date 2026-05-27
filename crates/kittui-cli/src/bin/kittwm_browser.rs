@@ -154,6 +154,8 @@ fn real_main() -> Result<()> {
     let mut semantic_publisher = BrowserSemanticPublisher::from_env();
     let mut placed = false;
     let mut frame = 0u64;
+    let mut last_status: Option<(u16, String)> = None;
+    let show_status_frame = browser_status_frame_counter_enabled();
     let mut stdin = std::io::stdin();
     loop {
         let start = Instant::now();
@@ -209,15 +211,20 @@ fn real_main() -> Result<()> {
             handle.write_all(placement.placement.as_bytes())?;
             placed = true;
         }
-        write!(
-            handle,
-            "\x1b[{};1H\x1b[Kkittwm-browser — {} — window={} socket={} — Ctrl-] exits — frame {}",
-            viewport.status_row,
-            truncate(&url, 40),
-            std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "<none>".into()),
-            std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<none>".into()),
-            frame
-        )?;
+        let status = browser_status_text(&url, frame, show_status_frame);
+        if should_write_browser_status(last_status.as_ref(), viewport.status_row, &status) {
+            if let Some((old_row, _)) = last_status.as_ref() {
+                if *old_row != viewport.status_row {
+                    write!(handle, "\x1b[0m\x1b[{};1H\x1b[K", old_row)?;
+                }
+            }
+            write!(
+                handle,
+                "\x1b[0m\x1b[{};1H\x1b[K{}",
+                viewport.status_row, status
+            )?;
+            last_status = Some((viewport.status_row, status));
+        }
         handle.flush()?;
         frame += 1;
         if let Some(slack) = Duration::from_millis(250).checked_sub(start.elapsed()) {
@@ -268,8 +275,8 @@ fn browser_capabilities_json_text() -> String {
 }
 
 fn browser_capabilities_text() -> String {
-    let json: serde_json::Value =
-        serde_json::from_str(&browser_capabilities_json_text()).expect("capabilities JSON is valid");
+    let json: serde_json::Value = serde_json::from_str(&browser_capabilities_json_text())
+        .expect("capabilities JSON is valid");
     let mut out = String::from("kittwm-browser native capabilities\n");
     out.push_str(&format!(
         "surface: {} ({})\n",
@@ -432,6 +439,36 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+fn browser_status_frame_counter_enabled() -> bool {
+    std::env::var("KITTWM_BROWSER_STATUS_FRAMES")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn browser_status_text(url: &str, frame: u64, show_frame: bool) -> String {
+    let mut status = format!(
+        "kittwm-browser — {} — window={} socket={} — Ctrl-] exits",
+        truncate(url, 40),
+        std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "<none>".into()),
+        std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<none>".into())
+    );
+    if show_frame {
+        status.push_str(&format!(" — frame {frame}"));
+    }
+    status
+}
+
+fn should_write_browser_status(
+    last_status: Option<&(u16, String)>,
+    next_row: u16,
+    next_status: &str,
+) -> bool {
+    match last_status {
+        Some((row, status)) => *row != next_row || status != next_status,
+        None => true,
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 struct BrowserViewport {
     cols: u16,
@@ -541,6 +578,8 @@ impl Drop for TtyGuard {
 mod tests {
     use super::*;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn parses_semantic_snapshot_flags() {
         let args =
@@ -588,11 +627,20 @@ mod tests {
     #[test]
     fn browser_capabilities_text_reports_sdk_and_kittui_paths() {
         let text = browser_capabilities_text();
-        assert!(text.contains("kittwm-browser native capabilities"), "{text}");
+        assert!(
+            text.contains("kittwm-browser native capabilities"),
+            "{text}"
+        );
         assert!(text.contains("surface: kittwm-browser (browser)"), "{text}");
-        assert!(text.contains("sdk: SurfaceSpec::browser backed=true"), "{text}");
+        assert!(
+            text.contains("sdk: SurfaceSpec::browser backed=true"),
+            "{text}"
+        );
         assert!(text.contains("kitty graphics native: yes"), "{text}");
-        assert!(text.contains("Runtime::place_png_frame_with_options"), "{text}");
+        assert!(
+            text.contains("Runtime::place_png_frame_with_options"),
+            "{text}"
+        );
         assert!(text.contains("--semantic-scene-json"), "{text}");
     }
 
@@ -617,6 +665,39 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry == "--semantic-scene-json"));
+    }
+
+    #[test]
+    fn browser_status_is_stable_by_default_and_frame_opt_in() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_WINDOW", "win-1");
+        std::env::set_var("KITTWM_SOCKET", "/tmp/kittwm.sock");
+        std::env::remove_var("KITTWM_BROWSER_STATUS_FRAMES");
+        assert!(!browser_status_frame_counter_enabled());
+        let stable = browser_status_text("https://example.com/a", 42, false);
+        assert!(
+            stable.starts_with("kittwm-browser — https://example.com/a"),
+            "{stable}"
+        );
+        assert!(!stable.contains("frame"), "{stable}");
+        let with_frame = browser_status_text("https://example.com/a", 42, true);
+        assert!(with_frame.ends_with("frame 42"), "{with_frame}");
+        assert!(should_write_browser_status(None, 24, &stable));
+        assert!(!should_write_browser_status(
+            Some(&(24, stable.clone())),
+            24,
+            &stable
+        ));
+        assert!(should_write_browser_status(
+            Some(&(23, stable.clone())),
+            24,
+            &stable
+        ));
+        std::env::set_var("KITTWM_BROWSER_STATUS_FRAMES", "1");
+        assert!(browser_status_frame_counter_enabled());
+        std::env::remove_var("KITTWM_BROWSER_STATUS_FRAMES");
+        std::env::remove_var("KITTWM_WINDOW");
+        std::env::remove_var("KITTWM_SOCKET");
     }
 
     #[test]
