@@ -182,6 +182,7 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::Backspace => browser.send_backspace()?,
                     BrowserInputAction::Tab => browser.send_tab()?,
                     BrowserInputAction::Enter => browser.send_enter()?,
+                    BrowserInputAction::Insert => browser.send_insert()?,
                     BrowserInputAction::Delete => browser.send_delete()?,
                     BrowserInputAction::Home => browser.send_home()?,
                     BrowserInputAction::End => browser.send_end()?,
@@ -268,6 +269,7 @@ enum BrowserInputAction {
     Backspace,
     Tab,
     Enter,
+    Insert,
     Delete,
     Home,
     End,
@@ -288,6 +290,7 @@ fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize)
         [b'D'] => Some(BrowserInputAction::Arrow(BrowserArrowKey::Left)),
         [b'H'] | [b'1', b'~'] | [b'7', b'~'] => Some(BrowserInputAction::Home),
         [b'F'] | [b'4', b'~'] | [b'8', b'~'] => Some(BrowserInputAction::End),
+        [b'2', b'~'] => Some(BrowserInputAction::Insert),
         [b'3', b'~'] => Some(BrowserInputAction::Delete),
         [b'5', b'~'] => Some(BrowserInputAction::Page(BrowserPageKey::Up)),
         [b'6', b'~'] => Some(BrowserInputAction::Page(BrowserPageKey::Down)),
@@ -949,7 +952,9 @@ mod tests {
     #[test]
     fn browser_input_actions_preserve_text_backspace_tab_enter_page_and_arrow_order() {
         assert_eq!(
-            browser_input_actions(b"ab\x7fc\tde\x1b[D\x1b[3~\x1b[H\x1b[F\x1b[5~\x1b[6~\x08\rfg\n"),
+            browser_input_actions(
+                b"ab\x7fc\tde\x1b[D\x1b[2~\x1b[3~\x1b[H\x1b[F\x1b[5~\x1b[6~\x08\rfg\n"
+            ),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
                 BrowserInputAction::Backspace,
@@ -957,6 +962,7 @@ mod tests {
                 BrowserInputAction::Tab,
                 BrowserInputAction::Text("de".to_string()),
                 BrowserInputAction::Arrow(BrowserArrowKey::Left),
+                BrowserInputAction::Insert,
                 BrowserInputAction::Delete,
                 BrowserInputAction::Home,
                 BrowserInputAction::End,
