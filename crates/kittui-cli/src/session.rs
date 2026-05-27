@@ -4415,7 +4415,8 @@ fn write_native_shell_affordance_chrome<W: Write>(
 }
 
 fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
-    let visual_hash = native_shell_chrome_scene_visual_hash(&chrome.scene);
+    let scene_id = chrome.scene.id().0;
+    let label_hash = native_shell_chrome_scene_label_hash(&chrome.scene);
     format!(
         "{}@{},{}:{}x{}:{}:{}:{}",
         chrome.id,
@@ -4424,29 +4425,17 @@ fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
         chrome.scene.footprint.cols,
         chrome.scene.footprint.rows,
         chrome.scene.cell_size.width_px,
-        chrome.scene.id().0,
-        visual_hash,
+        scene_id,
+        label_hash,
     )
 }
 
-fn native_shell_chrome_scene_visual_hash(scene: &Scene) -> u64 {
+fn native_shell_chrome_scene_label_hash(scene: &Scene) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    let mut writer = DebugHashWriter {
-        hasher: &mut hasher,
-    };
-    std::fmt::write(&mut writer, format_args!("{scene:?}")).expect("hash writer cannot fail");
-    hasher.finish()
-}
-
-struct DebugHashWriter<'a, H: Hasher> {
-    hasher: &'a mut H,
-}
-
-impl<H: Hasher> std::fmt::Write for DebugHashWriter<'_, H> {
-    fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        self.hasher.write(s.as_bytes());
-        Ok(())
+    for layer in &scene.layers {
+        layer.label.hash(&mut hasher);
     }
+    hasher.finish()
 }
 
 fn clip_and_pad(text: &str, width: usize) -> String {
