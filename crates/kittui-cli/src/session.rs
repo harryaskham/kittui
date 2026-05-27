@@ -5627,6 +5627,58 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_frame_chrome_key_changes_when_visual_chrome_changes() {
+        let footprint = CellRect::new(1, 2, 10, 4);
+        let base = raw_frame_chrome_key(
+            "app",
+            false,
+            kittui_wm::compositor::WindowMode::Tiled,
+            false,
+            footprint,
+        );
+        assert_eq!(
+            base,
+            raw_frame_chrome_key(
+                "app",
+                false,
+                kittui_wm::compositor::WindowMode::Tiled,
+                false,
+                footprint,
+            )
+        );
+        assert_ne!(
+            base,
+            raw_frame_chrome_key(
+                "app",
+                true,
+                kittui_wm::compositor::WindowMode::Tiled,
+                false,
+                footprint,
+            )
+        );
+        assert_ne!(
+            base,
+            raw_frame_chrome_key(
+                "app",
+                false,
+                kittui_wm::compositor::WindowMode::Floating,
+                false,
+                footprint,
+            )
+        );
+        assert_ne!(
+            base,
+            raw_frame_chrome_key(
+                "app",
+                false,
+                kittui_wm::compositor::WindowMode::Tiled,
+                false,
+                CellRect::new(2, 2, 10, 4),
+            )
+        );
+    }
+
+    #[test]
     fn compositor_footer_write_decision_throttles_volatile_repaints() {
         assert!(should_write_compositor_footer("", "state", 1, 30));
         assert!(should_write_compositor_footer("old", "state", 1, 30));
@@ -6360,6 +6412,8 @@ pub fn run_loop_with<S: XServer>(
     let mut last_placed: std::collections::HashMap<u32, CellRect> =
         std::collections::HashMap::new();
     let mut last_raw_hashes: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
+    let mut last_raw_chrome_keys: std::collections::HashMap<u32, String> =
+        std::collections::HashMap::new();
     // Set of window image-ids seen on the previous frame so we can delete
     // ones that disappear without redrawing the whole screen.
     let mut prev_window_ids: std::collections::HashSet<u32> = std::collections::HashSet::new();
@@ -6738,6 +6792,7 @@ pub fn run_loop_with<S: XServer>(
                 if launcher_overlay_was_active && !launcher_overlay.active {
                     clear_launcher_overlay_area(&mut handle)?;
                     last_placed.clear();
+                    last_raw_chrome_keys.clear();
                     last_footer_key.clear();
                 }
                 // Track which windows are present this frame so we can
@@ -6776,7 +6831,17 @@ pub fn run_loop_with<S: XServer>(
                         handle.write_all(p.placement.as_bytes())?;
                         handle.write_all(p.embed.as_bytes())?;
                     }
-                    write_raw_frame_chrome(&mut handle, f)?;
+                    let chrome_key = raw_frame_chrome_key(
+                        &f.title,
+                        f.focused,
+                        f.mode,
+                        f.fullscreen,
+                        f.footprint,
+                    );
+                    if last_raw_chrome_keys.get(&f.image_id) != Some(&chrome_key) {
+                        write_raw_frame_chrome(&mut handle, f)?;
+                        last_raw_chrome_keys.insert(f.image_id, chrome_key);
+                    }
                     footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
                 }
                 // Delete any window that disappeared since last frame.
@@ -6784,6 +6849,7 @@ pub fn run_loop_with<S: XServer>(
                     handle.write_all(runtime.unplace(*old_id).as_bytes())?;
                     last_placed.remove(old_id);
                     last_raw_hashes.remove(old_id);
+                    last_raw_chrome_keys.remove(old_id);
                 }
                 prev_window_ids = current_ids;
                 if launcher_overlay.active {
@@ -6949,6 +7015,19 @@ fn sleep_remaining_frame_budget(frame_start: Instant, frame_target: Duration) {
     for chunk in frame_sleep_chunks_for_budget(remaining) {
         std::thread::sleep(chunk);
     }
+}
+
+fn raw_frame_chrome_key(
+    title: &str,
+    focused: bool,
+    mode: kittui_wm::compositor::WindowMode,
+    fullscreen: bool,
+    footprint: CellRect,
+) -> String {
+    format!(
+        "title={title};focused={focused};mode={mode:?};fullscreen={fullscreen};x={};y={};cols={};rows={}",
+        footprint.x, footprint.y, footprint.cols, footprint.rows
+    )
 }
 
 /// Append-only log for the kittui-wm session. Stderr is invisible inside
