@@ -56,12 +56,13 @@ impl NativeFrameWriteBatch {
         &self.bytes
     }
 
-    fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        if !self.bytes.is_empty() {
-            writer.write_all(&self.bytes)?;
-            writer.flush()?;
+    fn write_to<W: Write>(&self, writer: &mut W) -> io::Result<bool> {
+        if self.bytes.is_empty() {
+            return Ok(false);
         }
-        Ok(())
+        writer.write_all(&self.bytes)?;
+        writer.flush()?;
+        Ok(true)
     }
 }
 
@@ -138,6 +139,35 @@ fn should_publish_native_frame_event(uploaded: bool, placement_changed: bool) ->
     uploaded || placement_changed
 }
 
+fn native_idle_frame_target(active_target: Duration) -> Duration {
+    let idle_fps = std::env::var("KITTWM_IDLE_FPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10u32)
+        .clamp(1, 60);
+    Duration::from_micros(1_000_000 / idle_fps as u64).max(active_target)
+}
+
+fn native_current_frame_target(
+    active_target: Duration,
+    idle_target: Duration,
+    consecutive_idle_frames: u16,
+) -> Duration {
+    if consecutive_idle_frames >= 2 {
+        idle_target
+    } else {
+        active_target
+    }
+}
+
+fn update_native_idle_counter(counter: &mut u16, emitted: bool) {
+    if emitted {
+        *counter = 0;
+    } else {
+        *counter = counter.saturating_add(1);
+    }
+}
+
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
 /// `compositor` and `layout` are passed in so callers can wire any
@@ -194,6 +224,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         .unwrap_or(30u32)
         .clamp(1, 120);
     let frame_target = Duration::from_micros(1_000_000 / fps as u64);
+    let idle_frame_target = native_idle_frame_target(frame_target);
     let mut stdin = io::stdin();
     let mut prefix = false;
     let mut clear = true;
@@ -206,6 +237,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let pure_terminal_renderer = native_should_use_pure_terminal_renderer();
     let affordance_scene_chrome = native_should_use_affordance_scene_chrome();
     let mut dirty_frames = NativeDirtyFramePolicy::from_env();
+    let mut consecutive_idle_frames = 0u16;
     let mut prev_native_image_ids = HashSet::<u32>::new();
     let mut native_app_placements = HashMap::<u32, CellRect>::new();
     let mut native_png_hashes = HashMap::<u32, u64>::new();
@@ -674,10 +706,18 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     frame_out.write_all(rendered.as_bytes())?;
                     last_terminal_render = rendered;
                 }
-                frame_out.write_to(&mut handle)?;
+                let emitted = frame_out.write_to(&mut handle)?;
+                update_native_idle_counter(&mut consecutive_idle_frames, emitted);
+            } else {
+                update_native_idle_counter(&mut consecutive_idle_frames, false);
             }
             clear = false;
-            sleep_remaining_frame_budget(frame_start, frame_target);
+            let sleep_target = native_current_frame_target(
+                frame_target,
+                idle_frame_target,
+                consecutive_idle_frames,
+            );
+            sleep_remaining_frame_budget(frame_start, sleep_target);
             continue;
         }
         if clear {
@@ -912,8 +952,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             )?;
             last_footer = shell_view.footer.text;
         }
-        frame_out.write_to(&mut handle)?;
-        sleep_remaining_frame_budget(frame_start, frame_target);
+        let emitted = frame_out.write_to(&mut handle)?;
+        update_native_idle_counter(&mut consecutive_idle_frames, emitted);
+        let sleep_target =
+            native_current_frame_target(frame_target, idle_frame_target, consecutive_idle_frames);
+        sleep_remaining_frame_budget(frame_start, sleep_target);
     }
 }
 
@@ -3704,17 +3747,33 @@ mod native_pane_tests {
         assert_eq!(batch.as_bytes(), b"host-sequploadplacechrome");
 
         let mut writer = CountingWriter::default();
-        batch.write_to(&mut writer).unwrap();
+        assert!(batch.write_to(&mut writer).unwrap());
         assert_eq!(writer.writes, 1);
         assert_eq!(writer.flushes, 1);
         assert_eq!(writer.bytes, b"host-sequploadplacechrome");
 
         let mut empty_writer = CountingWriter::default();
-        NativeFrameWriteBatch::default()
+        assert!(!NativeFrameWriteBatch::default()
             .write_to(&mut empty_writer)
-            .unwrap();
+            .unwrap());
         assert_eq!(empty_writer.writes, 0);
         assert_eq!(empty_writer.flushes, 0);
+    }
+
+    #[test]
+    fn native_idle_frame_pacing_uses_active_then_idle_target() {
+        let active = Duration::from_millis(33);
+        let idle = Duration::from_millis(100);
+        assert_eq!(native_current_frame_target(active, idle, 0), active);
+        assert_eq!(native_current_frame_target(active, idle, 1), active);
+        assert_eq!(native_current_frame_target(active, idle, 2), idle);
+
+        let mut counter = 0;
+        update_native_idle_counter(&mut counter, false);
+        update_native_idle_counter(&mut counter, false);
+        assert_eq!(counter, 2);
+        update_native_idle_counter(&mut counter, true);
+        assert_eq!(counter, 0);
     }
 
     #[test]
