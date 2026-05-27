@@ -4683,7 +4683,12 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
-    let summary = kinds.iter().take(6).cloned().collect::<Vec<_>>().join(",");
+    let summary = kinds
+        .iter()
+        .take(6)
+        .map(|kind| truncate(kind, 32))
+        .collect::<Vec<_>>()
+        .join(",");
     let mut layers = vec![
         Layer {
             label: Some(format!(
@@ -4723,8 +4728,9 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
     ];
     for (idx, kind) in kinds.iter().take(12).enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
+        let kind_label = truncate(kind, 48);
         layers.push(Layer {
-            label: Some(format!("kittwm-event-row:{idx}:{kind}")),
+            label: Some(format!("kittwm-event-row:{idx}:{kind_label}")),
             root: Node::Rect {
                 rect: info_indicator_rect(width, y),
                 fill: Paint::Solid {
@@ -8208,6 +8214,43 @@ END
                 .any(|label| label.contains("kittwm-event-row:2:pane_frame_presented")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn events_scene_clips_pathological_event_kind_labels() {
+        let kinds = vec![
+            "status".to_string(),
+            "pane_frame_presented_with_a_pathologically_long_event_kind".to_string(),
+            "another_pathologically_long_event_kind_for_heading".to_string(),
+        ];
+        let scene = events_scene_for_cols(250, &kinds, 8);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let heading = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-events-heading:"))
+            .unwrap();
+        assert!(
+            heading.contains("pane_frame_presented_with_a_pat…"),
+            "{heading}"
+        );
+        assert!(
+            heading.contains("another_pathologically_long_eve…"),
+            "{heading}"
+        );
+        assert!(heading.len() < 110, "{heading}");
+        let row = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-event-row:1:"))
+            .unwrap();
+        assert!(
+            row.contains("pane_frame_presented_with_a_pathologically_long…"),
+            "{row}"
+        );
+        assert!(row.len() < 80, "{row}");
     }
 
     #[test]
