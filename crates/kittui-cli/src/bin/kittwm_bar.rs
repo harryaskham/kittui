@@ -224,7 +224,9 @@ fn kittwm_bar_kitty_text_overlay_with_config(
         } else {
             (palette.inactive_fg, palette.inactive_bg)
         };
-        let chip_text = format!(" {label} ");
+        let Some(chip_text) = kittwm_bar_overlay_fit_chip_text(&label, cols, workspace_cols) else {
+            break;
+        };
         out.push_str(&format!(
             "\x1b[1m{}{}{}\x1b[0m ",
             ansi_fg(fg),
@@ -251,6 +253,27 @@ fn kittwm_bar_kitty_text_overlay_with_config(
         ));
     }
     out
+}
+
+fn kittwm_bar_overlay_fit_chip_text(label: &str, cols: u16, used_cols: u16) -> Option<String> {
+    let remaining = cols.saturating_sub(used_cols);
+    if remaining == 0 {
+        return None;
+    }
+    let max_chip_cols = remaining.saturating_sub(1) as usize;
+    if max_chip_cols < 3 {
+        return None;
+    }
+    let chip = format!(" {label} ");
+    if chip.chars().count() <= max_chip_cols {
+        return Some(chip);
+    }
+    let label_width = max_chip_cols.saturating_sub(2);
+    if label_width == 0 {
+        return None;
+    }
+    let clipped = label.chars().take(label_width).collect::<String>();
+    Some(format!(" {clipped} "))
 }
 
 fn kittwm_bar_overlay_clock_col(cols: u16, workspace_cols: u16, clock_cols: u16) -> Option<u16> {
@@ -478,6 +501,26 @@ mod tests {
     }
 
     #[test]
+    fn kitty_bar_text_overlay_clips_long_workspace_labels_to_row() {
+        let model = BarOutputModel {
+            bar: BarModel::new("super-long-workspace-name", 0, "-", false, UNIX_EPOCH),
+            chrome: None,
+        };
+        let overlay = kittwm_bar_kitty_text_overlay(&model, 18);
+        assert!(overlay.starts_with("\x1b[1;1H\x1b[K"), "{overlay:?}");
+        assert!(overlay.contains(" sup "), "{overlay:?}");
+        assert!(
+            !overlay.contains("super-long-workspace-name"),
+            "{overlay:?}"
+        );
+        assert_eq!(
+            kittwm_bar_overlay_fit_chip_text("abcdef", 6, 0),
+            Some(" abc ".to_string())
+        );
+        assert_eq!(kittwm_bar_overlay_fit_chip_text("abcdef", 2, 0), None);
+    }
+
+    #[test]
     fn kitty_bar_text_overlay_omits_clock_when_workspace_chips_would_overlap() {
         let model = BarOutputModel {
             bar: BarModel::new(
@@ -490,8 +533,9 @@ mod tests {
             chrome: None,
         };
         let overlay = kittwm_bar_kitty_text_overlay(&model, 18);
+        assert!(overlay.contains(" sup "), "{overlay:?}");
         assert!(
-            overlay.contains(" super-long-workspace-name "),
+            !overlay.contains(" super-long-workspace-name "),
             "{overlay:?}"
         );
         assert!(!overlay.contains(" 09:05 "), "{overlay:?}");
