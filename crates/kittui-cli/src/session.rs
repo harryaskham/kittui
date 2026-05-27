@@ -4466,6 +4466,19 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
+        assert_eq!(raw_compositor_footer_refresh_interval(), 0);
+        assert!(should_write_compositor_footer("old", "new", 30, 0));
+        assert!(!should_write_compositor_footer("same", "same", 30, 0));
+        std::env::set_var("KITTWM_FOOTER_REFRESH_FRAMES", "120");
+        assert_eq!(raw_compositor_footer_refresh_interval(), 120);
+        assert!(should_write_compositor_footer("same", "same", 120, 120));
+        std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
+    }
+
+    #[test]
     fn raw_compositor_app_placement_is_stable_absolute_below_text() {
         let opts = raw_compositor_app_placement_options(42);
         assert_eq!(opts.placement_id, Some(42));
@@ -7673,6 +7686,7 @@ pub fn run_loop_with<S: XServer>(
     let mut fps_window_frames = 0u32;
     let mut live_fps: f32 = 0.0;
     let mut peak_fps: f32 = 0.0;
+    let footer_refresh_interval = raw_compositor_footer_refresh_interval();
     let mut frame = 0u64;
     let mut input_buf = Vec::<u8>::with_capacity(256);
     let mut stdin = io::stdin();
@@ -8265,7 +8279,12 @@ pub fn run_loop_with<S: XServer>(
                         toggle_state.label(),
                         ctrl_c_guard.quit_hint(last_window_count > 0),
                     );
-                    if should_write_compositor_footer(&last_footer_key, &footer_key, frame, 30) {
+                    if should_write_compositor_footer(
+                        &last_footer_key,
+                        &footer_key,
+                        frame,
+                        footer_refresh_interval,
+                    ) {
                         if let Some(old_row) = last_footer_row {
                             if old_row != footer_row {
                                 write!(frame_out, "\x1b[{};1H\x1b[K", old_row)?;
@@ -8401,6 +8420,13 @@ pub fn run_loop_with<S: XServer>(
 
 fn frame_sleep_chunk(slack: Duration) -> Duration {
     slack.min(Duration::from_millis(16))
+}
+
+fn raw_compositor_footer_refresh_interval() -> u64 {
+    std::env::var("KITTWM_FOOTER_REFRESH_FRAMES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0)
 }
 
 fn should_write_compositor_footer(
