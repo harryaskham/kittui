@@ -9902,6 +9902,20 @@ fn picker_overlay_key(overlay: &PickerOverlay) -> String {
     )
 }
 
+fn picker_entry_row_text(row: usize, selected: usize, entry: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let marker = if row == selected { "▶ " } else { "  " };
+    let mut out = String::with_capacity(width);
+    let mut used = 0usize;
+    if !push_truncated_cells(&mut out, &mut used, width, marker) {
+        return out;
+    }
+    let _ = push_truncated_cells(&mut out, &mut used, width, entry);
+    out
+}
+
 fn quit_confirm_overlay_key(overlay: &QuitConfirmOverlay) -> String {
     format!(
         "active={};opened={}",
@@ -10045,17 +10059,16 @@ impl PickerOverlay {
             if !overlay_row_visible(terminal_row, terminal_rows) {
                 break;
             }
-            let line = if let Some(entry) = self.entries.get(row) {
-                let marker = if row == self.selected { "▶" } else { " " };
-                format!("{marker} {}", entry)
-            } else {
-                String::new()
-            };
+            let line = self
+                .entries
+                .get(row)
+                .map(|entry| picker_entry_row_text(row, self.selected, entry, width))
+                .unwrap_or_default();
             write!(
                 handle,
                 "\x1b[{};2H│{:<width$}│",
                 terminal_row,
-                truncate_cells(&line, width),
+                line,
                 width = width
             )?;
         }
@@ -11031,6 +11044,23 @@ mod launcher_overlay_tests {
             }),
             OverlayEvent::Close
         );
+    }
+
+    #[test]
+    fn picker_entry_row_text_builds_only_visible_prefix() {
+        let row = picker_entry_row_text(
+            0,
+            0,
+            &"window-title-with-pathological-length-".repeat(10_000),
+            24,
+        );
+        assert_eq!(row.chars().count(), 24, "{row:?}");
+        assert!(row.starts_with("▶ window-title-with-pa"), "{row:?}");
+        assert!(row.ends_with('…'), "{row:?}");
+        assert!(row.capacity() >= 24);
+        assert!(!row.contains(&"window-title-with-pathological-length-".repeat(2)));
+        assert_eq!(picker_entry_row_text(0, 0, "anything", 1), "…");
+        assert_eq!(picker_entry_row_text(0, 0, "anything", 0), "");
     }
 
     #[test]
