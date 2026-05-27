@@ -5606,6 +5606,15 @@ mod native_pane_tests {
 
     #[cfg(unix)]
     #[test]
+    fn raw_mode_iflag_preserves_raw_enter_carriage_return() {
+        use libc::{ICRNL, IXON};
+        let flags = raw_mode_iflag(ICRNL | IXON);
+        assert_eq!(flags & ICRNL, 0);
+        assert_ne!(flags & IXON, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn raw_mode_lflag_disables_signal_generating_ctrl_c() {
         use libc::{ECHO, ICANON, ISIG};
         let flags = raw_mode_lflag(ICANON | ECHO | ISIG);
@@ -8939,6 +8948,15 @@ fn raw_mode_restore_sequence() -> &'static [u8] {
 }
 
 #[cfg(unix)]
+fn raw_mode_iflag(iflag: libc::tcflag_t) -> libc::tcflag_t {
+    use libc::ICRNL;
+    // Preserve raw Enter as carriage return (0x0d). If ICRNL remains enabled,
+    // the kernel rewrites Enter to newline (0x0a), which makes terminal apps
+    // see literal line-feed text instead of the keypress byte they expect.
+    iflag & !ICRNL
+}
+
+#[cfg(unix)]
 fn raw_mode_lflag(lflag: libc::tcflag_t) -> libc::tcflag_t {
     use libc::{ECHO, ICANON, ISIG};
     // Disable ISIG so Ctrl-C is delivered as byte 0x03 and can be handled by
@@ -8957,6 +8975,7 @@ impl RawMode {
             let mut term: termios = std::mem::zeroed();
             tcgetattr(STDIN_FILENO, &mut term);
             let mut raw = term;
+            raw.c_iflag = raw_mode_iflag(term.c_iflag);
             raw.c_lflag = raw_mode_lflag(term.c_lflag);
             raw.c_cc[VMIN] = 0;
             raw.c_cc[VTIME] = 0;
