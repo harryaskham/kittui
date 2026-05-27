@@ -280,6 +280,9 @@ enum BrowserInputAction {
 }
 
 fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize) {
+    if bytes.is_empty() {
+        return (None, 0);
+    }
     let consumed = bytes
         .iter()
         .position(|b| (0x40..=0x7e).contains(b))
@@ -326,7 +329,7 @@ fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
                 }
                 actions.push(BrowserInputAction::Tab);
             }
-            0x1b if idx + 2 < bytes.len() && bytes[idx + 1] == b'[' => {
+            0x1b if idx + 1 < bytes.len() && bytes[idx + 1] == b'[' => {
                 let (action, consumed) = browser_csi_input_action(&bytes[idx + 2..]);
                 if let Some(action) = action {
                     if !text.is_empty() {
@@ -1006,6 +1009,14 @@ mod tests {
         assert_eq!(
             browser_input_actions(&[0x1b]),
             Vec::<BrowserInputAction>::new()
+        );
+        assert_eq!(
+            browser_input_actions(b"x\x1b["),
+            vec![BrowserInputAction::Text("x".to_string())]
+        );
+        assert_eq!(
+            browser_input_actions(b"x\x1b[2"),
+            vec![BrowserInputAction::Text("x".to_string())]
         );
     }
 
