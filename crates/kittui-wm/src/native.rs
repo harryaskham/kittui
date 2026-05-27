@@ -3507,6 +3507,21 @@ impl BrowserPageKey {
     }
 }
 
+/// Browser function key for DevTools key dispatch.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BrowserFunctionKey {
+    /// F5 / refresh key.
+    F5,
+}
+
+impl BrowserFunctionKey {
+    fn key_fields(self) -> (&'static str, &'static str, u32) {
+        match self {
+            BrowserFunctionKey::F5 => ("F5", "F5", 116),
+        }
+    }
+}
+
 /// Headless Chrome/Chromium native app driven via Chrome DevTools Protocol.
 pub struct HeadlessBrowserApp {
     child: Child,
@@ -3819,6 +3834,12 @@ impl HeadlessBrowserApp {
     pub fn send_alt_page_key(&mut self, direction: BrowserPageKey) -> Result<()> {
         let (key, code, key_code) = direction.key_fields();
         self.dispatch_browser_key_with_modifiers(key, code, key_code, BROWSER_ALT_MODIFIER)
+    }
+
+    /// Dispatch a function-key press/release to the focused page element.
+    pub fn send_function_key(&mut self, key: BrowserFunctionKey) -> Result<()> {
+        let (key, code, key_code) = key.key_fields();
+        self.dispatch_browser_key(key, code, key_code)
     }
 
     fn dispatch_browser_key(&mut self, key: &str, code: &str, key_code: u32) -> Result<()> {
@@ -6356,6 +6377,12 @@ mod tests {
         assert_eq!(shift_page_up["windowsVirtualKeyCode"], 33);
         assert_eq!(shift_page_up["nativeVirtualKeyCode"], 33);
         assert_eq!(shift_page_up["modifiers"], BROWSER_SHIFT_MODIFIER);
+        let (function_key, function_code, function_code_num) = BrowserFunctionKey::F5.key_fields();
+        let f5 = browser_key_event_params(function_key, function_code, function_code_num);
+        assert_eq!(f5["key"], "F5");
+        assert_eq!(f5["code"], "F5");
+        assert_eq!(f5["windowsVirtualKeyCode"], 116);
+        assert_eq!(f5["nativeVirtualKeyCode"], 116);
         let (page_down_key, page_down_code, page_down_code_num) = BrowserPageKey::Down.key_fields();
         let page_down = browser_key_event_params(page_down_key, page_down_code, page_down_code_num);
         assert_eq!(page_down["key"], "PageDown");

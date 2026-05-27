@@ -19,7 +19,7 @@ use kittui::Transport;
 use kittui::{CellRect, CellSize, Runtime, TerminalInfo};
 use kittui_kitty as kitty;
 use kittui_wm::native::{
-    BrowserArrowKey, BrowserPageKey, HeadlessBrowserApp, NativeApp, NativeFrame,
+    BrowserArrowKey, BrowserFunctionKey, BrowserPageKey, HeadlessBrowserApp, NativeApp, NativeFrame,
 };
 use kittui_wm::semantic::render_sdk_semantic_surface;
 use kittwm_sdk::{Kittwm, SemanticSurfaceSnapshot};
@@ -232,6 +232,7 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::AltPage(direction) => {
                         browser.send_alt_page_key(direction)?
                     }
+                    BrowserInputAction::Function(key) => browser.send_function_key(key)?,
                 }
                 user_activity = true;
             }
@@ -354,6 +355,7 @@ enum BrowserInputAction {
     ShiftPage(BrowserPageKey),
     CtrlPage(BrowserPageKey),
     AltPage(BrowserPageKey),
+    Function(BrowserFunctionKey),
     ShiftArrow(BrowserArrowKey),
     CtrlArrow(BrowserArrowKey),
     AltArrow(BrowserArrowKey),
@@ -426,6 +428,7 @@ fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize)
         [b'6', b';', b'5', b'~'] => Some(BrowserInputAction::CtrlPage(BrowserPageKey::Down)),
         [b'5', b';', b'3', b'~'] => Some(BrowserInputAction::AltPage(BrowserPageKey::Up)),
         [b'6', b';', b'3', b'~'] => Some(BrowserInputAction::AltPage(BrowserPageKey::Down)),
+        [b'1', b'5', b'~'] => Some(BrowserInputAction::Function(BrowserFunctionKey::F5)),
         [b'5', b'~'] => Some(BrowserInputAction::Page(BrowserPageKey::Up)),
         [b'6', b'~'] => Some(BrowserInputAction::Page(BrowserPageKey::Down)),
         _ => None,
@@ -1333,7 +1336,7 @@ mod tests {
     fn browser_input_actions_preserve_text_backspace_tab_enter_page_and_arrow_order() {
         assert_eq!(
             browser_input_actions(
-                b"ab\x7fc\x1b[8;2u\x1b[127;2u\x1b[8;5u\x1b[127;5u\x1b[8;3u\x1b[127;3u\t\x1b[Z\x1b[9;5ude\x1b[D\x1b[1;2A\x1b[1;2B\x1b[1;2C\x1b[1;2D\x1b[1;5A\x1b[1;5B\x1b[1;5C\x1b[1;5D\x1b[1;3A\x1b[1;3B\x1b[1;3C\x1b[1;3D\x1b[1;2H\x1b[1;2F\x1b[1;5H\x1b[1;5F\x1b[1;3H\x1b[1;3F\x1b[2~\x1b[3~\x1b[2;2~\x1b[3;2~\x1b[2;5~\x1b[3;5~\x1b[2;3~\x1b[3;3~\x1b[H\x1b[F\x1b[5;2~\x1b[6;2~\x1b[5;5~\x1b[6;5~\x1b[5;3~\x1b[6;3~\x1b[5~\x1b[6~\x1b[13;2u\x1b[13;5u\x1b[13;3u\x1b\x08\rfg\n"
+                b"ab\x7fc\x1b[8;2u\x1b[127;2u\x1b[8;5u\x1b[127;5u\x1b[8;3u\x1b[127;3u\t\x1b[Z\x1b[9;5ude\x1b[15~\x1b[D\x1b[1;2A\x1b[1;2B\x1b[1;2C\x1b[1;2D\x1b[1;5A\x1b[1;5B\x1b[1;5C\x1b[1;5D\x1b[1;3A\x1b[1;3B\x1b[1;3C\x1b[1;3D\x1b[1;2H\x1b[1;2F\x1b[1;5H\x1b[1;5F\x1b[1;3H\x1b[1;3F\x1b[2~\x1b[3~\x1b[2;2~\x1b[3;2~\x1b[2;5~\x1b[3;5~\x1b[2;3~\x1b[3;3~\x1b[H\x1b[F\x1b[5;2~\x1b[6;2~\x1b[5;5~\x1b[6;5~\x1b[5;3~\x1b[6;3~\x1b[5~\x1b[6~\x1b[13;2u\x1b[13;5u\x1b[13;3u\x1b\x08\rfg\n"
             ),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
@@ -1349,6 +1352,7 @@ mod tests {
                 BrowserInputAction::ShiftTab,
                 BrowserInputAction::CtrlTab,
                 BrowserInputAction::Text("de".to_string()),
+                BrowserInputAction::Function(BrowserFunctionKey::F5),
                 BrowserInputAction::Arrow(BrowserArrowKey::Left),
                 BrowserInputAction::ShiftArrow(BrowserArrowKey::Up),
                 BrowserInputAction::ShiftArrow(BrowserArrowKey::Down),
