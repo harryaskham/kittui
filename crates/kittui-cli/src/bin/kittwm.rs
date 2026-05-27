@@ -4107,17 +4107,23 @@ fn load_info_snapshot() -> Result<(
     ))
 }
 
+fn kittwm_scene_workspace_from(value: Option<&serde_json::Value>) -> String {
+    value
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|workspace| !workspace.is_empty())
+        .unwrap_or("-")
+        .to_string()
+}
+
 fn format_info_output(
     socket: &std::path::Path,
     status: &serde_json::Value,
     chrome: &serde_json::Value,
     panes: &serde_json::Value,
 ) -> String {
-    let workspace = chrome
-        .get("workspace")
-        .or_else(|| status.get("workspace"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("-");
+    let workspace =
+        kittwm_scene_workspace_from(chrome.get("workspace").or_else(|| status.get("workspace")));
     let top_bar_rows = chrome
         .get("top_bar_rows")
         .and_then(serde_json::Value::as_u64)
@@ -4210,11 +4216,8 @@ fn info_scene(
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
-    let workspace = chrome
-        .get("workspace")
-        .or_else(|| status.get("workspace"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("-");
+    let workspace =
+        kittwm_scene_workspace_from(chrome.get("workspace").or_else(|| status.get("workspace")));
     let focus = status
         .get("focus")
         .or_else(|| panes.get("focus"))
@@ -4729,13 +4732,12 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
-    let workspace = chrome
-        .get("workspace")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("-");
+    let workspace = kittwm_scene_workspace_from(chrome.get("workspace"));
     let owner = chrome
         .get("owner")
         .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|owner| !owner.is_empty())
         .unwrap_or("-");
     let top = chrome
         .get("top_bar_rows")
@@ -4879,10 +4881,7 @@ fn status_scene(status: &serde_json::Value) -> Scene {
         .get("layout")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("-");
-    let workspace = status
-        .get("workspace")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("-");
+    let workspace = kittwm_scene_workspace_from(status.get("workspace"));
     let sock = status
         .get("sock")
         .and_then(serde_json::Value::as_str)
@@ -6412,14 +6411,14 @@ mod tests {
     #[test]
     fn chrome_scene_labels_reservation_contract() {
         let chrome = serde_json::json!({
-            "workspace": "dev",
+            "workspace": " dev ",
             "top_bar_rows": 2,
             "bottom_bar_rows": 1,
             "left_cols": 4,
             "right_cols": 3,
             "gap_cols": 1,
             "gap_rows": 2,
-            "owner": "bar",
+            "owner": " bar ",
             "tilable_rows": 19
         });
         let scene = chrome_scene(&chrome);
@@ -6560,7 +6559,7 @@ mod tests {
             "pending": 1,
             "focus": "native-2",
             "layout": "rows",
-            "workspace": "dev"
+            "workspace": " dev "
         });
         let scene = status_scene(&status);
         let labels = scene
@@ -7026,7 +7025,7 @@ mod tests {
             "workspace": "dev"
         });
         let chrome = serde_json::json!({
-            "workspace": "dev",
+            "workspace": " dev ",
             "top_bar_rows": 1,
             "tilable_rows": 23
         });
