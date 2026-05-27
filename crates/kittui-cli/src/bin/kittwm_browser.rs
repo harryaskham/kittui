@@ -164,6 +164,7 @@ fn real_main() -> Result<()> {
     let mut stdin = std::io::stdin();
     loop {
         let start = Instant::now();
+        let mut user_activity = false;
         let mut buf = [0u8; 1024];
         while stdin_ready(Duration::ZERO) {
             let n = stdin.read(&mut buf).unwrap_or(0);
@@ -183,6 +184,7 @@ fn real_main() -> Result<()> {
                 .collect();
             if !text.is_empty() {
                 browser.send_text(&text)?;
+                user_activity = true;
             }
         }
         if let Some(cells) = terminal_cells() {
@@ -192,6 +194,7 @@ fn real_main() -> Result<()> {
                 browser.resize(viewport.cols, viewport.content_rows)?;
                 placed = false;
                 last_frame_key = None;
+                user_activity = true;
             }
         }
         let NativeFrame::Png {
@@ -245,7 +248,7 @@ fn real_main() -> Result<()> {
         if wrote_output {
             handle.flush()?;
         }
-        update_browser_idle_counter(&mut consecutive_idle_frames, wrote_output);
+        update_browser_idle_counter(&mut consecutive_idle_frames, wrote_output || user_activity);
         frame += 1;
         let frame_interval =
             browser_current_frame_interval(active_interval, idle_interval, consecutive_idle_frames);
@@ -497,8 +500,8 @@ fn browser_current_frame_interval(
     }
 }
 
-fn update_browser_idle_counter(counter: &mut u16, wrote_output: bool) {
-    if wrote_output {
+fn update_browser_idle_counter(counter: &mut u16, activity: bool) {
+    if activity {
         *counter = 0;
     } else {
         *counter = counter.saturating_add(1);
@@ -779,6 +782,23 @@ mod tests {
         assert_eq!(
             browser_idle_frame_interval(Duration::from_millis(1500)),
             Duration::from_millis(1500)
+        );
+    }
+
+    #[test]
+    fn browser_idle_counter_resets_on_user_activity() {
+        let active = Duration::from_millis(250);
+        let idle = Duration::from_millis(1000);
+        let mut idle_frames = 2u16;
+        assert_eq!(
+            browser_current_frame_interval(active, idle, idle_frames),
+            idle
+        );
+        update_browser_idle_counter(&mut idle_frames, true);
+        assert_eq!(idle_frames, 0);
+        assert_eq!(
+            browser_current_frame_interval(active, idle, idle_frames),
+            active
         );
     }
 
