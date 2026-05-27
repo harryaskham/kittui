@@ -1009,7 +1009,7 @@ INPUT AND AUTOMATION
   --send-text WINDOW TEXT          Send text bytes
   --send-line WINDOW TEXT          Send text plus newline
   --send-key WINDOW KEY            KEY: ctrl-c, escape, enter, arrows, ...
-  --send-mouse WINDOW EVENT C R    Send SGR mouse event
+  --send-mouse WINDOW EVENT C R    Send terminal mouse event
   --send-bytes-b64 WINDOW BASE64   Send arbitrary bytes
   --send-file WINDOW PATH|-        Read bytes from file/stdin and send
   --paste-file WINDOW PATH|-       Paste bytes; respects bracketed paste
@@ -1243,7 +1243,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --send-text WINDOW TEXT        send text bytes\n\
              --send-line WINDOW TEXT        send text plus newline\n\
              --send-key WINDOW KEY          send named key (ctrl-c, escape, arrows)\n\
-             --send-mouse WINDOW EVENT C R  send SGR mouse event if app enabled it\n\
+             --send-mouse WINDOW EVENT C R  send terminal mouse event if app enabled it\n\
              --send-bytes-b64 WINDOW B64    send exact bytes\n\
              --send-file WINDOW PATH|-      send bytes from file/stdin\n\
              --paste-file WINDOW PATH|-     paste bytes with bracketed-paste support\n\
@@ -2776,6 +2776,9 @@ fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result
             | "press-middle"
             | "press-right"
             | "release"
+            | "release-left"
+            | "release-middle"
+            | "release-right"
             | "move"
             | "move-left"
             | "move-middle"
@@ -2783,7 +2786,7 @@ fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result
             | "scroll-up"
             | "scroll-down"
     ) {
-        return Err(anyhow!("--send-mouse event must be press-left|press-middle|press-right|release|move|move-left|move-middle|move-right|scroll-up|scroll-down"));
+        return Err(anyhow!("--send-mouse event must be press-left|press-middle|press-right|release|release-left|release-middle|release-right|move|move-left|move-middle|move-right|scroll-up|scroll-down"));
     }
     let col = col
         .trim()
@@ -7472,6 +7475,10 @@ END
         assert_eq!(
             send_mouse_request("focused", "move-left", "7", "9").unwrap(),
             "SEND_MOUSE focused move-left 7 9"
+        );
+        assert_eq!(
+            send_mouse_request("focused", "release-right", "7", "9").unwrap(),
+            "SEND_MOUSE focused release-right 7 9"
         );
         assert_eq!(
             send_bytes_request("focused", b"hi\n\0").unwrap(),
