@@ -3873,33 +3873,49 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
     let colors = native_glass_chrome_colors();
     write!(out, "\x1b[{};1H", row)?;
     let active_workspace = model.workspace;
+    let mut workspace_cols = 0u16;
     for idx in 1..=3 {
         let active = active_workspace == idx.to_string();
         let (fg, bg) = native_graphical_top_bar_text_palette(&colors, active);
+        let label = format!(" {idx} ");
         write!(
             out,
-            "\x1b[1m{}{} {} \x1b[0m ",
+            "\x1b[1m{}{}{}\x1b[0m ",
             ansi_fg(fg),
             ansi_bg(bg),
-            idx
+            label
         )?;
+        workspace_cols = workspace_cols.saturating_add(label.chars().count() as u16 + 1);
     }
     let clock_text = format!(" {clock} ");
-    let clock_col = cols
-        .saturating_sub(clock_text.chars().count() as u16)
-        .saturating_add(1)
-        .max(1);
-    let (clock_fg, clock_bg) = native_graphical_top_bar_clock_palette(&colors);
-    write!(
-        out,
-        "\x1b[{};{}H\x1b[1m{}{}{}\x1b[0m",
-        row,
-        clock_col,
-        ansi_fg(clock_fg),
-        ansi_bg(clock_bg),
-        clock_text
-    )?;
+    if let Some(clock_col) =
+        native_graphical_top_bar_clock_col(cols, workspace_cols, clock_text.chars().count() as u16)
+    {
+        let (clock_fg, clock_bg) = native_graphical_top_bar_clock_palette(&colors);
+        write!(
+            out,
+            "\x1b[{};{}H\x1b[1m{}{}{}\x1b[0m",
+            row,
+            clock_col,
+            ansi_fg(clock_fg),
+            ansi_bg(clock_bg),
+            clock_text
+        )?;
+    }
     Ok(())
+}
+
+fn native_graphical_top_bar_clock_col(
+    cols: u16,
+    workspace_cols: u16,
+    clock_cols: u16,
+) -> Option<u16> {
+    let min_gap = 1;
+    (workspace_cols
+        .saturating_add(min_gap)
+        .saturating_add(clock_cols)
+        <= cols)
+        .then(|| cols.saturating_sub(clock_cols).saturating_add(1).max(1))
 }
 
 fn native_graphical_top_bar_text_palette(colors: &InlineChipColors, active: bool) -> (Rgba, Rgba) {
@@ -4181,6 +4197,14 @@ mod native_pane_tests {
         assert!(should_write_raw_compositor_error(Some(&key), &changed));
         assert!(should_clear_raw_error_screen(Some(&key)));
         assert!(!should_clear_raw_error_screen(None));
+    }
+
+    #[test]
+    fn graphical_top_bar_clock_col_avoids_workspace_overlap() {
+        assert_eq!(native_graphical_top_bar_clock_col(24, 12, 7), Some(18));
+        assert_eq!(native_graphical_top_bar_clock_col(20, 12, 7), Some(14));
+        assert_eq!(native_graphical_top_bar_clock_col(19, 12, 7), None);
+        assert_eq!(native_graphical_top_bar_clock_col(8, 12, 7), None);
     }
 
     #[test]
