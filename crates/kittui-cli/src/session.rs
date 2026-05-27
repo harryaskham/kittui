@@ -692,6 +692,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             std::mem::swap(&mut panes, &mut restored);
                             layout_axis = new_axis;
                             focused = new_focus;
+                            if should_focus_restored_pane(panes.len(), focused) {
+                                native_send_focus_event(&mut panes[focused], true)?;
+                            }
                             clear = true;
                             dbg.log(&format!(
                                 "native terminal socket restore session: panes={} focus={focused}",
@@ -2480,6 +2483,10 @@ fn terminate_native_panes(panes: &mut [NativePane]) {
 
 fn native_restore_focus_index(count: usize, focus_index: Option<usize>) -> usize {
     focus_index.unwrap_or(0).min(count.saturating_sub(1))
+}
+
+fn should_focus_restored_pane(count: usize, focused: usize) -> bool {
+    count > 0 && focused < count
 }
 
 fn native_move_target_index(from: usize, len: usize, direction: &str) -> usize {
@@ -6560,6 +6567,9 @@ mod native_pane_tests {
         assert_eq!(native_restore_focus_index(3, Some(99)), 2);
         assert_eq!(native_restore_focus_index(3, None), 0);
         assert_eq!(native_restore_focus_index(0, Some(1)), 0);
+        assert!(should_focus_restored_pane(3, 2));
+        assert!(!should_focus_restored_pane(0, 0));
+        assert!(!should_focus_restored_pane(3, 3));
     }
 
     #[test]
