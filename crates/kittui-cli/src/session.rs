@@ -5685,12 +5685,13 @@ mod native_pane_tests {
 
     #[cfg(unix)]
     #[test]
-    fn raw_mode_lflag_disables_signal_generating_ctrl_c() {
-        use libc::{ECHO, ICANON, ISIG};
-        let flags = raw_mode_lflag(ICANON | ECHO | ISIG);
+    fn raw_mode_lflag_disables_signal_and_extended_line_processing() {
+        use libc::{ECHO, ICANON, IEXTEN, ISIG};
+        let flags = raw_mode_lflag(ICANON | ECHO | ISIG | IEXTEN);
         assert_eq!(flags & ICANON, 0);
         assert_eq!(flags & ECHO, 0);
         assert_eq!(flags & ISIG, 0);
+        assert_eq!(flags & IEXTEN, 0);
     }
 
     #[test]
@@ -9130,10 +9131,13 @@ fn raw_mode_iflag(iflag: libc::tcflag_t) -> libc::tcflag_t {
 
 #[cfg(unix)]
 fn raw_mode_lflag(lflag: libc::tcflag_t) -> libc::tcflag_t {
-    use libc::{ECHO, ICANON, ISIG};
+    use libc::{ECHO, ICANON, IEXTEN, ISIG};
     // Disable ISIG so Ctrl-C is delivered as byte 0x03 and can be handled by
     // kittwm's triple-press guard instead of the kernel sending SIGINT.
-    lflag & !(ICANON | ECHO | ISIG)
+    // Disable IEXTEN so implementation-defined controls (for example Ctrl-V /
+    // LNEXT) pass through to native terminal apps instead of the host line
+    // discipline consuming them.
+    lflag & !(ICANON | ECHO | ISIG | IEXTEN)
 }
 
 impl RawMode {
