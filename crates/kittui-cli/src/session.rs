@@ -3919,7 +3919,7 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         .unwrap_or("00:00")
         .to_string();
     let palette = native_top_bar_overlay_palette(native_glass_chrome_colors());
-    write!(out, "\x1b[{};1H", row)?;
+    write!(out, "{}", native_graphical_top_bar_overlay_clear(row))?;
     let mut workspace_cols = 0u16;
     for idx in 1..=3 {
         let active = model.workspace == idx.to_string();
@@ -3953,6 +3953,10 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         )?;
     }
     Ok(())
+}
+
+fn native_graphical_top_bar_overlay_clear(row: u16) -> String {
+    format!("\x1b[{row};1H\x1b[K")
 }
 
 fn native_graphical_top_bar_clock_col(
@@ -4300,6 +4304,12 @@ mod native_pane_tests {
         assert!(should_write_raw_compositor_error(Some(&key), &changed));
         assert!(should_clear_raw_error_screen(Some(&key)));
         assert!(!should_clear_raw_error_screen(None));
+    }
+
+    #[test]
+    fn graphical_top_bar_overlay_clears_row_before_rewrite() {
+        assert_eq!(native_graphical_top_bar_overlay_clear(1), "\x1b[1;1H\x1b[K");
+        assert_eq!(native_graphical_top_bar_overlay_clear(3), "\x1b[3;1H\x1b[K");
     }
 
     #[test]
