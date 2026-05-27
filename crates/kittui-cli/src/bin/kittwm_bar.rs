@@ -205,7 +205,8 @@ fn render_kitty_bar(model: &BarOutputModel) -> Result<String, String> {
 }
 
 fn kittwm_bar_kitty_text_overlay(model: &BarOutputModel, cols: u16) -> String {
-    let mut out = String::from("\x1b[1;1H");
+    let mut out = String::from("\x1b[1;1H\x1b[K");
+    let mut workspace_cols = 0u16;
     for label in model.bar.workspace_chip_labels() {
         let active = model.bar.workspace.trim() == label;
         let (fg, bg) = if active {
@@ -213,12 +214,14 @@ fn kittwm_bar_kitty_text_overlay(model: &BarOutputModel, cols: u16) -> String {
         } else {
             ((0xec, 0xef, 0xf4), (0x3b, 0x42, 0x52))
         };
+        let chip_text = format!(" {label} ");
         out.push_str(&format!(
-            "\x1b[1m{}{} {} \x1b[0m ",
+            "\x1b[1m{}{}{}\x1b[0m ",
             ansi_fg(fg),
             ansi_bg(bg),
-            label
+            chip_text
         ));
+        workspace_cols = workspace_cols.saturating_add(chip_text.chars().count() as u16 + 1);
     }
     let clock = model
         .bar
@@ -226,18 +229,27 @@ fn kittwm_bar_kitty_text_overlay(model: &BarOutputModel, cols: u16) -> String {
         .strip_suffix(" UTC")
         .unwrap_or(&model.bar.time);
     let clock_text = format!(" {clock} ");
-    let clock_col = cols
-        .saturating_sub(clock_text.chars().count() as u16)
-        .saturating_add(1)
-        .max(1);
-    out.push_str(&format!(
-        "\x1b[1;{}H\x1b[1m{}{}{}\x1b[0m",
-        clock_col,
-        ansi_fg((0xec, 0xef, 0xf4)),
-        ansi_bg((0x2e, 0x34, 0x40)),
-        clock_text
-    ));
+    if let Some(clock_col) =
+        kittwm_bar_overlay_clock_col(cols, workspace_cols, clock_text.chars().count() as u16)
+    {
+        out.push_str(&format!(
+            "\x1b[1;{}H\x1b[1m{}{}{}\x1b[0m",
+            clock_col,
+            ansi_fg((0xec, 0xef, 0xf4)),
+            ansi_bg((0x2e, 0x34, 0x40)),
+            clock_text
+        ));
+    }
     out
+}
+
+fn kittwm_bar_overlay_clock_col(cols: u16, workspace_cols: u16, clock_cols: u16) -> Option<u16> {
+    let min_gap = 1;
+    (workspace_cols
+        .saturating_add(min_gap)
+        .saturating_add(clock_cols)
+        <= cols)
+        .then(|| cols.saturating_sub(clock_cols).saturating_add(1).max(1))
 }
 
 fn ansi_fg((r, g, b): (u8, u8, u8)) -> String {
@@ -367,7 +379,30 @@ mod tests {
             chrome: None,
         };
         let overlay = kittwm_bar_kitty_text_overlay(&model, 60);
+        assert!(overlay.starts_with("\x1b[1;1H\x1b[K"), "{overlay:?}");
         assert!(overlay.contains(" dev "), "{overlay:?}");
+    }
+
+    #[test]
+    fn kitty_bar_text_overlay_omits_clock_when_workspace_chips_would_overlap() {
+        let model = BarOutputModel {
+            bar: BarModel::new(
+                "super-long-workspace-name",
+                0,
+                "-",
+                false,
+                UNIX_EPOCH + std::time::Duration::from_secs(9 * 3600 + 5 * 60),
+            ),
+            chrome: None,
+        };
+        let overlay = kittwm_bar_kitty_text_overlay(&model, 18);
+        assert!(
+            overlay.contains(" super-long-workspace-name "),
+            "{overlay:?}"
+        );
+        assert!(!overlay.contains(" 09:05 "), "{overlay:?}");
+        assert_eq!(kittwm_bar_overlay_clock_col(40, 12, 7), Some(34));
+        assert_eq!(kittwm_bar_overlay_clock_col(18, 20, 7), None);
     }
 
     #[test]
