@@ -4416,7 +4416,10 @@ fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
 
 fn native_shell_chrome_scene_visual_hash(scene: &Scene) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    format!("{scene:?}").hash(&mut hasher);
+    scene.id().0.hash(&mut hasher);
+    for layer in &scene.layers {
+        layer.label.hash(&mut hasher);
+    }
     hasher.finish()
 }
 
@@ -6305,6 +6308,12 @@ mod native_pane_tests {
         changed_scene.x = 0;
         changed_scene.scene.layers[0].label = Some("changed-top-bar-state".to_string());
         assert_ne!(baseline, native_shell_chrome_scene_key(&changed_scene));
+
+        let mut huge_label_scene = scenes[0].clone();
+        huge_label_scene.scene.layers[0].label = Some("label-".repeat(10_000));
+        let key = native_shell_chrome_scene_key(&huge_label_scene);
+        assert!(key.len() < 128, "{key}");
+        assert!(!key.contains(&"label-".repeat(8)), "{key}");
     }
 
     #[test]
