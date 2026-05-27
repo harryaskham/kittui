@@ -7452,6 +7452,11 @@ mod native_pane_tests {
         let picker_base = picker_overlay_key(&picker);
         picker.entries.push("two".to_string());
         assert_ne!(picker_base, picker_overlay_key(&picker));
+        let long_entry = "window-title-".repeat(10_000);
+        picker.entries[0] = long_entry;
+        let bounded = picker_overlay_key(&picker);
+        assert!(bounded.len() < 64, "{bounded}");
+        assert!(!bounded.contains("window-title"), "{bounded}");
     }
 
     #[test]
@@ -9538,10 +9543,10 @@ fn launcher_overlay_key(overlay: &LauncherOverlay) -> String {
 
 fn picker_overlay_key(overlay: &PickerOverlay) -> String {
     format!(
-        "active={};selected={};entries={}",
+        "active={};selected={};entry_count={}",
         overlay.active,
         overlay.selected,
-        overlay.entries.join("\u{1f}")
+        overlay.entries.len()
     )
 }
 
