@@ -377,13 +377,17 @@ fn with_alpha(color: Rgba, alpha: u8) -> Rgba {
 
 pub fn workspace_chip_total_cols(labels: &[String]) -> u16 {
     labels.iter().fold(0u16, |total, label| {
-        let chip_cols = label
-            .chars()
-            .count()
-            .saturating_add(3)
-            .min(u16::MAX as usize) as u16;
+        let chip_cols = workspace_chip_label_cols(label).saturating_add(3);
         total.saturating_add(chip_cols)
     })
+}
+
+fn workspace_chip_label_cols(label: &str) -> u16 {
+    label
+        .chars()
+        .take(TOP_BAR_LABEL_MAX_CHARS)
+        .count()
+        .min(u16::MAX as usize) as u16
 }
 
 fn top_bar_display_label(label: &str) -> String {
@@ -535,10 +539,17 @@ mod tests {
     }
 
     #[test]
-    fn workspace_chip_width_accounting_saturates_long_labels() {
+    fn workspace_chip_width_accounting_bounds_long_labels() {
         let long = "x".repeat(u16::MAX as usize);
         let labels = vec!["1".to_string(), long.clone()];
-        assert_eq!(workspace_chip_total_cols(&labels), u16::MAX);
+        assert_eq!(
+            workspace_chip_total_cols(&labels),
+            4 + TOP_BAR_LABEL_MAX_CHARS as u16 + 3
+        );
+        assert_eq!(
+            workspace_chip_label_cols(&long),
+            TOP_BAR_LABEL_MAX_CHARS as u16
+        );
 
         let model = BarModel::new(long.clone(), 0, "-", false, UNIX_EPOCH);
         let constrained = model.workspace_chip_labels_for_scene(8);
