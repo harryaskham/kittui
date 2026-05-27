@@ -9472,7 +9472,7 @@ fn launcher_selection() -> LauncherSelection {
 fn first_launcher_candidate(query: &str) -> Option<LauncherSelection> {
     let q = query.to_ascii_lowercase();
     for cmd in path_commands(5000) {
-        if cmd.to_ascii_lowercase().contains(&q) {
+        if launcher_match_score(&cmd, &q).is_some() {
             return Some(LauncherSelection {
                 kind: LauncherKind::Path,
                 command: cmd,
@@ -9481,7 +9481,7 @@ fn first_launcher_candidate(query: &str) -> Option<LauncherSelection> {
     }
     #[cfg(target_os = "macos")]
     for app in macos_apps(5000) {
-        if app.to_ascii_lowercase().contains(&q) {
+        if launcher_match_score(&app, &q).is_some() {
             return Some(LauncherSelection {
                 kind: LauncherKind::MacOsApp,
                 command: app,
@@ -10644,6 +10644,8 @@ mod launcher_overlay_tests {
     use super::*;
     use kittui_input::Modifiers;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn overlay_edits_query_and_tracks_selection() {
         let mut overlay = LauncherOverlay::default();
@@ -10725,6 +10727,27 @@ mod launcher_overlay_tests {
         assert_eq!(launcher_match_score(&huge, "needle"), Some(2));
         assert_eq!(launcher_match_score(&huge, "missing"), None);
         assert!(ascii_casefold_contains_lower("RésuméNeedle", "needle"));
+    }
+
+    #[test]
+    fn first_launcher_candidate_matches_path_case_insensitively_without_candidate_lowercase() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("kittwm-launcher-path-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cmd = dir.join("NeedleTool");
+        std::fs::write(&cmd, b"#!/bin/sh\n").unwrap();
+        let old_path = std::env::var_os("PATH");
+        std::env::set_var("PATH", &dir);
+        let selection = first_launcher_candidate("needle").unwrap();
+        assert_eq!(selection.kind, LauncherKind::Path);
+        assert!(selection.command.starts_with("Needle"));
+        if let Some(old_path) = old_path {
+            std::env::set_var("PATH", old_path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        let _ = std::fs::remove_file(cmd);
+        let _ = std::fs::remove_dir(dir);
     }
 }
 
