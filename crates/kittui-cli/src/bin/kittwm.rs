@@ -3684,6 +3684,10 @@ fn architecture_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
 }
 
+fn native_surfaces_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
+    info_indicator_rect(width, y)
+}
+
 fn native_surfaces_json_text() -> String {
     let contract = kittwm_sdk::ArchitectureContract::current();
     let surfaces = contract.first_party_native_surfaces.clone();
@@ -3807,7 +3811,7 @@ fn native_surfaces_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
                 surface.kittui_entry
             )),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: native_surfaces_scene_row_rect(width, y),
                 fill: Paint::Solid {
                     color: if surface.is_native_ready() {
                         Rgba::rgba(163, 190, 140, 255)
@@ -7106,6 +7110,35 @@ mod tests {
         );
         assert!(text.contains("kittwm-bar"), "{text}");
         assert!(text.contains("BarModel::scene"), "{text}");
+    }
+
+    #[test]
+    fn native_surfaces_scene_row_rects_fit_narrow_widths() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_INFO_COLS", "8");
+        let contract = kittwm_sdk::ArchitectureContract::current();
+        let scene = native_surfaces_scene(&contract);
+        assert_eq!(scene.footprint.cols, 8);
+        let width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if layer
+                .label
+                .as_deref()
+                .unwrap_or_default()
+                .contains("kittwm-native-surface-row:")
+            {
+                let Node::Rect { rect, .. } = &layer.root else {
+                    panic!("expected row rect");
+                };
+                assert!(rect.origin.0 >= 0.0, "{rect:?}");
+                assert!(rect.width >= 1.0, "{rect:?}");
+                assert!(
+                    rect.origin.0 + rect.width <= width + 0.01,
+                    "{rect:?} > {width}"
+                );
+            }
+        }
+        std::env::remove_var("KITTWM_INFO_COLS");
     }
 
     #[test]
