@@ -4545,7 +4545,10 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
 }
 
 fn panes_scene(panes: &serde_json::Value) -> Scene {
-    let cols = info_scene_cols();
+    panes_scene_for_cols(panes, info_scene_cols())
+}
+
+fn panes_scene_for_cols(panes: &serde_json::Value, cols: u16) -> Scene {
     let details = panes
         .get("panes_detail")
         .and_then(serde_json::Value::as_array)
@@ -4630,7 +4633,7 @@ fn panes_scene(panes: &serde_json::Value) -> Scene {
                 "kittwm-pane-row:{window}:focused={focused}:title={title}:app={app_cols}x{app_rows}"
             )),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: info_indicator_rect(width, y),
                 fill: Paint::Solid {
                     color: if focused {
                         Rgba::rgba(235, 203, 139, 255)
@@ -7453,6 +7456,26 @@ END
                 .any(|label| label.contains("kittwm-event-row:2:pane_frame_presented")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn panes_scene_rows_fit_narrow_width() {
+        let panes = serde_json::json!({
+            "panes": 1,
+            "focus": "native-1",
+            "layout": "columns",
+            "panes_detail": [
+                {"window":"native-1","title":"shell","focused":true,"app_cols":1,"app_rows":1}
+            ]
+        });
+        let scene = panes_scene_for_cols(&panes, 1);
+        assert_eq!(scene.footprint.cols, 1);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
     }
 
     #[test]
