@@ -5607,9 +5607,11 @@ mod native_pane_tests {
     #[cfg(unix)]
     #[test]
     fn raw_mode_iflag_preserves_raw_enter_carriage_return() {
-        use libc::{ICRNL, IXON};
-        let flags = raw_mode_iflag(ICRNL | IXON);
+        use libc::{ICRNL, IGNCR, INLCR, IXON};
+        let flags = raw_mode_iflag(ICRNL | IGNCR | INLCR | IXON);
         assert_eq!(flags & ICRNL, 0);
+        assert_eq!(flags & IGNCR, 0);
+        assert_eq!(flags & INLCR, 0);
         assert_ne!(flags & IXON, 0);
     }
 
@@ -9017,11 +9019,11 @@ fn raw_mode_restore_sequence() -> &'static [u8] {
 
 #[cfg(unix)]
 fn raw_mode_iflag(iflag: libc::tcflag_t) -> libc::tcflag_t {
-    use libc::ICRNL;
-    // Preserve raw Enter as carriage return (0x0d). If ICRNL remains enabled,
-    // the kernel rewrites Enter to newline (0x0a), which makes terminal apps
-    // see literal line-feed text instead of the keypress byte they expect.
-    iflag & !ICRNL
+    use libc::{ICRNL, IGNCR, INLCR};
+    // Preserve raw CR/LF bytes. If ICRNL/INLCR/IGNCR remain enabled, the
+    // kernel can rewrite Enter to newline, rewrite newline to carriage return,
+    // or drop carriage return before kittwm routes bytes to the native app.
+    iflag & !(ICRNL | INLCR | IGNCR)
 }
 
 #[cfg(unix)]
