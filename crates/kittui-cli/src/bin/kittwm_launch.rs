@@ -141,11 +141,20 @@ fn looks_like_shell_command(query: &str) -> bool {
 }
 
 fn looks_like_browser_target(query: &str) -> bool {
-    let q = query.to_ascii_lowercase();
-    q.starts_with("http://")
-        || q.starts_with("https://")
-        || q.starts_with("data:")
-        || q.starts_with("about:")
+    ascii_starts_with_ignore_case(query, "http://")
+        || ascii_starts_with_ignore_case(query, "https://")
+        || ascii_starts_with_ignore_case(query, "data:")
+        || ascii_starts_with_ignore_case(query, "about:")
+}
+
+fn ascii_starts_with_ignore_case(value: &str, prefix: &str) -> bool {
+    let value = value.as_bytes();
+    let prefix = prefix.as_bytes();
+    value.len() >= prefix.len()
+        && value
+            .iter()
+            .zip(prefix.iter())
+            .all(|(a, b)| a.to_ascii_lowercase() == *b)
 }
 
 fn shell_words(args: &[String]) -> String {
@@ -530,6 +539,20 @@ mod tests {
         assert_eq!(args.effective_backend(), Backend::Browser);
         let args = LaunchArgs::parse_from(["firefox"]).unwrap();
         assert_eq!(args.effective_backend(), Backend::App);
+    }
+
+    #[test]
+    fn browser_target_detection_uses_bounded_prefix_matching() {
+        let huge_url = format!("HTTPS://example.com/{}", "path/".repeat(10_000));
+        assert!(looks_like_browser_target(&huge_url));
+        assert!(looks_like_browser_target("DATA:text/plain,hello"));
+        assert!(looks_like_browser_target("About:blank"));
+        assert!(!looks_like_browser_target("not-a-url"));
+        assert!(ascii_starts_with_ignore_case(
+            "HtTp://example.com",
+            "http://"
+        ));
+        assert!(!ascii_starts_with_ignore_case("ht", "http://"));
     }
 
     #[test]
