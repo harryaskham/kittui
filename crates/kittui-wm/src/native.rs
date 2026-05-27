@@ -2875,7 +2875,20 @@ fn discover_terminal_font_path() -> Option<PathBuf> {
 }
 
 fn find_fira_code_font(root: &Path, depth: usize) -> Option<PathBuf> {
-    let entries = std::fs::read_dir(root).ok()?;
+    let mut candidates = Vec::<(u8, PathBuf)>::new();
+    collect_fira_code_fonts(root, depth, &mut candidates);
+    candidates
+        .into_iter()
+        .min_by(|(a_score, a_path), (b_score, b_path)| {
+            a_score.cmp(b_score).then_with(|| a_path.cmp(b_path))
+        })
+        .map(|(_, path)| path)
+}
+
+fn collect_fira_code_fonts(root: &Path, depth: usize, candidates: &mut Vec<(u8, PathBuf)>) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
     let mut dirs = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
@@ -2883,17 +2896,32 @@ fn find_fira_code_font(root: &Path, depth: usize) -> Option<PathBuf> {
             dirs.push(path);
             continue;
         }
-        let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
-        let is_font = name.ends_with(".ttf") || name.ends_with(".otf");
-        if is_font && name.contains("firacode") && name.contains("regular") {
-            return Some(path);
+        if let Some(score) = fira_code_font_score(&path) {
+            candidates.push((score, path));
         }
     }
     if depth == 0 {
+        return;
+    }
+    dirs.sort();
+    for dir in dirs {
+        collect_fira_code_fonts(&dir, depth - 1, candidates);
+    }
+}
+
+fn fira_code_font_score(path: &Path) -> Option<u8> {
+    let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+    let is_font = name.ends_with(".ttf") || name.ends_with(".otf");
+    if !is_font || !name.contains("firacode") || !name.contains("regular") {
         return None;
     }
-    dirs.into_iter()
-        .find_map(|dir| find_fira_code_font(&dir, depth - 1))
+    if name.contains("nerd") && name.contains("mono") {
+        Some(0)
+    } else if name.contains("nerd") {
+        Some(1)
+    } else {
+        Some(2)
+    }
 }
 
 fn draw_terminal_font_glyph(
@@ -4191,6 +4219,30 @@ mod tests {
         } else {
             std::env::remove_var("KITTUI_TERMINAL_FONT");
         }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn terminal_font_discovery_prefers_fira_code_nerd_font() {
+        let root = std::env::temp_dir().join(format!(
+            "kittui-nerd-font-test-{}-{}",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        let nested = root.join("share/fonts/truetype");
+        std::fs::create_dir_all(&nested).unwrap();
+        let regular = nested.join("FiraCode-Regular.ttf");
+        let nerd = nested.join("FiraCodeNerdFont-Regular.ttf");
+        let nerd_mono = nested.join("FiraCodeNerdFontMono-Regular.ttf");
+        std::fs::write(&regular, b"regular").unwrap();
+        std::fs::write(&nerd, b"nerd").unwrap();
+        std::fs::write(&nerd_mono, b"nerd mono").unwrap();
+
+        assert_eq!(fira_code_font_score(&regular), Some(2));
+        assert_eq!(fira_code_font_score(&nerd), Some(1));
+        assert_eq!(fira_code_font_score(&nerd_mono), Some(0));
+        assert_eq!(find_fira_code_font(&root, 4), Some(nerd_mono));
+
         let _ = std::fs::remove_dir_all(root);
     }
 
