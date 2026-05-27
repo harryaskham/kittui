@@ -2921,6 +2921,7 @@ fn draw_terminal_glyph(
 }
 
 static TERMINAL_FONT: OnceLock<Option<TerminalFont>> = OnceLock::new();
+const TERMINAL_FONT_GLYPH_CACHE_MAX: usize = 4096;
 static TERMINAL_FONT_GLYPHS: OnceLock<
     Mutex<std::collections::HashMap<(char, u32), TerminalFontGlyph>>,
 > = OnceLock::new();
@@ -3104,8 +3105,24 @@ fn cached_terminal_font_glyph(font: &TerminalFont, ch: char, px: f32) -> Option<
         return None;
     }
     let glyph = TerminalFontGlyph { metrics, bitmap };
-    cache.lock().insert((ch, px_key), glyph.clone());
+    let mut cache = cache.lock();
+    prune_terminal_font_glyph_cache_if_full(&mut cache);
+    cache.insert((ch, px_key), glyph.clone());
     Some(glyph)
+}
+
+fn prune_terminal_font_glyph_cache_if_full(
+    cache: &mut std::collections::HashMap<(char, u32), TerminalFontGlyph>,
+) -> bool {
+    if !terminal_font_glyph_cache_should_prune(cache.len()) {
+        return false;
+    }
+    cache.clear();
+    true
+}
+
+fn terminal_font_glyph_cache_should_prune(len: usize) -> bool {
+    len >= TERMINAL_FONT_GLYPH_CACHE_MAX
 }
 
 #[cfg(test)]
@@ -4825,6 +4842,19 @@ mod tests {
         assert_eq!(terminal_font_glyph_cache_len_for_tests(), 1);
         let _ = cached_terminal_font_glyph(font, 'B', 13.0);
         assert!(terminal_font_glyph_cache_len_for_tests() >= 1);
+    }
+
+    #[test]
+    fn terminal_font_glyph_cache_prunes_at_cap() {
+        assert!(!terminal_font_glyph_cache_should_prune(
+            TERMINAL_FONT_GLYPH_CACHE_MAX - 1
+        ));
+        assert!(terminal_font_glyph_cache_should_prune(
+            TERMINAL_FONT_GLYPH_CACHE_MAX
+        ));
+        assert!(terminal_font_glyph_cache_should_prune(
+            TERMINAL_FONT_GLYPH_CACHE_MAX + 1
+        ));
     }
 
     #[test]
