@@ -329,12 +329,23 @@ fn render_events_text(model: &TerminalEventsModel) -> String {
 }
 
 fn terminal_scene_label_text(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        text.to_string()
-    } else {
-        let mut out = text.chars().take(max.saturating_sub(1)).collect::<String>();
+    if max == 0 {
+        return String::new();
+    }
+    let mut chars = text.chars();
+    let mut out = String::new();
+    for _ in 0..max {
+        let Some(ch) = chars.next() else {
+            return text.to_string();
+        };
+        out.push(ch);
+    }
+    if chars.next().is_some() {
+        out.pop();
         out.push('…');
         out
+    } else {
+        text.to_string()
     }
 }
 
@@ -672,6 +683,17 @@ mod tests {
                 .any(|label| label.contains("panes=2 focus=native-2 layout=rows details=1")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn terminal_scene_label_text_uses_bounded_prefix_for_huge_fields() {
+        let huge = "terminal-event-".repeat(10_000);
+        let clipped = terminal_scene_label_text(&huge, 16);
+        assert_eq!(clipped, "terminal-event-…");
+        assert_eq!(clipped.chars().count(), 16);
+        assert_eq!(terminal_scene_label_text("short", 16), "short");
+        assert_eq!(terminal_scene_label_text("anything", 1), "…");
+        assert_eq!(terminal_scene_label_text("anything", 0), "");
     }
 
     #[test]
