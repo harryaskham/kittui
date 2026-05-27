@@ -674,7 +674,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             }
             clear = false;
             if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
-                std::thread::sleep(slack);
+                std::thread::sleep(frame_sleep_chunk(slack));
             }
             continue;
         }
@@ -898,7 +898,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         frame_out.write_to(&mut handle)?;
         if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
-            std::thread::sleep(slack);
+            std::thread::sleep(frame_sleep_chunk(slack));
         }
     }
 }
@@ -5275,6 +5275,18 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn frame_sleep_chunk_caps_long_slack_for_responsiveness() {
+        assert_eq!(
+            frame_sleep_chunk(Duration::from_millis(100)),
+            Duration::from_millis(16)
+        );
+        assert_eq!(
+            frame_sleep_chunk(Duration::from_millis(3)),
+            Duration::from_millis(3)
+        );
+    }
+
+    #[test]
     fn pure_terminal_frame_write_decision_skips_unchanged_frames() {
         assert!(should_write_pure_terminal_frame(
             "", "frame-a", false, false
@@ -6492,7 +6504,7 @@ pub fn run_loop_with<S: XServer>(
                 if slack < Duration::from_micros(500) {
                     break;
                 }
-                std::thread::sleep(slack);
+                std::thread::sleep(frame_sleep_chunk(slack));
             }
         } else {
             dbg.log(&format!(
@@ -6515,6 +6527,10 @@ pub fn run_loop_with<S: XServer>(
             fps_window_start = std::time::Instant::now();
         }
     }
+}
+
+fn frame_sleep_chunk(slack: Duration) -> Duration {
+    slack.min(Duration::from_millis(16))
 }
 
 /// Append-only log for the kittui-wm session. Stderr is invisible inside
