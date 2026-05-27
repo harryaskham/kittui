@@ -159,7 +159,7 @@ fn real_main() -> Result<()> {
     let mut placed = false;
     let mut last_frame_key: Option<(usize, u64)> = None;
     let mut frame = 0u64;
-    let mut last_status: Option<(u16, String)> = None;
+    let mut last_status: Option<BrowserStatusCache> = None;
     let show_status_frame = browser_status_frame_counter_enabled();
     let status_metadata = BrowserStatusMetadata::from_env();
     let status_url = truncate(&url, 40).into_owned();
@@ -280,25 +280,24 @@ fn real_main() -> Result<()> {
                 wrote_output = true;
             }
         }
-        let status = browser_status_text_for_cols_with_precomputed_url(
+        let old_status_row = last_status.as_ref().map(|status| status.row);
+        let status = browser_status_for_frame(
+            &mut last_status,
+            viewport.status_row,
+            viewport.cols,
             &status_url,
             frame,
             show_status_frame,
-            viewport.cols,
             &status_metadata,
         );
-        if should_write_browser_status(last_status.as_ref(), viewport.status_row, &status) {
-            if let Some((old_row, _)) = last_status.as_ref() {
-                if *old_row != viewport.status_row {
+        if should_write_browser_status(old_status_row, status.row, status.changed) {
+            if let Some(old_row) = old_status_row {
+                if old_row != status.row {
                     write!(handle, "\x1b[0m\x1b[{};1H\x1b[K", old_row)?;
                 }
             }
-            write!(
-                handle,
-                "\x1b[0m\x1b[{};1H\x1b[K{}",
-                viewport.status_row, status
-            )?;
-            last_status = Some((viewport.status_row, status));
+            let status_text = status.text.unwrap_or_default();
+            write!(handle, "\x1b[0m\x1b[{};1H\x1b[K{}", status.row, status_text)?;
             wrote_output = true;
         }
         if wrote_output {
@@ -908,6 +907,19 @@ struct BrowserStatusMetadata {
     socket: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BrowserStatusCache {
+    row: u16,
+    cols: u16,
+    text: String,
+}
+
+struct BrowserStatusFrame<'a> {
+    row: u16,
+    text: Option<&'a str>,
+    changed: bool,
+}
+
 impl BrowserStatusMetadata {
     fn from_env() -> Self {
         Self {
@@ -974,6 +986,50 @@ fn browser_status_text_for_cols_with_precomputed_url(
     )
 }
 
+fn browser_status_for_frame<'a>(
+    cache: &'a mut Option<BrowserStatusCache>,
+    row: u16,
+    cols: u16,
+    url_label: &str,
+    frame: u64,
+    show_frame: bool,
+    metadata: &BrowserStatusMetadata,
+) -> BrowserStatusFrame<'a> {
+    if !show_frame {
+        if let Some(cached) = cache.as_ref() {
+            if cached.row == row && cached.cols == cols {
+                return BrowserStatusFrame {
+                    row: cached.row,
+                    text: None,
+                    changed: false,
+                };
+            }
+        }
+    }
+    let text = browser_status_text_for_cols_with_precomputed_url(
+        url_label,
+        show_frame.then_some(frame).unwrap_or(0),
+        show_frame,
+        cols,
+        metadata,
+    );
+    let changed = cache
+        .as_ref()
+        .map(|cached| cached.row != row || cached.cols != cols || cached.text != text)
+        .unwrap_or(true);
+    *cache = Some(BrowserStatusCache { row, cols, text });
+    let cached = cache.as_ref().expect("status cache was just populated");
+    BrowserStatusFrame {
+        row: cached.row,
+        text: Some(&cached.text),
+        changed,
+    }
+}
+
+fn should_write_browser_status(old_row: Option<u16>, next_row: u16, changed: bool) -> bool {
+    old_row.is_none() || changed || old_row != Some(next_row)
+}
+
 fn clip_to_cols(s: &str, cols: usize) -> String {
     if cols == 0 {
         return String::new();
@@ -992,17 +1048,6 @@ fn clip_to_cols(s: &str, cols: usize) -> String {
     out.pop();
     out.push('…');
     out
-}
-
-fn should_write_browser_status(
-    last_status: Option<&(u16, String)>,
-    next_row: u16,
-    next_status: &str,
-) -> bool {
-    match last_status {
-        Some((row, status)) => *row != next_row || status != next_status,
-        None => true,
-    }
 }
 
 fn browser_frame_key(bytes: &[u8]) -> (usize, u64) {
@@ -1521,17 +1566,35 @@ mod tests {
             browser_status_text_for_cols("https://example.com/a", 42, false, 1),
             "…"
         );
-        assert!(should_write_browser_status(None, 24, &stable));
-        assert!(!should_write_browser_status(
-            Some(&(24, stable.clone())),
+        assert!(should_write_browser_status(None, 24, true));
+        assert!(!should_write_browser_status(Some(24), 24, false));
+        assert!(should_write_browser_status(Some(23), 24, false));
+        let mut cache = None;
+        let first = browser_status_for_frame(
+            &mut cache,
             24,
-            &stable
-        ));
-        assert!(should_write_browser_status(
-            Some(&(23, stable.clone())),
+            80,
+            "https://example.com/a",
+            1,
+            false,
+            &metadata,
+        );
+        assert!(first.changed);
+        let second =
+            browser_status_for_frame(&mut cache, 24, 80, "ignored-new-url", 2, false, &metadata);
+        assert!(!second.changed);
+        assert_eq!(second.text, None);
+        let resized = browser_status_for_frame(
+            &mut cache,
             24,
-            &stable
-        ));
+            12,
+            "https://example.com/a",
+            3,
+            false,
+            &metadata,
+        );
+        assert!(resized.changed);
+        assert_eq!(resized.text.unwrap().chars().count(), 12);
         std::env::set_var("KITTWM_BROWSER_STATUS_FRAMES", "1");
         assert!(browser_status_frame_counter_enabled());
         std::env::remove_var("KITTWM_BROWSER_STATUS_FRAMES");
