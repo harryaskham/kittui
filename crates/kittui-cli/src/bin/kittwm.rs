@@ -6044,7 +6044,7 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
 
 fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate]) -> Scene {
     let cols = info_scene_cols();
-    let rows = (candidates.len() as u16 + 5).clamp(8, 24);
+    let rows = launcher_scene_rows(candidates.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -6124,6 +6124,11 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
 
 fn launcher_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn launcher_scene_rows(candidate_count: usize) -> u16 {
+    let count = candidate_count.min(u16::MAX as usize) as u16;
+    count.saturating_add(5).clamp(8, 24)
 }
 
 fn native_terminal_cmd() -> Result<()> {
@@ -6921,6 +6926,14 @@ mod tests {
             labels.iter().any(|label| label.contains("--spawn-pty CMD")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn launcher_scene_rows_saturate_before_clamping() {
+        assert_eq!(launcher_scene_rows(0), 8);
+        assert_eq!(launcher_scene_rows(3), 8);
+        assert_eq!(launcher_scene_rows(19), 24);
+        assert_eq!(launcher_scene_rows(usize::MAX), 24);
     }
 
     #[test]
