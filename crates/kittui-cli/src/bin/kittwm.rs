@@ -2159,13 +2159,12 @@ fn resolve_capture_spec(spec: &str) -> Result<kittui_quartz::CaptureTarget> {
         return Ok(CaptureTarget::Display(chosen.id));
     }
     if let Some(needle) = spec.strip_prefix("window:") {
-        let needle_lc = needle.to_ascii_lowercase();
         let windows = QuartzServer::list_app_windows();
         let chosen = windows
             .iter()
             .find(|w| {
-                ascii_casefold_contains_lower(&w.title, &needle_lc)
-                    || ascii_casefold_contains_lower(&w.owner_name, &needle_lc)
+                ascii_casefold_contains(&w.title, needle)
+                    || ascii_casefold_contains(&w.owner_name, needle)
             })
             .ok_or_else(|| {
                 anyhow!(
@@ -6102,10 +6101,9 @@ fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> V
     let Some(query) = query else {
         return items.into_iter().take(limit).collect();
     };
-    let q = query.to_ascii_lowercase();
     let mut scored: Vec<(u8, String)> = items
         .into_iter()
-        .filter_map(|item| candidate_match_score(&item, &q).map(|score| (score, item)))
+        .filter_map(|item| candidate_match_score(&item, query).map(|score| (score, item)))
         .collect();
     scored.sort_by(|(a_score, a), (b_score, b)| a_score.cmp(b_score).then_with(|| a.cmp(b)));
     scored
@@ -6115,35 +6113,35 @@ fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> V
         .collect()
 }
 
-fn candidate_match_score(item: &str, lower_query: &str) -> Option<u8> {
-    if ascii_casefold_eq_lower(item, lower_query) {
+fn candidate_match_score(item: &str, query: &str) -> Option<u8> {
+    if ascii_casefold_eq(item, query) {
         Some(0)
-    } else if ascii_casefold_starts_with_lower(item, lower_query) {
+    } else if ascii_casefold_starts_with(item, query) {
         Some(1)
-    } else if ascii_casefold_contains_lower(item, lower_query) {
+    } else if ascii_casefold_contains(item, query) {
         Some(2)
     } else {
         None
     }
 }
 
-fn ascii_casefold_eq_lower(item: &str, lower_query: &str) -> bool {
-    item.len() == lower_query.len() && ascii_casefold_starts_with_lower(item, lower_query)
+fn ascii_casefold_eq(item: &str, query: &str) -> bool {
+    item.len() == query.len() && ascii_casefold_starts_with(item, query)
 }
 
-fn ascii_casefold_starts_with_lower(item: &str, lower_query: &str) -> bool {
+fn ascii_casefold_starts_with(item: &str, query: &str) -> bool {
     let item = item.as_bytes();
-    let query = lower_query.as_bytes();
+    let query = query.as_bytes();
     item.len() >= query.len()
         && item
             .iter()
             .zip(query.iter())
-            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+            .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
 }
 
-fn ascii_casefold_contains_lower(item: &str, lower_query: &str) -> bool {
+fn ascii_casefold_contains(item: &str, query: &str) -> bool {
     let item = item.as_bytes();
-    let query = lower_query.as_bytes();
+    let query = query.as_bytes();
     if query.is_empty() {
         return true;
     }
@@ -6152,7 +6150,7 @@ fn ascii_casefold_contains_lower(item: &str, lower_query: &str) -> bool {
             window
                 .iter()
                 .zip(query.iter())
-                .all(|(a, b)| a.to_ascii_lowercase() == *b)
+                .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
         })
 }
 
@@ -7477,16 +7475,16 @@ mod tests {
     }
 
     #[test]
-    fn candidate_match_score_avoids_candidate_lowercase_allocation() {
+    fn candidate_match_score_avoids_candidate_and_query_lowercase_allocation() {
         let huge = format!("{}Needle{}", "x".repeat(10_000), "y".repeat(10_000));
-        assert_eq!(candidate_match_score("Needle", "needle"), Some(0));
-        assert_eq!(candidate_match_score("NeedleSuffix", "needle"), Some(1));
-        assert_eq!(candidate_match_score(&huge, "needle"), Some(2));
+        assert_eq!(candidate_match_score("Needle", "NeEdLe"), Some(0));
+        assert_eq!(candidate_match_score("NeedleSuffix", "NEEDLE"), Some(1));
+        assert_eq!(candidate_match_score(&huge, "nEeDlE"), Some(2));
         assert_eq!(candidate_match_score(&huge, "missing"), None);
-        assert!(ascii_casefold_contains_lower("RésuméNeedle", "needle"));
+        assert!(ascii_casefold_contains("RésuméNeedle", "NeEdLe"));
         let huge_title = format!("{}Terminal{}", "x".repeat(10_000), "y".repeat(10_000));
-        assert!(ascii_casefold_contains_lower(&huge_title, "terminal"));
-        assert!(!ascii_casefold_contains_lower(&huge_title, "browser"));
+        assert!(ascii_casefold_contains(&huge_title, "TERMINAL"));
+        assert!(!ascii_casefold_contains(&huge_title, "browser"));
     }
 
     #[test]
