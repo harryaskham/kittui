@@ -655,7 +655,7 @@ fn parse_args() -> Result<Cli> {
                 let needle = args
                     .next()
                     .ok_or_else(|| anyhow!("--wait-text WINDOW NEEDLE"))?;
-                out.automation_request = Some(automation_request("WAIT_TEXT", &window, &needle)?);
+                out.automation_request = Some(wait_request("WAIT_TEXT", &window, &needle)?);
             }
             "--wait-text-json" => {
                 let window = args
@@ -664,8 +664,7 @@ fn parse_args() -> Result<Cli> {
                 let needle = args
                     .next()
                     .ok_or_else(|| anyhow!("--wait-text-json WINDOW NEEDLE"))?;
-                out.automation_request =
-                    Some(automation_request("WAIT_TEXT_JSON", &window, &needle)?);
+                out.automation_request = Some(wait_request("WAIT_TEXT_JSON", &window, &needle)?);
             }
             "--wait-output" => {
                 let window = args
@@ -674,7 +673,7 @@ fn parse_args() -> Result<Cli> {
                 let needle = args
                     .next()
                     .ok_or_else(|| anyhow!("--wait-output WINDOW NEEDLE"))?;
-                out.automation_request = Some(automation_request("WAIT_OUTPUT", &window, &needle)?);
+                out.automation_request = Some(wait_request("WAIT_OUTPUT", &window, &needle)?);
             }
             "--wait-output-json" => {
                 let window = args
@@ -683,8 +682,7 @@ fn parse_args() -> Result<Cli> {
                 let needle = args
                     .next()
                     .ok_or_else(|| anyhow!("--wait-output-json WINDOW NEEDLE"))?;
-                out.automation_request =
-                    Some(automation_request("WAIT_OUTPUT_JSON", &window, &needle)?);
+                out.automation_request = Some(wait_request("WAIT_OUTPUT_JSON", &window, &needle)?);
             }
             "--wait-text-ms" => {
                 let ms = args
@@ -1488,7 +1486,11 @@ fn default_window_payload_alias(verb: &str, label: &str, argv: &[String]) -> Res
         [] => return Err(anyhow!("usage: kittwm {label} [WINDOW] VALUE")),
         _ => return Err(anyhow!("usage: kittwm {label} [WINDOW] VALUE")),
     };
-    text_payload_request(verb, window, payload, label)
+    if verb.trim().to_ascii_uppercase().starts_with("WAIT_") {
+        wait_request(verb, window, payload)
+    } else {
+        text_payload_request(verb, window, payload, label)
+    }
 }
 
 fn parse_pane_control_alias(alias: &str, mut args: impl Iterator<Item = String>) -> Result<String> {
@@ -2951,6 +2953,19 @@ fn events_request(ms: &str) -> Result<String> {
     Ok(format!("EVENTS {parsed}"))
 }
 
+fn wait_needle(needle: &str, verb: &str) -> Result<String> {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return Err(anyhow!("{verb} needle must be nonempty"));
+    }
+    Ok(needle.to_string())
+}
+
+fn wait_request(verb: &str, window: &str, needle: &str) -> Result<String> {
+    let needle = wait_needle(needle, verb)?;
+    automation_request(verb, window, &needle)
+}
+
 fn wait_ms_request(verb: &str, ms: &str, window: &str, needle: &str) -> Result<String> {
     let parsed = ms
         .trim()
@@ -2959,6 +2974,7 @@ fn wait_ms_request(verb: &str, ms: &str, window: &str, needle: &str) -> Result<S
     if parsed == 0 || parsed > 60_000 {
         return Err(anyhow!("{verb} must be in 1..=60000"));
     }
+    let needle = wait_needle(needle, verb)?;
     automation_request(verb, window, &format!("{parsed} {needle}"))
 }
 
@@ -8014,10 +8030,11 @@ END
             "SEND_KEY focused ctrl-c"
         );
         assert_eq!(
-            default_window_payload_alias("WAIT_OUTPUT", "wait", &args(&["native-2", "Ready"]))
+            default_window_payload_alias("WAIT_OUTPUT", "wait", &args(&["native-2", " Ready "]))
                 .unwrap(),
             "WAIT_OUTPUT native-2 Ready"
         );
+        assert!(default_window_payload_alias("WAIT_OUTPUT", "wait", &args(&["   "])).is_err());
         assert!(spawn_alias_request(&[]).is_err());
         assert!(read_alias_request(false, &args(&["a", "b"])).is_err());
     }
@@ -8271,17 +8288,18 @@ END
             "PASTE_BYTES_B64 focused AP8bWzMxbQ=="
         );
         assert_eq!(
-            wait_ms_request("WAIT_OUTPUT_MS", "2500", "focused", "Ready Now").unwrap(),
+            wait_ms_request("WAIT_OUTPUT_MS", "2500", "focused", " Ready Now ").unwrap(),
             "WAIT_OUTPUT_MS focused 2500 Ready Now"
         );
         assert_eq!(
-            automation_request("WAIT_OUTPUT_JSON", "focused", "Ready Now").unwrap(),
+            wait_request("WAIT_OUTPUT_JSON", "focused", " Ready Now ").unwrap(),
             "WAIT_OUTPUT_JSON focused Ready Now"
         );
         assert_eq!(
-            wait_ms_request("WAIT_OUTPUT_JSON_MS", "2500", "focused", "Ready Now").unwrap(),
+            wait_ms_request("WAIT_OUTPUT_JSON_MS", "2500", "focused", " Ready Now ").unwrap(),
             "WAIT_OUTPUT_JSON_MS focused 2500 Ready Now"
         );
+        assert!(wait_request("WAIT_TEXT", "focused", "   ").is_err());
         assert_eq!(
             semantic_snapshot_request("focused").unwrap(),
             "SEMANTIC_SNAPSHOT focused"
