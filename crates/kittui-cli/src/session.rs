@@ -1654,10 +1654,13 @@ fn terminal_visible_width(x: u16, desired: u16, cols: u16) -> Option<usize> {
         .filter(|width| *width > 0)
 }
 
+const NATIVE_STATUS_LOG_PATH_MAX_CHARS: usize = 96;
+
 fn native_status_line_text(panes: usize, log_path: &str) -> String {
     if panes == 0 {
         String::new()
     } else {
+        let log_path = bounded_ellipsis(log_path, NATIVE_STATUS_LOG_PATH_MAX_CHARS);
         format!(" C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: {log_path}")
     }
 }
@@ -4898,6 +4901,12 @@ mod native_pane_tests {
     #[test]
     fn native_footer_visible_text_clips_huge_log_paths_to_terminal_width() {
         let huge_footer = native_status_line_text(1, &format!("/tmp/{}", "x".repeat(10_000)));
+        assert!(huge_footer.contains('…'), "{huge_footer:?}");
+        assert!(
+            !huge_footer.contains(&"x".repeat(128)),
+            "{}",
+            huge_footer.len()
+        );
         let visible = native_footer_visible_text(&huge_footer, 24);
         assert_eq!(visible.chars().count(), 24);
         assert!(visible.starts_with(" C-a ? help"), "{visible:?}");
