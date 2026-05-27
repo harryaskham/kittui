@@ -281,18 +281,21 @@ fn terminal_status_scene_for_cols(model: &TerminalStatusModel, cols: u16) -> Sce
 }
 
 fn terminal_status_scene_cols() -> u16 {
-    terminal_status_scene_cols_from_value(
+    let detected = TerminalInfo::detect().columns;
+    terminal_status_scene_cols_from_sources(
         env::var("KITTWM_TERMINAL_STATUS_COLS")
             .or_else(|_| env::var("COLUMNS"))
             .ok()
             .as_deref(),
+        detected,
     )
 }
 
-fn terminal_status_scene_cols_from_value(value: Option<&str>) -> u16 {
+fn terminal_status_scene_cols_from_sources(value: Option<&str>, detected_cols: Option<u16>) -> u16 {
     value
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|cols| *cols > 0)
+        .or_else(|| detected_cols.filter(|cols| *cols > 0))
         .map(|cols| cols.min(120))
         .unwrap_or(56)
 }
@@ -599,9 +602,24 @@ mod tests {
 
     #[test]
     fn terminal_status_scene_width_respects_narrow_columns() {
-        assert_eq!(terminal_status_scene_cols_from_value(Some("8")), 8);
-        assert_eq!(terminal_status_scene_cols_from_value(Some("0")), 56);
-        assert_eq!(terminal_status_scene_cols_from_value(Some("240")), 120);
+        assert_eq!(terminal_status_scene_cols_from_sources(Some("8"), None), 8);
+        assert_eq!(terminal_status_scene_cols_from_sources(Some("0"), None), 56);
+        assert_eq!(
+            terminal_status_scene_cols_from_sources(None, Some(100)),
+            100
+        );
+        assert_eq!(
+            terminal_status_scene_cols_from_sources(Some("0"), Some(100)),
+            100
+        );
+        assert_eq!(
+            terminal_status_scene_cols_from_sources(Some("240"), Some(100)),
+            120
+        );
+        assert_eq!(
+            terminal_status_scene_cols_from_sources(None, Some(u16::MAX)),
+            120
+        );
 
         let model = TerminalStatusModel {
             panes: 1,
