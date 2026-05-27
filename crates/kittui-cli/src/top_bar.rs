@@ -134,6 +134,19 @@ impl BarModel {
         labels
     }
 
+    fn workspace_chip_labels_for_scene(&self, cols: u16) -> Vec<String> {
+        let labels = self.workspace_chip_labels();
+        let total_cols = labels
+            .iter()
+            .map(|label| label.chars().count() as u16 + 3)
+            .sum::<u16>();
+        if total_cols > cols {
+            self.workspace_chip_labels_active_first()
+        } else {
+            labels
+        }
+    }
+
     /// Render the bar as a one-line kittui scene.
     pub fn scene(&self, cols: u16) -> Scene {
         self.scene_with_prefix(cols, "kittwm-bar")
@@ -156,7 +169,7 @@ impl BarModel {
         let chip_h = (cell_h - 4.0).max(6.0);
         let scene_w = cols.max(1) as f32 * cell_w;
         let mut chip_x = 1.0;
-        for label in self.workspace_chip_labels() {
+        for label in self.workspace_chip_labels_for_scene(cols) {
             let active = self.workspace.trim() == label;
             let natural_chip_w = (label.chars().count() as f32 + 2.0).max(3.0) * cell_w;
             let Some(chip_w) = top_bar_bounded_chip_width(scene_w, chip_x, natural_chip_w, cell_w)
@@ -619,5 +632,28 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("workspace-chip:dev:active")));
+    }
+
+    #[test]
+    fn constrained_scene_prioritizes_active_workspace_chip() {
+        let model = BarModel::new("3", 0, "-", false, UNIX_EPOCH);
+        let scene = model.scene(4);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("workspace-chip:3:active")),
+            "{labels:?}"
+        );
+        assert!(
+            !labels
+                .iter()
+                .any(|label| label.contains("workspace-chip:1:inactive")),
+            "{labels:?}"
+        );
     }
 }
