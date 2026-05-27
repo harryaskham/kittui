@@ -88,6 +88,12 @@ struct NativePngFrameDecision {
     placement: NativeAppPlacementDecision,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NativeChromePlacementMemo {
+    key: String,
+    image_id: u32,
+}
+
 fn decide_native_app_placement_write(
     placements: &mut HashMap<u32, CellRect>,
     image_id: u32,
@@ -199,6 +205,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut prev_native_image_ids = HashSet::<u32>::new();
     let mut native_app_placements = HashMap::<u32, CellRect>::new();
     let mut native_png_hashes = HashMap::<u32, u64>::new();
+    let mut affordance_chrome_keys = HashMap::<String, NativeChromePlacementMemo>::new();
     loop {
         let frame_start = Instant::now();
         let mut chunk = [0u8; 1024];
@@ -673,9 +680,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         if clear {
             frame_out.write_all(b"\x1b[2J")?;
+            for memo in affordance_chrome_keys.values() {
+                frame_out.write_all(runtime.unplace(memo.image_id).as_bytes())?;
+            }
             last_title_rows.clear();
             last_top_bar.clear();
             last_footer.clear();
+            affordance_chrome_keys.clear();
             clear = false;
         }
         if last_title_rows.len() != shell_view.panes.len() {
@@ -848,7 +859,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             }
         }
         if affordance_scene_chrome {
-            write_native_shell_affordance_chrome(&mut frame_out, runtime, &shell_view, cols)?;
+            write_native_shell_affordance_chrome(
+                &mut frame_out,
+                runtime,
+                &shell_view,
+                cols,
+                &mut affordance_chrome_keys,
+            )?;
             if shell_view.help_overlay {
                 write_native_help_overlay(&mut frame_out, cols, rows)?;
             }
@@ -3516,22 +3533,66 @@ fn write_native_shell_affordance_chrome<W: Write>(
     runtime: &Runtime,
     view: &NativeShellView,
     cols: u16,
+    last_keys: &mut HashMap<String, NativeChromePlacementMemo>,
 ) -> Result<()> {
-    for chrome in render_native_shell_view_affordance_scenes(view, native_cell_size(), cols) {
+    let scenes = render_native_shell_view_affordance_scenes(view, native_cell_size(), cols);
+    let current_ids = scenes
+        .iter()
+        .map(|chrome| chrome.id.clone())
+        .collect::<HashSet<_>>();
+    let retired = last_keys
+        .keys()
+        .filter(|id| !current_ids.contains(*id))
+        .cloned()
+        .collect::<Vec<_>>();
+    for id in retired {
+        if let Some(memo) = last_keys.remove(&id) {
+            out.write_all(runtime.unplace(memo.image_id).as_bytes())?;
+        }
+    }
+
+    for chrome in scenes {
+        let key = native_shell_chrome_scene_key(&chrome);
+        if last_keys.get(&chrome.id).map(|memo| memo.key.as_str()) == Some(key.as_str()) {
+            continue;
+        }
         let placement = CellRect::new(
             chrome.x,
             chrome.y,
             chrome.scene.footprint.cols,
             chrome.scene.footprint.rows,
         );
-        let mut placement_options = kittui_kitty::PlacementOptions::absolute();
-        placement_options.z_index = native_chrome_z_index();
+        let image_id = chrome.scene.id().kitty_image_id();
+        let placement_options = kittui_kitty::PlacementOptions::stable_absolute(image_id)
+            .with_z_index(native_chrome_z_index());
         let p = runtime.place_at_with_options(&chrome.scene, placement, &placement_options)?;
         out.write_all(p.upload.as_bytes())?;
         out.write_all(p.placement.as_bytes())?;
         out.write_all(p.embed.as_bytes())?;
+        last_keys.insert(chrome.id, NativeChromePlacementMemo { key, image_id });
     }
     Ok(())
+}
+
+fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
+    let labels = chrome
+        .scene
+        .layers
+        .iter()
+        .filter_map(|layer| layer.label.as_deref())
+        .collect::<Vec<_>>()
+        .join("|");
+    format!(
+        "{}@{},{}:{}x{}:{}:{}:{}",
+        chrome.id,
+        chrome.x,
+        chrome.y,
+        chrome.scene.footprint.cols,
+        chrome.scene.footprint.rows,
+        chrome.scene.cell_size.width_px,
+        chrome.scene.id().0,
+        labels,
+    )
 }
 
 fn clip_and_pad(text: &str, width: usize) -> String {
@@ -4499,6 +4560,34 @@ mod native_pane_tests {
             node => panic!("expected pane title gutter rect, got {node:?}"),
         }
         assert!(scenes.iter().all(|chrome| !chrome.scene.layers.is_empty()));
+    }
+
+    #[test]
+    fn native_shell_chrome_scene_key_tracks_placement_and_scene_identity() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 4,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let mut scenes =
+            render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80);
+        let baseline = native_shell_chrome_scene_key(&scenes[0]);
+        assert_eq!(baseline, native_shell_chrome_scene_key(&scenes[0]));
+
+        scenes[0].x = 1;
+        assert_ne!(baseline, native_shell_chrome_scene_key(&scenes[0]));
+
+        let mut changed_scene = scenes[0].clone();
+        changed_scene.x = 0;
+        changed_scene.scene.layers[0].label = Some("changed-top-bar-state".to_string());
+        assert_ne!(baseline, native_shell_chrome_scene_key(&changed_scene));
     }
 
     #[test]
