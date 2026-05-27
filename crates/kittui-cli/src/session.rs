@@ -2979,16 +2979,18 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
         }
     }
     if view.help_overlay {
-        for (idx, line) in native_help_overlay_lines().iter().enumerate() {
-            let row = 2 + idx as u16;
-            if row >= rows {
-                break;
+        if let Some(help_width) = native_help_overlay_ansi_width(cols) {
+            for (idx, line) in native_help_overlay_lines().iter().enumerate() {
+                let row = 2 + idx as u16;
+                if row >= rows {
+                    break;
+                }
+                out.push_str(&format!(
+                    "\x1b[{};3H\x1b[7m {} \x1b[0m",
+                    row + 1,
+                    clip_and_pad(line, help_width)
+                ));
             }
-            out.push_str(&format!(
-                "\x1b[{};3H\x1b[7m {} \x1b[0m",
-                row + 1,
-                clip_and_pad(line, cols.saturating_sub(4) as usize)
-            ));
         }
     }
     if !view.footer.text.is_empty() {
@@ -4185,7 +4187,14 @@ fn native_pane_title_key_from_text(text: &str, layout: NativePaneLayout, focused
     )
 }
 
+fn native_help_overlay_ansi_width(cols: u16) -> Option<usize> {
+    (cols >= 5).then_some(cols.saturating_sub(4) as usize)
+}
+
 fn write_native_help_overlay<W: Write>(out: &mut W, cols: u16, rows: u16) -> Result<()> {
+    let Some(help_width) = native_help_overlay_ansi_width(cols) else {
+        return Ok(());
+    };
     for (idx, line) in native_help_overlay_lines().iter().enumerate() {
         let row = 2 + idx as u16;
         if row >= rows {
@@ -4195,7 +4204,7 @@ fn write_native_help_overlay<W: Write>(out: &mut W, cols: u16, rows: u16) -> Res
             out,
             "\x1b[{};3H\x1b[7m {} \x1b[0m",
             row + 1,
-            clip_and_pad(line, cols.saturating_sub(4) as usize)
+            clip_and_pad(line, help_width)
         )?;
     }
     Ok(())
@@ -4381,6 +4390,14 @@ mod native_pane_tests {
     fn graphical_top_bar_overlay_clears_row_before_rewrite() {
         assert_eq!(native_graphical_top_bar_overlay_clear(1), "\x1b[1;1H\x1b[K");
         assert_eq!(native_graphical_top_bar_overlay_clear(3), "\x1b[3;1H\x1b[K");
+    }
+
+    #[test]
+    fn ansi_help_overlay_width_requires_left_margin() {
+        assert_eq!(native_help_overlay_ansi_width(0), None);
+        assert_eq!(native_help_overlay_ansi_width(4), None);
+        assert_eq!(native_help_overlay_ansi_width(5), Some(1));
+        assert_eq!(native_help_overlay_ansi_width(80), Some(76));
     }
 
     #[test]
