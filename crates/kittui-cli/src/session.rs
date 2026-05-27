@@ -4421,9 +4421,14 @@ fn native_shell_chrome_scene_visual_hash(scene: &Scene) -> u64 {
 }
 
 fn clip_and_pad(text: &str, width: usize) -> String {
-    let mut clipped = text.chars().take(width).collect::<String>();
-    while clipped.chars().count() < width {
-        clipped.push(' ');
+    let mut count = 0usize;
+    let mut clipped = String::new();
+    for ch in text.chars().take(width) {
+        clipped.push(ch);
+        count += 1;
+    }
+    if count < width {
+        clipped.extend(std::iter::repeat(' ').take(width - count));
     }
     clipped
 }
@@ -4727,6 +4732,14 @@ mod native_pane_tests {
         assert_eq!(native_help_overlay_ansi_width(4), None);
         assert_eq!(native_help_overlay_ansi_width(5), Some(1));
         assert_eq!(native_help_overlay_ansi_width(80), Some(76));
+    }
+
+    #[test]
+    fn clip_and_pad_tracks_width_without_recounting_padding() {
+        assert_eq!(clip_and_pad("abc", 6), "abc   ");
+        assert_eq!(clip_and_pad("abcdef", 3), "abc");
+        assert_eq!(clip_and_pad("éx", 4), "éx  ");
+        assert_eq!(clip_and_pad("anything", 0), "");
     }
 
     #[test]
