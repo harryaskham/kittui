@@ -1067,6 +1067,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 cols,
                 &mut affordance_chrome_keys,
             )?;
+            if redraw_static || shell_view.top_bar.text != last_top_bar {
+                write_native_graphical_top_bar_text_overlay(&mut frame_out, &shell_view, cols)?;
+                last_top_bar = shell_view.top_bar.text.clone();
+            }
         }
         if !affordance_scene_chrome
             && !shell_view.footer.text.is_empty()
@@ -3737,6 +3741,58 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
         layers,
         animation: None,
     }
+}
+
+fn write_native_graphical_top_bar_text_overlay<W: Write>(
+    out: &mut W,
+    view: &NativeShellView,
+    cols: u16,
+) -> Result<()> {
+    let row = view.top_bar.row + 1;
+    let clock = native_top_bar_model_from_view(view)
+        .time
+        .strip_suffix(" UTC")
+        .unwrap_or("00:00")
+        .to_string();
+    write!(out, "\x1b[{};1H", row)?;
+    for idx in 1..=3 {
+        let active = idx == 1;
+        let (fg, bg) = if active {
+            (Rgba(0x2e, 0x34, 0x40, 255), Rgba(0x88, 0xc0, 0xd0, 255))
+        } else {
+            (Rgba(0xec, 0xef, 0xf4, 255), Rgba(0x3b, 0x42, 0x52, 235))
+        };
+        write!(
+            out,
+            "\x1b[1m{}{} {} \x1b[0m ",
+            ansi_fg(fg),
+            ansi_bg(bg),
+            idx
+        )?;
+    }
+    let clock_text = format!(" {clock} ");
+    let clock_col = cols
+        .saturating_sub(clock_text.chars().count() as u16)
+        .saturating_add(1)
+        .max(1);
+    write!(
+        out,
+        "\x1b[{};{}H\x1b[1m{}{}{}\x1b[0m",
+        row,
+        clock_col,
+        ansi_fg(Rgba(0xec, 0xef, 0xf4, 255)),
+        ansi_bg(Rgba(0x2e, 0x34, 0x40, 240)),
+        clock_text
+    )?;
+    Ok(())
+}
+
+fn ansi_fg(color: Rgba) -> String {
+    format!("\x1b[38;2;{};{};{}m", color.0, color.1, color.2)
+}
+
+fn ansi_bg(color: Rgba) -> String {
+    format!("\x1b[48;2;{};{};{}m", color.0, color.1, color.2)
 }
 
 fn write_native_shell_affordance_chrome<W: Write>(

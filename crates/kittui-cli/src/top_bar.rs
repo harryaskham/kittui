@@ -5,7 +5,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use kittui::{Layer, Node, Rgba, Scene};
+use kittui::{Corners, Layer, Node, Paint, PxRect, Rgba, Scene, Stroke};
 use kittui_affordances::{title_chrome, InlineChipColors, InlineStyle, InlineTheme};
 use ratatui::layout::Rect;
 use serde::Serialize;
@@ -108,8 +108,8 @@ impl BarModel {
 
     /// Render the bar as a one-line scene with caller-chosen diagnostic labels.
     pub fn scene_with_prefix(&self, cols: u16, label_prefix: &str) -> Scene {
-        let (left, right) = top_bar_theme_colors(self.connected, self.state.as_str());
-        let mut scene = title_chrome(left, right)
+        let theme = top_bar_theme(self.connected, self.state.as_str());
+        let mut scene = title_chrome(theme.fill, theme.border)
             .to_scene(Rect::new(0, 0, cols.max(1), 1))
             .expect("title chrome produces a one-line scene");
         for layer in &mut scene.layers {
@@ -117,22 +117,80 @@ impl BarModel {
                 layer.label = Some(format!("{label_prefix}:{}:{}", self.state, self.workspace));
             }
         }
+        let cell_w = scene.cell_size.width_px.max(1) as f32;
+        let cell_h = scene.cell_size.height_px.max(1) as f32;
+        let chip_w = 3.0 * cell_w;
+        let chip_h = (cell_h - 4.0).max(6.0);
         for idx in 1..=3 {
+            let active = self.workspace == idx.to_string();
+            let x = 1.0 + (idx - 1) as f32 * (chip_w + 3.0);
+            let y = ((cell_h - chip_h) / 2.0).max(0.0);
+            scene.layers.push(Layer::new(
+                format!("{label_prefix}-workspace-chip-shadow:{idx}"),
+                Node::Rect {
+                    rect: PxRect::new(x + 1.0, y + 1.0, chip_w, chip_h),
+                    fill: Paint::Solid {
+                        color: theme.shadow,
+                    },
+                    stroke: None,
+                    corners: Corners::uniform(7.0),
+                },
+            ));
             scene.layers.push(Layer::new(
                 format!(
                     "{label_prefix}-workspace-chip:{idx}:{}:action=workspace.switch.{idx}",
-                    if self.workspace == idx.to_string() {
-                        "active"
-                    } else {
-                        "inactive"
-                    }
+                    if active { "active" } else { "inactive" }
                 ),
-                Node::Group {
-                    opacity: 1.0,
-                    children: Vec::new(),
+                Node::Rect {
+                    rect: PxRect::new(x, y, chip_w, chip_h),
+                    fill: Paint::Solid {
+                        color: if active {
+                            theme.chip_active
+                        } else {
+                            theme.chip_inactive
+                        },
+                    },
+                    stroke: Some(Stroke::inside(
+                        if active { 2.0 } else { 1.0 },
+                        Paint::Solid {
+                            color: if active { theme.clock_fg } else { theme.border },
+                        },
+                    )),
+                    corners: Corners::uniform(7.0),
                 },
             ));
         }
+        let clock = self.time.strip_suffix(" UTC").unwrap_or(&self.time);
+        let clock_cols = clock.chars().count().max(5) as f32 + 2.0;
+        let clock_w = (clock_cols * cell_w).min(cols.max(1) as f32 * cell_w);
+        let clock_x = (cols.max(1) as f32 * cell_w - clock_w - 1.0).max(0.0);
+        scene.layers.push(Layer::new(
+            format!("{label_prefix}-clock-chip:{clock}:high-contrast"),
+            Node::Rect {
+                rect: PxRect::new(clock_x + 1.0, 1.0, clock_w, chip_h),
+                fill: Paint::Solid {
+                    color: theme.shadow,
+                },
+                stroke: None,
+                corners: Corners::uniform(7.0),
+            },
+        ));
+        scene.layers.push(Layer::new(
+            format!("{label_prefix}-clock-chip-foreground:{clock}"),
+            Node::Rect {
+                rect: PxRect::new(clock_x, ((cell_h - chip_h) / 2.0).max(0.0), clock_w, chip_h),
+                fill: Paint::Solid {
+                    color: theme.clock_bg,
+                },
+                stroke: Some(Stroke::inside(
+                    1.0,
+                    Paint::Solid {
+                        color: theme.clock_fg,
+                    },
+                )),
+                corners: Corners::uniform(7.0),
+            },
+        ));
         scene.layers.push(Layer::new(
             format!(
                 "{label_prefix}-text:{}",
@@ -147,14 +205,43 @@ impl BarModel {
     }
 }
 
-fn top_bar_theme_colors(connected: bool, state: &str) -> (Rgba, Rgba) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TopBarTheme {
+    fill: Rgba,
+    border: Rgba,
+    chip_active: Rgba,
+    chip_inactive: Rgba,
+    clock_bg: Rgba,
+    clock_fg: Rgba,
+    shadow: Rgba,
+}
+
+fn top_bar_theme(connected: bool, state: &str) -> TopBarTheme {
     let style = match (connected, state) {
         (true, "active") => InlineStyle::Neon,
         (true, _) => InlineStyle::Glass,
         (false, _) => InlineStyle::Metal,
     };
     let colors = InlineChipColors::resolve(InlineTheme::Nord, style);
-    (colors.fill, colors.border)
+    TopBarTheme {
+        fill: with_alpha(colors.fill, colors.fill.3.max(190)),
+        border: colors.border,
+        chip_active: with_alpha(colors.highlight, colors.highlight.3.max(230)),
+        chip_inactive: with_alpha(colors.fill, colors.fill.3.max(185)),
+        clock_bg: Rgba(0x2e, 0x34, 0x40, 235),
+        clock_fg: Rgba(0xec, 0xef, 0xf4, 255),
+        shadow: Rgba(0x00, 0x00, 0x00, 105),
+    }
+}
+
+#[cfg(test)]
+fn top_bar_theme_colors(connected: bool, state: &str) -> (Rgba, Rgba) {
+    let theme = top_bar_theme(connected, state);
+    (theme.fill, theme.border)
+}
+
+fn with_alpha(color: Rgba, alpha: u8) -> Rgba {
+    Rgba(color.0, color.1, color.2, alpha)
 }
 
 /// Workspace label from environment, defaulting to `1`.
@@ -243,5 +330,15 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("workspace-chip:1:active")));
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("workspace-chip-shadow:1")));
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("clock-chip-foreground:00:00")));
     }
 }
