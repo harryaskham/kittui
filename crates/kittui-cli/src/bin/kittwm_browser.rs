@@ -165,6 +165,7 @@ fn real_main() -> Result<()> {
     let idle_interval = browser_idle_frame_interval(active_interval);
     let static_interval = browser_static_frame_interval(idle_interval);
     let mut consecutive_idle_frames = 0u16;
+    let mut input_parser = BrowserInputParser::default();
     let mut stdin = std::io::stdin();
     loop {
         let start = Instant::now();
@@ -178,7 +179,7 @@ fn real_main() -> Result<()> {
             if buf[..n].contains(&0x1d) {
                 return Ok(());
             }
-            for action in browser_input_actions(&buf[..n]) {
+            for action in input_parser.actions(&buf[..n]) {
                 match action {
                     BrowserInputAction::Text(text) => browser.send_text(&text)?,
                     BrowserInputAction::Backspace => browser.send_backspace()?,
@@ -361,69 +362,99 @@ fn browser_ss3_input_action(byte: u8) -> Option<BrowserInputAction> {
     }
 }
 
-fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
-    let mut actions = Vec::new();
-    let mut text = Vec::new();
-    let mut idx = 0usize;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\r' | b'\n' => {
-                flush_browser_text_action(&mut actions, &mut text);
-                actions.push(BrowserInputAction::Enter);
-            }
-            0x08 | 0x7f => {
-                flush_browser_text_action(&mut actions, &mut text);
-                actions.push(BrowserInputAction::Backspace);
-            }
-            b'\t' => {
-                flush_browser_text_action(&mut actions, &mut text);
-                actions.push(BrowserInputAction::Tab);
-            }
-            0x1b if idx + 1 < bytes.len() && bytes[idx + 1] == b'[' => {
-                let (action, consumed) = browser_csi_input_action(&bytes[idx + 2..]);
-                if let Some(action) = action {
-                    flush_browser_text_action(&mut actions, &mut text);
-                    actions.push(action);
-                }
-                idx += consumed + 2;
-            }
-            0x1b if idx + 1 < bytes.len() && bytes[idx + 1] == b'O' => {
-                if idx + 2 < bytes.len() {
-                    if let Some(action) = browser_ss3_input_action(bytes[idx + 2]) {
-                        flush_browser_text_action(&mut actions, &mut text);
-                        actions.push(action);
-                    }
-                    idx += 2;
-                } else {
-                    idx += 1;
-                }
-            }
-            0x1b => {
-                flush_browser_text_action(&mut actions, &mut text);
-                actions.push(BrowserInputAction::Escape);
-            }
-            0x20..=0x7e | 0x80..=0xff => text.push(bytes[idx]),
-            _ => {}
-        }
-        idx += 1;
-    }
-    flush_browser_text_action(&mut actions, &mut text);
-    actions
+#[derive(Default)]
+struct BrowserInputParser {
+    pending_text: Vec<u8>,
 }
 
-fn flush_browser_text_action(actions: &mut Vec<BrowserInputAction>, text: &mut Vec<u8>) {
+impl BrowserInputParser {
+    fn actions(&mut self, bytes: &[u8]) -> Vec<BrowserInputAction> {
+        self.actions_inner(bytes, true)
+    }
+
+    #[cfg(test)]
+    fn actions_final(&mut self, bytes: &[u8]) -> Vec<BrowserInputAction> {
+        self.actions_inner(bytes, false)
+    }
+
+    fn actions_inner(
+        &mut self,
+        bytes: &[u8],
+        preserve_incomplete: bool,
+    ) -> Vec<BrowserInputAction> {
+        let mut actions = Vec::new();
+        let mut idx = 0usize;
+        while idx < bytes.len() {
+            match bytes[idx] {
+                b'\r' | b'\n' => {
+                    flush_browser_text_action(&mut actions, &mut self.pending_text, false);
+                    actions.push(BrowserInputAction::Enter);
+                }
+                0x08 | 0x7f => {
+                    flush_browser_text_action(&mut actions, &mut self.pending_text, false);
+                    actions.push(BrowserInputAction::Backspace);
+                }
+                b'\t' => {
+                    flush_browser_text_action(&mut actions, &mut self.pending_text, false);
+                    actions.push(BrowserInputAction::Tab);
+                }
+                0x1b if idx + 1 < bytes.len() && bytes[idx + 1] == b'[' => {
+                    let (action, consumed) = browser_csi_input_action(&bytes[idx + 2..]);
+                    if let Some(action) = action {
+                        flush_browser_text_action(&mut actions, &mut self.pending_text, false);
+                        actions.push(action);
+                    }
+                    idx += consumed + 2;
+                }
+                0x1b if idx + 1 < bytes.len() && bytes[idx + 1] == b'O' => {
+                    if idx + 2 < bytes.len() {
+                        if let Some(action) = browser_ss3_input_action(bytes[idx + 2]) {
+                            flush_browser_text_action(&mut actions, &mut self.pending_text, false);
+                            actions.push(action);
+                        }
+                        idx += 2;
+                    } else {
+                        idx += 1;
+                    }
+                }
+                0x1b => {
+                    flush_browser_text_action(&mut actions, &mut self.pending_text, false);
+                    actions.push(BrowserInputAction::Escape);
+                }
+                0x20..=0x7e | 0x80..=0xff => self.pending_text.push(bytes[idx]),
+                _ => {}
+            }
+            idx += 1;
+        }
+        flush_browser_text_action(&mut actions, &mut self.pending_text, preserve_incomplete);
+        actions
+    }
+}
+
+#[cfg(test)]
+fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
+    BrowserInputParser::default().actions_final(bytes)
+}
+
+fn flush_browser_text_action(
+    actions: &mut Vec<BrowserInputAction>,
+    text: &mut Vec<u8>,
+    preserve_incomplete: bool,
+) {
     if text.is_empty() {
         return;
     }
-    let decoded = decode_browser_text_bytes(text);
+    let (decoded, pending) = decode_browser_text_bytes(text, preserve_incomplete);
     text.clear();
+    text.extend(pending);
     if !decoded.is_empty() {
         actions.push(BrowserInputAction::Text(decoded));
     }
 }
 
-fn decode_browser_text_bytes(mut bytes: &[u8]) -> String {
+fn decode_browser_text_bytes(mut bytes: &[u8], preserve_incomplete: bool) -> (String, Vec<u8>) {
     let mut out = String::new();
+    let mut pending = Vec::new();
     while !bytes.is_empty() {
         match std::str::from_utf8(bytes) {
             Ok(valid) => {
@@ -436,13 +467,16 @@ fn decode_browser_text_bytes(mut bytes: &[u8]) -> String {
                     out.push_str(std::str::from_utf8(&bytes[..valid_up_to]).unwrap_or(""));
                 }
                 let Some(error_len) = err.error_len() else {
+                    if preserve_incomplete {
+                        pending.extend_from_slice(&bytes[valid_up_to..]);
+                    }
                     break;
                 };
                 bytes = &bytes[valid_up_to + error_len..];
             }
         }
     }
-    out
+    (out, pending)
 }
 
 fn print_semantic_snapshot(url: &str, compact: bool) -> Result<()> {
@@ -1234,6 +1268,13 @@ mod tests {
                 BrowserInputAction::Backspace,
                 BrowserInputAction::Text("水".to_string()),
             ]
+        );
+        let mut parser = BrowserInputParser::default();
+        let smile = "🙂".as_bytes();
+        assert_eq!(parser.actions(&smile[..2]), vec![]);
+        assert_eq!(
+            parser.actions(&smile[2..]),
+            vec![BrowserInputAction::Text("🙂".to_string())]
         );
     }
 
