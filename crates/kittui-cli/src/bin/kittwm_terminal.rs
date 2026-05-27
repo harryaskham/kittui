@@ -407,12 +407,17 @@ fn render_scene_kitty(scene: &Scene) -> Result<String, String> {
         .terminal(TerminalInfo::detect())
         .build()
         .map_err(|err| err.to_string())?;
-    let mut options = kittui_kitty::PlacementOptions::unicode();
-    options.z_index = 20;
+    let options = terminal_scene_placement_options();
     runtime
         .place_at_with_options(scene, scene.footprint, &options)
         .map(|placement| placement.to_bytes())
         .map_err(|err| err.to_string())
+}
+
+fn terminal_scene_placement_options() -> kittui_kitty::PlacementOptions {
+    let mut options = kittui_kitty::PlacementOptions::absolute();
+    options.z_index = 20;
+    options
 }
 
 fn run(args: TerminalArgs) -> Result<String, String> {
@@ -655,6 +660,13 @@ mod tests {
                 .any(|label| label.contains("panes=2 focus=native-2 layout=rows details=1")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn terminal_status_kitty_uses_absolute_no_placeholder_options() {
+        let options = terminal_scene_placement_options();
+        assert!(!options.unicode_placeholder);
+        assert_eq!(options.z_index, 20);
     }
 
     #[test]
