@@ -1099,7 +1099,10 @@ fn help_topic_graphical_cmd(topic: &str, kitty: bool) -> Result<()> {
 }
 
 fn help_topic_scene(topic: &str, text: &str) -> Scene {
-    let cols = info_scene_cols();
+    help_topic_scene_for_cols(topic, text, info_scene_cols())
+}
+
+fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
     let content_lines = text
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -1161,7 +1164,7 @@ fn help_topic_scene(topic: &str, text: &str) -> Scene {
         layers.push(Layer {
             label: Some(format!("kittwm-help-topic-row:{topic}:{idx}:{trimmed}")),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: info_indicator_rect(width, y),
                 fill: Paint::Solid {
                     color: if trimmed.starts_with("--") || trimmed.starts_with("kittwm") {
                         Rgba::rgba(163, 190, 140, 255)
@@ -6580,6 +6583,19 @@ mod tests {
                 .any(|label| label.contains("kittwm-chrome-row:7:gap_rows=2")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn help_topic_scene_rows_fit_narrow_width() {
+        let text = help_topic_text("panes").unwrap();
+        let scene = help_topic_scene_for_cols("panes", text, 1);
+        assert_eq!(scene.footprint.cols, 1);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
     }
 
     #[test]
