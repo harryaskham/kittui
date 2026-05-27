@@ -683,7 +683,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 return Err(err);
                             }
                             let new_focus =
-                                native_restore_focus_index(restored.len(), restore.focus_index);
+                                native_restore_focus_target(restored.len(), restore.focus_index)
+                                    .expect("restored panes checked non-empty");
                             Ok((new_axis, restored, new_focus))
                         })();
                     match restore_result {
@@ -2483,6 +2484,10 @@ fn terminate_native_panes(panes: &mut [NativePane]) {
 
 fn native_restore_focus_index(count: usize, focus_index: Option<usize>) -> usize {
     focus_index.unwrap_or(0).min(count.saturating_sub(1))
+}
+
+fn native_restore_focus_target(count: usize, focus_index: Option<usize>) -> Option<usize> {
+    (count > 0).then(|| native_restore_focus_index(count, focus_index))
 }
 
 fn should_focus_restored_pane(count: usize, focused: usize) -> bool {
@@ -6570,6 +6575,14 @@ mod native_pane_tests {
         assert!(should_focus_restored_pane(3, 2));
         assert!(!should_focus_restored_pane(0, 0));
         assert!(!should_focus_restored_pane(3, 3));
+    }
+
+    #[test]
+    fn native_restore_focus_target_requires_restored_panes() {
+        assert_eq!(native_restore_focus_target(3, Some(2)), Some(2));
+        assert_eq!(native_restore_focus_target(3, Some(99)), Some(2));
+        assert_eq!(native_restore_focus_target(3, None), Some(0));
+        assert_eq!(native_restore_focus_target(0, Some(0)), None);
     }
 
     #[test]
