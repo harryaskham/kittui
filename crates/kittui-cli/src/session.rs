@@ -889,9 +889,15 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             &last_chrome_reservation,
         );
         if layouts != last_resized_layouts {
-            resize_native_panes(&mut panes, layouts.clone())?;
+            let resize_failures =
+                resize_native_panes_logged(&mut panes, layouts.clone(), Some(&dbg))?;
             last_resized_layouts = layouts.clone();
             clear = true;
+            if should_log_resize_failures(resize_failures) {
+                dbg.log(&format!(
+                    "native layout resize completed with resize_failures={resize_failures}"
+                ));
+            }
         }
         let stdout = io::stdout();
         let mut handle = stdout.lock();
@@ -2675,6 +2681,10 @@ fn resize_native_panes_logged(
 
 fn resize_native_panes(panes: &mut [NativePane], layouts: Vec<NativePaneLayout>) -> Result<()> {
     resize_native_panes_logged(panes, layouts, None).map(|_| ())
+}
+
+fn should_log_resize_failures(failures: usize) -> bool {
+    failures > 0
 }
 
 fn resize_native_panes_for_layout_with_reservation(
@@ -7544,6 +7554,12 @@ mod native_pane_tests {
         assert!(line.contains("app=38x10"), "{line}");
         assert!(line.contains("layout=40x12+2,3"), "{line}");
         assert!(line.contains("err=boom"), "{line}");
+    }
+
+    #[test]
+    fn native_resize_failure_summary_logs_only_on_failures() {
+        assert!(!should_log_resize_failures(0));
+        assert!(should_log_resize_failures(1));
     }
 
     #[test]
