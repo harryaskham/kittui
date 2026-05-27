@@ -730,11 +730,13 @@ fn sleep_browser_frame_or_input(mut slack: Duration) {
 }
 
 fn browser_status_text(url: &str, frame: u64, show_frame: bool) -> String {
+    let window = std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "<none>".into());
+    let socket = std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<none>".into());
     let mut status = format!(
         "kittwm-browser — {} — window={} socket={} — Ctrl-] exits",
         truncate(url, 40),
-        std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "<none>".into()),
-        std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<none>".into())
+        truncate(&window, 32),
+        truncate(&socket, 48)
     );
     if show_frame {
         status.push_str(&format!(" — frame {frame}"));
@@ -1171,7 +1173,26 @@ mod tests {
         assert_eq!(narrow.chars().count(), 12);
         assert!(narrow.ends_with('…'), "{narrow}");
         let huge_window = "window-".repeat(10_000);
+        let huge_socket = format!("/tmp/{}", "sock/".repeat(10_000));
         std::env::set_var("KITTWM_WINDOW", huge_window);
+        std::env::set_var("KITTWM_SOCKET", huge_socket);
+        let bounded_status = browser_status_text("https://example.com/a", 42, false);
+        assert!(
+            bounded_status.contains("window=window-window-window-window-win…"),
+            "{bounded_status}"
+        );
+        assert!(
+            bounded_status.contains("socket=/tmp/sock/sock/sock/sock/sock/sock/sock/sock/so…"),
+            "{bounded_status}"
+        );
+        assert!(
+            !bounded_status.contains(&"window-".repeat(8)),
+            "{bounded_status}"
+        );
+        assert!(
+            !bounded_status.contains(&"sock/".repeat(16)),
+            "{bounded_status}"
+        );
         let huge_status = browser_status_text_for_cols("https://example.com/a", 42, false, 24);
         assert_eq!(huge_status.chars().count(), 24);
         assert!(huge_status.ends_with('…'), "{huge_status}");
