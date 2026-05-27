@@ -203,20 +203,26 @@ fn real_main() -> Result<()> {
         let fp = viewport.frame_footprint();
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        let placement = runtime.place_png_frame_with_options(
-            BROWSER_IMAGE_ID,
-            &bytes,
-            fp,
-            &browser_image_placement_options(),
-        );
+        let mut wrote_output = false;
         let frame_key = browser_frame_key(&bytes);
-        if should_upload_browser_frame(last_frame_key, frame_key) {
-            handle.write_all(placement.upload.as_bytes())?;
-            last_frame_key = Some(frame_key);
-        }
-        if !placed {
-            handle.write_all(placement.placement.as_bytes())?;
-            placed = true;
+        let upload_frame = should_upload_browser_frame(last_frame_key, frame_key);
+        if should_build_browser_placement(upload_frame, placed) {
+            let placement = runtime.place_png_frame_with_options(
+                BROWSER_IMAGE_ID,
+                &bytes,
+                fp,
+                &browser_image_placement_options(),
+            );
+            if upload_frame {
+                handle.write_all(placement.upload.as_bytes())?;
+                last_frame_key = Some(frame_key);
+                wrote_output = true;
+            }
+            if !placed {
+                handle.write_all(placement.placement.as_bytes())?;
+                placed = true;
+                wrote_output = true;
+            }
         }
         let status = browser_status_text(&url, frame, show_status_frame);
         if should_write_browser_status(last_status.as_ref(), viewport.status_row, &status) {
@@ -231,8 +237,11 @@ fn real_main() -> Result<()> {
                 viewport.status_row, status
             )?;
             last_status = Some((viewport.status_row, status));
+            wrote_output = true;
         }
-        handle.flush()?;
+        if wrote_output {
+            handle.flush()?;
+        }
         frame += 1;
         if let Some(slack) = Duration::from_millis(250).checked_sub(start.elapsed()) {
             std::thread::sleep(slack);
@@ -486,6 +495,10 @@ fn should_upload_browser_frame(last_key: Option<(usize, u64)>, next_key: (usize,
     last_key != Some(next_key)
 }
 
+fn should_build_browser_placement(upload_frame: bool, placed: bool) -> bool {
+    upload_frame || !placed
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 struct BrowserViewport {
     cols: u16,
@@ -691,6 +704,9 @@ mod tests {
         assert!(!should_upload_browser_frame(Some(key), key));
         let changed = browser_frame_key(b"different png bytes");
         assert!(should_upload_browser_frame(Some(key), changed));
+        assert!(should_build_browser_placement(true, true));
+        assert!(should_build_browser_placement(false, false));
+        assert!(!should_build_browser_placement(false, true));
     }
 
     #[test]
