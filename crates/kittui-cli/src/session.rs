@@ -5638,6 +5638,12 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn compositor_frame_flush_decision_requires_output() {
+        assert!(should_flush_compositor_frame(true));
+        assert!(!should_flush_compositor_frame(false));
+    }
+
+    #[test]
     fn raw_frame_chrome_key_changes_when_visual_chrome_changes() {
         let footprint = CellRect::new(1, 2, 10, 4);
         let base = raw_frame_chrome_key(
@@ -6796,12 +6802,14 @@ pub fn run_loop_with<S: XServer>(
                 }
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
+                let mut wrote_frame_output = false;
                 // If the launcher overlay just closed, erase its text rows
                 // and force image placeholders to be re-emitted underneath.
                 // Without this, the boxed menu remains burned into the
                 // terminal cells even though the overlay state is inactive.
                 if launcher_overlay_was_active && !launcher_overlay.active {
                     clear_launcher_overlay_area(&mut handle)?;
+                    wrote_frame_output = true;
                     last_placed.clear();
                     last_raw_chrome_keys.clear();
                     last_footer_key.clear();
@@ -6831,16 +6839,19 @@ pub fn run_loop_with<S: XServer>(
                             f.footprint,
                         );
                         handle.write_all(p.upload.as_bytes())?;
+                        wrote_frame_output = true;
                         if decision.placement.write_placement {
                             write!(handle, "\x1b[{};{}H", f.footprint.y + 1, f.footprint.x + 1)?;
                             handle.write_all(p.placement.as_bytes())?;
                             handle.write_all(p.embed.as_bytes())?;
+                            wrote_frame_output = true;
                         }
                     } else if decision.placement.write_placement {
                         let p = runtime.place_uploaded_image(f.image_id, f.footprint);
                         write!(handle, "\x1b[{};{}H", f.footprint.y + 1, f.footprint.x + 1)?;
                         handle.write_all(p.placement.as_bytes())?;
                         handle.write_all(p.embed.as_bytes())?;
+                        wrote_frame_output = true;
                     }
                     let chrome_key = raw_frame_chrome_key(
                         &f.title,
@@ -6851,6 +6862,7 @@ pub fn run_loop_with<S: XServer>(
                     );
                     if last_raw_chrome_keys.get(&f.image_id) != Some(&chrome_key) {
                         write_raw_frame_chrome(&mut handle, f)?;
+                        wrote_frame_output = true;
                         last_raw_chrome_keys.insert(f.image_id, chrome_key);
                     }
                     footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
@@ -6858,6 +6870,7 @@ pub fn run_loop_with<S: XServer>(
                 // Delete any window that disappeared since last frame.
                 for old_id in prev_window_ids.difference(&current_ids) {
                     handle.write_all(runtime.unplace(*old_id).as_bytes())?;
+                    wrote_frame_output = true;
                     last_placed.remove(old_id);
                     last_raw_hashes.remove(old_id);
                     last_raw_chrome_keys.remove(old_id);
@@ -6865,10 +6878,12 @@ pub fn run_loop_with<S: XServer>(
                 prev_window_ids = current_ids;
                 if launcher_overlay.active {
                     launcher_overlay.render(&mut handle)?;
+                    wrote_frame_output = true;
                     footer_row = footer_row.max(12);
                 }
                 if picker_overlay.active {
                     picker_overlay.render(&mut handle)?;
+                    wrote_frame_output = true;
                     footer_row = footer_row.max(14);
                 }
                 let launch_note = last_launch_pid
@@ -6920,11 +6935,14 @@ pub fn run_loop_with<S: XServer>(
                         ctrl_c_guard.quit_hint(last_window_count > 0),
                         dbg.path_display()
                     )?;
+                    wrote_frame_output = true;
                     last_footer_key = footer_key;
                     last_footer_row = Some(footer_row);
                 }
                 launcher_overlay_was_active = launcher_overlay.active;
-                handle.flush()?;
+                if should_flush_compositor_frame(wrote_frame_output) {
+                    handle.flush()?;
+                }
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -7007,6 +7025,10 @@ fn should_write_compositor_footer(
     refresh_interval: u64,
 ) -> bool {
     last_key != next_key || (refresh_interval > 0 && frame % refresh_interval == 0)
+}
+
+fn should_flush_compositor_frame(wrote_output: bool) -> bool {
+    wrote_output
 }
 
 fn frame_sleep_chunks_for_budget(mut remaining: Duration) -> Vec<Duration> {
