@@ -5958,6 +5958,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_overlay_clear_range_is_bounded_by_terminal_height() {
+        assert_eq!(raw_overlay_clear_end_row(24), Some(17));
+        assert_eq!(raw_overlay_clear_end_row(10), Some(10));
+        assert_eq!(raw_overlay_clear_end_row(1), None);
+    }
+
+    #[test]
     fn raw_overlay_clear_decision_handles_picker_and_launcher_close() {
         assert!(should_clear_raw_overlay_area(true, false, false, false));
         assert!(should_clear_raw_overlay_area(false, false, true, false));
@@ -8209,12 +8216,20 @@ fn picker_overlay_scene(overlay: &PickerOverlay, cell_size: CellSize) -> Scene {
     )
 }
 
+fn raw_overlay_clear_end_row(terminal_rows: u16) -> Option<u16> {
+    (terminal_rows >= 2).then_some(17.min(terminal_rows))
+}
+
 fn clear_launcher_overlay_area<W: Write>(handle: &mut W) -> Result<()> {
     // LauncherOverlay::render currently owns rows 2..=17 and starts at
     // column 2. Clear whole rows so stale box-drawing glyphs cannot remain
-    // when the overlay closes after launch/Esc.
-    for row in 2..=17u16 {
-        write!(handle, "\x1b[{};1H\x1b[K", row)?;
+    // when the overlay closes after launch/Esc, but do not write below the
+    // visible terminal and accidentally scroll short displays.
+    let terminal_rows = host_terminal_cells().map(|(_, rows)| rows).unwrap_or(24);
+    if let Some(end_row) = raw_overlay_clear_end_row(terminal_rows) {
+        for row in 2..=end_row {
+            write!(handle, "\x1b[{};1H\x1b[K", row)?;
+        }
     }
     Ok(())
 }
