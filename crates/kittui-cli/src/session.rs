@@ -189,6 +189,15 @@ fn should_publish_native_frame_event(
     uploaded || placement_changed || changed_tiles.unwrap_or(0) > 0
 }
 
+fn should_write_ansi_top_bar(
+    affordance_scene_chrome: bool,
+    redraw_static: bool,
+    current: &str,
+    last: &str,
+) -> bool {
+    !affordance_scene_chrome && (redraw_static || current != last)
+}
+
 fn native_idle_frame_target(active_target: Duration) -> Duration {
     let idle_fps = std::env::var("KITTWM_IDLE_FPS")
         .ok()
@@ -809,7 +818,12 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if last_title_rows.len() != shell_view.panes.len() {
             last_title_rows.resize(shell_view.panes.len(), String::new());
         }
-        if redraw_static || shell_view.top_bar.text != last_top_bar {
+        if should_write_ansi_top_bar(
+            affordance_scene_chrome,
+            redraw_static,
+            &shell_view.top_bar.text,
+            &last_top_bar,
+        ) {
             write!(
                 frame_out,
                 "\x1b[{};1H\x1b[7m{}\x1b[0m",
@@ -3903,6 +3917,15 @@ mod native_pane_tests {
         let mut changed = status.clone();
         changed.focused = false;
         assert!(native_pane_statuses_changed(&[status], &[changed]));
+    }
+
+    #[test]
+    fn ansi_top_bar_is_disabled_when_graphical_chrome_is_active() {
+        assert!(!should_write_ansi_top_bar(true, true, "new", "old"));
+        assert!(!should_write_ansi_top_bar(true, false, "new", "old"));
+        assert!(should_write_ansi_top_bar(false, true, "same", "same"));
+        assert!(should_write_ansi_top_bar(false, false, "new", "old"));
+        assert!(!should_write_ansi_top_bar(false, false, "same", "same"));
     }
 
     #[test]
