@@ -1729,6 +1729,20 @@ impl NativeCtrlCExitGuard {
     }
 }
 
+fn native_ctrl_c_action(guard: &mut NativeCtrlCExitGuard, now: Instant) -> NativeCtrlCAction {
+    if guard.observe(now) {
+        NativeCtrlCAction::Exit
+    } else {
+        NativeCtrlCAction::Forward
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeCtrlCAction {
+    Forward,
+    Exit,
+}
+
 fn native_terminal_command(config: &KittwmConfig) -> String {
     std::env::var("KITTWM_TERMINAL_CMD")
         .or_else(|_| std::env::var("KITTWM_TERMINAL_BINARY"))
@@ -2075,14 +2089,18 @@ fn process_native_terminal_byte(
         return Ok(false);
     }
     if byte == 0x03 {
-        if !panes.is_empty() {
-            panes[*focused].app.send_bytes(&[byte])?;
+        match native_ctrl_c_action(ctrl_c_exit_guard, Instant::now()) {
+            NativeCtrlCAction::Forward => {
+                if !panes.is_empty() {
+                    panes[*focused].app.send_bytes(&[byte])?;
+                }
+                return Ok(false);
+            }
+            NativeCtrlCAction::Exit => {
+                dbg.log("native terminal loop: triple Ctrl-C exit");
+                return Ok(true);
+            }
         }
-        if ctrl_c_exit_guard.observe(Instant::now()) {
-            dbg.log("native terminal loop: triple Ctrl-C exit");
-            return Ok(true);
-        }
-        return Ok(false);
     }
     ctrl_c_exit_guard.reset();
     if !panes.is_empty() {
@@ -4855,6 +4873,24 @@ mod native_pane_tests {
         assert_eq!(flags & ICANON, 0);
         assert_eq!(flags & ECHO, 0);
         assert_eq!(flags & ISIG, 0);
+    }
+
+    #[test]
+    fn native_ctrl_c_action_forwards_only_non_quit_presses() {
+        let start = Instant::now();
+        let mut guard = NativeCtrlCExitGuard::default();
+        assert_eq!(
+            native_ctrl_c_action(&mut guard, start),
+            NativeCtrlCAction::Forward
+        );
+        assert_eq!(
+            native_ctrl_c_action(&mut guard, start + Duration::from_millis(500)),
+            NativeCtrlCAction::Forward
+        );
+        assert_eq!(
+            native_ctrl_c_action(&mut guard, start + Duration::from_millis(900)),
+            NativeCtrlCAction::Exit
+        );
     }
 
     #[test]
