@@ -5074,9 +5074,12 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
         .get("tilable_rows")
         .map(|value| value.to_string())
         .unwrap_or_else(|| "null".to_string());
+    let workspace_label = truncate(&workspace, 32);
+    let owner_label = truncate(owner, 32);
+    let tilable_rows_label = truncate(&tilable_rows, 32);
     let rows_data = [
-        format!("workspace={workspace}"),
-        format!("owner={owner}"),
+        format!("workspace={workspace_label}"),
+        format!("owner={owner_label}"),
         format!("top_bar_rows={top}"),
         format!("bottom_bar_rows={bottom}"),
         format!("left_cols={left}"),
@@ -5087,7 +5090,7 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-chrome-backdrop:workspace={workspace}:owner={owner}:top={top}:bottom={bottom}:left={left}:right={right}:gap_cols={gap_cols}:gap_rows={gap_rows}:tilable_rows={tilable_rows}"
+                "kittwm-chrome-backdrop:workspace={workspace_label}:owner={owner_label}:top={top}:bottom={bottom}:left={left}:right={right}:gap_cols={gap_cols}:gap_rows={gap_rows}:tilable_rows={tilable_rows_label}"
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -7138,6 +7141,54 @@ mod tests {
             }
         }
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn chrome_scene_clips_pathological_label_fields() {
+        let chrome = serde_json::json!({
+            "workspace": " workspace-name-that-is-pathologically-long ",
+            "top_bar_rows": 2,
+            "bottom_bar_rows": 1,
+            "left_cols": 4,
+            "right_cols": 3,
+            "gap_cols": 1,
+            "gap_rows": 2,
+            "owner": " owner-name-that-is-pathologically-long ",
+            "tilable_rows": "tilable-row-value-that-is-pathologically-long"
+        });
+        let scene = chrome_scene(&chrome);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let backdrop = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-chrome-backdrop:"))
+            .unwrap();
+        assert!(
+            backdrop.contains("workspace=workspace-name-that-is-patholog…"),
+            "{backdrop}"
+        );
+        assert!(
+            backdrop.contains("owner=owner-name-that-is-pathological…"),
+            "{backdrop}"
+        );
+        assert!(
+            backdrop.contains("tilable_rows=\"tilable-row-value-that-is-path…"),
+            "{backdrop}"
+        );
+        assert!(backdrop.len() < 230, "{backdrop}");
+        assert!(
+            labels.iter().any(|label| label
+                .contains("kittwm-chrome-row:0:workspace=workspace-name-that-is-patholog…")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label
+                .contains("kittwm-chrome-row:1:owner=owner-name-that-is-pathological…")),
+            "{labels:?}"
+        );
     }
 
     #[test]
