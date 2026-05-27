@@ -3082,7 +3082,9 @@ fn should_write_pure_terminal_frame(
 
 fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u16) -> String {
     let colors = native_glass_chrome_colors();
-    let mut out = String::new();
+    let frame_cells = (cols as usize).saturating_mul(rows as usize);
+    let ansi_overhead = view.panes.len().saturating_add(3).saturating_mul(64);
+    let mut out = String::with_capacity(frame_cells.saturating_add(ansi_overhead));
     out.push_str("\x1b[H");
     if let Some(top_bar_row) = terminal_visible_row_opt(view.top_bar.row, rows) {
         out.push_str(&format!(
@@ -6001,6 +6003,7 @@ mod native_pane_tests {
             help_overlay: false,
         };
         let rendered = render_native_shell_view_terminal(&view, 12, 5);
+        assert!(rendered.capacity() >= 12 * 5);
         assert!(rendered.contains("| 1 | 2 | 3"), "{rendered:?}");
         assert!(rendered.contains("\x1b[2;1H"), "{rendered:?}");
         assert!(rendered.contains("* native\x1b[0m"), "{rendered:?}");
