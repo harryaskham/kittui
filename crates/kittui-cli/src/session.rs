@@ -3488,9 +3488,7 @@ fn native_toast_scene(
     }
     let colors = native_toast_colors(trimmed);
     let msg_cols = native_toast_message_cols(trimmed);
-    let toast_cols = msg_cols
-        .saturating_add(4)
-        .clamp(20, cols.saturating_sub(4).max(20));
+    let toast_cols = native_toast_cols(msg_cols, cols);
     let toast_rows = 3u16;
     let x = cols.saturating_sub(toast_cols).saturating_div(2);
     let y = footer_row
@@ -3569,6 +3567,14 @@ fn native_toast_scene(
 
 fn native_toast_message_cols(message: &str) -> u16 {
     message.chars().count().min(u16::MAX as usize) as u16
+}
+
+fn native_toast_cols(message_cols: u16, terminal_cols: u16) -> u16 {
+    let available = terminal_cols.max(1);
+    message_cols.saturating_add(4).clamp(
+        20.min(available),
+        terminal_cols.saturating_sub(4).max(20).min(available),
+    )
 }
 
 fn native_toast_colors(message: &str) -> InlineChipColors {
@@ -6407,6 +6413,29 @@ mod native_pane_tests {
         assert!(metrics["total_pixels"].as_u64().unwrap() > 0, "{metrics}");
         assert_eq!(metrics["cell_width_px"], NATIVE_CELL_WIDTH_PX);
         assert_eq!(metrics["cell_height_px"], NATIVE_CELL_HEIGHT_PX);
+    }
+
+    #[test]
+    fn native_toast_cols_fit_terminal_width() {
+        assert_eq!(native_toast_cols(5, 0), 1);
+        assert_eq!(native_toast_cols(5, 1), 1);
+        assert_eq!(native_toast_cols(5, 8), 8);
+        assert_eq!(native_toast_cols(5, 19), 19);
+        assert_eq!(native_toast_cols(5, 80), 20);
+        assert_eq!(native_toast_cols(u16::MAX, 80), 76);
+    }
+
+    #[test]
+    fn native_toast_scene_fits_tiny_terminal_width() {
+        for cols in [0, 1, 8, 19] {
+            let (_x, _y, scene) =
+                native_toast_scene(CellSize::new(8, 16), cols, 24, "launcher.error boom").unwrap();
+            assert!(
+                scene.footprint.cols <= cols.max(1),
+                "cols={cols} scene={:?}",
+                scene.footprint
+            );
+        }
     }
 
     #[test]
