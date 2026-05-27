@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{anyhow, Error, Result};
 use mcp_cli::{McpServer, StdioServerConfig, ToolRouter};
 use serde_json::Value;
 use updatable_cli::{AssetStrategy, Updater, UpdaterConfig};
@@ -88,7 +88,9 @@ pub fn run_update_command(tool_name: &str, options: &UpdateOptions) -> Result<()
             }
         }
         UpdateAction::Check => {
-            let latest = updater.check_latest()?;
+            let latest = updater
+                .check_latest()
+                .map_err(|err| explain_update_error(tool_name, options, err))?;
             if options.json {
                 print_json_envelope("update check", serde_json::to_value(latest)?)?;
             } else {
@@ -102,7 +104,9 @@ pub fn run_update_command(tool_name: &str, options: &UpdateOptions) -> Result<()
             }
         }
         UpdateAction::Run => {
-            let outcome = updater.run_update()?;
+            let outcome = updater
+                .run_update()
+                .map_err(|err| explain_update_error(tool_name, options, err))?;
             if options.json {
                 print_json_envelope("update", serde_json::to_value(outcome)?)?;
             } else {
@@ -124,6 +128,24 @@ pub fn run_update_command(tool_name: &str, options: &UpdateOptions) -> Result<()
         }
     }
     Ok(())
+}
+
+fn explain_update_error(tool_name: &str, options: &UpdateOptions, err: Error) -> Error {
+    let details = format!("{err:#}");
+    if is_missing_latest_release_error(&details) {
+        let repo = options.repository.as_deref().unwrap_or(DEFAULT_REPOSITORY);
+        anyhow!(
+            "{tool_name} update could not find a published GitHub Release for {repo}. \
+             The updater installs release assets; it does not update directly from main. \
+             Publish a semver tag/release with {tool_name} assets, or build/install from source, then retry.\n\nCaused by:\n{details}"
+        )
+    } else {
+        err
+    }
+}
+
+fn is_missing_latest_release_error(details: &str) -> bool {
+    details.contains("/releases/latest") && details.contains("status code 404")
 }
 
 fn print_json_envelope(command: &str, data: Value) -> Result<()> {
@@ -161,5 +183,23 @@ mod tests {
         assert_eq!(config.tool_name, "kittui");
         assert_eq!(config.repo_slug, DEFAULT_REPOSITORY);
         assert!(matches!(config.asset_strategy, AssetStrategy::TendrilStyle));
+    }
+
+    #[test]
+    fn update_errors_explain_missing_latest_release() {
+        assert!(is_missing_latest_release_error(
+            "GET https://api.github.com/repos/harryaskham/kittui/releases/latest: status code 404"
+        ));
+        let err = explain_update_error(
+            "kittwm",
+            &UpdateOptions::default(),
+            anyhow!(
+                "GET https://api.github.com/repos/harryaskham/kittui/releases/latest: status code 404"
+            ),
+        );
+        let message = format!("{err:#}");
+        assert!(message.contains("could not find a published GitHub Release"));
+        assert!(message.contains("does not update directly from main"));
+        assert!(message.contains("semver tag/release"));
     }
 }
