@@ -1186,6 +1186,10 @@ fn ghostty_snapshot_text(snapshot: &GhosttyRenderSnapshot) -> String {
         .join("\n")
 }
 
+fn should_invalidate_ghostty_png_cache_after_text_refresh(had_output: bool) -> bool {
+    had_output
+}
+
 impl GhosttyTerminalApp {
     /// Spawn a shell command in a PTY rendered by libghostty-vt.
     pub fn spawn(command: &str, cols: u16, rows: u16) -> Result<Self> {
@@ -1292,6 +1296,9 @@ impl GhosttyTerminalApp {
     /// Refresh the text snapshot without rendering a PNG frame.
     pub fn refresh_text_snapshot(&mut self) -> Result<bool> {
         let had_output = self.drain_output();
+        if should_invalidate_ghostty_png_cache_after_text_refresh(had_output) {
+            self.last_png_frame = None;
+        }
         if !had_output && !self.last_text_snapshot.is_empty() {
             return Ok(false);
         }
@@ -3897,6 +3904,14 @@ fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ghostty_text_refresh_invalidates_png_cache_only_after_output() {
+        assert!(should_invalidate_ghostty_png_cache_after_text_refresh(true));
+        assert!(!should_invalidate_ghostty_png_cache_after_text_refresh(
+            false
+        ));
+    }
 
     #[test]
     fn ghostty_snapshot_text_joins_cell_rows() {
