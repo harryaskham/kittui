@@ -15,6 +15,7 @@
 //! [`run_loop`].
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
 
@@ -81,6 +82,12 @@ struct NativeAppPlacementDecision {
     write_placement: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct NativePngFrameDecision {
+    upload: bool,
+    placement: NativeAppPlacementDecision,
+}
+
 fn decide_native_app_placement_write(
     placements: &mut HashMap<u32, CellRect>,
     image_id: u32,
@@ -93,7 +100,31 @@ fn decide_native_app_placement_write(
     }
     NativeAppPlacementDecision {
         write_upload: upload,
-        write_placement: upload && placement_changed || !upload && placement_changed,
+        write_placement: placement_changed,
+    }
+}
+
+fn native_png_frame_hash(bytes: &[u8]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn decide_native_png_frame_write(
+    png_hashes: &mut HashMap<u32, u64>,
+    placements: &mut HashMap<u32, CellRect>,
+    image_id: u32,
+    footprint: CellRect,
+    bytes: &[u8],
+) -> NativePngFrameDecision {
+    let hash = native_png_frame_hash(bytes);
+    let upload = png_hashes.get(&image_id).copied() != Some(hash);
+    if upload {
+        png_hashes.insert(image_id, hash);
+    }
+    NativePngFrameDecision {
+        upload,
+        placement: decide_native_app_placement_write(placements, image_id, footprint, upload),
     }
 }
 
@@ -167,6 +198,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut dirty_frames = NativeDirtyFramePolicy::from_env();
     let mut prev_native_image_ids = HashSet::<u32>::new();
     let mut native_app_placements = HashMap::<u32, CellRect>::new();
+    let mut native_png_hashes = HashMap::<u32, u64>::new();
     loop {
         let frame_start = Instant::now();
         let mut chunk = [0u8; 1024];
@@ -594,6 +626,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         let current_native_image_ids = native_image_id_set(&panes);
         for old_id in retired_native_image_ids(&prev_native_image_ids, &current_native_image_ids) {
             native_app_placements.remove(&old_id);
+            native_png_hashes.remove(&old_id);
             frame_out.write_all(runtime.unplace(old_id).as_bytes())?;
         }
         prev_native_image_ids = current_native_image_ids;
@@ -753,23 +786,34 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         continue;
                     }
                     let footprint = native_app_frame_footprint(layout);
-                    let placement_write = decide_native_app_placement_write(
+                    let decision = decide_native_png_frame_write(
+                        &mut native_png_hashes,
                         &mut native_app_placements,
                         pane.image_id,
                         footprint,
-                        true,
+                        &bytes,
                     );
                     let placement_options =
                         kittui_kitty::PlacementOptions::stable_absolute(pane.image_id)
                             .with_z_index(native_app_z_index());
-                    let p = runtime.place_png_frame_with_options(
-                        pane.image_id,
-                        &bytes,
-                        footprint,
-                        &placement_options,
-                    );
-                    frame_out.write_all(p.upload.as_bytes())?;
-                    if placement_write.write_placement {
+                    if decision.upload {
+                        let p = runtime.place_png_frame_with_options(
+                            pane.image_id,
+                            &bytes,
+                            footprint,
+                            &placement_options,
+                        );
+                        frame_out.write_all(p.upload.as_bytes())?;
+                        if decision.placement.write_placement {
+                            frame_out.write_all(p.placement.as_bytes())?;
+                            frame_out.write_all(p.embed.as_bytes())?;
+                        }
+                    } else if decision.placement.write_placement {
+                        let p = runtime.place_uploaded_image_with_options(
+                            pane.image_id,
+                            footprint,
+                            &placement_options,
+                        );
                         frame_out.write_all(p.placement.as_bytes())?;
                         frame_out.write_all(p.embed.as_bytes())?;
                     }
@@ -777,7 +821,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         changed_tiles: 0,
                         total_tiles: 0,
                         changed_fraction: 1.0,
-                        skipped_upload: false,
+                        skipped_upload: !decision.upload,
                     });
                     queue.publish_frame_presented(
                         pane.window.clone(),
@@ -790,8 +834,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             app_y: Some(layout.app_y),
                             app_cols: Some(layout.app_cols),
                             app_rows: Some(layout.app_rows),
-                            uploaded: true,
-                            skipped_upload: false,
+                            uploaded: decision.upload,
+                            skipped_upload: !decision.upload,
                             changed_tiles: None,
                             total_tiles: None,
                             elapsed_us: Some(
@@ -3629,6 +3673,65 @@ mod native_pane_tests {
                 write_placement: true,
             }
         );
+    }
+
+    #[test]
+    fn native_png_frame_write_decision_skips_unchanged_uploads() {
+        let mut placements = HashMap::new();
+        let mut hashes = HashMap::new();
+        let fp = CellRect::new(1, 2, 10, 4);
+        let first = decide_native_png_frame_write(&mut hashes, &mut placements, 9, fp, b"png-a");
+        assert_eq!(
+            first,
+            NativePngFrameDecision {
+                upload: true,
+                placement: NativeAppPlacementDecision {
+                    write_upload: true,
+                    write_placement: true,
+                },
+            }
+        );
+
+        let unchanged =
+            decide_native_png_frame_write(&mut hashes, &mut placements, 9, fp, b"png-a");
+        assert_eq!(
+            unchanged,
+            NativePngFrameDecision {
+                upload: false,
+                placement: NativeAppPlacementDecision {
+                    write_upload: false,
+                    write_placement: false,
+                },
+            }
+        );
+
+        let moved = decide_native_png_frame_write(
+            &mut hashes,
+            &mut placements,
+            9,
+            CellRect::new(2, 2, 10, 4),
+            b"png-a",
+        );
+        assert_eq!(
+            moved,
+            NativePngFrameDecision {
+                upload: false,
+                placement: NativeAppPlacementDecision {
+                    write_upload: false,
+                    write_placement: true,
+                },
+            }
+        );
+
+        let changed = decide_native_png_frame_write(
+            &mut hashes,
+            &mut placements,
+            9,
+            CellRect::new(2, 2, 10, 4),
+            b"png-b",
+        );
+        assert!(changed.upload);
+        assert!(!changed.placement.write_placement);
     }
 
     #[test]
