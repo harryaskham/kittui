@@ -2876,7 +2876,7 @@ fn native_top_bar_model_from_view(view: &NativeShellView) -> BarModel {
         "00:00 UTC".to_string()
     };
     BarModel {
-        workspace: "1".to_string(),
+        workspace: workspace_label(),
         panes: view.panes.len() as u64,
         state: if view.panes.is_empty() {
             "empty"
@@ -3807,8 +3807,9 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         .unwrap_or("00:00")
         .to_string();
     write!(out, "\x1b[{};1H", row)?;
+    let active_workspace = native_top_bar_model_from_view(view).workspace;
     for idx in 1..=3 {
-        let active = idx == 1;
+        let active = active_workspace == idx.to_string();
         let (fg, bg) = if active {
             (Rgba(0x2e, 0x34, 0x40, 255), Rgba(0x88, 0xc0, 0xd0, 255))
         } else {
@@ -5745,6 +5746,31 @@ mod native_pane_tests {
             .as_deref()
             .unwrap_or_default()
             .contains("workspace-chip:1:active")));
+    }
+
+    #[test]
+    fn native_top_bar_scene_uses_workspace_label_env_for_active_chip() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_WORKSPACE", "2");
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 4,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let scene = native_top_bar_scene(&view, 20, CellSize::new(8, 16));
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("workspace-chip:2:active")));
+        std::env::remove_var("KITTWM_WORKSPACE");
     }
 
     #[test]
