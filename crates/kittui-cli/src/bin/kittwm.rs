@@ -5653,7 +5653,7 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
         layers.push(Layer {
             label: Some(format!("kittwm-app-row:path:{cmd}")),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: apps_scene_row_rect(width, y),
                 fill: Paint::Solid {
                     color: Rgba::rgba(163, 190, 140, 255),
                 },
@@ -5668,7 +5668,7 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
         layers.push(Layer {
             label: Some(format!("kittwm-app-row:macos:{app}")),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: apps_scene_row_rect(width, y),
                 fill: Paint::Solid {
                     color: Rgba::rgba(235, 203, 139, 255),
                 },
@@ -5684,6 +5684,10 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn apps_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
+    info_indicator_rect(width, y)
 }
 
 fn find_on_path(program: &str) -> Option<std::path::PathBuf> {
@@ -6355,6 +6359,18 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn apps_scene_row_rect_fits_tiny_widths() {
+        for width in [0.0_f32, 1.0, 8.0, 40.0] {
+            let rect = apps_scene_row_rect(width, 2.0);
+            assert!(rect.origin.0 >= 0.0, "{rect:?}");
+            assert!(
+                rect.origin.0 + rect.width <= width.max(1.0),
+                "width={width} rect={rect:?}"
+            );
+        }
     }
 
     #[test]
