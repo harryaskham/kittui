@@ -111,18 +111,21 @@ impl BarModel {
 
     fn workspace_chips_text_from_labels(&self, labels: Vec<String>) -> String {
         let workspace = self.workspace.trim();
-        labels
-            .into_iter()
-            .map(|label| {
-                let display = top_bar_display_label(&label);
-                if label == workspace {
-                    format!("|[{display}]")
-                } else {
-                    format!("| {display} ")
-                }
-            })
-            .collect::<String>()
-            + "|"
+        let mut out = String::with_capacity(labels.len().saturating_mul(8).saturating_add(1));
+        for label in labels {
+            let display = top_bar_display_label(&label);
+            if label == workspace {
+                out.push_str("|[");
+                out.push_str(&display);
+                out.push(']');
+            } else {
+                out.push_str("| ");
+                out.push_str(&display);
+                out.push(' ');
+            }
+        }
+        out.push('|');
+        out
     }
 
     /// Workspace chips shown in the bar.
@@ -482,6 +485,9 @@ mod tests {
         assert!(rendered.contains("|[2]|"), "{rendered}");
         assert!(!rendered.contains("| 1 |"), "{rendered}");
         assert!(!rendered.contains("| 3 |"), "{rendered}");
+        let chips = model.workspace_chips_text_from_labels(vec!["2".to_string()]);
+        assert_eq!(chips, "|[2]|");
+        assert!(chips.capacity() >= 8);
     }
 
     #[test]
