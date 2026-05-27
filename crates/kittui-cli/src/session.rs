@@ -3921,14 +3921,14 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
     let palette = native_top_bar_overlay_palette(native_glass_chrome_colors());
     write!(out, "{}", native_graphical_top_bar_overlay_clear(row))?;
     let mut workspace_cols = 0u16;
-    for label in model.workspace_chip_labels() {
-        let active = model.workspace.trim() == label;
+    for workspace in model.workspace_chip_labels() {
+        let active = model.workspace.trim() == workspace;
         let (fg, bg) = if active {
             (palette.active_fg, palette.active_bg)
         } else {
             (palette.inactive_fg, palette.inactive_bg)
         };
-        let label = format!(" {label} ");
+        let label = format!(" {workspace} ");
         write!(
             out,
             "\x1b[1m{}{}{}\x1b[0m ",
@@ -4310,6 +4310,26 @@ mod native_pane_tests {
     fn graphical_top_bar_overlay_clears_row_before_rewrite() {
         assert_eq!(native_graphical_top_bar_overlay_clear(1), "\x1b[1;1H\x1b[K");
         assert_eq!(native_graphical_top_bar_overlay_clear(3), "\x1b[3;1H\x1b[K");
+    }
+
+    #[test]
+    fn graphical_top_bar_overlay_width_accounts_for_custom_workspace() {
+        let model = BarModel::new("dev", 0, "-", true, std::time::UNIX_EPOCH);
+        let labels = model.workspace_chip_labels();
+        let workspace_cols = labels
+            .iter()
+            .map(|label| label.chars().count() as u16 + 3)
+            .sum::<u16>();
+        assert_eq!(labels, vec!["1", "2", "3", "dev"]);
+        assert_eq!(workspace_cols, 18);
+        assert_eq!(
+            native_graphical_top_bar_clock_col(26, workspace_cols, 7),
+            Some(20)
+        );
+        assert_eq!(
+            native_graphical_top_bar_clock_col(25, workspace_cols, 7),
+            None
+        );
     }
 
     #[test]

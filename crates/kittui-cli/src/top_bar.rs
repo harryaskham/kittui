@@ -378,6 +378,14 @@ mod tests {
     }
 
     #[test]
+    fn text_bar_includes_custom_active_workspace() {
+        let model = BarModel::new("dev", 1, "native-1", true, UNIX_EPOCH);
+        let rendered = model.render();
+        assert!(rendered.contains("| 1 | 2 | 3 |[dev]|"), "{rendered}");
+        assert_eq!(model.workspace_chip_labels(), vec!["1", "2", "3", "dev"]);
+    }
+
+    #[test]
     fn time_label_uses_utc_clock_minutes() {
         assert_eq!(time_label(UNIX_EPOCH), "00:00 UTC");
         assert_eq!(
@@ -457,5 +465,16 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("clock-chip-foreground:00:00")));
+    }
+
+    #[test]
+    fn scene_shape_includes_custom_workspace_chip() {
+        let model = BarModel::new("dev", 0, "-", false, UNIX_EPOCH);
+        let scene = model.scene(42);
+        assert!(scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("workspace-chip:dev:active")));
     }
 }
