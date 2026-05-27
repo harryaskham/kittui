@@ -134,6 +134,34 @@ fn native_png_frame_hash(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
+fn native_raw_frame_hash(width: u32, height: u32, rgba: &[u8]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    width.hash(&mut hasher);
+    height.hash(&mut hasher);
+    rgba.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn decide_native_raw_frame_write(
+    raw_hashes: &mut HashMap<u32, u64>,
+    placements: &mut HashMap<u32, CellRect>,
+    image_id: u32,
+    footprint: CellRect,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+) -> NativePngFrameDecision {
+    let hash = native_raw_frame_hash(width, height, rgba);
+    let upload = raw_hashes.get(&image_id).copied() != Some(hash);
+    if upload {
+        raw_hashes.insert(image_id, hash);
+    }
+    NativePngFrameDecision {
+        upload,
+        placement: decide_native_app_placement_write(placements, image_id, footprint, upload),
+    }
+}
+
 fn decide_native_png_frame_write(
     png_hashes: &mut HashMap<u32, u64>,
     placements: &mut HashMap<u32, CellRect>,
@@ -3977,6 +4005,50 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_raw_frame_write_decision_skips_unchanged_uploads() {
+        let mut placements = HashMap::new();
+        let mut hashes = HashMap::new();
+        let fp = CellRect::new(1, 2, 10, 4);
+        let rgba = vec![0xaa; 2 * 2 * 4];
+
+        let first =
+            decide_native_raw_frame_write(&mut hashes, &mut placements, 12, fp, 2, 2, &rgba);
+        assert!(first.upload);
+        assert!(first.placement.write_placement);
+
+        let unchanged =
+            decide_native_raw_frame_write(&mut hashes, &mut placements, 12, fp, 2, 2, &rgba);
+        assert!(!unchanged.upload);
+        assert!(!unchanged.placement.write_placement);
+
+        let moved = decide_native_raw_frame_write(
+            &mut hashes,
+            &mut placements,
+            12,
+            CellRect::new(3, 2, 10, 4),
+            2,
+            2,
+            &rgba,
+        );
+        assert!(!moved.upload);
+        assert!(moved.placement.write_placement);
+
+        let mut changed_rgba = rgba.clone();
+        changed_rgba[0] ^= 0xff;
+        let changed = decide_native_raw_frame_write(
+            &mut hashes,
+            &mut placements,
+            12,
+            CellRect::new(3, 2, 10, 4),
+            2,
+            2,
+            &changed_rgba,
+        );
+        assert!(changed.upload);
+        assert!(!changed.placement.write_placement);
+    }
+
+    #[test]
     fn native_frame_write_bytes_counts_actual_sequences() {
         let placement = kittui::Placement {
             image_id: 42,
@@ -6220,12 +6292,12 @@ pub fn run_loop_with<S: XServer>(
     // Triple-Ctrl-C kill switch (bd-2776ad): single Ctrl-C is forwarded to
     // the focused window like any other key; three within 1s exits cleanly.
     let mut ctrl_c_guard = CtrlCGuard::new();
-    // Per-window placement memo: (image_id, footprint) -> placement+embed.
-    // We only re-emit placement+placeholder when the footprint or image_id
-    // changes. Kitty atomically replaces the image at the same id on each
-    // raw RGBA upload, so the picture updates without us clearing the screen.
-    let mut last_placed: std::collections::HashMap<u32, (kittui::CellRect, String, String)> =
+    // Per-window placement and content memo. We only re-upload raw RGBA
+    // payloads when pixels/dimensions change, and only re-emit placement when
+    // the footprint moves. Kitty keeps the same image id live between frames.
+    let mut last_placed: std::collections::HashMap<u32, CellRect> =
         std::collections::HashMap::new();
+    let mut last_raw_hashes: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
     // Set of window image-ids seen on the previous frame so we can delete
     // ones that disappear without redrawing the whole screen.
     let mut prev_window_ids: std::collections::HashSet<u32> = std::collections::HashSet::new();
@@ -6612,37 +6684,34 @@ pub fn run_loop_with<S: XServer>(
                 let mut footer_row = 2u16;
                 for f in &frames {
                     current_ids.insert(f.image_id);
-                    // Detect whether placement (footprint) changed since
-                    // last frame for this id. If so, emit a kitty
-                    // 'delete by id' first so the placeholder grid is
-                    // cleared from its old cells, then place fresh.
-                    let footprint_changed = last_placed
-                        .get(&f.image_id)
-                        .map(|(prev_fp, _, _)| prev_fp != &f.footprint)
-                        .unwrap_or(true);
-                    if footprint_changed {
-                        if last_placed.contains_key(&f.image_id) {
-                            handle.write_all(runtime.unplace(f.image_id).as_bytes())?;
-                        }
-                    }
-                    let p = runtime.place_raw_frame(
+                    let decision = decide_native_raw_frame_write(
+                        &mut last_raw_hashes,
+                        &mut last_placed,
                         f.image_id,
-                        &f.rgba,
+                        f.footprint,
                         f.width,
                         f.height,
-                        f.footprint,
+                        &f.rgba,
                     );
-                    // Always re-upload (kitty atomically replaces the
-                    // image at the same id; no flicker because no clear).
-                    handle.write_all(p.upload.as_bytes())?;
-                    if footprint_changed {
+                    if decision.upload {
+                        let p = runtime.place_raw_frame(
+                            f.image_id,
+                            &f.rgba,
+                            f.width,
+                            f.height,
+                            f.footprint,
+                        );
+                        handle.write_all(p.upload.as_bytes())?;
+                        if decision.placement.write_placement {
+                            write!(handle, "\x1b[{};{}H", f.footprint.y + 1, f.footprint.x + 1)?;
+                            handle.write_all(p.placement.as_bytes())?;
+                            handle.write_all(p.embed.as_bytes())?;
+                        }
+                    } else if decision.placement.write_placement {
+                        let p = runtime.place_uploaded_image(f.image_id, f.footprint);
                         write!(handle, "\x1b[{};{}H", f.footprint.y + 1, f.footprint.x + 1)?;
                         handle.write_all(p.placement.as_bytes())?;
                         handle.write_all(p.embed.as_bytes())?;
-                        last_placed.insert(
-                            f.image_id,
-                            (f.footprint, p.placement.clone(), p.embed.clone()),
-                        );
                     }
                     write_raw_frame_chrome(&mut handle, f)?;
                     footer_row = footer_row.max(f.footprint.y + f.footprint.rows + 2);
@@ -6651,6 +6720,7 @@ pub fn run_loop_with<S: XServer>(
                 for old_id in prev_window_ids.difference(&current_ids) {
                     handle.write_all(runtime.unplace(*old_id).as_bytes())?;
                     last_placed.remove(old_id);
+                    last_raw_hashes.remove(old_id);
                 }
                 prev_window_ids = current_ids;
                 if launcher_overlay.active {
