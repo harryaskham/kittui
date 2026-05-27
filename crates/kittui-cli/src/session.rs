@@ -46,7 +46,6 @@ struct NativeFrameWriteBatch {
 }
 
 impl NativeFrameWriteBatch {
-    #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.bytes.is_empty()
     }
@@ -616,13 +615,21 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         let redraw_static = clear;
         if pure_terminal_renderer {
             let rendered = render_native_shell_view_terminal(&shell_view, cols, rows);
-            if should_write_pure_terminal_frame(&last_terminal_render, &rendered, redraw_static) {
+            let has_pending_output = !frame_out.is_empty();
+            if should_write_pure_terminal_frame(
+                &last_terminal_render,
+                &rendered,
+                redraw_static,
+                has_pending_output,
+            ) {
                 if redraw_static {
                     frame_out.write_all(b"\x1b[2J")?;
                 }
-                frame_out.write_all(rendered.as_bytes())?;
+                if redraw_static || last_terminal_render != rendered {
+                    frame_out.write_all(rendered.as_bytes())?;
+                    last_terminal_render = rendered;
+                }
                 frame_out.write_to(&mut handle)?;
-                last_terminal_render = rendered;
             }
             clear = false;
             if let Some(slack) = frame_target.checked_sub(frame_start.elapsed()) {
@@ -2448,8 +2455,9 @@ fn should_write_pure_terminal_frame(
     last_rendered: &str,
     rendered: &str,
     redraw_static: bool,
+    has_pending_output: bool,
 ) -> bool {
-    redraw_static || last_rendered != rendered
+    redraw_static || has_pending_output || last_rendered != rendered
 }
 
 fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u16) -> String {
@@ -5039,13 +5047,20 @@ mod native_pane_tests {
 
     #[test]
     fn pure_terminal_frame_write_decision_skips_unchanged_frames() {
-        assert!(should_write_pure_terminal_frame("", "frame-a", false));
-        assert!(!should_write_pure_terminal_frame(
-            "frame-a", "frame-a", false
-        ));
-        assert!(should_write_pure_terminal_frame("frame-a", "frame-a", true));
         assert!(should_write_pure_terminal_frame(
-            "frame-a", "frame-b", false
+            "", "frame-a", false, false
+        ));
+        assert!(!should_write_pure_terminal_frame(
+            "frame-a", "frame-a", false, false
+        ));
+        assert!(should_write_pure_terminal_frame(
+            "frame-a", "frame-a", false, true
+        ));
+        assert!(should_write_pure_terminal_frame(
+            "frame-a", "frame-a", true, false
+        ));
+        assert!(should_write_pure_terminal_frame(
+            "frame-a", "frame-b", false, false
         ));
     }
 
