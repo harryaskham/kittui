@@ -5382,7 +5382,7 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
                 binding.action
             )),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: keymap_scene_row_rect(width, y),
                 fill: Paint::Solid {
                     color: Rgba::rgba(235, 203, 139, 255),
                 },
@@ -5397,6 +5397,10 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn keymap_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
+    info_indicator_rect(width, y)
 }
 
 fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
@@ -6312,6 +6316,18 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn keymap_scene_row_rect_fits_tiny_widths() {
+        for width in [0.0_f32, 1.0, 8.0, 40.0] {
+            let rect = keymap_scene_row_rect(width, 2.0);
+            assert!(rect.origin.0 >= 0.0, "{rect:?}");
+            assert!(
+                rect.origin.0 + rect.width <= width.max(1.0),
+                "width={width} rect={rect:?}"
+            );
+        }
     }
 
     #[test]
