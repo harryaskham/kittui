@@ -747,17 +747,15 @@ fn browser_status_text_for_cols(url: &str, frame: u64, show_frame: bool, cols: u
 }
 
 fn clip_to_cols(s: &str, cols: usize) -> String {
-    let count = s.chars().count();
-    if count <= cols {
-        return s.to_string();
-    }
     if cols == 0 {
         return String::new();
     }
-    if cols == 1 {
-        return "…".to_string();
+    let mut chars = s.chars();
+    let mut out: String = chars.by_ref().take(cols).collect();
+    if chars.next().is_none() {
+        return out;
     }
-    let mut out: String = s.chars().take(cols - 1).collect();
+    out.pop();
     out.push('…');
     out
 }
@@ -1172,6 +1170,13 @@ mod tests {
         let narrow = browser_status_text_for_cols("https://example.com/a", 42, false, 12);
         assert_eq!(narrow.chars().count(), 12);
         assert!(narrow.ends_with('…'), "{narrow}");
+        let huge_window = "window-".repeat(10_000);
+        std::env::set_var("KITTWM_WINDOW", huge_window);
+        let huge_status = browser_status_text_for_cols("https://example.com/a", 42, false, 24);
+        assert_eq!(huge_status.chars().count(), 24);
+        assert!(huge_status.ends_with('…'), "{huge_status}");
+        assert!(!huge_status.contains(&"window-".repeat(4)), "{huge_status}");
+        std::env::set_var("KITTWM_WINDOW", "win-1");
         assert_eq!(
             browser_status_text_for_cols("https://example.com/a", 42, false, 0),
             ""
