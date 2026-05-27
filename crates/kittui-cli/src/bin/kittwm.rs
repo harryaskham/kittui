@@ -2296,13 +2296,20 @@ fn doctor_scene(transport: &TransportDiagnostics, log_present: bool, display_cou
 }
 
 fn doctor_scene_cols() -> u16 {
-    std::env::var("KITTWM_DOCTOR_COLS")
-        .or_else(|_| std::env::var("COLUMNS"))
-        .ok()
+    doctor_scene_cols_from_value(
+        std::env::var("KITTWM_DOCTOR_COLS")
+            .or_else(|_| std::env::var("COLUMNS"))
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn doctor_scene_cols_from_value(value: Option<&str>) -> u16 {
+    value
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|cols| *cols > 0)
+        .map(|cols| cols.clamp(1, 120))
         .unwrap_or(64)
-        .clamp(32, 120)
 }
 
 fn doctor_daily_driver_text(transport: &TransportDiagnostics, log_present: bool) -> String {
@@ -6261,6 +6268,16 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn doctor_scene_cols_respects_narrow_positive_widths() {
+        assert_eq!(doctor_scene_cols_from_value(Some("1")), 1);
+        assert_eq!(doctor_scene_cols_from_value(Some("8")), 8);
+        assert_eq!(doctor_scene_cols_from_value(Some("31")), 31);
+        assert_eq!(doctor_scene_cols_from_value(Some("0")), 64);
+        assert_eq!(doctor_scene_cols_from_value(Some("240")), 120);
+        assert_eq!(doctor_scene_cols_from_value(None), 64);
     }
 
     #[test]
