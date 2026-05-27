@@ -5696,6 +5696,15 @@ mod native_pane_tests {
 
     #[cfg(unix)]
     #[test]
+    fn raw_mode_cflag_forces_eight_bit_characters() {
+        use libc::{CLOCAL, CS7, CS8, CSIZE};
+        let flags = raw_mode_cflag(CS7 | CLOCAL);
+        assert_eq!(flags & CSIZE, CS8);
+        assert_ne!(flags & CLOCAL, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn raw_mode_lflag_disables_signal_and_extended_line_processing() {
         use libc::{ECHO, ICANON, IEXTEN, ISIG};
         let flags = raw_mode_lflag(ICANON | ECHO | ISIG | IEXTEN);
@@ -9152,6 +9161,14 @@ fn raw_mode_oflag(oflag: libc::tcflag_t) -> libc::tcflag_t {
 }
 
 #[cfg(unix)]
+fn raw_mode_cflag(cflag: libc::tcflag_t) -> libc::tcflag_t {
+    use libc::{CS8, CSIZE};
+    // Force 8-bit characters so host tty character-size settings cannot strip
+    // high-bit UTF-8/Alt bytes before kittwm routes them to native apps.
+    (cflag & !CSIZE) | CS8
+}
+
+#[cfg(unix)]
 fn raw_mode_lflag(lflag: libc::tcflag_t) -> libc::tcflag_t {
     use libc::{ECHO, ICANON, IEXTEN, ISIG};
     // Disable ISIG so Ctrl-C is delivered as byte 0x03 and can be handled by
@@ -9175,6 +9192,7 @@ impl RawMode {
             let mut raw = term;
             raw.c_iflag = raw_mode_iflag(term.c_iflag);
             raw.c_oflag = raw_mode_oflag(term.c_oflag);
+            raw.c_cflag = raw_mode_cflag(term.c_cflag);
             raw.c_lflag = raw_mode_lflag(term.c_lflag);
             raw.c_cc[VMIN] = 0;
             raw.c_cc[VTIME] = 0;
