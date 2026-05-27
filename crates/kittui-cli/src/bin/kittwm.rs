@@ -4498,10 +4498,14 @@ fn info_scene(
         .get("tilable_rows")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
+    let workspace_label = truncate(&workspace, 32);
+    let socket_label = truncate(&socket.display().to_string(), 48);
+    let focus_label = truncate(focus, 32);
+    let layout_label = truncate(layout, 32);
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-info-backdrop:workspace={workspace}:panes={pane_count}"
+                "kittwm-info-backdrop:workspace={workspace_label}:panes={pane_count}"
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -4519,8 +4523,7 @@ fn info_scene(
         },
         Layer {
             label: Some(format!(
-                "kittwm-info-heading:socket={}:focus={focus}:layout={layout}",
-                socket.display()
+                "kittwm-info-heading:socket={socket_label}:focus={focus_label}:layout={layout_label}"
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
@@ -4568,10 +4571,12 @@ fn info_scene(
                 .get("focused")
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
+            let window_label = truncate(window, 32);
+            let title_label = truncate(title, 48);
             let y = (idx as f32 + 3.0) * cell.height_px as f32;
             layers.push(Layer {
                 label: Some(format!(
-                    "kittwm-info-pane:{window}:focused={focused}:title={title}"
+                    "kittwm-info-pane:{window_label}:focused={focused}:title={title_label}"
                 )),
                 root: Node::Rect {
                     rect: info_indicator_rect(width, y),
@@ -8673,6 +8678,80 @@ mod tests {
                 .any(|label| label.contains("kittwm-info-pane:native-2:focused=true:title=editor")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn info_scene_clips_pathological_label_fields() {
+        let status = serde_json::json!({
+            "panes": 1,
+            "focus": "native-window-with-a-pathologically-long-focus-id",
+            "layout": "layout-name-that-is-pathologically-long",
+            "workspace": "status-workspace-that-is-pathologically-long"
+        });
+        let chrome = serde_json::json!({
+            "workspace": "workspace-name-that-is-pathologically-long",
+            "top_bar_rows": 1,
+            "tilable_rows": 5
+        });
+        let panes = serde_json::json!({
+            "panes_detail": [
+                {
+                    "window":"native-window-with-a-pathologically-long-window-id",
+                    "title":"pane-title-that-is-pathologically-long-and-would-bloat-scene-labels",
+                    "focused":true
+                }
+            ]
+        });
+        let scene = info_scene(
+            std::path::Path::new("/very/long/path/to/kittwm/socket/that/would/bloat/labels.sock"),
+            &status,
+            &chrome,
+            &panes,
+        );
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let backdrop = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-info-backdrop:"))
+            .unwrap();
+        assert!(
+            backdrop.contains("workspace=workspace-name-that-is-patholog…"),
+            "{backdrop}"
+        );
+        assert!(backdrop.len() < 80, "{backdrop}");
+        let heading = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-info-heading:"))
+            .unwrap();
+        assert!(
+            heading.contains("socket=/very/long/path/to/kittwm/socket/that/would/blo…"),
+            "{heading}"
+        );
+        assert!(
+            heading.contains("focus=native-window-with-a-pathologic…"),
+            "{heading}"
+        );
+        assert!(
+            heading.contains("layout=layout-name-that-is-pathologica…"),
+            "{heading}"
+        );
+        assert!(heading.len() < 170, "{heading}");
+        let row = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-info-pane:"))
+            .unwrap();
+        assert!(
+            row.contains("kittwm-info-pane:native-window-with-a-pathologic…"),
+            "{row}"
+        );
+        assert!(
+            row.contains("title=pane-title-that-is-pathologically-long-and-woul…"),
+            "{row}"
+        );
+        assert!(row.len() < 130, "{row}");
     }
 
     #[test]
