@@ -4837,7 +4837,10 @@ mod native_pane_tests {
         let clipped = truncate_cells(&huge, 12);
         assert_eq!(clipped, "workspace-w…");
         assert_eq!(clipped.chars().count(), 12);
-        assert_eq!(truncate_cells("short", 12), "short");
+        assert!(clipped.capacity() >= 12);
+        let short = truncate_cells("short", 12);
+        assert_eq!(short, "short");
+        assert!(short.capacity() >= "short".len());
         assert_eq!(truncate_cells("anything", 1), "…");
         assert_eq!(truncate_cells("anything", 0), "");
     }
@@ -10351,20 +10354,18 @@ fn truncate_cells(s: &str, n: usize) -> String {
         return String::new();
     }
     let mut chars = s.chars();
-    let mut out = String::new();
+    let mut out = String::with_capacity(n.min(s.len()));
     for _ in 0..n {
         let Some(ch) = chars.next() else {
-            return s.to_string();
+            return out;
         };
         out.push(ch);
     }
     if chars.next().is_some() {
         out.pop();
         out.push('…');
-        out
-    } else {
-        s.to_string()
     }
+    out
 }
 
 fn path_commands(limit: usize) -> Vec<String> {
