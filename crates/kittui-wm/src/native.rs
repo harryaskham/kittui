@@ -36,6 +36,7 @@ use tungstenite::{connect, Message, WebSocket};
 use vte::{Params, Parser, Perform};
 
 const SCROLLBACK_MAX_LINES: usize = 10_000;
+const SCROLLBACK_PRUNE_BATCH: usize = 1_024;
 const DEFAULT_TERMINAL_SCROLLBACK: usize = 1_000;
 
 fn default_virtual_cell_size() -> CellSize {
@@ -1925,7 +1926,10 @@ impl TerminalState {
         self.scrollback.push(line);
         if self.scrollback.len() > SCROLLBACK_MAX_LINES {
             let overflow = self.scrollback.len() - SCROLLBACK_MAX_LINES;
-            self.scrollback.drain(0..overflow);
+            let prune = overflow
+                .max(SCROLLBACK_PRUNE_BATCH)
+                .min(self.scrollback.len());
+            self.scrollback.drain(0..prune);
         }
     }
 
@@ -4782,6 +4786,27 @@ mod tests {
         assert_eq!(state.scrollback_snapshot(), "one\n");
         let text = state.text_snapshot();
         assert!(text.starts_with("two\nthree"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn terminal_state_batches_scrollback_pruning_after_overflow() {
+        let mut state = TerminalState::new(8, 2);
+        for idx in 0..=SCROLLBACK_MAX_LINES {
+            state.push_scrollback_line(format!("line-{idx}"));
+        }
+        assert!(state.scrollback.len() <= SCROLLBACK_MAX_LINES);
+        assert_eq!(
+            state.scrollback.len(),
+            SCROLLBACK_MAX_LINES + 1 - SCROLLBACK_PRUNE_BATCH
+        );
+        assert_eq!(
+            state.scrollback.first().map(String::as_str),
+            Some("line-1024")
+        );
+        assert_eq!(
+            state.scrollback.last().map(String::as_str),
+            Some("line-10000")
+        );
     }
 
     #[test]
