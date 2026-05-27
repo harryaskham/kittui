@@ -922,6 +922,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 &sock,
                 dbg.path_display(),
                 help_overlay,
+                true,
             );
             let rendered = render_native_shell_view_terminal(&pre_capture_shell_view, cols, rows);
             let has_pending_output = !frame_out.is_empty();
@@ -1173,6 +1174,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             &sock,
             dbg.path_display(),
             help_overlay,
+            false,
         );
         if last_title_rows.len() != shell_view.panes.len() {
             last_title_rows.resize(shell_view.panes.len(), String::new());
@@ -1513,6 +1515,7 @@ fn native_shell_view(
     sock: &str,
     log_path: &str,
     help_overlay: bool,
+    include_text_snapshots: bool,
 ) -> NativeShellView {
     let pane_chrome = panes
         .iter()
@@ -1535,7 +1538,11 @@ fn native_shell_view(
                 app_rows: layout.app_rows,
                 cols: layout.cols,
                 rows: layout.rows,
-                text_snapshot: pane.app.text_snapshot(),
+                text_snapshot: if include_text_snapshots {
+                    pane.app.text_snapshot()
+                } else {
+                    String::new()
+                },
             })
         })
         .collect();
@@ -7378,6 +7385,7 @@ mod native_pane_tests {
             "/tmp/kittwm.sock",
             "/tmp/kittwm.log",
             false,
+            false,
         );
         assert_eq!(view.top_bar.row, 0);
         assert!(view.top_bar.text.contains("| 1 | 2 | 3 |"));
@@ -7442,9 +7450,37 @@ mod native_pane_tests {
             "/tmp/kittwm.sock",
             "/tmp/kittwm.log",
             false,
+            false,
         );
         assert_eq!(view.footer.row, 9);
         assert!(view.footer.text.contains("C-a ? help"));
+    }
+
+    #[test]
+    fn native_shell_view_skips_text_snapshots_when_not_requested() {
+        let pane = dummy_native_pane("native-1", "sh", 1);
+        let layout = NativePaneLayout {
+            x: 0,
+            y: 1,
+            cols: 10,
+            rows: 5,
+            app_x: 0,
+            app_y: 2,
+            app_cols: 10,
+            app_rows: 3,
+        };
+        let view = native_shell_view(
+            80,
+            10,
+            &[pane],
+            0,
+            &[layout],
+            "/tmp/kittwm.sock",
+            "/tmp/kittwm.log",
+            false,
+            false,
+        );
+        assert_eq!(view.panes[0].text_snapshot, "");
     }
 
     #[test]
