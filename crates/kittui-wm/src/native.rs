@@ -1177,13 +1177,19 @@ impl TerminalSurface {
         {
             return Ok(frame);
         }
-        let state = state.clone();
+        let render_state = state.render_state();
+        let revision = state.revision;
+        drop(state);
         let frame = NativeFrame::Rgba {
-            width: u32::from(state.cols) * self.cell_width,
-            height: u32::from(state.rows) * self.cell_height,
-            rgba: render_terminal_rgba(&state, self.cell_width, self.cell_height),
+            width: u32::from(render_state.cols) * self.cell_width,
+            height: u32::from(render_state.rows) * self.cell_height,
+            rgba: render_terminal_render_state_rgba(
+                &render_state,
+                self.cell_width,
+                self.cell_height,
+            ),
         };
-        self.cached_revision = state.revision;
+        self.cached_revision = revision;
         self.cached_frame = Some(frame.clone());
         Ok(frame)
     }
@@ -1762,6 +1768,15 @@ struct TerminalCell {
     style: TerminalStyle,
 }
 
+struct TerminalRenderState {
+    cols: u16,
+    rows: u16,
+    cursor_col: u16,
+    cursor_row: u16,
+    cursor_visible: bool,
+    cells: Vec<TerminalCell>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TerminalStyle {
     fg: Option<TerminalColor>,
@@ -1836,6 +1851,17 @@ impl TerminalState {
 
     fn bump_revision(&mut self) {
         self.revision = self.revision.wrapping_add(1);
+    }
+
+    fn render_state(&self) -> TerminalRenderState {
+        TerminalRenderState {
+            cols: self.cols,
+            rows: self.rows,
+            cursor_col: self.cursor_col,
+            cursor_row: self.cursor_row,
+            cursor_visible: self.cursor_visible,
+            cells: self.cells.clone(),
+        }
     }
 
     fn resize(&mut self, cols: u16, rows: u16) {
@@ -2759,7 +2785,16 @@ impl Perform for TerminalState {
     }
 }
 
+#[cfg(test)]
 fn render_terminal_rgba(state: &TerminalState, cell_w: u32, cell_h: u32) -> Vec<u8> {
+    render_terminal_render_state_rgba(&state.render_state(), cell_w, cell_h)
+}
+
+fn render_terminal_render_state_rgba(
+    state: &TerminalRenderState,
+    cell_w: u32,
+    cell_h: u32,
+) -> Vec<u8> {
     let width = u32::from(state.cols) * cell_w;
     let height = u32::from(state.rows) * cell_h;
     let default_bg = default_terminal_bg_color();
@@ -2800,14 +2835,20 @@ fn render_terminal_rgba(state: &TerminalState, cell_w: u32, cell_h: u32) -> Vec<
 fn draw_terminal_cursor(
     rgba: &mut [u8],
     width: u32,
-    state: &TerminalState,
+    state: &TerminalRenderState,
     cell_w: u32,
     cell_h: u32,
 ) {
     if state.cursor_col >= state.cols || state.cursor_row >= state.rows {
         return;
     }
-    let cell = state.get_cell_at(state.cursor_col, state.cursor_row);
+    let idx =
+        usize::from(state.cursor_row) * usize::from(state.cols) + usize::from(state.cursor_col);
+    let cell = state
+        .cells
+        .get(idx)
+        .copied()
+        .unwrap_or_else(|| TerminalCell::blank(TerminalStyle::default()));
     let (fg, bg) = terminal_cell_colors(cell.style);
     let cursor = if cell.ch == ' ' { fg } else { bg };
     let x0 = u32::from(state.cursor_col) * cell_w;
@@ -4445,6 +4486,20 @@ mod tests {
         assert_eq!(state.revision, 1);
         state.resize(3, 2);
         assert_eq!(state.revision, 2);
+    }
+
+    #[test]
+    fn terminal_render_state_excludes_scrollback_and_pending_buffers() {
+        let mut state = TerminalState::new(2, 1);
+        state.cells[0].ch = 'x';
+        state.push_scrollback_line("history".to_string());
+        state.queue_response(b"reply");
+        state.queue_host_sequence(b"host");
+        let render = state.render_state();
+        assert_eq!(render.cols, 2);
+        assert_eq!(render.rows, 1);
+        assert_eq!(render.cells[0].ch, 'x');
+        assert_eq!(state.scrollback_snapshot(), "history\n");
     }
 
     #[test]
