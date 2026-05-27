@@ -2879,23 +2879,37 @@ fn discover_terminal_font_path() -> Option<PathBuf> {
             return Some(path);
         }
     }
-    let roots = [
-        "/run/current-system/sw/share/fonts",
-        "/usr/share/fonts",
-        "/usr/local/share/fonts",
-        "/Library/Fonts",
-        "/System/Library/Fonts",
-    ];
-    for root in roots {
-        let root = Path::new(root);
+    for root in terminal_font_roots() {
         if !root.exists() {
             continue;
         }
-        if let Some(path) = find_fira_code_font(root, 4) {
+        if let Some(path) = find_fira_code_font(&root, 4) {
             return Some(path);
         }
     }
     None
+}
+
+fn terminal_font_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        roots.push(home.join("Library/Fonts"));
+        roots.push(home.join(".local/share/fonts"));
+        roots.push(home.join(".fonts"));
+    }
+    if let Some(xdg_data_home) = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from) {
+        roots.push(xdg_data_home.join("fonts"));
+    }
+    roots.extend([
+        PathBuf::from("/opt/homebrew/share/fonts"),
+        PathBuf::from("/usr/local/share/fonts"),
+        PathBuf::from("/run/current-system/sw/share/fonts"),
+        PathBuf::from("/usr/share/fonts"),
+        PathBuf::from("/Library/Fonts"),
+        PathBuf::from("/System/Library/Fonts"),
+    ]);
+    roots.dedup();
+    roots
 }
 
 fn find_fira_code_font(root: &Path, depth: usize) -> Option<PathBuf> {
@@ -4302,6 +4316,36 @@ mod tests {
             std::env::remove_var("KITTUI_TERMINAL_FONT");
         }
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn terminal_font_roots_include_user_font_locations() {
+        let old_home = std::env::var_os("HOME");
+        let old_xdg = std::env::var_os("XDG_DATA_HOME");
+        let home = std::env::temp_dir().join(format!(
+            "kittui-font-home-{}-{}",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        let xdg = home.join("xdg-data");
+        std::env::set_var("HOME", &home);
+        std::env::set_var("XDG_DATA_HOME", &xdg);
+        let roots = terminal_font_roots();
+        assert!(roots.contains(&home.join("Library/Fonts")));
+        assert!(roots.contains(&home.join(".local/share/fonts")));
+        assert!(roots.contains(&home.join(".fonts")));
+        assert!(roots.contains(&xdg.join("fonts")));
+        assert!(roots.contains(&PathBuf::from("/opt/homebrew/share/fonts")));
+        if let Some(old) = old_home {
+            std::env::set_var("HOME", old);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(old) = old_xdg {
+            std::env::set_var("XDG_DATA_HOME", old);
+        } else {
+            std::env::remove_var("XDG_DATA_HOME");
+        }
     }
 
     #[test]
