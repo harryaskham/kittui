@@ -6674,9 +6674,9 @@ fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
 }
 
 fn keymap_duplicate_count(km: &kittui_cli::keymap::Keymap) -> usize {
-    let mut seen = std::collections::BTreeMap::<String, usize>::new();
+    let mut seen = std::collections::HashMap::<&[kittui_cli::keymap::KeySpec], usize>::new();
     for binding in &km.bindings {
-        *seen.entry(binding.chord_string()).or_default() += 1;
+        *seen.entry(binding.chord.as_slice()).or_default() += 1;
     }
     seen.values().filter(|&&n| n > 1).count()
 }
@@ -8059,6 +8059,44 @@ mod tests {
                 .any(|label| label.contains("launch") || label.contains("split.vertical.launcher")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn keymap_duplicate_count_uses_chord_identity() {
+        let large_key = "pathologically-long-key-name-".repeat(128);
+        let chord = vec![kittui_cli::keymap::KeySpec {
+            mods: kittui_cli::keymap::KeyMods {
+                ctrl: true,
+                alt: false,
+                shift: false,
+            },
+            key: large_key.clone(),
+        }];
+        let km = kittui_cli::keymap::Keymap {
+            prefix: None,
+            bindings: vec![
+                kittui_cli::keymap::Binding {
+                    chord: chord.clone(),
+                    action: kittui_cli::keymap::Action::Launch,
+                },
+                kittui_cli::keymap::Binding {
+                    chord,
+                    action: kittui_cli::keymap::Action::Quit,
+                },
+                kittui_cli::keymap::Binding {
+                    chord: vec![kittui_cli::keymap::KeySpec {
+                        mods: kittui_cli::keymap::KeyMods {
+                            ctrl: true,
+                            alt: false,
+                            shift: false,
+                        },
+                        key: format!("{large_key}-other"),
+                    }],
+                    action: kittui_cli::keymap::Action::WorkspaceNext,
+                },
+            ],
+        };
+        assert_eq!(keymap_duplicate_count(&km), 1);
     }
 
     #[test]

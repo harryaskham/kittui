@@ -20,7 +20,7 @@ use std::fmt;
 use std::path::Path;
 
 /// Modifier flags for a key spec.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct KeyMods {
     /// Control modifier.
     pub ctrl: bool,
@@ -31,7 +31,7 @@ pub struct KeyMods {
 }
 
 /// A single key press in a chord.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct KeySpec {
     /// Modifiers held for this key.
     pub mods: KeyMods,
