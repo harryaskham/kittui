@@ -5162,8 +5162,11 @@ fn shortcuts_kitty_cmd() -> Result<()> {
 }
 
 fn shortcuts_scene() -> Scene {
+    shortcuts_scene_for_cols(shortcuts_scene_cols())
+}
+
+fn shortcuts_scene_for_cols(cols: u16) -> Scene {
     let entries = kittui_cli::shortcuts::NATIVE_SHORTCUT_ENTRIES;
-    let cols = shortcuts_scene_cols();
     let rows = (entries.len() as u16 + 3).clamp(4, 18);
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
@@ -5210,7 +5213,7 @@ fn shortcuts_scene() -> Scene {
                 entry.id, entry.keys, entry.description
             )),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: shortcuts_scene_row_rect(width, y),
                 fill: Paint::Solid {
                     color: Rgba::rgba(163, 190, 140, 255),
                 },
@@ -5228,13 +5231,25 @@ fn shortcuts_scene() -> Scene {
 }
 
 fn shortcuts_scene_cols() -> u16 {
-    std::env::var("KITTWM_SHORTCUTS_COLS")
-        .or_else(|_| std::env::var("COLUMNS"))
-        .ok()
+    shortcuts_scene_cols_from_value(
+        std::env::var("KITTWM_SHORTCUTS_COLS")
+            .or_else(|_| std::env::var("COLUMNS"))
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn shortcuts_scene_cols_from_value(value: Option<&str>) -> u16 {
+    value
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|cols| *cols > 0)
+        .map(|cols| cols.min(140))
         .unwrap_or(72)
-        .clamp(40, 140)
+}
+
+fn shortcuts_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
+    let margin = 10.0_f32.min((width / 4.0).max(0.0));
+    KittuiPxRect::new(margin, y, (width - margin * 2.0).max(1.0), 1.5)
 }
 
 fn showcase_scene_json_cmd() -> Result<()> {
@@ -6856,6 +6871,23 @@ mod tests {
                 .any(|label| label.contains("kittwm-command-row:lifecycle:start")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn shortcuts_scene_width_respects_narrow_columns() {
+        assert_eq!(shortcuts_scene_cols_from_value(Some("8")), 8);
+        assert_eq!(shortcuts_scene_cols_from_value(Some("0")), 72);
+        assert_eq!(shortcuts_scene_cols_from_value(Some("240")), 140);
+
+        let scene = shortcuts_scene_for_cols(1);
+        assert_eq!(scene.footprint.cols, 1);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
+        assert_eq!(shortcuts_scene_row_rect(8.0, 0.0).origin.0, 2.0);
     }
 
     #[test]
