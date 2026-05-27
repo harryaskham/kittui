@@ -5704,17 +5704,20 @@ fn keymap_keyspec_label(spec: &kittui_cli::keymap::KeySpec, max: usize) -> Strin
     if max == 0 {
         return String::new();
     }
-    let mut out = String::new();
+    let mut out = String::with_capacity(max);
+    let mut used = 0usize;
     if spec.mods.ctrl {
         out.push_str("C-");
+        used += 2;
     }
     if spec.mods.alt {
         out.push_str("M-");
+        used += 2;
     }
     if spec.mods.shift {
         out.push_str("S-");
+        used += 2;
     }
-    let used = out.chars().count();
     if used >= max {
         return truncate(&out, max);
     }
@@ -5723,20 +5726,26 @@ fn keymap_keyspec_label(spec: &kittui_cli::keymap::KeySpec, max: usize) -> Strin
 }
 
 fn keymap_chord_label(chord: &[kittui_cli::keymap::KeySpec], max: usize) -> String {
-    let mut out = String::new();
+    if max == 0 {
+        return String::new();
+    }
+    let mut out = String::with_capacity(max);
+    let mut used = 0usize;
     for spec in chord {
         if !out.is_empty() {
-            if out.chars().count() + 1 >= max {
+            if used + 1 >= max {
                 out.push('…');
                 return truncate(&out, max);
             }
             out.push(' ');
+            used += 1;
         }
-        let used = out.chars().count();
         if used >= max {
             return truncate(&out, max);
         }
-        out.push_str(&keymap_keyspec_label(spec, max - used));
+        let label = keymap_keyspec_label(spec, max - used);
+        used += label.chars().count();
+        out.push_str(&label);
         if out.ends_with('…') {
             return out;
         }
@@ -8207,6 +8216,13 @@ mod tests {
             "{row}"
         );
         assert!(row.len() < 130, "{row}");
+
+        let key_label = keymap_keyspec_label(km.prefix.as_ref().unwrap(), 32);
+        assert_eq!(key_label.chars().count(), 32);
+        assert!(key_label.capacity() >= 32);
+        let chord_label = keymap_chord_label(&km.bindings[0].chord, 48);
+        assert_eq!(chord_label.chars().count(), 48);
+        assert!(chord_label.capacity() >= 48);
     }
 
     #[test]
