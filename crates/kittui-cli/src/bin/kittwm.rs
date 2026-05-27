@@ -5673,8 +5673,7 @@ struct AppsSummary {
 
 fn apps_scene(summary: &AppsSummary) -> Scene {
     let cols = info_scene_cols();
-    let rows =
-        (summary.path_commands.len() as u16 + summary.macos_apps.len() as u16 + 7).clamp(8, 30);
+    let rows = apps_scene_rows(summary.path_commands.len(), summary.macos_apps.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -5761,6 +5760,13 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
 
 fn apps_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn apps_scene_rows(path_count: usize, macos_count: usize) -> u16 {
+    let total = path_count
+        .saturating_add(macos_count)
+        .min(u16::MAX as usize) as u16;
+    total.saturating_add(7).clamp(8, 30)
 }
 
 fn find_on_path(program: &str) -> Option<std::path::PathBuf> {
@@ -7039,6 +7045,14 @@ mod tests {
                 .any(|label| label.contains("kittwm-launcher-row:2:macos:Terminal:selected=true")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn apps_scene_rows_saturate_before_clamping() {
+        assert_eq!(apps_scene_rows(0, 0), 8);
+        assert_eq!(apps_scene_rows(1, 0), 8);
+        assert_eq!(apps_scene_rows(20, 2), 29);
+        assert_eq!(apps_scene_rows(usize::MAX, usize::MAX), 30);
     }
 
     #[test]
