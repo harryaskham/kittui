@@ -696,7 +696,7 @@ struct BrowserSemanticPublisher {
     idle_interval: Duration,
     unchanged_payloads: u16,
     last_attempt: Option<Instant>,
-    last_payload: Option<String>,
+    last_payload_key: Option<(usize, u64)>,
 }
 
 impl BrowserSemanticPublisher {
@@ -713,7 +713,7 @@ impl BrowserSemanticPublisher {
             idle_interval: browser_semantic_idle_interval(active_interval),
             unchanged_payloads: 0,
             last_attempt: None,
-            last_payload: None,
+            last_payload_key: None,
         }
     }
 
@@ -760,20 +760,21 @@ impl BrowserSemanticPublisher {
     }
 
     fn record_payload(&mut self, payload: &str) -> bool {
-        if self.last_payload.as_deref() == Some(payload) {
+        let payload_key = browser_payload_key(payload);
+        if self.last_payload_key == Some(payload_key) {
             self.unchanged_payloads = self.unchanged_payloads.saturating_add(1);
             return false;
         }
-        match self.last_payload.as_mut() {
-            Some(last_payload) => {
-                last_payload.clear();
-                last_payload.push_str(payload);
-            }
-            None => self.last_payload = Some(payload.to_string()),
-        }
+        self.last_payload_key = Some(payload_key);
         self.unchanged_payloads = 0;
         true
     }
+}
+
+fn browser_payload_key(payload: &str) -> (usize, u64) {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    payload.hash(&mut hasher);
+    (payload.len(), hasher.finish())
 }
 
 fn publish_semantic_snapshot(
@@ -1599,7 +1600,7 @@ mod tests {
             idle_interval: Duration::from_millis(2000),
             unchanged_payloads: 0,
             last_attempt: None,
-            last_payload: None,
+            last_payload_key: None,
         };
 
         assert!(publisher.due(start));
@@ -1624,7 +1625,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_publisher_reuses_payload_string_allocation() {
+    fn semantic_publisher_stores_payload_fingerprint_only() {
         let mut publisher = BrowserSemanticPublisher {
             socket: Some(PathBuf::from("/tmp/unused.sock")),
             window: "native-1".to_string(),
@@ -1632,14 +1633,21 @@ mod tests {
             idle_interval: Duration::from_millis(2000),
             unchanged_payloads: 0,
             last_attempt: None,
-            last_payload: None,
+            last_payload_key: None,
         };
         let large = "x".repeat(4096);
         assert!(publisher.record_payload(&large));
-        let initial_capacity = publisher.last_payload.as_ref().unwrap().capacity();
+        assert_eq!(
+            publisher.last_payload_key,
+            Some(browser_payload_key(&large))
+        );
+        assert!(!publisher.record_payload(&large));
+        assert_eq!(publisher.unchanged_payloads, 1);
         assert!(publisher.record_payload("tiny"));
-        assert_eq!(publisher.last_payload.as_deref(), Some("tiny"));
-        assert!(publisher.last_payload.as_ref().unwrap().capacity() >= initial_capacity);
+        assert_eq!(
+            publisher.last_payload_key,
+            Some(browser_payload_key("tiny"))
+        );
     }
 
     #[test]
@@ -1651,7 +1659,7 @@ mod tests {
             idle_interval: Duration::from_millis(2000),
             unchanged_payloads: 0,
             last_attempt: None,
-            last_payload: None,
+            last_payload_key: None,
         };
         assert!(publisher.socket.is_none());
         assert_eq!(publisher.window, "focused");
