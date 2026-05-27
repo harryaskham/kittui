@@ -1171,12 +1171,13 @@ impl TerminalSurface {
 
     /// Render the current terminal state as an RGBA frame.
     pub fn capture(&mut self) -> Result<NativeFrame> {
-        let state = self.state.lock().clone();
+        let state = self.state.lock();
         if let Some(frame) =
             cached_revision_frame(state.revision, self.cached_revision, &self.cached_frame)
         {
             return Ok(frame);
         }
+        let state = state.clone();
         let frame = NativeFrame::Rgba {
             width: u32::from(state.cols) * self.cell_width,
             height: u32::from(state.rows) * self.cell_height,
