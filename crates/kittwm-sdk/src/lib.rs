@@ -2933,6 +2933,14 @@ fn validated_protocol_token<'a>(token: &'a str, label: &str) -> Result<&'a str> 
     Ok(token)
 }
 
+fn validated_wait_needle<'a>(needle: &'a str, verb: &str) -> Result<&'a str> {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return Err(Error::Daemon(format!("{verb} requires nonempty needle")));
+    }
+    Ok(needle)
+}
+
 impl SurfaceHandle {
     /// Focus this surface/window.
     pub fn focus(&self) -> Result<String> {
@@ -3059,37 +3067,39 @@ impl SurfaceHandle {
     /// Wait for text to appear in the visible screen snapshot.
     pub fn wait_text_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::ReadText)?;
+        let needle = validated_wait_needle(needle.as_ref(), "WAIT_TEXT_MS")?;
         self.client.request_protocol(format!(
-            "WAIT_TEXT_MS {} {} {}",
+            "WAIT_TEXT_MS {} {} {needle}",
             self.id,
-            ms.clamp(1, 60_000),
-            needle.as_ref()
+            ms.clamp(1, 60_000)
         ))
     }
 
     /// Wait for text to appear in the visible screen or scrollback snapshots.
     pub fn wait_output_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::ReadText)?;
+        let needle = validated_wait_needle(needle.as_ref(), "WAIT_OUTPUT_MS")?;
         self.client.request_protocol(format!(
-            "WAIT_OUTPUT_MS {} {} {}",
+            "WAIT_OUTPUT_MS {} {} {needle}",
             self.id,
-            ms.clamp(1, 60_000),
-            needle.as_ref()
+            ms.clamp(1, 60_000)
         ))
     }
 
     /// Wait up to the daemon's default timeout for visible screen text.
     pub fn wait_text(&self, needle: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::ReadText)?;
+        let needle = validated_wait_needle(needle.as_ref(), "WAIT_TEXT")?;
         self.client
-            .request_protocol(format!("WAIT_TEXT {} {}", self.id, needle.as_ref()))
+            .request_protocol(format!("WAIT_TEXT {} {needle}", self.id))
     }
 
     /// Wait up to the daemon's default timeout for visible screen or scrollback text.
     pub fn wait_output(&self, needle: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::ReadText)?;
+        let needle = validated_wait_needle(needle.as_ref(), "WAIT_OUTPUT")?;
         self.client
-            .request_protocol(format!("WAIT_OUTPUT {} {}", self.id, needle.as_ref()))
+            .request_protocol(format!("WAIT_OUTPUT {} {needle}", self.id))
     }
 
     /// Wait for visible screen text and return typed match metadata.
@@ -3105,12 +3115,12 @@ impl SurfaceHandle {
     /// Wait for visible screen text via the JSON wait command and return typed metadata.
     pub fn wait_text_match_json_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<WaitMatch> {
         self.client.capabilities.ensure(Capability::ReadText)?;
+        let needle = validated_wait_needle(needle.as_ref(), "WAIT_TEXT_JSON_MS")?;
         Ok(serde_json::from_str(&self.client.request_protocol(
             format!(
-                "WAIT_TEXT_JSON_MS {} {} {}",
+                "WAIT_TEXT_JSON_MS {} {} {needle}",
                 self.id,
-                ms.clamp(1, 60_000),
-                needle.as_ref()
+                ms.clamp(1, 60_000)
             ),
         )?)?)
     }
@@ -3118,12 +3128,12 @@ impl SurfaceHandle {
     /// Wait for visible screen or scrollback output via the JSON wait command.
     pub fn wait_output_match_json_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<WaitMatch> {
         self.client.capabilities.ensure(Capability::ReadText)?;
+        let needle = validated_wait_needle(needle.as_ref(), "WAIT_OUTPUT_JSON_MS")?;
         Ok(serde_json::from_str(&self.client.request_protocol(
             format!(
-                "WAIT_OUTPUT_JSON_MS {} {} {}",
+                "WAIT_OUTPUT_JSON_MS {} {} {needle}",
                 self.id,
-                ms.clamp(1, 60_000),
-                needle.as_ref()
+                ms.clamp(1, 60_000)
             ),
         )?)?)
     }
@@ -3141,16 +3151,18 @@ impl SurfaceHandle {
     /// Wait up to the daemon's default timeout for visible text via the JSON wait command.
     pub fn wait_text_match_json(&self, needle: impl AsRef<str>) -> Result<WaitMatch> {
         self.client.capabilities.ensure(Capability::ReadText)?;
+        let needle = validated_wait_needle(needle.as_ref(), "WAIT_TEXT_JSON")?;
         Ok(serde_json::from_str(&self.client.request_protocol(
-            format!("WAIT_TEXT_JSON {} {}", self.id, needle.as_ref()),
+            format!("WAIT_TEXT_JSON {} {needle}", self.id),
         )?)?)
     }
 
     /// Wait up to the daemon's default timeout for visible or scrollback output via JSON.
     pub fn wait_output_match_json(&self, needle: impl AsRef<str>) -> Result<WaitMatch> {
         self.client.capabilities.ensure(Capability::ReadText)?;
+        let needle = validated_wait_needle(needle.as_ref(), "WAIT_OUTPUT_JSON")?;
         Ok(serde_json::from_str(&self.client.request_protocol(
-            format!("WAIT_OUTPUT_JSON {} {}", self.id, needle.as_ref()),
+            format!("WAIT_OUTPUT_JSON {} {needle}", self.id),
         )?)?)
     }
 
@@ -5452,6 +5464,23 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn wait_helpers_validate_needles_before_io() {
+        let surface = Kittwm::connect_path("/tmp/does-not-exist.sock").surface("focused");
+        assert!(matches!(
+            surface.wait_text("   "),
+            Err(Error::Daemon(message)) if message.contains("nonempty needle")
+        ));
+        assert!(matches!(
+            surface.wait_output_ms(100, ""),
+            Err(Error::Daemon(message)) if message.contains("nonempty needle")
+        ));
+        assert!(matches!(
+            surface.wait_text_match_json("   "),
+            Err(Error::Daemon(message)) if message.contains("nonempty needle")
+        ));
+    }
+
     #[cfg(unix)]
     #[test]
     fn scrollback_and_wait_helpers_send_expected_commands() {
@@ -5511,18 +5540,18 @@ mod tests {
         let surface = Kittwm::connect_path(&path).surface("native-1");
         assert_eq!(surface.read_scrollback().unwrap().scrollback, "old\n");
         assert_eq!(
-            surface.wait_text_ms(250, "ready").unwrap().trim(),
+            surface.wait_text_ms(250, " ready ").unwrap().trim(),
             "MATCH_TEXT window=native-1 bytes=12"
         );
         assert_eq!(
             surface
-                .wait_output_ms(500, "build finished")
+                .wait_output_ms(500, " build finished ")
                 .unwrap()
                 .trim(),
             "MATCH_OUTPUT window=native-1 bytes=64"
         );
         assert_eq!(
-            surface.wait_text("prompt").unwrap().trim(),
+            surface.wait_text(" prompt ").unwrap().trim(),
             "MATCH_TEXT window=native-1 bytes=10"
         );
         assert_eq!(
@@ -5566,7 +5595,7 @@ mod tests {
             }
         );
         assert_eq!(
-            surface.wait_text_match_json("prompt json").unwrap().bytes,
+            surface.wait_text_match_json(" prompt json ").unwrap().bytes,
             90
         );
         assert_eq!(
