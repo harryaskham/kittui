@@ -6694,6 +6694,14 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_terminal_size_clamps_overrides_to_host_cells() {
+        assert_eq!(clamp_native_terminal_size(200, 80, (100, 40)), (100, 40));
+        assert_eq!(clamp_native_terminal_size(0, 0, (100, 40)), (1, 1));
+        assert_eq!(clamp_native_terminal_size(80, 24, (0, 0)), (1, 1));
+        assert_eq!(clamp_native_terminal_size(80, 24, (100, 40)), (80, 24));
+    }
+
+    #[test]
     fn terminal_visible_row_clamps_to_last_row() {
         assert_eq!(terminal_visible_row(0, 0), 0);
         assert_eq!(terminal_visible_row(5, 0), 0);
@@ -7525,17 +7533,26 @@ mod native_pane_tests {
 
 fn native_terminal_size() -> (u16, u16) {
     let host = host_terminal_cells().unwrap_or((80, 24));
-    let cols = std::env::var("KITTWM_NATIVE_COLS")
+    let requested_cols = std::env::var("KITTWM_NATIVE_COLS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(host.0)
-        .max(1);
-    let rows = std::env::var("KITTWM_NATIVE_ROWS")
+        .unwrap_or(host.0);
+    let requested_rows = std::env::var("KITTWM_NATIVE_ROWS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| host.1.saturating_sub(2).max(1))
-        .max(1);
-    (cols, rows)
+        .unwrap_or_else(|| host.1.saturating_sub(2).max(1));
+    clamp_native_terminal_size(requested_cols, requested_rows, host)
+}
+
+fn clamp_native_terminal_size(
+    requested_cols: u16,
+    requested_rows: u16,
+    host: (u16, u16),
+) -> (u16, u16) {
+    (
+        requested_cols.max(1).min(host.0.max(1)),
+        requested_rows.max(1).min(host.1.max(1)),
+    )
 }
 
 fn host_terminal_cells() -> Option<(u16, u16)> {
