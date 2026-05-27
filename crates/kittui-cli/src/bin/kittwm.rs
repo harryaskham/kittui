@@ -4913,6 +4913,9 @@ fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
         .get("focus")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("-");
+    let kind_label = truncate(kind, 32);
+    let layout_label = truncate(layout, 32);
+    let focus_label = truncate(focus, 32);
     let schema = session
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
@@ -4921,7 +4924,7 @@ fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-session-backdrop:kind={kind}:schema={schema}:layout={layout}:focus={focus}:panes={}",
+                "kittwm-session-backdrop:kind={kind_label}:schema={schema}:layout={layout_label}:focus={focus_label}:panes={}",
                 panes.len()
             )),
             root: Node::Rect {
@@ -4978,9 +4981,12 @@ fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
             .get("focused")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        let window_label = truncate(window, 32);
+        let title_label = truncate(title, 48);
+        let command_label = truncate(command, 48);
         layers.push(Layer {
             label: Some(format!(
-                "kittwm-session-row:{idx}:window={window}:title={title}:command={command}:weight={weight}:focused={focused}"
+                "kittwm-session-row:{idx}:window={window_label}:title={title_label}:command={command_label}:weight={weight}:focused={focused}"
             )),
             root: Node::Rect {
                 rect: session_scene_row_rect(width, y),
@@ -7033,6 +7039,66 @@ mod tests {
             )),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn session_scene_clips_pathological_label_fields() {
+        let session = serde_json::json!({
+            "schema_version": 1,
+            "kind": "kittwm-native-session-with-a-pathologically-long-kind",
+            "layout": "layout-name-that-is-pathologically-long",
+            "focus": "native-window-with-a-pathologically-long-focus-id",
+            "panes": [
+                {
+                    "index":0,
+                    "window":"native-window-with-a-pathologically-long-window-id",
+                    "title":"pane-title-that-is-pathologically-long-and-would-bloat-scene-labels",
+                    "command":"command --with --a-pathologically-long-argument-list --that-bloats-labels",
+                    "weight":1,
+                    "focused":true
+                }
+            ]
+        });
+        let scene = session_scene_for_cols(&session, 8);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let backdrop = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-session-backdrop:"))
+            .unwrap();
+        assert!(
+            backdrop.contains("kind=kittwm-native-session-with-a-pa…"),
+            "{backdrop}"
+        );
+        assert!(
+            backdrop.contains("layout=layout-name-that-is-pathologica…"),
+            "{backdrop}"
+        );
+        assert!(
+            backdrop.contains("focus=native-window-with-a-pathologic…"),
+            "{backdrop}"
+        );
+        assert!(backdrop.len() < 170, "{backdrop}");
+        let row = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-session-row:0:"))
+            .unwrap();
+        assert!(
+            row.contains("window=native-window-with-a-pathologic…"),
+            "{row}"
+        );
+        assert!(
+            row.contains("title=pane-title-that-is-pathologically-long-and-woul…"),
+            "{row}"
+        );
+        assert!(
+            row.contains("command=command --with --a-pathologically-long-argument…"),
+            "{row}"
+        );
+        assert!(row.len() < 220, "{row}");
     }
 
     #[test]
