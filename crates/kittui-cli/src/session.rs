@@ -198,6 +198,10 @@ fn should_write_ansi_top_bar(
     !affordance_scene_chrome && (redraw_static || current != last)
 }
 
+fn raw_compositor_app_placement_options(image_id: u32) -> kittui_kitty::PlacementOptions {
+    kittui_kitty::PlacementOptions::stable_absolute(image_id).with_z_index(native_app_z_index())
+}
+
 fn native_idle_frame_target(active_target: Duration) -> Duration {
     let idle_fps = std::env::var("KITTWM_IDLE_FPS")
         .ok()
@@ -3940,6 +3944,14 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_app_placement_is_stable_absolute() {
+        let opts = raw_compositor_app_placement_options(42);
+        assert_eq!(opts.placement_id, Some(42));
+        assert!(!opts.unicode_placeholder);
+        assert_eq!(opts.z_index, native_app_z_index());
+    }
+
+    #[test]
     fn native_idle_frame_pacing_uses_active_then_idle_target() {
         let active = Duration::from_millis(33);
         let idle = Duration::from_millis(100);
@@ -6830,25 +6842,29 @@ pub fn run_loop_with<S: XServer>(
                         f.height,
                         &f.rgba,
                     );
+                    let placement_options = raw_compositor_app_placement_options(f.image_id);
                     if decision.upload {
-                        let p = runtime.place_raw_frame(
+                        let p = runtime.place_raw_frame_with_options(
                             f.image_id,
                             &f.rgba,
                             f.width,
                             f.height,
                             f.footprint,
+                            &placement_options,
                         );
                         handle.write_all(p.upload.as_bytes())?;
                         wrote_frame_output = true;
                         if decision.placement.write_placement {
-                            write!(handle, "\x1b[{};{}H", f.footprint.y + 1, f.footprint.x + 1)?;
                             handle.write_all(p.placement.as_bytes())?;
                             handle.write_all(p.embed.as_bytes())?;
                             wrote_frame_output = true;
                         }
                     } else if decision.placement.write_placement {
-                        let p = runtime.place_uploaded_image(f.image_id, f.footprint);
-                        write!(handle, "\x1b[{};{}H", f.footprint.y + 1, f.footprint.x + 1)?;
+                        let p = runtime.place_uploaded_image_with_options(
+                            f.image_id,
+                            f.footprint,
+                            &placement_options,
+                        );
                         handle.write_all(p.placement.as_bytes())?;
                         handle.write_all(p.embed.as_bytes())?;
                         wrote_frame_output = true;
