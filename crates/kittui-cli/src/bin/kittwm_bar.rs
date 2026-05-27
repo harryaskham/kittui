@@ -235,24 +235,25 @@ fn kittwm_bar_kitty_text_overlay_with_config(
     config: &KittwmConfig,
 ) -> String {
     let palette = kittwm_bar_overlay_palette(config);
+    let active_style = kittwm_bar_overlay_style(palette.active_fg, palette.active_bg);
+    let inactive_style = kittwm_bar_overlay_style(palette.inactive_fg, palette.inactive_bg);
+    let clock_style = kittwm_bar_overlay_style(palette.clock_fg, palette.clock_bg);
     let mut out = String::from("\x1b[0m\x1b[1;1H\x1b[K");
     let mut workspace_cols = 0u16;
     for label in kittwm_bar_overlay_labels(&model.bar, cols) {
         let active = model.bar.workspace.trim() == label;
-        let (fg, bg) = if active {
-            (palette.active_fg, palette.active_bg)
-        } else {
-            (palette.inactive_fg, palette.inactive_bg)
-        };
         let Some(chip_text) = kittwm_bar_overlay_fit_chip_text(&label, cols, workspace_cols) else {
             break;
         };
-        out.push_str(&format!(
-            "\x1b[1m{}{}{}\x1b[0m ",
-            ansi_fg(fg),
-            ansi_bg(bg),
-            chip_text
-        ));
+        let style = if active {
+            &active_style
+        } else {
+            &inactive_style
+        };
+        out.push_str("\x1b[1m");
+        out.push_str(style);
+        out.push_str(&chip_text);
+        out.push_str("\x1b[0m ");
         workspace_cols = workspace_cols.saturating_add(kittwm_bar_overlay_text_cols(&chip_text, 1));
     }
     let clock = model
@@ -266,15 +267,20 @@ fn kittwm_bar_kitty_text_overlay_with_config(
         workspace_cols,
         kittwm_bar_overlay_text_cols(&clock_text, 0),
     ) {
-        out.push_str(&format!(
-            "\x1b[1;{}H\x1b[1m{}{}{}\x1b[0m",
-            clock_col,
-            ansi_fg(palette.clock_fg),
-            ansi_bg(palette.clock_bg),
-            clock_text
-        ));
+        out.push_str("\x1b[1;");
+        out.push_str(&clock_col.to_string());
+        out.push_str("H\x1b[1m");
+        out.push_str(&clock_style);
+        out.push_str(&clock_text);
+        out.push_str("\x1b[0m");
     }
     out
+}
+
+fn kittwm_bar_overlay_style(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> String {
+    let mut style = ansi_fg(fg);
+    style.push_str(&ansi_bg(bg));
+    style
 }
 
 fn kittwm_bar_overlay_text_cols(text: &str, padding_cols: u16) -> u16 {
@@ -643,6 +649,12 @@ mod tests {
             overlay.contains("\x1b[48;2;17;34;51m 00:00 "),
             "{overlay:?}"
         );
+    }
+
+    #[test]
+    fn kitty_bar_overlay_style_combines_fg_and_bg_once() {
+        let style = kittwm_bar_overlay_style((1, 2, 3), (4, 5, 6));
+        assert_eq!(style, "\x1b[38;2;1;2;3m\x1b[48;2;4;5;6m");
     }
 
     #[test]
