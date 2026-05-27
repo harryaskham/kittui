@@ -3697,6 +3697,12 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key(key, code, key_code)
     }
 
+    /// Dispatch a Shift+PageUp/PageDown key press/release to the focused page element.
+    pub fn send_shift_page_key(&mut self, direction: BrowserPageKey) -> Result<()> {
+        let (key, code, key_code) = direction.key_fields();
+        self.dispatch_browser_key_with_modifiers(key, code, key_code, BROWSER_SHIFT_MODIFIER)
+    }
+
     fn dispatch_browser_key(&mut self, key: &str, code: &str, key_code: u32) -> Result<()> {
         let params = browser_key_event_params(key, code, key_code);
         self.dispatch_browser_key_params(params)
@@ -6068,12 +6074,34 @@ mod tests {
         assert_eq!(page_up["code"], "PageUp");
         assert_eq!(page_up["windowsVirtualKeyCode"], 33);
         assert_eq!(page_up["nativeVirtualKeyCode"], 33);
+        let shift_page_up = browser_key_event_params_with_modifiers(
+            page_up_key,
+            page_up_code,
+            page_up_code_num,
+            BROWSER_SHIFT_MODIFIER,
+        );
+        assert_eq!(shift_page_up["key"], "PageUp");
+        assert_eq!(shift_page_up["code"], "PageUp");
+        assert_eq!(shift_page_up["windowsVirtualKeyCode"], 33);
+        assert_eq!(shift_page_up["nativeVirtualKeyCode"], 33);
+        assert_eq!(shift_page_up["modifiers"], BROWSER_SHIFT_MODIFIER);
         let (page_down_key, page_down_code, page_down_code_num) = BrowserPageKey::Down.key_fields();
         let page_down = browser_key_event_params(page_down_key, page_down_code, page_down_code_num);
         assert_eq!(page_down["key"], "PageDown");
         assert_eq!(page_down["code"], "PageDown");
         assert_eq!(page_down["windowsVirtualKeyCode"], 34);
         assert_eq!(page_down["nativeVirtualKeyCode"], 34);
+        let shift_page_down = browser_key_event_params_with_modifiers(
+            page_down_key,
+            page_down_code,
+            page_down_code_num,
+            BROWSER_SHIFT_MODIFIER,
+        );
+        assert_eq!(shift_page_down["key"], "PageDown");
+        assert_eq!(shift_page_down["code"], "PageDown");
+        assert_eq!(shift_page_down["windowsVirtualKeyCode"], 34);
+        assert_eq!(shift_page_down["nativeVirtualKeyCode"], 34);
+        assert_eq!(shift_page_down["modifiers"], BROWSER_SHIFT_MODIFIER);
         let shift_tab =
             browser_key_event_params_with_modifiers("Tab", "Tab", 9, BROWSER_SHIFT_MODIFIER);
         assert_eq!(shift_tab["key"], "Tab");
