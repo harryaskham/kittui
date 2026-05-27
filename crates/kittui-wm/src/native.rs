@@ -3088,7 +3088,7 @@ fn draw_terminal_font_glyph(
             if px < x0 || py < y0 || px >= x0 + cell_w as i32 || py >= y0 + cell_h as i32 {
                 continue;
             }
-            blend_rgba_pixel(rgba, width, px as u32, py as u32, color, alpha);
+            blend_rgba_pixel_in_bounds(rgba, width, px as u32, py as u32, color, alpha);
         }
     }
     true
@@ -3140,11 +3140,31 @@ fn terminal_font_glyph_cache_len_for_tests() -> usize {
         .unwrap_or(0)
 }
 
+fn rgba_pixel_index(width: u32, x: u32, y: u32) -> usize {
+    ((y * width + x) as usize) * 4
+}
+
 fn blend_rgba_pixel(rgba: &mut [u8], width: u32, x: u32, y: u32, color: TerminalColor, alpha: u8) {
-    let idx = ((y * width + x) as usize) * 4;
+    let idx = rgba_pixel_index(width, x, y);
     if idx + 3 >= rgba.len() {
         return;
     }
+    blend_rgba_pixel_at_index(rgba, idx, color, alpha);
+}
+
+fn blend_rgba_pixel_in_bounds(
+    rgba: &mut [u8],
+    width: u32,
+    x: u32,
+    y: u32,
+    color: TerminalColor,
+    alpha: u8,
+) {
+    let idx = rgba_pixel_index(width, x, y);
+    blend_rgba_pixel_at_index(rgba, idx, color, alpha);
+}
+
+fn blend_rgba_pixel_at_index(rgba: &mut [u8], idx: usize, color: TerminalColor, alpha: u8) {
     let a = u16::from(alpha);
     let inv = 255u16.saturating_sub(a);
     rgba[idx] = ((u16::from(color.0) * a + u16::from(rgba[idx]) * inv) / 255) as u8;
@@ -4835,6 +4855,24 @@ mod tests {
         let mut glyph = default_cell;
         glyph.ch = 'x';
         assert!(!is_blank_default_terminal_cell(&glyph));
+    }
+
+    #[test]
+    fn rgba_pixel_index_matches_row_major_layout() {
+        assert_eq!(rgba_pixel_index(10, 0, 0), 0);
+        assert_eq!(rgba_pixel_index(10, 3, 0), 12);
+        assert_eq!(rgba_pixel_index(10, 0, 2), 80);
+        assert_eq!(rgba_pixel_index(10, 3, 2), 92);
+    }
+
+    #[test]
+    fn checked_and_in_bounds_blend_match_for_valid_pixel() {
+        let color = TerminalColor(200, 100, 50);
+        let mut checked = vec![10, 20, 30, 255];
+        let mut in_bounds = checked.clone();
+        blend_rgba_pixel(&mut checked, 1, 0, 0, color, 128);
+        blend_rgba_pixel_in_bounds(&mut in_bounds, 1, 0, 0, color, 128);
+        assert_eq!(checked, in_bounds);
     }
 
     #[test]
