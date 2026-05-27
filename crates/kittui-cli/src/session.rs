@@ -3035,14 +3035,7 @@ fn native_top_bar_scene(view: &NativeShellView, cols: u16, cell_size: CellSize) 
 
 fn native_top_bar_model_from_view(view: &NativeShellView) -> BarModel {
     let text = view.top_bar.text.trim();
-    let mut parts = text.split_whitespace().collect::<Vec<_>>();
-    let time = if parts.len() >= 2 && parts.last() == Some(&"UTC") {
-        let zone = parts.pop().unwrap_or("UTC");
-        let clock = parts.pop().unwrap_or("00:00");
-        format!("{clock} {zone}")
-    } else {
-        "00:00 UTC".to_string()
-    };
+    let time = native_top_bar_time_from_text(text);
     BarModel {
         workspace: workspace_label(),
         panes: view.panes.len() as u64,
@@ -3056,6 +3049,29 @@ fn native_top_bar_model_from_view(view: &NativeShellView) -> BarModel {
         time,
         connected: true,
     }
+}
+
+fn native_top_bar_time_from_text(text: &str) -> String {
+    let mut parts = text.split_whitespace().collect::<Vec<_>>();
+    if parts.len() >= 2 && parts.last() == Some(&"UTC") {
+        let zone = parts.pop().unwrap_or("UTC");
+        let clock = parts.pop().unwrap_or("00:00");
+        return format!("{clock} {zone}");
+    }
+    if let Some(clock) = parts.last().copied().filter(|part| is_hh_mm_clock(part)) {
+        return format!("{clock} UTC");
+    }
+    "00:00 UTC".to_string()
+}
+
+fn is_hh_mm_clock(value: &str) -> bool {
+    let Some((hour, minute)) = value.split_once(':') else {
+        return false;
+    };
+    hour.len() == 2
+        && minute.len() == 2
+        && hour.chars().all(|ch| ch.is_ascii_digit())
+        && minute.chars().all(|ch| ch.is_ascii_digit())
 }
 
 pub fn native_showcase_composition_json(
@@ -4408,6 +4424,19 @@ mod native_pane_tests {
         assert!(should_write_raw_compositor_error(Some(&key), &changed));
         assert!(should_clear_raw_error_screen(Some(&key)));
         assert!(!should_clear_raw_error_screen(None));
+    }
+
+    #[test]
+    fn native_top_bar_time_from_text_preserves_rendered_hh_mm_clock() {
+        assert_eq!(
+            native_top_bar_time_from_text("|[1]| 2 | 3 |                  12:34"),
+            "12:34 UTC"
+        );
+        assert_eq!(
+            native_top_bar_time_from_text("kittui-bar ws:1 active 12:34 UTC"),
+            "12:34 UTC"
+        );
+        assert_eq!(native_top_bar_time_from_text("no clock here"), "00:00 UTC");
     }
 
     #[test]
@@ -6420,7 +6449,7 @@ mod native_pane_tests {
             .label
             .as_deref()
             .unwrap_or_default()
-            .contains("| 1 | 2 | 3 |")));
+            .contains("|[1]| 2 | 3 |")));
         assert!(scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
