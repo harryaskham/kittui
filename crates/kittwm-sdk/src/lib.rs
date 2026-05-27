@@ -1280,6 +1280,12 @@ pub enum MouseEvent {
     PressRight,
     /// Release the currently pressed mouse button.
     Release,
+    /// Release the primary/left mouse button.
+    ReleaseLeft,
+    /// Release the middle mouse button.
+    ReleaseMiddle,
+    /// Release the secondary/right mouse button.
+    ReleaseRight,
     /// Move the pointer without a button held.
     Move,
     /// Move while the left button is held.
@@ -1301,6 +1307,9 @@ impl MouseEvent {
             Self::PressMiddle => "press-middle",
             Self::PressRight => "press-right",
             Self::Release => "release",
+            Self::ReleaseLeft => "release-left",
+            Self::ReleaseMiddle => "release-middle",
+            Self::ReleaseRight => "release-right",
             Self::Move => "move",
             Self::MoveLeft => "move-left",
             Self::MoveMiddle => "move-middle",
@@ -4973,7 +4982,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..5 {
+            for _ in 0..6 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -4998,6 +5007,13 @@ mod tests {
                 .trim(),
             "OK"
         );
+        assert_eq!(
+            surface
+                .send_mouse(MouseEvent::ReleaseRight, 7, 9)
+                .unwrap()
+                .trim(),
+            "OK"
+        );
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(
@@ -5007,7 +5023,8 @@ mod tests {
                 "SEND_BYTES_B64 native-1 AQID",
                 "PASTE_BYTES_B64 native-1 cGFzdGUgbWU=",
                 "PASTE_BYTES_B64 native-1 AP8bWzMxbQ==",
-                "SEND_MOUSE native-1 press-left 7 9"
+                "SEND_MOUSE native-1 press-left 7 9",
+                "SEND_MOUSE native-1 release-right 7 9"
             ]
         );
     }
@@ -5037,6 +5054,9 @@ mod tests {
         assert_eq!(MouseEvent::PressMiddle.protocol_label(), "press-middle");
         assert_eq!(MouseEvent::PressRight.protocol_label(), "press-right");
         assert_eq!(MouseEvent::Release.protocol_label(), "release");
+        assert_eq!(MouseEvent::ReleaseLeft.protocol_label(), "release-left");
+        assert_eq!(MouseEvent::ReleaseMiddle.protocol_label(), "release-middle");
+        assert_eq!(MouseEvent::ReleaseRight.protocol_label(), "release-right");
         assert_eq!(MouseEvent::Move.protocol_label(), "move");
         assert_eq!(MouseEvent::MoveLeft.protocol_label(), "move-left");
         assert_eq!(MouseEvent::MoveMiddle.protocol_label(), "move-middle");
