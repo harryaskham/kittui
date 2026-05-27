@@ -212,6 +212,9 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::ShiftPage(direction) => {
                         browser.send_shift_page_key(direction)?
                     }
+                    BrowserInputAction::CtrlPage(direction) => {
+                        browser.send_ctrl_page_key(direction)?
+                    }
                 }
                 user_activity = true;
             }
@@ -321,6 +324,7 @@ enum BrowserInputAction {
     AltEnd,
     Arrow(BrowserArrowKey),
     ShiftPage(BrowserPageKey),
+    CtrlPage(BrowserPageKey),
     ShiftArrow(BrowserArrowKey),
     CtrlArrow(BrowserArrowKey),
     AltArrow(BrowserArrowKey),
@@ -367,6 +371,8 @@ fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize)
         [b'3', b'~'] => Some(BrowserInputAction::Delete),
         [b'5', b';', b'2', b'~'] => Some(BrowserInputAction::ShiftPage(BrowserPageKey::Up)),
         [b'6', b';', b'2', b'~'] => Some(BrowserInputAction::ShiftPage(BrowserPageKey::Down)),
+        [b'5', b';', b'5', b'~'] => Some(BrowserInputAction::CtrlPage(BrowserPageKey::Up)),
+        [b'6', b';', b'5', b'~'] => Some(BrowserInputAction::CtrlPage(BrowserPageKey::Down)),
         [b'5', b'~'] => Some(BrowserInputAction::Page(BrowserPageKey::Up)),
         [b'6', b'~'] => Some(BrowserInputAction::Page(BrowserPageKey::Down)),
         _ => None,
@@ -1203,7 +1209,7 @@ mod tests {
     fn browser_input_actions_preserve_text_backspace_tab_enter_page_and_arrow_order() {
         assert_eq!(
             browser_input_actions(
-                b"ab\x7fc\t\x1b[Zde\x1b[D\x1b[1;2A\x1b[1;2B\x1b[1;2C\x1b[1;2D\x1b[1;5A\x1b[1;5B\x1b[1;5C\x1b[1;5D\x1b[1;3A\x1b[1;3B\x1b[1;3C\x1b[1;3D\x1b[1;2H\x1b[1;2F\x1b[1;5H\x1b[1;5F\x1b[1;3H\x1b[1;3F\x1b[2~\x1b[3~\x1b[H\x1b[F\x1b[5;2~\x1b[6;2~\x1b[5~\x1b[6~\x1b[13;2u\x1b\x08\rfg\n"
+                b"ab\x7fc\t\x1b[Zde\x1b[D\x1b[1;2A\x1b[1;2B\x1b[1;2C\x1b[1;2D\x1b[1;5A\x1b[1;5B\x1b[1;5C\x1b[1;5D\x1b[1;3A\x1b[1;3B\x1b[1;3C\x1b[1;3D\x1b[1;2H\x1b[1;2F\x1b[1;5H\x1b[1;5F\x1b[1;3H\x1b[1;3F\x1b[2~\x1b[3~\x1b[H\x1b[F\x1b[5;2~\x1b[6;2~\x1b[5;5~\x1b[6;5~\x1b[5~\x1b[6~\x1b[13;2u\x1b\x08\rfg\n"
             ),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
@@ -1237,6 +1243,8 @@ mod tests {
                 BrowserInputAction::End,
                 BrowserInputAction::ShiftPage(BrowserPageKey::Up),
                 BrowserInputAction::ShiftPage(BrowserPageKey::Down),
+                BrowserInputAction::CtrlPage(BrowserPageKey::Up),
+                BrowserInputAction::CtrlPage(BrowserPageKey::Down),
                 BrowserInputAction::Page(BrowserPageKey::Up),
                 BrowserInputAction::Page(BrowserPageKey::Down),
                 BrowserInputAction::ShiftEnter,
