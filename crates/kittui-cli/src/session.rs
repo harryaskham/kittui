@@ -1538,6 +1538,10 @@ fn native_footer_row(rows: u16) -> u16 {
     rows.saturating_sub(1)
 }
 
+fn terminal_visible_row(row: u16, rows: u16) -> u16 {
+    row.min(rows.saturating_sub(1))
+}
+
 fn native_status_line_text(panes: usize, log_path: &str) -> String {
     if panes == 0 {
         String::new()
@@ -2954,7 +2958,7 @@ fn render_native_shell_view_terminal(view: &NativeShellView, cols: u16, rows: u1
         let footer = clip_and_pad(&view.footer.text, cols as usize);
         out.push_str(&format!(
             "\x1b[{};1H\x1b[K{}",
-            view.footer.row.min(rows.saturating_add(1)) + 1,
+            terminal_visible_row(view.footer.row, rows) + 1,
             footer
         ));
     }
@@ -5340,6 +5344,25 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_shell_terminal_renderer_clamps_footer_to_visible_row() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: "top".to_string(),
+            },
+            panes: Vec::new(),
+            footer: NativeFooterChrome {
+                row: 99,
+                text: "footer".to_string(),
+            },
+            help_overlay: false,
+        };
+        let rendered = render_native_shell_view_terminal(&view, 20, 5);
+        assert!(rendered.contains("\x1b[5;1H\x1b[Kfooter"), "{rendered:?}");
+        assert!(!rendered.contains("\x1b[100;1H"), "{rendered:?}");
+    }
+
+    #[test]
     fn native_shell_terminal_renderer_draws_empty_workspace_top_bar_and_help() {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
@@ -6269,6 +6292,14 @@ mod native_pane_tests {
         assert!(view.top_bar.text.contains("| 1 | 2 | 3 |"));
         assert!(!view.top_bar.text.contains("kittui-bar"));
         assert!(view.footer.text.is_empty());
+    }
+
+    #[test]
+    fn terminal_visible_row_clamps_to_last_row() {
+        assert_eq!(terminal_visible_row(0, 0), 0);
+        assert_eq!(terminal_visible_row(5, 0), 0);
+        assert_eq!(terminal_visible_row(0, 1), 0);
+        assert_eq!(terminal_visible_row(5, 3), 2);
     }
 
     #[test]
