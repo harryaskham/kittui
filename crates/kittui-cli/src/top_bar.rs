@@ -71,7 +71,7 @@ impl BarModel {
 
     /// Render a minimal i3bar-style bar padded to a target width when provided.
     pub fn render_i3bar(&self, cols: usize) -> String {
-        let left = self.workspace_chips_text();
+        let mut left = self.workspace_chips_text();
         let clock = self.time.strip_suffix(" UTC").unwrap_or(&self.time);
         let right = format!(" {clock} ");
         if cols == 0 {
@@ -80,7 +80,9 @@ impl BarModel {
         let left_width = left.chars().count();
         let right_width = right.chars().count();
         if left_width + right_width >= cols {
-            return format!("{left}{right}").chars().take(cols).collect();
+            left = self.workspace_chips_text_constrained();
+            let merged = format!("{left}{right}");
+            return merged.chars().take(cols).collect();
         }
         format!(
             "{left}{}{right}",
@@ -89,8 +91,21 @@ impl BarModel {
     }
 
     fn workspace_chips_text(&self) -> String {
+        self.workspace_chips_text_from_labels(self.workspace_chip_labels())
+    }
+
+    fn workspace_chips_text_constrained(&self) -> String {
         let workspace = self.workspace.trim();
-        self.workspace_chip_labels()
+        let mut labels = self.workspace_chip_labels();
+        if !matches!(workspace, "" | "1" | "2" | "3") {
+            labels.sort_by_key(|label| usize::from(label != workspace));
+        }
+        self.workspace_chips_text_from_labels(labels)
+    }
+
+    fn workspace_chips_text_from_labels(&self, labels: Vec<String>) -> String {
+        let workspace = self.workspace.trim();
+        labels
             .into_iter()
             .map(|label| {
                 if label == workspace {
@@ -395,6 +410,14 @@ mod tests {
         let model = BarModel::new("2", 1, "native-1", true, UNIX_EPOCH);
         let rendered = model.render();
         assert!(rendered.contains("| 1 |[2]| 3 |"), "{rendered}");
+    }
+
+    #[test]
+    fn narrow_text_bar_prioritizes_custom_active_workspace() {
+        let model = BarModel::new("dev", 1, "native-1", true, UNIX_EPOCH);
+        let rendered = model.render_i3bar(8);
+        assert!(rendered.starts_with("|[dev]"), "{rendered}");
+        assert!(!rendered.contains("| 1 | 2"), "{rendered}");
     }
 
     #[test]
