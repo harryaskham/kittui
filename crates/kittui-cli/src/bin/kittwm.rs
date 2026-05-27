@@ -5184,19 +5184,23 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
         .get("sock")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("-");
+    let workspace_label = truncate(&workspace, 32);
+    let layout_label = truncate(layout, 32);
+    let focus_label = truncate(focus, 32);
+    let sock_label = truncate(sock, 48);
     let rows_data = [
         format!("pid={pid}"),
         format!("uptime_s={uptime}"),
-        format!("workspace={workspace}"),
-        format!("layout={layout}"),
-        format!("focus={focus}"),
+        format!("workspace={workspace_label}"),
+        format!("layout={layout_label}"),
+        format!("focus={focus_label}"),
         format!("panes={panes}"),
         format!("pending={pending}"),
     ];
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-status-backdrop:pid={pid}:panes={panes}:pending={pending}:focus={focus}:layout={layout}:workspace={workspace}"
+                "kittwm-status-backdrop:pid={pid}:panes={panes}:pending={pending}:focus={focus_label}:layout={layout_label}:workspace={workspace_label}"
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -5213,7 +5217,7 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
             },
         },
         Layer {
-            label: Some(format!("kittwm-status-heading:sock={sock}")),
+            label: Some(format!("kittwm-status-heading:sock={sock_label}")),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                 fill: Paint::Solid {
@@ -7376,6 +7380,57 @@ mod tests {
                 .iter()
                 .any(|label| label.contains("kittwm-status-row:4:focus=native-2")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn status_scene_bounds_pathological_label_fields() {
+        let status = serde_json::json!({
+            "pid": 1234,
+            "uptime_s": 55,
+            "sock": "/tmp/kittwm/".to_string() + &"sock".repeat(40),
+            "panes": 2,
+            "pending": 1,
+            "focus": "native-window-with-a-pathologically-long-focus-id",
+            "layout": "layout-name-that-is-pathologically-long",
+            "workspace": "workspace-name-that-is-pathologically-long"
+        });
+        let scene = status_scene_for_cols(&status, 8);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let backdrop = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-status-backdrop:"))
+            .unwrap();
+        assert!(
+            backdrop.contains("focus=native-window-with-a-pathologic…"),
+            "{backdrop}"
+        );
+        assert!(
+            backdrop.contains("layout=layout-name-that-is-pathologica…"),
+            "{backdrop}"
+        );
+        assert!(
+            backdrop.contains("workspace=workspace-name-that-is-patholog…"),
+            "{backdrop}"
+        );
+        assert!(backdrop.len() < 180, "{backdrop}");
+        let heading = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-status-heading:"))
+            .unwrap();
+        assert!(heading.ends_with('…'), "{heading}");
+        assert!(heading.len() < 80, "{heading}");
+        let focus_row = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-status-row:4:"))
+            .unwrap();
+        assert!(
+            focus_row.contains("native-window-with-a-pathologic…"),
+            "{focus_row}"
         );
     }
 
