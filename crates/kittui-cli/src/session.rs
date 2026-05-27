@@ -1461,7 +1461,7 @@ fn native_shell_view(
         },
         panes: pane_chrome,
         footer: NativeFooterChrome {
-            row: rows.saturating_add(1),
+            row: native_footer_row(rows),
             text: native_status_line_text(panes.len(), log_path),
         },
         help_overlay,
@@ -1509,6 +1509,10 @@ fn native_pane_status_chip_text(pane: &NativePane) -> String {
         })
         .unwrap_or_else(|| "frame:new".to_string());
     format!("{} · {pid} · {dirty}", pane.command)
+}
+
+fn native_footer_row(rows: u16) -> u16 {
+    rows.saturating_sub(1)
 }
 
 fn native_status_line_text(panes: usize, log_path: &str) -> String {
@@ -5945,6 +5949,41 @@ mod native_pane_tests {
         assert!(view.top_bar.text.contains("| 1 | 2 | 3 |"));
         assert!(!view.top_bar.text.contains("kittui-bar"));
         assert!(view.footer.text.is_empty());
+    }
+
+    #[test]
+    fn native_footer_row_stays_on_screen() {
+        assert_eq!(native_footer_row(0), 0);
+        assert_eq!(native_footer_row(1), 0);
+        assert_eq!(native_footer_row(24), 23);
+    }
+
+    #[test]
+    fn native_shell_view_footer_stays_on_last_visible_row() {
+        let mut pane = dummy_native_pane("native-1", "sh", 1);
+        pane.pid = Some(42);
+        let layout = NativePaneLayout {
+            x: 0,
+            y: 1,
+            cols: 10,
+            rows: 5,
+            app_x: 0,
+            app_y: 2,
+            app_cols: 10,
+            app_rows: 3,
+        };
+        let view = native_shell_view(
+            80,
+            10,
+            &[pane],
+            0,
+            &[layout],
+            "/tmp/kittwm.sock",
+            "/tmp/kittwm.log",
+            false,
+        );
+        assert_eq!(view.footer.row, 9);
+        assert!(view.footer.text.contains("C-a ? help"));
     }
 
     #[test]
