@@ -5258,8 +5258,10 @@ fn shortcuts_scene_cols_from_value(value: Option<&str>) -> u16 {
 }
 
 fn shortcuts_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
-    let margin = 10.0_f32.min((width / 4.0).max(0.0));
-    KittuiPxRect::new(margin, y, (width - margin * 2.0).max(1.0), 1.5)
+    let effective_width = width.max(1.0);
+    let margin = 10.0_f32.min((effective_width / 4.0).max(0.0));
+    let rect_width = (effective_width - margin * 2.0).max(0.0);
+    KittuiPxRect::new(margin, y, rect_width, 1.5)
 }
 
 fn showcase_scene_json_cmd() -> Result<()> {
@@ -6310,6 +6312,18 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn shortcuts_scene_row_rect_fits_tiny_widths() {
+        for width in [0.0_f32, 1.0, 8.0, 40.0] {
+            let rect = shortcuts_scene_row_rect(width, 2.0);
+            assert!(rect.origin.0 >= 0.0, "{rect:?}");
+            assert!(
+                rect.origin.0 + rect.width <= width.max(1.0),
+                "width={width} rect={rect:?}"
+            );
+        }
     }
 
     #[test]
