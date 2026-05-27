@@ -6,6 +6,7 @@
 //! it falls back to environment/default values so it remains useful in tests and
 //! shell prompts.
 
+use std::fmt::Write as _;
 use std::process::ExitCode;
 use std::time::SystemTime;
 
@@ -278,8 +279,9 @@ fn kittwm_bar_kitty_text_overlay_with_config(
 }
 
 fn kittwm_bar_overlay_style(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> String {
-    let mut style = ansi_fg(fg);
-    style.push_str(&ansi_bg(bg));
+    let mut style = String::with_capacity(40);
+    push_ansi_fg(&mut style, fg);
+    push_ansi_bg(&mut style, bg);
     style
 }
 
@@ -412,12 +414,12 @@ fn ansi_rgb(color: Rgba) -> (u8, u8, u8) {
     (color.0, color.1, color.2)
 }
 
-fn ansi_fg((r, g, b): (u8, u8, u8)) -> String {
-    format!("\x1b[38;2;{r};{g};{b}m")
+fn push_ansi_fg(out: &mut String, (r, g, b): (u8, u8, u8)) {
+    let _ = write!(out, "\x1b[38;2;{r};{g};{b}m");
 }
 
-fn ansi_bg((r, g, b): (u8, u8, u8)) -> String {
-    format!("\x1b[48;2;{r};{g};{b}m")
+fn push_ansi_bg(out: &mut String, (r, g, b): (u8, u8, u8)) {
+    let _ = write!(out, "\x1b[48;2;{r};{g};{b}m");
 }
 
 fn kittwm_bar_kitty_options(scene: &kittui::Scene) -> kittui_kitty::PlacementOptions {
@@ -663,6 +665,14 @@ mod tests {
     fn kitty_bar_overlay_style_combines_fg_and_bg_once() {
         let style = kittwm_bar_overlay_style((1, 2, 3), (4, 5, 6));
         assert_eq!(style, "\x1b[38;2;1;2;3m\x1b[48;2;4;5;6m");
+    }
+
+    #[test]
+    fn kitty_bar_ansi_helpers_append_without_clearing_existing_text() {
+        let mut style = String::from("prefix");
+        push_ansi_fg(&mut style, (1, 2, 3));
+        push_ansi_bg(&mut style, (4, 5, 6));
+        assert_eq!(style, "prefix\x1b[38;2;1;2;3m\x1b[48;2;4;5;6m");
     }
 
     #[test]
