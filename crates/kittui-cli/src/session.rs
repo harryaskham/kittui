@@ -732,7 +732,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             last_resized_layouts = layouts.clone();
             clear = true;
         }
-        let shell_view = native_shell_view(
+        let pre_capture_shell_view = native_shell_view(
             cols,
             rows,
             &panes,
@@ -770,7 +770,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         let redraw_static = clear;
         if pure_terminal_renderer {
-            let rendered = render_native_shell_view_terminal(&shell_view, cols, rows);
+            let rendered = render_native_shell_view_terminal(&pre_capture_shell_view, cols, rows);
             let has_pending_output = !frame_out.is_empty();
             publish_native_pane_statuses_if_changed(
                 &queue,
@@ -815,35 +815,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             affordance_chrome_keys.clear();
             clear = false;
         }
-        if last_title_rows.len() != shell_view.panes.len() {
-            last_title_rows.resize(shell_view.panes.len(), String::new());
-        }
-        if should_write_ansi_top_bar(
-            affordance_scene_chrome,
-            redraw_static,
-            &shell_view.top_bar.text,
-            &last_top_bar,
-        ) {
-            write!(
-                frame_out,
-                "\x1b[{};1H\x1b[7m{}\x1b[0m",
-                shell_view.top_bar.row + 1,
-                clip_and_pad(&shell_view.top_bar.text, cols as usize)
-            )?;
-            last_top_bar = shell_view.top_bar.text.clone();
-        }
-        if shell_view.help_overlay && !affordance_scene_chrome {
-            write_native_help_overlay(&mut frame_out, cols, rows)?;
-        }
         for (idx, pane) in panes.iter_mut().enumerate() {
             let layout = layouts[idx];
-            let chrome = &shell_view.panes[idx];
-            if !affordance_scene_chrome
-                && (redraw_static || last_title_rows.get(idx) != Some(&chrome.cache_key))
-            {
-                write_native_pane_chrome(&mut frame_out, chrome)?;
-                last_title_rows[idx] = chrome.cache_key.clone();
-            }
             let frame_start = Instant::now();
             let surface_frame = NativeSurface::capture_surface(&mut pane.app)?;
             match surface_frame.frame {
@@ -1024,6 +997,44 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             &mut last_published_pane_statuses,
             native_pane_statuses(&panes, focused, &layouts),
         );
+        let shell_view = native_shell_view(
+            cols,
+            rows,
+            &panes,
+            focused,
+            &layouts,
+            &sock,
+            dbg.path_display(),
+            help_overlay,
+        );
+        if last_title_rows.len() != shell_view.panes.len() {
+            last_title_rows.resize(shell_view.panes.len(), String::new());
+        }
+        if should_write_ansi_top_bar(
+            affordance_scene_chrome,
+            redraw_static,
+            &shell_view.top_bar.text,
+            &last_top_bar,
+        ) {
+            write!(
+                frame_out,
+                "\x1b[{};1H\x1b[7m{}\x1b[0m",
+                shell_view.top_bar.row + 1,
+                clip_and_pad(&shell_view.top_bar.text, cols as usize)
+            )?;
+            last_top_bar = shell_view.top_bar.text.clone();
+        }
+        if shell_view.help_overlay && !affordance_scene_chrome {
+            write_native_help_overlay(&mut frame_out, cols, rows)?;
+        }
+        for (idx, chrome) in shell_view.panes.iter().enumerate() {
+            if !affordance_scene_chrome
+                && (redraw_static || last_title_rows.get(idx) != Some(&chrome.cache_key))
+            {
+                write_native_pane_chrome(&mut frame_out, chrome)?;
+                last_title_rows[idx] = chrome.cache_key.clone();
+            }
+        }
         if affordance_scene_chrome {
             write_native_shell_affordance_chrome(
                 &mut frame_out,
