@@ -454,7 +454,9 @@ fn browser_semantic_scene_placement_options() -> kitty::PlacementOptions {
 struct BrowserSemanticPublisher {
     socket: Option<PathBuf>,
     window: String,
-    interval: Duration,
+    active_interval: Duration,
+    idle_interval: Duration,
+    unchanged_payloads: u16,
     last_attempt: Option<Instant>,
     last_payload: Option<String>,
 }
@@ -465,10 +467,13 @@ impl BrowserSemanticPublisher {
             .or_else(|| std::env::var_os("KITTWM_SOCK"))
             .map(PathBuf::from);
         let window = std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "focused".to_string());
+        let active_interval = browser_semantic_active_interval();
         Self {
             socket,
             window,
-            interval: Duration::from_millis(500),
+            active_interval,
+            idle_interval: browser_semantic_idle_interval(active_interval),
+            unchanged_payloads: 0,
             last_attempt: None,
             last_payload: None,
         }
@@ -497,15 +502,25 @@ impl BrowserSemanticPublisher {
 
     fn due(&self, now: Instant) -> bool {
         self.last_attempt
-            .map(|last| now.saturating_duration_since(last) >= self.interval)
+            .map(|last| now.saturating_duration_since(last) >= self.current_interval())
             .unwrap_or(true)
+    }
+
+    fn current_interval(&self) -> Duration {
+        browser_semantic_current_interval(
+            self.active_interval,
+            self.idle_interval,
+            self.unchanged_payloads,
+        )
     }
 
     fn record_payload(&mut self, payload: &str) -> bool {
         if self.last_payload.as_deref() == Some(payload) {
+            self.unchanged_payloads = self.unchanged_payloads.saturating_add(1);
             return false;
         }
         self.last_payload = Some(payload.to_string());
+        self.unchanged_payloads = 0;
         true
     }
 }
@@ -535,6 +550,26 @@ fn browser_status_frame_counter_enabled() -> bool {
     std::env::var("KITTWM_BROWSER_STATUS_FRAMES")
         .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
         .unwrap_or(false)
+}
+
+fn browser_semantic_active_interval() -> Duration {
+    browser_interval_from_env("KITTWM_BROWSER_SEMANTIC_MS", 500)
+}
+
+fn browser_semantic_idle_interval(active: Duration) -> Duration {
+    browser_interval_from_env("KITTWM_BROWSER_SEMANTIC_IDLE_MS", 2000).max(active)
+}
+
+fn browser_semantic_current_interval(
+    active: Duration,
+    idle: Duration,
+    unchanged_payloads: u16,
+) -> Duration {
+    if unchanged_payloads >= 2 {
+        idle
+    } else {
+        active
+    }
 }
 
 fn browser_interval_from_env(name: &str, default_ms: u64) -> Duration {
@@ -1052,7 +1087,9 @@ mod tests {
         let mut publisher = BrowserSemanticPublisher {
             socket: Some(PathBuf::from("/tmp/unused.sock")),
             window: "native-1".to_string(),
-            interval: Duration::from_millis(500),
+            active_interval: Duration::from_millis(500),
+            idle_interval: Duration::from_millis(2000),
+            unchanged_payloads: 0,
             last_attempt: None,
             last_payload: None,
         };
@@ -1063,7 +1100,16 @@ mod tests {
         assert!(publisher.due(start + Duration::from_millis(500)));
         assert!(publisher.record_payload("{\"revision\":1}"));
         assert!(!publisher.record_payload("{\"revision\":1}"));
+        assert_eq!(publisher.unchanged_payloads, 1);
+        assert!(!publisher.record_payload("{\"revision\":1}"));
+        assert_eq!(publisher.unchanged_payloads, 2);
+        assert_eq!(publisher.current_interval(), Duration::from_millis(2000));
+        publisher.last_attempt = Some(start + Duration::from_millis(500));
+        assert!(!publisher.due(start + Duration::from_millis(2499)));
+        assert!(publisher.due(start + Duration::from_millis(2500)));
         assert!(publisher.record_payload("{\"revision\":2}"));
+        assert_eq!(publisher.unchanged_payloads, 0);
+        assert_eq!(publisher.current_interval(), Duration::from_millis(500));
     }
 
     #[test]
@@ -1071,7 +1117,9 @@ mod tests {
         let publisher = BrowserSemanticPublisher {
             socket: None,
             window: "focused".to_string(),
-            interval: Duration::from_millis(500),
+            active_interval: Duration::from_millis(500),
+            idle_interval: Duration::from_millis(2000),
+            unchanged_payloads: 0,
             last_attempt: None,
             last_payload: None,
         };
