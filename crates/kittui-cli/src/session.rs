@@ -4310,14 +4310,18 @@ fn native_graphical_top_bar_fit_label(label: &str, cols: u16, used_cols: u16) ->
         return None;
     }
     let label_width = max_chip_cols.saturating_sub(2);
-    if native_top_bar_label_fits_cells(label, label_width) {
-        return Some(format!(" {label} "));
-    }
     if label_width == 0 {
         return None;
     }
-    let clipped = label.chars().take(label_width).collect::<String>();
-    Some(format!(" {clipped} "))
+    let mut out = String::with_capacity(label_width.saturating_add(2));
+    out.push(' ');
+    if native_top_bar_label_fits_cells(label, label_width) {
+        out.push_str(label);
+    } else {
+        out.extend(label.chars().take(label_width));
+    }
+    out.push(' ');
+    Some(out)
 }
 
 fn native_top_bar_label_fits_cells(label: &str, max_label_cols: usize) -> bool {
@@ -4918,10 +4922,9 @@ mod native_pane_tests {
             Some(" abc ".to_string())
         );
         assert_eq!(native_graphical_top_bar_fit_label("abcdef", 2, 0), None);
-        assert_eq!(
-            native_graphical_top_bar_fit_label("dev", 12, 4),
-            Some(" dev ".to_string())
-        );
+        let fitted = native_graphical_top_bar_fit_label("dev", 12, 4).unwrap();
+        assert_eq!(fitted, " dev ");
+        assert!(fitted.capacity() >= 5);
         let long = "x".repeat(u16::MAX as usize);
         assert!(!native_top_bar_label_fits_cells(&long, 8));
         assert_eq!(
