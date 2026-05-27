@@ -2164,8 +2164,8 @@ fn resolve_capture_spec(spec: &str) -> Result<kittui_quartz::CaptureTarget> {
         let chosen = windows
             .iter()
             .find(|w| {
-                w.title.to_ascii_lowercase().contains(&needle_lc)
-                    || w.owner_name.to_ascii_lowercase().contains(&needle_lc)
+                ascii_casefold_contains_lower(&w.title, &needle_lc)
+                    || ascii_casefold_contains_lower(&w.owner_name, &needle_lc)
             })
             .ok_or_else(|| {
                 anyhow!(
@@ -7434,6 +7434,9 @@ mod tests {
         assert_eq!(candidate_match_score(&huge, "needle"), Some(2));
         assert_eq!(candidate_match_score(&huge, "missing"), None);
         assert!(ascii_casefold_contains_lower("RésuméNeedle", "needle"));
+        let huge_title = format!("{}Terminal{}", "x".repeat(10_000), "y".repeat(10_000));
+        assert!(ascii_casefold_contains_lower(&huge_title, "terminal"));
+        assert!(!ascii_casefold_contains_lower(&huge_title, "browser"));
     }
 
     #[test]
