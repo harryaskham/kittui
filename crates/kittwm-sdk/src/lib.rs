@@ -3196,13 +3196,12 @@ impl SurfaceHandle {
         self.client
             .capabilities
             .ensure(Capability::InvokeSemanticAction)?;
+        let component = validated_protocol_token(component.as_ref(), "semantic component")?;
+        let action = validated_protocol_token(action.as_ref(), "semantic action")?;
         let payload = serde_json::to_string(&payload)?;
         self.client.request_protocol(format!(
-            "SEMANTIC_ACTION {} {} {} {}",
-            self.id,
-            component.as_ref(),
-            action.as_ref(),
-            payload
+            "SEMANTIC_ACTION {} {component} {action} {payload}",
+            self.id
         ))
     }
 
@@ -3211,8 +3210,9 @@ impl SurfaceHandle {
         self.client
             .capabilities
             .ensure(Capability::InvokeSemanticAction)?;
+        let component = validated_protocol_token(component.as_ref(), "semantic component")?;
         self.client
-            .request_protocol(format!("SEMANTIC_FOCUS {} {}", self.id, component.as_ref()))
+            .request_protocol(format!("SEMANTIC_FOCUS {} {component}", self.id))
     }
 
     /// Convenience alias for [`SurfaceHandle::semantic_focus`].
@@ -5321,7 +5321,7 @@ mod tests {
             Err(Error::Daemon(_))
         ));
         assert!(matches!(
-            surface.semantic_focus("field"),
+            surface.semantic_focus(" field "),
             Err(Error::Daemon(_))
         ));
         let seen = server.join().unwrap();
@@ -5333,6 +5333,19 @@ mod tests {
             "SEMANTIC_ACTION native-1 field set {\"value\":\"x\"}"
         );
         assert_eq!(seen[3], "SEMANTIC_FOCUS native-1 field");
+    }
+
+    #[test]
+    fn semantic_helpers_validate_tokens_before_io() {
+        let surface = Kittwm::connect_path("/tmp/does-not-exist.sock").surface("focused");
+        assert!(matches!(
+            surface.semantic_focus("bad component"),
+            Err(Error::Daemon(message)) if message.contains("single nonempty token")
+        ));
+        assert!(matches!(
+            surface.semantic_action("field", "bad action", serde_json::json!({})),
+            Err(Error::Daemon(message)) if message.contains("single nonempty token")
+        ));
     }
 
     #[cfg(unix)]
