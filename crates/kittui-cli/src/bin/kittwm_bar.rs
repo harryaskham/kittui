@@ -193,7 +193,14 @@ fn reservation_owner_from_env() -> String {
 }
 
 fn status_workspace_label(status: &Status) -> String {
-    normalized_optional_string(status.workspace_id()).unwrap_or_else(workspace_label)
+    normalized_optional_string(status.workspace.as_deref())
+        .or_else(|| {
+            status
+                .chrome
+                .as_ref()
+                .and_then(|chrome| normalized_optional_string(chrome.workspace.as_deref()))
+        })
+        .unwrap_or_else(workspace_label)
 }
 
 fn render_kitty_bar(model: &BarOutputModel) -> Result<String, String> {
@@ -430,6 +437,8 @@ mod tests {
     use super::*;
     use std::time::UNIX_EPOCH;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn output_mode_rejects_multiple_formats() {
         let err = parse_options(["--json".to_string(), "--scene-json".to_string()]).unwrap_err();
@@ -447,6 +456,7 @@ mod tests {
 
     #[test]
     fn reservation_owner_trims_window_env_and_defaults_blank_values() {
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("KITTWM_WINDOW", " bar ");
         assert_eq!(reservation_owner_from_env(), "bar");
         std::env::set_var("KITTWM_WINDOW", "   ");
@@ -477,6 +487,21 @@ mod tests {
         assert_eq!(chrome.workspace.as_deref(), Some("dev"));
         assert_eq!(chrome.owner.as_deref(), Some("bar"));
 
+        let chrome_fallback = Status {
+            pending: None,
+            panes: None,
+            focus: None,
+            layout: None,
+            workspace: Some("   ".to_string()),
+            chrome: Some(ChromeReservationStatus {
+                workspace: Some(" chrome-dev ".to_string()),
+                ..ChromeReservationStatus::default()
+            }),
+            focused_pane: None,
+            panes_detail: Vec::new(),
+        };
+        assert_eq!(status_workspace_label(&chrome_fallback), "chrome-dev");
+
         let blank = Status {
             pending: None,
             panes: None,
@@ -487,6 +512,7 @@ mod tests {
             focused_pane: None,
             panes_detail: Vec::new(),
         };
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("KITTWM_WORKSPACE", " fallback ");
         assert_eq!(status_workspace_label(&blank), "fallback");
         std::env::remove_var("KITTWM_WORKSPACE");
