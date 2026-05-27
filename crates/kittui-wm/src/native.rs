@@ -3420,6 +3420,11 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key("Tab", "Tab", 9)
     }
 
+    /// Dispatch an Enter key press/release to the focused page element.
+    pub fn send_enter(&mut self) -> Result<()> {
+        self.dispatch_browser_key("Enter", "Enter", 13)
+    }
+
     /// Dispatch an arrow-key press/release to the focused page element.
     pub fn send_arrow_key(&mut self, direction: BrowserArrowKey) -> Result<()> {
         let (key, code, key_code) = direction.key_fields();
@@ -3427,12 +3432,7 @@ impl HeadlessBrowserApp {
     }
 
     fn dispatch_browser_key(&mut self, key: &str, code: &str, key_code: u32) -> Result<()> {
-        let params = json!({
-            "key": key,
-            "code": code,
-            "windowsVirtualKeyCode": key_code,
-            "nativeVirtualKeyCode": key_code,
-        });
+        let params = browser_key_event_params(key, code, key_code);
         let mut down = params.clone();
         down["type"] = json!("keyDown");
         self.cdp("Input.dispatchKeyEvent", down)?;
@@ -3460,6 +3460,15 @@ impl HeadlessBrowserApp {
         self.next_id += 1;
         cdp_send_raw(&mut self.socket, id, method, params)
     }
+}
+
+fn browser_key_event_params(key: &str, code: &str, key_code: u32) -> serde_json::Value {
+    json!({
+        "key": key,
+        "code": code,
+        "windowsVirtualKeyCode": key_code,
+        "nativeVirtualKeyCode": key_code,
+    })
 }
 
 fn browser_semantic_extractor_script() -> &'static str {
@@ -5475,6 +5484,15 @@ mod tests {
         assert!(set_value.contains("\"value\":\"Ada\""));
         assert!(set_value.contains("dispatchValue"));
         assert!(browser_semantic_action_script("dom:name", "delete", json!({})).is_err());
+    }
+
+    #[test]
+    fn browser_key_event_params_map_enter_key() {
+        let params = browser_key_event_params("Enter", "Enter", 13);
+        assert_eq!(params["key"], "Enter");
+        assert_eq!(params["code"], "Enter");
+        assert_eq!(params["windowsVirtualKeyCode"], 13);
+        assert_eq!(params["nativeVirtualKeyCode"], 13);
     }
 
     #[test]

@@ -179,6 +179,7 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::Text(text) => browser.send_text(&text)?,
                     BrowserInputAction::Backspace => browser.send_backspace()?,
                     BrowserInputAction::Tab => browser.send_tab()?,
+                    BrowserInputAction::Enter => browser.send_enter()?,
                     BrowserInputAction::Arrow(direction) => browser.send_arrow_key(direction)?,
                 }
                 user_activity = true;
@@ -260,6 +261,7 @@ enum BrowserInputAction {
     Text(String),
     Backspace,
     Tab,
+    Enter,
     Arrow(BrowserArrowKey),
 }
 
@@ -269,7 +271,12 @@ fn browser_input_actions(bytes: &[u8]) -> Vec<BrowserInputAction> {
     let mut idx = 0usize;
     while idx < bytes.len() {
         match bytes[idx] {
-            b'\r' | b'\n' => text.push('\n'),
+            b'\r' | b'\n' => {
+                if !text.is_empty() {
+                    actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
+                }
+                actions.push(BrowserInputAction::Enter);
+            }
             0x08 | 0x7f => {
                 if !text.is_empty() {
                     actions.push(BrowserInputAction::Text(std::mem::take(&mut text)));
@@ -880,9 +887,9 @@ mod tests {
     }
 
     #[test]
-    fn browser_input_actions_preserve_text_backspace_tab_and_arrow_order() {
+    fn browser_input_actions_preserve_text_backspace_tab_enter_and_arrow_order() {
         assert_eq!(
-            browser_input_actions(b"ab\x7fc\tde\x1b[D\x08\r"),
+            browser_input_actions(b"ab\x7fc\tde\x1b[D\x08\rfg\n"),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
                 BrowserInputAction::Backspace,
@@ -891,7 +898,9 @@ mod tests {
                 BrowserInputAction::Text("de".to_string()),
                 BrowserInputAction::Arrow(BrowserArrowKey::Left),
                 BrowserInputAction::Backspace,
-                BrowserInputAction::Text("\n".to_string()),
+                BrowserInputAction::Enter,
+                BrowserInputAction::Text("fg".to_string()),
+                BrowserInputAction::Enter,
             ]
         );
         assert_eq!(
