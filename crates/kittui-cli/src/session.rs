@@ -744,16 +744,6 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             last_resized_layouts = layouts.clone();
             clear = true;
         }
-        let pre_capture_shell_view = native_shell_view(
-            cols,
-            rows,
-            &panes,
-            focused,
-            &layouts,
-            &sock,
-            dbg.path_display(),
-            help_overlay,
-        );
         let stdout = io::stdout();
         let mut handle = stdout.lock();
         let mut frame_out = NativeFrameWriteBatch::default();
@@ -782,6 +772,16 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         }
         let redraw_static = clear;
         if pure_terminal_renderer {
+            let pre_capture_shell_view = native_shell_view(
+                cols,
+                rows,
+                &panes,
+                focused,
+                &layouts,
+                &sock,
+                dbg.path_display(),
+                help_overlay,
+            );
             let rendered = render_native_shell_view_terminal(&pre_capture_shell_view, cols, rows);
             let has_pending_output = !frame_out.is_empty();
             publish_native_pane_statuses_if_changed(
