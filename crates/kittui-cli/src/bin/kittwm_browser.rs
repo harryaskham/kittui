@@ -624,12 +624,23 @@ fn publish_semantic_snapshot(
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    if max == 0 {
+        return String::new();
+    }
+    let mut chars = s.chars();
+    let mut out = String::new();
+    for _ in 0..max {
+        let Some(ch) = chars.next() else {
+            return s.to_string();
+        };
+        out.push(ch);
+    }
+    if chars.next().is_some() {
+        out.pop();
         out.push('…');
         out
+    } else {
+        s.to_string()
     }
 }
 
@@ -1145,6 +1156,11 @@ mod tests {
         std::env::set_var("KITTWM_SOCKET", "/tmp/kittwm.sock");
         std::env::remove_var("KITTWM_BROWSER_STATUS_FRAMES");
         assert!(!browser_status_frame_counter_enabled());
+        let huge_url = format!("https://example.com/{}", "path/".repeat(10_000));
+        assert_eq!(truncate(&huge_url, 12), "https://exa…");
+        assert_eq!(truncate("short", 12), "short");
+        assert_eq!(truncate("anything", 1), "…");
+        assert_eq!(truncate("anything", 0), "");
         let stable = browser_status_text("https://example.com/a", 42, false);
         assert!(
             stable.starts_with("kittwm-browser — https://example.com/a"),
