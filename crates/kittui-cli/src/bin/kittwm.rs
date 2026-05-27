@@ -6537,32 +6537,47 @@ fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
+    let config_path = truncate(&summary.config_path, 48);
+    let background_color = truncate(&summary.background_color, 32);
+    let background_effects = summary.background_effects.to_string();
+    let colorscheme_name = truncate(&summary.colorscheme_name, 32);
+    let colorscheme_fg = truncate(&summary.colorscheme_fg, 32);
+    let colorscheme_bg = truncate(&summary.colorscheme_bg, 32);
+    let colorscheme_colors = summary.colorscheme_colors.to_string();
+    let terminal_backend = truncate(&summary.terminal_backend, 32);
+    let libghostty_theme = truncate(&summary.libghostty_theme, 32);
+    let keymap_path = truncate(&summary.keymap_path, 48);
+    let launch_cmd = truncate(&summary.launch_cmd, 48);
+    let launch_query = truncate(&summary.launch_query, 48);
+    let launcher_overlay = truncate(&summary.launcher_overlay, 48);
+    let prefix = truncate(&summary.prefix, 32);
+    let status = truncate(summary.status, 32);
     let rows_data = [
-        format!("config_path={}", summary.config_path),
-        format!("background.color={}", summary.background_color),
+        format!("config_path={config_path}"),
+        format!("background.color={background_color}"),
         format!("background.opacity={:.2}", summary.background_opacity),
-        format!("background.effects={}", summary.background_effects),
-        format!("colorscheme.name={}", summary.colorscheme_name),
-        format!("colorscheme.fg={}", summary.colorscheme_fg),
-        format!("colorscheme.bg={}", summary.colorscheme_bg),
-        format!("colorscheme.colors={}", summary.colorscheme_colors),
-        format!("terminal.backend={}", summary.terminal_backend),
-        format!("libghostty.theme={}", summary.libghostty_theme),
+        format!("background.effects={background_effects}"),
+        format!("colorscheme.name={colorscheme_name}"),
+        format!("colorscheme.fg={colorscheme_fg}"),
+        format!("colorscheme.bg={colorscheme_bg}"),
+        format!("colorscheme.colors={colorscheme_colors}"),
+        format!("terminal.backend={terminal_backend}"),
+        format!("libghostty.theme={libghostty_theme}"),
         format!("libghostty.opacity={:.2}", summary.libghostty_opacity),
-        format!("keymap={}", summary.keymap_path),
-        format!("launch_cmd={}", summary.launch_cmd),
-        format!("launch_query={}", summary.launch_query),
-        format!("launcher_overlay={}", summary.launcher_overlay),
-        format!("prefix={}", summary.prefix),
+        format!("keymap={keymap_path}"),
+        format!("launch_cmd={launch_cmd}"),
+        format!("launch_query={launch_query}"),
+        format!("launcher_overlay={launcher_overlay}"),
+        format!("prefix={prefix}"),
         format!("bindings={}", summary.bindings),
         format!("duplicates={}", summary.duplicate_chords),
-        format!("status={}", summary.status),
+        format!("status={status}"),
     ];
     let mut layers = vec![
         Layer {
             label: Some(format!(
-                "kittwm-config-backdrop:keymap={}:bindings={}:duplicates={}:status={}",
-                summary.keymap_path, summary.bindings, summary.duplicate_chords, summary.status
+                "kittwm-config-backdrop:keymap={keymap_path}:bindings={}:duplicates={}:status={status}",
+                summary.bindings, summary.duplicate_chords
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -7803,6 +7818,62 @@ mod tests {
             labels
                 .iter()
                 .any(|label| label.contains("kittwm-config-row:18:status=ok")),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn config_scene_clips_pathological_label_fields() {
+        let mut summary = sample_config_summary();
+        summary.config_path =
+            "/very/long/path/to/kittwm/config/that/would/bloat/scene/labels.yaml".to_string();
+        summary.background_color = "background-color-name-that-is-pathologically-long".to_string();
+        summary.colorscheme_name = "colorscheme-name-that-is-pathologically-long".to_string();
+        summary.colorscheme_colors = usize::MAX;
+        summary.keymap_path =
+            "/very/long/path/to/keymap/that/would/bloat/scene/labels.yaml".to_string();
+        summary.launch_cmd =
+            "launcher-command --with --pathologically --long --arguments".to_string();
+        summary.launch_query =
+            "query-value-that-is-pathologically-long-and-would-bloat-labels".to_string();
+        summary.launcher_overlay =
+            "overlay-value-that-is-pathologically-long-and-would-bloat-labels".to_string();
+        summary.prefix = "prefix-value-that-is-pathologically-long".to_string();
+        let scene = config_scene_for_cols(&summary, 8);
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        let backdrop = labels
+            .iter()
+            .find(|label| label.starts_with("kittwm-config-backdrop:"))
+            .unwrap();
+        assert!(
+            backdrop.contains("keymap=/very/long/path/to/keymap/that/would/bloat/scen…"),
+            "{backdrop}"
+        );
+        assert!(backdrop.len() < 140, "{backdrop}");
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-config-row:0:config_path=/very/long/path/to/kittwm/config/that/would/blo…"
+            )),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-config-row:12:launch_cmd=launcher-command --with --pathologically --long…"
+            )),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label
+                .contains("kittwm-config-row:13:launch_query=query-value-that-is-pathologically-long-and-wou…")),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label
+                .contains("kittwm-config-row:15:prefix=prefix-value-that-is-pathologic…")),
             "{labels:?}"
         );
     }
