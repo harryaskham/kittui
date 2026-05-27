@@ -1957,10 +1957,10 @@ fn truncate(s: &str, n: usize) -> String {
         return String::new();
     }
     let mut chars = s.chars();
-    let mut out = String::new();
+    let mut out = String::with_capacity(n);
     for _ in 0..n {
         let Some(ch) = chars.next() else {
-            return s.to_string();
+            return out;
         };
         out.push(ch);
     }
@@ -1969,7 +1969,7 @@ fn truncate(s: &str, n: usize) -> String {
         out.push('…');
         out
     } else {
-        s.to_string()
+        out
     }
 }
 
@@ -6745,7 +6745,10 @@ mod tests {
         let clipped = truncate(&huge, 12);
         assert_eq!(clipped, "window-titl…");
         assert_eq!(clipped.chars().count(), 12);
-        assert_eq!(truncate("short", 12), "short");
+        assert!(clipped.capacity() >= 12);
+        let short = truncate("short", 12);
+        assert_eq!(short, "short");
+        assert!(short.capacity() >= 12);
         assert_eq!(truncate("anything", 1), "…");
         assert_eq!(truncate("anything", 0), "");
     }
