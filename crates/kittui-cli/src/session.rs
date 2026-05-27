@@ -4475,7 +4475,7 @@ fn native_shell_chrome_scene_label_hash(scene: &Scene) -> u64 {
 
 fn clip_and_pad(text: &str, width: usize) -> String {
     let mut count = 0usize;
-    let mut clipped = String::new();
+    let mut clipped = String::with_capacity(width);
     for ch in text.chars().take(width) {
         clipped.push(ch);
         count += 1;
@@ -4804,7 +4804,9 @@ mod native_pane_tests {
 
     #[test]
     fn clip_and_pad_tracks_width_without_recounting_padding() {
-        assert_eq!(clip_and_pad("abc", 6), "abc   ");
+        let padded = clip_and_pad("abc", 6);
+        assert_eq!(padded, "abc   ");
+        assert!(padded.capacity() >= 6);
         assert_eq!(clip_and_pad("abcdef", 3), "abc");
         assert_eq!(clip_and_pad("éx", 4), "éx  ");
         assert_eq!(clip_and_pad("anything", 0), "");
