@@ -3627,6 +3627,11 @@ impl HeadlessBrowserApp {
         self.dispatch_browser_key_with_modifiers("Enter", "Enter", 13, BROWSER_CTRL_MODIFIER)
     }
 
+    /// Dispatch an Alt+Enter key press/release to the focused page element.
+    pub fn send_alt_enter(&mut self) -> Result<()> {
+        self.dispatch_browser_key_with_modifiers("Enter", "Enter", 13, BROWSER_ALT_MODIFIER)
+    }
+
     /// Dispatch an Escape key press/release to the focused page element.
     pub fn send_escape(&mut self) -> Result<()> {
         self.dispatch_browser_key("Escape", "Escape", 27)
@@ -6103,6 +6108,13 @@ mod tests {
         assert_eq!(ctrl_enter["windowsVirtualKeyCode"], 13);
         assert_eq!(ctrl_enter["nativeVirtualKeyCode"], 13);
         assert_eq!(ctrl_enter["modifiers"], BROWSER_CTRL_MODIFIER);
+        let alt_enter =
+            browser_key_event_params_with_modifiers("Enter", "Enter", 13, BROWSER_ALT_MODIFIER);
+        assert_eq!(alt_enter["key"], "Enter");
+        assert_eq!(alt_enter["code"], "Enter");
+        assert_eq!(alt_enter["windowsVirtualKeyCode"], 13);
+        assert_eq!(alt_enter["nativeVirtualKeyCode"], 13);
+        assert_eq!(alt_enter["modifiers"], BROWSER_ALT_MODIFIER);
         let (arrow_key, arrow_code, arrow_code_num) = BrowserArrowKey::Left.key_fields();
         let shift_arrow = browser_key_event_params_with_modifiers(
             arrow_key,
