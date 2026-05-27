@@ -9873,6 +9873,26 @@ fn launcher_overlay_key(overlay: &LauncherOverlay) -> String {
     )
 }
 
+fn launcher_candidate_row_text(
+    row: usize,
+    selected: usize,
+    candidate: &LauncherSelection,
+    width: usize,
+) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let marker = if row == selected { "▶" } else { " " };
+    let prefix = format!("{marker} {:>2}. [{:<5}] ", row + 1, candidate.kind_name());
+    let mut out = String::with_capacity(width);
+    let mut used = 0usize;
+    if !push_truncated_cells(&mut out, &mut used, width, &prefix) {
+        return out;
+    }
+    let _ = push_truncated_cells(&mut out, &mut used, width, &candidate.command);
+    out
+}
+
 fn picker_overlay_key(overlay: &PickerOverlay) -> String {
     format!(
         "active={};selected={};entry_count={}",
@@ -10154,22 +10174,15 @@ impl LauncherOverlay {
             if !overlay_row_visible(terminal_row, terminal_rows) {
                 break;
             }
-            let line = if let Some(c) = candidates.get(row) {
-                let marker = if row == self.selected { "▶" } else { " " };
-                format!(
-                    "{marker} {:>2}. [{:<5}] {}",
-                    row + 1,
-                    c.kind_name(),
-                    c.command
-                )
-            } else {
-                String::new()
-            };
+            let line = candidates
+                .get(row)
+                .map(|candidate| launcher_candidate_row_text(row, self.selected, candidate, width))
+                .unwrap_or_default();
             write!(
                 handle,
                 "\x1b[{};2H│{:<width$}│",
                 terminal_row,
-                truncate_cells(&line, width),
+                line,
                 width = width
             )?;
         }
@@ -11018,6 +11031,22 @@ mod launcher_overlay_tests {
             }),
             OverlayEvent::Close
         );
+    }
+
+    #[test]
+    fn launcher_candidate_row_text_builds_only_visible_prefix() {
+        let candidate = LauncherSelection {
+            kind: LauncherKind::Shell,
+            command: "command-with-pathological-length-".repeat(10_000),
+        };
+        let row = launcher_candidate_row_text(0, 0, &candidate, 24);
+        assert_eq!(row.chars().count(), 24, "{row:?}");
+        assert!(row.starts_with("▶  1. [shell] command"), "{row:?}");
+        assert!(row.ends_with('…'), "{row:?}");
+        assert!(row.capacity() >= 24);
+        assert!(!row.contains(&"command-with-pathological-length-".repeat(2)));
+        assert_eq!(launcher_candidate_row_text(0, 0, &candidate, 1), "…");
+        assert_eq!(launcher_candidate_row_text(0, 0, &candidate, 0), "");
     }
 
     #[test]
