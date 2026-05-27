@@ -166,6 +166,7 @@ impl BarModel {
         let chip_h = (cell_h - 4.0).max(6.0);
         let scene_w = cols.max(1) as f32 * cell_w;
         let mut chip_x = 1.0;
+        let mut last_chip_end_x = 0.0;
         for label in self.workspace_chip_labels_for_scene(cols) {
             let active = self.workspace.trim() == label;
             let natural_chip_w = (label.chars().count() as f32 + 2.0).max(3.0) * cell_w;
@@ -209,12 +210,15 @@ impl BarModel {
                     corners: Corners::uniform(7.0),
                 },
             ));
-            chip_x += chip_w + 3.0;
+            last_chip_end_x = x + chip_w;
+            chip_x = last_chip_end_x + 3.0;
         }
         let clock = self.time.strip_suffix(" UTC").unwrap_or(&self.time);
         let clock_cols = clock.chars().count().max(5) as f32 + 2.0;
         let clock_w = (clock_cols * cell_w).min(cols.max(1) as f32 * cell_w);
-        if let Some(clock_x) = top_bar_clock_chip_x(cols.max(1) as f32 * cell_w, chip_x, clock_w) {
+        if let Some(clock_x) =
+            top_bar_clock_chip_x(cols.max(1) as f32 * cell_w, last_chip_end_x, clock_w)
+        {
             scene.layers.push(Layer::new(
                 format!("{label_prefix}-clock-chip:{clock}:high-contrast"),
                 Node::Rect {
@@ -522,6 +526,25 @@ mod tests {
     fn top_bar_clock_chip_skips_when_workspace_chips_overlap() {
         assert_eq!(top_bar_clock_chip_x(320.0, 80.0, 72.0), Some(247.0));
         assert_eq!(top_bar_clock_chip_x(160.0, 100.0, 72.0), None);
+    }
+
+    #[test]
+    fn top_bar_scene_clock_uses_actual_workspace_chip_end() {
+        let model = BarModel::new("dev", 1, "native-1", true, UNIX_EPOCH);
+        let scene = model.scene_with_prefix(23, "kittwm-bar");
+        assert!(
+            scene
+                .layers
+                .iter()
+                .any(|layer| layer.label.as_deref()
+                    == Some("kittwm-bar-clock-chip:00:00:high-contrast")),
+            "{:#?}",
+            scene
+                .layers
+                .iter()
+                .map(|layer| &layer.label)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
