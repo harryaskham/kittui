@@ -160,6 +160,7 @@ fn real_main() -> Result<()> {
     let mut frame = 0u64;
     let mut last_status: Option<(u16, String)> = None;
     let show_status_frame = browser_status_frame_counter_enabled();
+    let status_metadata = BrowserStatusMetadata::from_env();
     let active_interval = browser_active_frame_interval();
     let idle_interval = browser_idle_frame_interval(active_interval);
     let static_interval = browser_static_frame_interval(idle_interval);
@@ -251,7 +252,13 @@ fn real_main() -> Result<()> {
                 wrote_output = true;
             }
         }
-        let status = browser_status_text_for_cols(&url, frame, show_status_frame, viewport.cols);
+        let status = browser_status_text_for_cols_with_metadata(
+            &url,
+            frame,
+            show_status_frame,
+            viewport.cols,
+            &status_metadata,
+        );
         if should_write_browser_status(last_status.as_ref(), viewport.status_row, &status) {
             if let Some((old_row, _)) = last_status.as_ref() {
                 if *old_row != viewport.status_row {
@@ -760,14 +767,43 @@ fn sleep_browser_frame_or_input(mut slack: Duration) {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BrowserStatusMetadata {
+    window: String,
+    socket: String,
+}
+
+impl BrowserStatusMetadata {
+    fn from_env() -> Self {
+        Self {
+            window: truncate(
+                &std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "<none>".into()),
+                32,
+            ),
+            socket: truncate(
+                &std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<none>".into()),
+                48,
+            ),
+        }
+    }
+}
+
+#[cfg(test)]
 fn browser_status_text(url: &str, frame: u64, show_frame: bool) -> String {
-    let window = std::env::var("KITTWM_WINDOW").unwrap_or_else(|_| "<none>".into());
-    let socket = std::env::var("KITTWM_SOCKET").unwrap_or_else(|_| "<none>".into());
+    browser_status_text_with_metadata(url, frame, show_frame, &BrowserStatusMetadata::from_env())
+}
+
+fn browser_status_text_with_metadata(
+    url: &str,
+    frame: u64,
+    show_frame: bool,
+    metadata: &BrowserStatusMetadata,
+) -> String {
     let mut status = format!(
         "kittwm-browser — {} — window={} socket={} — Ctrl-] exits",
         truncate(url, 40),
-        truncate(&window, 32),
-        truncate(&socket, 48)
+        metadata.window,
+        metadata.socket
     );
     if show_frame {
         status.push_str(&format!(" — frame {frame}"));
@@ -775,8 +811,22 @@ fn browser_status_text(url: &str, frame: u64, show_frame: bool) -> String {
     status
 }
 
+#[cfg(test)]
 fn browser_status_text_for_cols(url: &str, frame: u64, show_frame: bool, cols: u16) -> String {
     clip_to_cols(&browser_status_text(url, frame, show_frame), cols as usize)
+}
+
+fn browser_status_text_for_cols_with_metadata(
+    url: &str,
+    frame: u64,
+    show_frame: bool,
+    cols: u16,
+    metadata: &BrowserStatusMetadata,
+) -> String {
+    clip_to_cols(
+        &browser_status_text_with_metadata(url, frame, show_frame, metadata),
+        cols as usize,
+    )
 }
 
 fn clip_to_cols(s: &str, cols: usize) -> String {
@@ -1211,13 +1261,18 @@ mod tests {
         assert_eq!(truncate("short", 12), "short");
         assert_eq!(truncate("anything", 1), "…");
         assert_eq!(truncate("anything", 0), "");
-        let stable = browser_status_text("https://example.com/a", 42, false);
+        let metadata = BrowserStatusMetadata::from_env();
+        assert_eq!(metadata.window, "win-1");
+        assert_eq!(metadata.socket, "/tmp/kittwm.sock");
+        let stable =
+            browser_status_text_with_metadata("https://example.com/a", 42, false, &metadata);
         assert!(
             stable.starts_with("kittwm-browser — https://example.com/a"),
             "{stable}"
         );
         assert!(!stable.contains("frame"), "{stable}");
-        let with_frame = browser_status_text("https://example.com/a", 42, true);
+        let with_frame =
+            browser_status_text_with_metadata("https://example.com/a", 42, true, &metadata);
         assert!(with_frame.ends_with("frame 42"), "{with_frame}");
         let narrow = browser_status_text_for_cols("https://example.com/a", 42, false, 12);
         assert_eq!(narrow.chars().count(), 12);
@@ -1226,7 +1281,11 @@ mod tests {
         let huge_socket = format!("/tmp/{}", "sock/".repeat(10_000));
         std::env::set_var("KITTWM_WINDOW", huge_window);
         std::env::set_var("KITTWM_SOCKET", huge_socket);
-        let bounded_status = browser_status_text("https://example.com/a", 42, false);
+        let huge_metadata = BrowserStatusMetadata::from_env();
+        assert!(huge_metadata.window.ends_with('…'), "{:?}", huge_metadata);
+        assert!(huge_metadata.socket.ends_with('…'), "{:?}", huge_metadata);
+        let bounded_status =
+            browser_status_text_with_metadata("https://example.com/a", 42, false, &huge_metadata);
         assert!(
             bounded_status.contains("window=window-window-window-window-win…"),
             "{bounded_status}"
