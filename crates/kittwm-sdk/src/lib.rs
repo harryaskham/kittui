@@ -670,8 +670,13 @@ impl SurfaceSpec {
     /// command that `spawn_surface` will send today.
     pub fn native_pty_command(&self) -> Result<String> {
         match &self.kind {
-            SurfaceKind::Terminal => Ok(self.command.clone()),
-            SurfaceKind::Browser => Ok(browser_surface_command(&self.command)),
+            SurfaceKind::Terminal => {
+                Ok(validated_nonempty_trimmed(&self.command, "terminal command")?.to_string())
+            }
+            SurfaceKind::Browser => Ok(browser_surface_command(validated_nonempty_trimmed(
+                &self.command,
+                "browser target",
+            )?)),
             SurfaceKind::Other(kind) => Err(Error::Daemon(format!(
                 "surface kind {kind:?} is not supported by the SDK transport"
             ))),
@@ -3915,15 +3920,19 @@ mod tests {
     #[test]
     fn surface_spec_exposes_native_pty_command_for_dry_runs() {
         assert_eq!(
-            SurfaceSpec::terminal("htop").native_pty_command().unwrap(),
+            SurfaceSpec::terminal(" htop ")
+                .native_pty_command()
+                .unwrap(),
             "htop"
         );
         assert_eq!(
-            SurfaceSpec::browser("https://example.com/it's")
+            SurfaceSpec::browser(" https://example.com/it's ")
                 .native_pty_command()
                 .unwrap(),
             "kittwm-browser 'https://example.com/it'\\''s'"
         );
+        assert!(SurfaceSpec::terminal("   ").native_pty_command().is_err());
+        assert!(SurfaceSpec::browser("   ").native_pty_command().is_err());
         assert!(SurfaceSpec {
             kind: SurfaceKind::Other("canvas".to_string()),
             command: "canvas".to_string(),
