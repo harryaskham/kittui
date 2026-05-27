@@ -3462,7 +3462,7 @@ fn commands_graphical_cmd(kitty: bool) -> Result<()> {
 fn commands_scene() -> Scene {
     let cols = info_scene_cols();
     let entries = local_command_entries();
-    let rows = (entries.len() as u16 + 5).clamp(8, 28);
+    let rows = commands_scene_rows(entries.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -3539,6 +3539,10 @@ fn commands_scene() -> Scene {
 
 fn commands_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn commands_scene_rows(entry_count: usize) -> u16 {
+    entry_count.saturating_add(5).clamp(8, 28) as u16
 }
 
 fn architecture_contract_json_text() -> String {
@@ -6376,6 +6380,13 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn commands_scene_rows_saturate_before_clamping() {
+        assert_eq!(commands_scene_rows(0), 8);
+        assert_eq!(commands_scene_rows(20), 25);
+        assert_eq!(commands_scene_rows(usize::MAX), 28);
     }
 
     #[test]
