@@ -330,12 +330,16 @@ fn render_launch_plan(plan: &LaunchPlan, output: PlanOutput) -> Result<String, S
 }
 
 fn launch_plan_scene(plan: &LaunchPlan) -> Scene {
-    let cols = launch_plan_scene_cols();
+    launch_plan_scene_for_cols(plan, launch_plan_scene_cols())
+}
+
+fn launch_plan_scene_for_cols(plan: &LaunchPlan, cols: u16) -> Scene {
     let rows = 5;
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
     let command = plan.command.chars().take(40).collect::<String>();
+    let command_rect = launch_plan_command_rect(width, cell);
     Scene {
         footprint: CellRect::new(0, 0, cols, rows),
         cell_size: cell,
@@ -378,12 +382,7 @@ fn launch_plan_scene(plan: &LaunchPlan) -> Scene {
             Layer {
                 label: Some(format!("kittwm-launch-plan-command:{command}")),
                 root: Node::Rect {
-                    rect: PxRect::new(
-                        10.0,
-                        cell.height_px as f32 * 2.35,
-                        (width - 20.0).max(1.0),
-                        2.0,
-                    ),
+                    rect: command_rect,
                     fill: Paint::Solid {
                         color: Rgba::rgba(136, 192, 208, 255),
                     },
@@ -397,13 +396,30 @@ fn launch_plan_scene(plan: &LaunchPlan) -> Scene {
 }
 
 fn launch_plan_scene_cols() -> u16 {
-    env::var("KITTWM_LAUNCH_PLAN_COLS")
-        .or_else(|_| env::var("COLUMNS"))
-        .ok()
+    launch_plan_scene_cols_from_value(
+        env::var("KITTWM_LAUNCH_PLAN_COLS")
+            .or_else(|_| env::var("COLUMNS"))
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn launch_plan_scene_cols_from_value(value: Option<&str>) -> u16 {
+    value
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|cols| *cols > 0)
+        .map(|cols| cols.min(120))
         .unwrap_or(64)
-        .clamp(32, 120)
+}
+
+fn launch_plan_command_rect(width: f32, cell: CellSize) -> PxRect {
+    let margin = 10.0_f32.min((width / 4.0).max(0.0));
+    PxRect::new(
+        margin,
+        cell.height_px as f32 * 2.35,
+        (width - margin * 2.0).max(1.0),
+        2.0,
+    )
 }
 
 fn render_launch_plan_kitty(plan: &LaunchPlan) -> Result<String, String> {
@@ -538,6 +554,28 @@ mod tests {
         let out = run(args).unwrap();
         assert!(out.contains("backend=browser"));
         assert!(out.contains("SPAWN_PTY kittwm-browser https://example.com"));
+    }
+
+    #[test]
+    fn launch_plan_scene_width_respects_narrow_columns() {
+        assert_eq!(launch_plan_scene_cols_from_value(Some("8")), 8);
+        assert_eq!(launch_plan_scene_cols_from_value(Some("0")), 64);
+        assert_eq!(launch_plan_scene_cols_from_value(Some("240")), 120);
+
+        let args = LaunchArgs::parse_from(["--plan-kitty", "dev shell"]).unwrap();
+        let plan = build_launch_plan(&args);
+        let scene = launch_plan_scene_for_cols(&plan, 1);
+        assert_eq!(scene.footprint.cols, 1);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
+        assert_eq!(
+            launch_plan_command_rect(8.0, CellSize::default()).origin.0,
+            2.0
+        );
     }
 
     #[test]
