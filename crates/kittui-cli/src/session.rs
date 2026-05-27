@@ -7728,6 +7728,7 @@ mod native_pane_tests {
         );
         assert_eq!(text, "* title-titl");
         assert_eq!(text.chars().count(), 12);
+        assert!(text.capacity() >= 12);
         let short = raw_frame_chrome_text(
             "app",
             false,
@@ -7736,6 +7737,7 @@ mod native_pane_tests {
             20,
         );
         assert_eq!(short, "  app float full    ");
+        assert!(short.capacity() >= 20);
     }
 
     #[test]
@@ -9411,7 +9413,7 @@ fn raw_frame_chrome_text(
         kittui_wm::compositor::WindowMode::Tiled => "tile",
     };
     let fullscreen = if fullscreen { " full" } else { "" };
-    let mut out = String::new();
+    let mut out = String::with_capacity(width);
     let mut used = 0usize;
     for segment in [marker, " ", title, " ", mode, fullscreen] {
         for ch in segment.chars() {
