@@ -261,7 +261,7 @@ fn kittwm_bar_kitty_text_overlay_with_config(
         .time
         .strip_suffix(" UTC")
         .unwrap_or(&model.bar.time);
-    let clock_text = format!(" {clock} ");
+    let clock_text = kittwm_bar_overlay_clock_text(clock);
     if let Some(clock_col) = kittwm_bar_overlay_clock_col(
         cols,
         workspace_cols,
@@ -281,6 +281,14 @@ fn kittwm_bar_overlay_style(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> String {
     let mut style = ansi_fg(fg);
     style.push_str(&ansi_bg(bg));
     style
+}
+
+fn kittwm_bar_overlay_clock_text(clock: &str) -> String {
+    let mut out = String::with_capacity(clock.len().saturating_add(2));
+    out.push(' ');
+    out.push_str(clock);
+    out.push(' ');
+    out
 }
 
 fn kittwm_bar_overlay_text_cols(text: &str, padding_cols: u16) -> u16 {
@@ -655,6 +663,12 @@ mod tests {
     fn kitty_bar_overlay_style_combines_fg_and_bg_once() {
         let style = kittwm_bar_overlay_style((1, 2, 3), (4, 5, 6));
         assert_eq!(style, "\x1b[38;2;1;2;3m\x1b[48;2;4;5;6m");
+    }
+
+    #[test]
+    fn kitty_bar_overlay_clock_text_wraps_trimmed_clock() {
+        assert_eq!(kittwm_bar_overlay_clock_text("09:05"), " 09:05 ");
+        assert_eq!(kittwm_bar_overlay_clock_text(""), "  ");
     }
 
     #[test]
