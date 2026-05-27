@@ -6251,7 +6251,10 @@ fn config_summary(cli: &Cli) -> Result<ConfigSummary> {
 }
 
 fn config_scene(summary: &ConfigSummary) -> Scene {
-    let cols = info_scene_cols();
+    config_scene_for_cols(summary, info_scene_cols())
+}
+
+fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
     let rows = 21;
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
@@ -6319,7 +6322,7 @@ fn config_scene(summary: &ConfigSummary) -> Scene {
         layers.push(Layer {
             label: Some(format!("kittwm-config-row:{idx}:{row}")),
             root: Node::Rect {
-                rect: KittuiPxRect::new(10.0, y, (width - 20.0).max(1.0), 1.5),
+                rect: info_indicator_rect(width, y),
                 fill: Paint::Solid {
                     color: Rgba::rgba(136, 192, 208, 255),
                 },
@@ -6935,9 +6938,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn config_scene_labels_readiness_summary() {
-        let summary = ConfigSummary {
+    fn sample_config_summary() -> ConfigSummary {
+        ConfigSummary {
             config_path: "/tmp/kittwm/config.yaml".to_string(),
             background_color: "nord0".to_string(),
             background_opacity: 0.6,
@@ -6960,7 +6962,25 @@ mod tests {
             bindings: 12,
             duplicate_chords: 0,
             status: "ok",
-        };
+        }
+    }
+
+    #[test]
+    fn config_scene_rows_fit_narrow_width() {
+        let summary = sample_config_summary();
+        let scene = config_scene_for_cols(&summary, 1);
+        assert_eq!(scene.footprint.cols, 1);
+        let max_width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
+        for layer in &scene.layers {
+            if let Node::Rect { rect, .. } = layer.root {
+                assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn config_scene_labels_readiness_summary() {
+        let summary = sample_config_summary();
         let scene = config_scene(&summary);
         let labels = scene
             .layers
