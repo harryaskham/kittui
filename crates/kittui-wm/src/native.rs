@@ -3289,6 +3289,24 @@ impl BrowserArrowKey {
     }
 }
 
+/// Browser page-navigation key for DevTools key dispatch.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BrowserPageKey {
+    /// PageUp.
+    Up,
+    /// PageDown.
+    Down,
+}
+
+impl BrowserPageKey {
+    fn key_fields(self) -> (&'static str, &'static str, u32) {
+        match self {
+            BrowserPageKey::Up => ("PageUp", "PageUp", 33),
+            BrowserPageKey::Down => ("PageDown", "PageDown", 34),
+        }
+    }
+}
+
 /// Headless Chrome/Chromium native app driven via Chrome DevTools Protocol.
 pub struct HeadlessBrowserApp {
     child: Child,
@@ -3442,6 +3460,12 @@ impl HeadlessBrowserApp {
 
     /// Dispatch an arrow-key press/release to the focused page element.
     pub fn send_arrow_key(&mut self, direction: BrowserArrowKey) -> Result<()> {
+        let (key, code, key_code) = direction.key_fields();
+        self.dispatch_browser_key(key, code, key_code)
+    }
+
+    /// Dispatch a PageUp/PageDown key press/release to the focused page element.
+    pub fn send_page_key(&mut self, direction: BrowserPageKey) -> Result<()> {
         let (key, code, key_code) = direction.key_fields();
         self.dispatch_browser_key(key, code, key_code)
     }
@@ -5502,7 +5526,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_key_event_params_map_editing_keys() {
+    fn browser_key_event_params_map_editing_and_page_keys() {
         let params = browser_key_event_params("Enter", "Enter", 13);
         assert_eq!(params["key"], "Enter");
         assert_eq!(params["code"], "Enter");
@@ -5523,6 +5547,18 @@ mod tests {
         assert_eq!(end["code"], "End");
         assert_eq!(end["windowsVirtualKeyCode"], 35);
         assert_eq!(end["nativeVirtualKeyCode"], 35);
+        let (page_up_key, page_up_code, page_up_code_num) = BrowserPageKey::Up.key_fields();
+        let page_up = browser_key_event_params(page_up_key, page_up_code, page_up_code_num);
+        assert_eq!(page_up["key"], "PageUp");
+        assert_eq!(page_up["code"], "PageUp");
+        assert_eq!(page_up["windowsVirtualKeyCode"], 33);
+        assert_eq!(page_up["nativeVirtualKeyCode"], 33);
+        let (page_down_key, page_down_code, page_down_code_num) = BrowserPageKey::Down.key_fields();
+        let page_down = browser_key_event_params(page_down_key, page_down_code, page_down_code_num);
+        assert_eq!(page_down["key"], "PageDown");
+        assert_eq!(page_down["code"], "PageDown");
+        assert_eq!(page_down["windowsVirtualKeyCode"], 34);
+        assert_eq!(page_down["nativeVirtualKeyCode"], 34);
     }
 
     #[test]

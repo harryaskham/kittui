@@ -17,7 +17,9 @@ use anyhow::{anyhow, Result};
 use kittui::Transport;
 use kittui::{CellRect, CellSize, Runtime, TerminalInfo};
 use kittui_kitty as kitty;
-use kittui_wm::native::{BrowserArrowKey, HeadlessBrowserApp, NativeApp, NativeFrame};
+use kittui_wm::native::{
+    BrowserArrowKey, BrowserPageKey, HeadlessBrowserApp, NativeApp, NativeFrame,
+};
 use kittui_wm::semantic::render_sdk_semantic_surface;
 use kittwm_sdk::{Kittwm, SemanticSurfaceSnapshot};
 
@@ -184,6 +186,7 @@ fn real_main() -> Result<()> {
                     BrowserInputAction::Home => browser.send_home()?,
                     BrowserInputAction::End => browser.send_end()?,
                     BrowserInputAction::Arrow(direction) => browser.send_arrow_key(direction)?,
+                    BrowserInputAction::Page(direction) => browser.send_page_key(direction)?,
                 }
                 user_activity = true;
             }
@@ -269,6 +272,7 @@ enum BrowserInputAction {
     Home,
     End,
     Arrow(BrowserArrowKey),
+    Page(BrowserPageKey),
 }
 
 fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize) {
@@ -285,6 +289,8 @@ fn browser_csi_input_action(bytes: &[u8]) -> (Option<BrowserInputAction>, usize)
         [b'H'] | [b'1', b'~'] | [b'7', b'~'] => Some(BrowserInputAction::Home),
         [b'F'] | [b'4', b'~'] | [b'8', b'~'] => Some(BrowserInputAction::End),
         [b'3', b'~'] => Some(BrowserInputAction::Delete),
+        [b'5', b'~'] => Some(BrowserInputAction::Page(BrowserPageKey::Up)),
+        [b'6', b'~'] => Some(BrowserInputAction::Page(BrowserPageKey::Down)),
         _ => None,
     };
     (action, consumed)
@@ -941,9 +947,9 @@ mod tests {
     }
 
     #[test]
-    fn browser_input_actions_preserve_text_backspace_tab_enter_and_arrow_order() {
+    fn browser_input_actions_preserve_text_backspace_tab_enter_page_and_arrow_order() {
         assert_eq!(
-            browser_input_actions(b"ab\x7fc\tde\x1b[D\x1b[3~\x1b[H\x1b[F\x08\rfg\n"),
+            browser_input_actions(b"ab\x7fc\tde\x1b[D\x1b[3~\x1b[H\x1b[F\x1b[5~\x1b[6~\x08\rfg\n"),
             vec![
                 BrowserInputAction::Text("ab".to_string()),
                 BrowserInputAction::Backspace,
@@ -954,6 +960,8 @@ mod tests {
                 BrowserInputAction::Delete,
                 BrowserInputAction::Home,
                 BrowserInputAction::End,
+                BrowserInputAction::Page(BrowserPageKey::Up),
+                BrowserInputAction::Page(BrowserPageKey::Down),
                 BrowserInputAction::Backspace,
                 BrowserInputAction::Enter,
                 BrowserInputAction::Text("fg".to_string()),
