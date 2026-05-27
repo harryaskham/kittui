@@ -3542,6 +3542,8 @@ pub enum BrowserFunctionKey {
     F6,
     /// F7 / caret-browsing key.
     F7,
+    /// F8 function key.
+    F8,
 }
 
 impl BrowserFunctionKey {
@@ -3550,6 +3552,7 @@ impl BrowserFunctionKey {
             BrowserFunctionKey::F5 => ("F5", "F5", 116),
             BrowserFunctionKey::F6 => ("F6", "F6", 117),
             BrowserFunctionKey::F7 => ("F7", "F7", 118),
+            BrowserFunctionKey::F8 => ("F8", "F8", 119),
         }
     }
 }
@@ -6456,6 +6459,12 @@ mod tests {
         assert_eq!(f7["code"], "F7");
         assert_eq!(f7["windowsVirtualKeyCode"], 118);
         assert_eq!(f7["nativeVirtualKeyCode"], 118);
+        let (function_key, function_code, function_code_num) = BrowserFunctionKey::F8.key_fields();
+        let f8 = browser_key_event_params(function_key, function_code, function_code_num);
+        assert_eq!(f8["key"], "F8");
+        assert_eq!(f8["code"], "F8");
+        assert_eq!(f8["windowsVirtualKeyCode"], 119);
+        assert_eq!(f8["nativeVirtualKeyCode"], 119);
         let (page_down_key, page_down_code, page_down_code_num) = BrowserPageKey::Down.key_fields();
         let page_down = browser_key_event_params(page_down_key, page_down_code, page_down_code_num);
         assert_eq!(page_down["key"], "PageDown");
