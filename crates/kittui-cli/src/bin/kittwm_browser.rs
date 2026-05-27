@@ -212,6 +212,9 @@ fn real_main() -> Result<()> {
         else {
             return Err(anyhow!("browser returned non-PNG frame"));
         };
+        if user_activity {
+            semantic_publisher.reset_after_activity();
+        }
         semantic_publisher.maybe_publish(&mut browser);
         let fp = viewport.frame_footprint();
         let stdout = std::io::stdout();
@@ -545,6 +548,11 @@ impl BrowserSemanticPublisher {
             self.idle_interval,
             self.unchanged_payloads,
         )
+    }
+
+    fn reset_after_activity(&mut self) {
+        self.unchanged_payloads = 0;
+        self.last_attempt = None;
     }
 
     fn record_payload(&mut self, payload: &str) -> bool {
@@ -1173,6 +1181,9 @@ mod tests {
         publisher.last_attempt = Some(start + Duration::from_millis(500));
         assert!(!publisher.due(start + Duration::from_millis(2499)));
         assert!(publisher.due(start + Duration::from_millis(2500)));
+        publisher.reset_after_activity();
+        assert_eq!(publisher.unchanged_payloads, 0);
+        assert!(publisher.due(start + Duration::from_millis(501)));
         assert!(publisher.record_payload("{\"revision\":2}"));
         assert_eq!(publisher.unchanged_payloads, 0);
         assert_eq!(publisher.current_interval(), Duration::from_millis(500));
