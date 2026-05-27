@@ -5672,15 +5672,17 @@ mod native_pane_tests {
 
     #[cfg(unix)]
     #[test]
-    fn raw_mode_iflag_preserves_raw_enter_and_flow_control_bytes() {
-        use libc::{BRKINT, ICRNL, IGNCR, INLCR, IXOFF, IXON};
-        let flags = raw_mode_iflag(ICRNL | IGNCR | INLCR | IXON | IXOFF | BRKINT);
+    fn raw_mode_iflag_preserves_raw_enter_flow_control_and_high_bit_bytes() {
+        use libc::{BRKINT, ICRNL, IGNCR, INLCR, ISTRIP, IXOFF, IXON, PARMRK};
+        let flags = raw_mode_iflag(ICRNL | IGNCR | INLCR | IXON | IXOFF | BRKINT | PARMRK | ISTRIP);
         assert_eq!(flags & ICRNL, 0);
         assert_eq!(flags & IGNCR, 0);
         assert_eq!(flags & INLCR, 0);
         assert_eq!(flags & IXON, 0);
         assert_eq!(flags & IXOFF, 0);
-        assert_ne!(flags & BRKINT, 0);
+        assert_eq!(flags & BRKINT, 0);
+        assert_eq!(flags & PARMRK, 0);
+        assert_eq!(flags & ISTRIP, 0);
     }
 
     #[cfg(unix)]
@@ -9131,13 +9133,14 @@ fn raw_mode_restore_sequence() -> &'static [u8] {
 
 #[cfg(unix)]
 fn raw_mode_iflag(iflag: libc::tcflag_t) -> libc::tcflag_t {
-    use libc::{ICRNL, IGNCR, INLCR, IXOFF, IXON};
+    use libc::{BRKINT, ICRNL, IGNCR, INLCR, ISTRIP, IXOFF, IXON, PARMRK};
     // Preserve raw CR/LF bytes. If ICRNL/INLCR/IGNCR remain enabled, the
     // kernel can rewrite Enter to newline, rewrite newline to carriage return,
     // or drop carriage return before kittwm routes bytes to the native app.
-    // Also disable software flow control so Ctrl-S/Ctrl-Q pass through to
-    // native apps instead of freezing or resuming host terminal output.
-    iflag & !(ICRNL | INLCR | IGNCR | IXON | IXOFF)
+    // Disable software flow control so Ctrl-S/Ctrl-Q pass through to native
+    // apps. Disable byte-mangling flags so break/parity handling and high-bit
+    // stripping do not corrupt Alt/UTF-8/control-sequence passthrough.
+    iflag & !(ICRNL | INLCR | IGNCR | IXON | IXOFF | BRKINT | PARMRK | ISTRIP)
 }
 
 #[cfg(unix)]
