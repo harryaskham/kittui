@@ -243,12 +243,12 @@ fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
         ),
         None => format!("APPS_LAUNCH_FIRST {}", args.query),
     };
+    let title = bounded_label(args.title.as_deref().unwrap_or("-"), 48);
+    let query = bounded_label(&args.query, 96);
     let status = format!(
-        "kittwm-launch: backend={} mode={} title={} query={}",
+        "kittwm-launch: backend={} mode={} title={title} query={query}",
         backend.label(),
         mode,
-        args.title.as_deref().unwrap_or("-"),
-        args.query
     );
     LaunchPlan {
         backend,
@@ -664,7 +664,8 @@ mod tests {
         let args =
             LaunchArgs::parse_from(["--plan-scene-json", "--browser", query.as_str()]).unwrap();
         let plan = build_launch_plan(&args);
-        assert!(plan.status.contains(&"x".repeat(256)));
+        assert!(plan.status.contains('…'), "{}", plan.status);
+        assert!(!plan.status.contains(&"x".repeat(256)), "{}", plan.status);
         let scene = launch_plan_scene(&plan);
         let labels = scene
             .layers
