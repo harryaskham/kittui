@@ -5565,15 +5565,6 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
     let layout_label = truncate(layout, 32);
     let focus_label = truncate(focus, 32);
     let sock_label = truncate(sock, 48);
-    let rows_data = [
-        format!("pid={pid}"),
-        format!("uptime_s={uptime}"),
-        format!("workspace={workspace_label}"),
-        format!("layout={layout_label}"),
-        format!("focus={focus_label}"),
-        format!("panes={panes}"),
-        format!("pending={pending}"),
-    ];
     let mut layers = vec![
         Layer {
             label: Some(format!(
@@ -5610,10 +5601,19 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
             },
         },
     ];
-    for (idx, row) in rows_data.iter().enumerate() {
+    for idx in 0..7 {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         layers.push(Layer {
-            label: Some(format!("kittwm-status-row:{idx}:{row}")),
+            label: Some(status_scene_row_label(
+                idx,
+                &pid,
+                &uptime,
+                &workspace_label,
+                &layout_label,
+                &focus_label,
+                panes,
+                pending,
+            )),
             root: Node::Rect {
                 rect: status_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -5630,6 +5630,50 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn status_scene_row_label(
+    idx: usize,
+    pid: &str,
+    uptime: &str,
+    workspace: &str,
+    layout: &str,
+    focus: &str,
+    panes: u64,
+    pending: u64,
+) -> String {
+    let mut out = String::with_capacity(40);
+    let _ = write!(out, "kittwm-status-row:{idx}:");
+    match idx {
+        0 => {
+            out.push_str("pid=");
+            out.push_str(pid);
+        }
+        1 => {
+            out.push_str("uptime_s=");
+            out.push_str(uptime);
+        }
+        2 => {
+            out.push_str("workspace=");
+            out.push_str(workspace);
+        }
+        3 => {
+            out.push_str("layout=");
+            out.push_str(layout);
+        }
+        4 => {
+            out.push_str("focus=");
+            out.push_str(focus);
+        }
+        5 => {
+            let _ = write!(out, "panes={panes}");
+        }
+        6 => {
+            let _ = write!(out, "pending={pending}");
+        }
+        _ => out.push_str("unknown=-"),
+    }
+    out
 }
 
 fn status_scene_cols() -> u16 {
