@@ -452,6 +452,7 @@ fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Sce
     let height = rows as f32 * cell.height_px as f32;
     let content_rect = terminal_card_content_rect(width, cell);
     let summary = terminal_events_summary_label(&model.kinds);
+    let kinds_label = terminal_events_kinds_label(&summary);
     Scene {
         footprint: CellRect::new(0, 0, cols, rows),
         cell_size: cell,
@@ -489,7 +490,7 @@ fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Sce
                 },
             },
             Layer {
-                label: Some(terminal_events_kinds_label(&summary)),
+                label: Some(kinds_label),
                 root: Node::Rect {
                     rect: content_rect,
                     fill: Paint::Solid {
@@ -936,6 +937,9 @@ mod tests {
             .unwrap();
         let summary = terminal_events_summary_label(&model.kinds);
         assert!(summary.capacity() >= 5 * 25);
+        let direct = terminal_events_kinds_label(&summary);
+        assert_eq!(direct, label);
+        assert_eq!(direct.capacity(), direct.len());
         assert!(label.contains("pane_frame_presented_wi…"), "{label}");
         assert!(label.contains("another_pathologically_…"), "{label}");
         assert!(!label.contains("not-included"), "{label}");
