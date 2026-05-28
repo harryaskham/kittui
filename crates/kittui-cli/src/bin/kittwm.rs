@@ -28,6 +28,7 @@
 use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::process::ExitCode;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
@@ -4207,30 +4208,34 @@ fn native_surfaces_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
     }
 }
 
-fn completion_words() -> Vec<&'static str> {
-    let mut words = local_command_entries()
-        .iter()
-        .filter_map(|entry| entry.command.split_whitespace().next())
-        .collect::<Vec<_>>();
-    words.extend([
-        "--help",
-        "--socket",
-        "--display",
-        "--status-json",
-        "--help-json",
-        "--panes",
-        "--panes-json",
-        "--session-json",
-        "--events",
-        "--events-ms",
-        "--shortcuts",
-        "--shortcuts-json",
-        "--read-text-json",
-        "--wait-output-json-ms",
-    ]);
-    words.sort_unstable();
-    words.dedup();
-    words
+static COMPLETION_WORDS: OnceLock<Vec<&'static str>> = OnceLock::new();
+
+fn completion_words() -> &'static [&'static str] {
+    COMPLETION_WORDS.get_or_init(|| {
+        let mut words = local_command_entries()
+            .iter()
+            .filter_map(|entry| entry.command.split_whitespace().next())
+            .collect::<Vec<_>>();
+        words.extend([
+            "--help",
+            "--socket",
+            "--display",
+            "--status-json",
+            "--help-json",
+            "--panes",
+            "--panes-json",
+            "--session-json",
+            "--events",
+            "--events-ms",
+            "--shortcuts",
+            "--shortcuts-json",
+            "--read-text-json",
+            "--wait-output-json-ms",
+        ]);
+        words.sort_unstable();
+        words.dedup();
+        words
+    })
 }
 
 fn completions_text(shell: &str) -> Result<String> {
@@ -4245,7 +4250,7 @@ fn completions_text(shell: &str) -> Result<String> {
 }
 
 fn push_completion_words(out: &mut String) {
-    for (idx, word) in completion_words().into_iter().enumerate() {
+    for (idx, word) in completion_words().iter().enumerate() {
         if idx > 0 {
             out.push(' ');
         }
@@ -7465,6 +7470,7 @@ mod tests {
         assert!(fish.contains("cheat"), "{fish}");
         assert_eq!(fish, fish_completions_text());
         assert_eq!(fish.capacity(), fish.len());
+        assert!(std::ptr::eq(completion_words(), completion_words()));
         assert!(completions_text("powershell").is_err());
     }
 
