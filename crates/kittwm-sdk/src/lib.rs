@@ -2866,7 +2866,7 @@ impl Kittwm {
     pub fn reserve_chrome(&self, request: &ChromeReservationRequest) -> Result<String> {
         self.capabilities.ensure(Capability::ControlWindow)?;
         let payload = serde_json::to_string(request)?;
-        self.request_protocol(format!("RESERVE_CHROME_JSON {payload}"))
+        self.request_protocol(json_payload_request("RESERVE_CHROME_JSON", &payload))
     }
 
     /// Clear custom chrome reservation back to the daemon default.
@@ -2889,7 +2889,7 @@ impl Kittwm {
         self.capabilities.ensure(Capability::CreateWindow)?;
         self.capabilities.ensure(Capability::ControlWindow)?;
         let payload = serde_json::to_string(manifest)?;
-        self.request_protocol(format!("RESTORE_SESSION_JSON {payload}"))
+        self.request_protocol(json_payload_request("RESTORE_SESSION_JSON", &payload))
     }
 
     /// Fetch the policy-gated cached OSC52 clipboard status via `CLIPBOARD_JSON`.
@@ -3520,6 +3520,14 @@ fn app_lookup_request(verb: &str, query: &str) -> String {
     out.push_str(verb);
     out.push(' ');
     out.push_str(query);
+    out
+}
+
+fn json_payload_request(verb: &str, payload: &str) -> String {
+    let mut out = String::with_capacity(verb.len() + 1 + payload.len());
+    out.push_str(verb);
+    out.push(' ');
+    out.push_str(payload);
     out
 }
 
@@ -4794,6 +4802,18 @@ mod tests {
         assert_eq!(chrome.workspace.as_deref(), Some("dev"));
         assert_eq!(chrome.top_bar_rows_or_zero(), 1);
         assert_eq!(chrome.tilable_rows(), Some(23));
+    }
+
+    #[test]
+    fn json_payload_request_builds_directly() {
+        assert_eq!(
+            json_payload_request("RESERVE_CHROME_JSON", "{\"top_bar_rows\":2}"),
+            "RESERVE_CHROME_JSON {\"top_bar_rows\":2}"
+        );
+        assert_eq!(
+            json_payload_request("RESTORE_SESSION_JSON", "{\"panes\":[]}"),
+            "RESTORE_SESSION_JSON {\"panes\":[]}"
+        );
     }
 
     #[cfg(unix)]
