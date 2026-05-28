@@ -10,6 +10,7 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -3607,17 +3608,24 @@ pub struct HeadlessBrowserApp {
     height: u32,
     mouse_x: i32,
     mouse_y: i32,
+    user_data_dir: PathBuf,
+}
+
+static HEADLESS_CHROME_PROFILE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn next_headless_chrome_user_data_dir() -> PathBuf {
+    let id = HEADLESS_CHROME_PROFILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "kittui-headless-chrome-{}-{id}",
+        std::process::id()
+    ))
 }
 
 impl HeadlessBrowserApp {
     /// Launch Chrome headless and navigate to `url`.
     pub fn launch(url: &str, width: u32, height: u32) -> Result<Self> {
         let chrome = find_chrome().ok_or_else(|| anyhow!("Chrome/Chromium binary not found"))?;
-        let user_data_dir = std::env::temp_dir().join(format!(
-            "kittui-headless-chrome-{}-{}",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ));
+        let user_data_dir = next_headless_chrome_user_data_dir();
         std::fs::create_dir_all(&user_data_dir)?;
         let mut child = Command::new(chrome)
             .arg("--headless=new")
@@ -3655,6 +3663,7 @@ impl HeadlessBrowserApp {
             height,
             mouse_x: 0,
             mouse_y: 0,
+            user_data_dir,
         })
     }
 
@@ -3675,7 +3684,12 @@ impl HeadlessBrowserApp {
     pub fn terminate(&mut self) -> Result<()> {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.cleanup_user_data_dir();
         Ok(())
+    }
+
+    fn cleanup_user_data_dir(&self) {
+        let _ = std::fs::remove_dir_all(&self.user_data_dir);
     }
 
     /// Extract a best-effort DOM/ARIA semantic snapshot from the page.
@@ -4420,6 +4434,7 @@ impl Drop for HeadlessBrowserApp {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.cleanup_user_data_dir();
     }
 }
 
@@ -5394,6 +5409,20 @@ mod tests {
         assert!(!state.mouse_modes.button_motion);
         assert!(state.mouse_modes.all_motion);
         assert!(!state.mouse_modes.sgr);
+    }
+
+    #[test]
+    fn headless_chrome_user_data_dirs_are_unique_and_scoped() {
+        let a = next_headless_chrome_user_data_dir();
+        let b = next_headless_chrome_user_data_dir();
+        assert_ne!(a, b);
+        let prefix = format!("kittui-headless-chrome-{}-", std::process::id());
+        assert!(a
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(&prefix));
+        assert_eq!(a.parent(), Some(std::env::temp_dir().as_path()));
     }
 
     #[test]
