@@ -5358,6 +5358,24 @@ mod native_pane_tests {
             key,
             "row=24;ws=dev;panes=split;layout=columns;cfg=cfg;focus=focus;swap=swap;mode=normal;windows=2;launch= — last launch pid=12345;keymap= — action=launch;quit=q to quit"
         );
+
+        let long_action = format!(" — action={}", "x".repeat(10_000));
+        let bounded = raw_compositor_footer_key(
+            24,
+            "dev",
+            "split",
+            "columns",
+            "cfg",
+            "focus",
+            "swap",
+            "normal",
+            2,
+            "",
+            &long_action,
+            "q to quit",
+        );
+        assert!(bounded.contains('…'), "{bounded}");
+        assert!(!bounded.contains(&"x".repeat(128)), "{bounded}");
     }
 
     #[test]
@@ -10302,6 +10320,8 @@ fn frame_sleep_chunk(slack: Duration) -> Duration {
     slack.min(Duration::from_millis(16))
 }
 
+const RAW_COMPOSITOR_FOOTER_KEY_NOTE_MAX_CHARS: usize = 96;
+
 #[allow(clippy::too_many_arguments)]
 fn raw_compositor_footer_key(
     footer_row: u16,
@@ -10317,6 +10337,8 @@ fn raw_compositor_footer_key(
     keymap_note: &str,
     quit_hint: &str,
 ) -> String {
+    let launch_note = truncate_cells(launch_note, RAW_COMPOSITOR_FOOTER_KEY_NOTE_MAX_CHARS);
+    let keymap_note = truncate_cells(keymap_note, RAW_COMPOSITOR_FOOTER_KEY_NOTE_MAX_CHARS);
     format!(
         "row={footer_row};ws={workspace};panes={split};layout={layout};cfg={config};focus={focus};swap={swap};mode={mode};windows={window_count};launch={launch_note};keymap={keymap_note};quit={quit_hint}"
     )
