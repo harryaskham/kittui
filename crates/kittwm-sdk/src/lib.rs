@@ -3299,11 +3299,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::ReadText)?;
         let needle = validated_wait_needle(needle.as_ref(), "WAIT_TEXT_JSON_MS")?;
         Ok(serde_json::from_str(&self.client.request_protocol(
-            format!(
-                "WAIT_TEXT_JSON_MS {} {} {needle}",
-                self.id,
-                ms.clamp(1, 60_000)
-            ),
+            surface_wait_ms_request("WAIT_TEXT_JSON_MS", &self.id, ms.clamp(1, 60_000), needle),
         )?)?)
     }
 
@@ -3312,11 +3308,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::ReadText)?;
         let needle = validated_wait_needle(needle.as_ref(), "WAIT_OUTPUT_JSON_MS")?;
         Ok(serde_json::from_str(&self.client.request_protocol(
-            format!(
-                "WAIT_OUTPUT_JSON_MS {} {} {needle}",
-                self.id,
-                ms.clamp(1, 60_000)
-            ),
+            surface_wait_ms_request("WAIT_OUTPUT_JSON_MS", &self.id, ms.clamp(1, 60_000), needle),
         )?)?)
     }
 
@@ -5501,6 +5493,14 @@ mod tests {
         assert_eq!(
             surface_wait_ms_request("WAIT_OUTPUT_MS", "native-1", 60_000, "build finished"),
             "WAIT_OUTPUT_MS native-1 60000 build finished"
+        );
+        assert_eq!(
+            surface_wait_ms_request("WAIT_TEXT_JSON_MS", "native-1", 300, "typed json"),
+            "WAIT_TEXT_JSON_MS native-1 300 typed json"
+        );
+        assert_eq!(
+            surface_wait_ms_request("WAIT_OUTPUT_JSON_MS", "native-1", 400, "output json"),
+            "WAIT_OUTPUT_JSON_MS native-1 400 output json"
         );
     }
 
