@@ -2542,9 +2542,12 @@ fn doctor_scene(
                 },
             },
             Layer {
-                label: Some(format!(
-                    "kittwm-doctor-readiness:{readiness}:tmux={}:remote={}:displays={display_count}:{log_state}",
-                    transport.tmux, transport.remote
+                label: Some(doctor_readiness_label(
+                    readiness,
+                    transport.tmux,
+                    transport.remote,
+                    display_count,
+                    log_state,
                 )),
                 root: Node::Rect {
                     rect: doctor_readiness_rect(width, cell),
@@ -2588,6 +2591,34 @@ fn doctor_detail_rect(width: f32, cell: CellSize, row: f32) -> KittuiPxRect {
         available,
         2.0,
     )
+}
+
+fn doctor_readiness_label(
+    readiness: &str,
+    tmux: bool,
+    remote: bool,
+    display_count: u64,
+    log_state: &str,
+) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-doctor-readiness::tmux=:remote=:displays=:".len()
+            + readiness.len()
+            + 5
+            + 5
+            + 20
+            + log_state.len(),
+    );
+    label.push_str("kittwm-doctor-readiness:");
+    label.push_str(readiness);
+    label.push_str(":tmux=");
+    let _ = write!(label, "{tmux}");
+    label.push_str(":remote=");
+    let _ = write!(label, "{remote}");
+    label.push_str(":displays=");
+    let _ = write!(label, "{display_count}");
+    label.push(':');
+    label.push_str(log_state);
+    label
 }
 
 fn doctor_heading_label(
@@ -10109,6 +10140,16 @@ mod tests {
         std::env::set_var("KITTWM_DOCTOR_COLS", "200");
         assert_eq!(doctor_scene_cols(), 120);
         std::env::remove_var("KITTWM_DOCTOR_COLS");
+    }
+
+    #[test]
+    fn doctor_readiness_label_builds_directly() {
+        let label = doctor_readiness_label("kitty-ready", false, true, 2, "log-present");
+        assert_eq!(
+            label,
+            "kittwm-doctor-readiness:kitty-ready:tmux=false:remote=true:displays=2:log-present"
+        );
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
