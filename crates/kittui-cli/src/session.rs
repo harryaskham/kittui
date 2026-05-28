@@ -489,7 +489,12 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             &event,
                             panes[focused].app.application_cursor_keys_enabled(),
                         ) {
-                            panes[focused].app.send_bytes(payload)?;
+                            native_send_pane_bytes_logged(
+                                &mut panes[focused],
+                                "keyboard-event",
+                                payload,
+                                &dbg,
+                            );
                             offset += consumed;
                             continue;
                         }
@@ -2909,8 +2914,12 @@ fn process_native_terminal_byte(
                     )?
                 }
             }
-            0x01 if !panes.is_empty() => panes[*focused].app.send_bytes(&[0x01])?,
-            other if !panes.is_empty() => panes[*focused].app.send_bytes(&[other])?,
+            0x01 if !panes.is_empty() => {
+                native_send_pane_bytes_logged(&mut panes[*focused], "keyboard-byte", &[0x01], dbg);
+            }
+            other if !panes.is_empty() => {
+                native_send_pane_bytes_logged(&mut panes[*focused], "keyboard-byte", &[other], dbg);
+            }
             _ => {}
         }
         return Ok(false);
@@ -2924,7 +2933,12 @@ fn process_native_terminal_byte(
         match native_ctrl_c_action(ctrl_c_exit_guard, Instant::now()) {
             NativeCtrlCAction::Forward => {
                 if !panes.is_empty() {
-                    panes[*focused].app.send_bytes(&[byte])?;
+                    native_send_pane_bytes_logged(
+                        &mut panes[*focused],
+                        "keyboard-ctrl-c",
+                        &[byte],
+                        dbg,
+                    );
                 }
                 return Ok(false);
             }
@@ -2939,7 +2953,7 @@ fn process_native_terminal_byte(
     }
     ctrl_c_exit_guard.reset();
     if !panes.is_empty() {
-        panes[*focused].app.send_bytes(&[byte])?;
+        native_send_pane_bytes_logged(&mut panes[*focused], "keyboard-byte", &[byte], dbg);
     }
     Ok(false)
 }
@@ -3370,6 +3384,26 @@ fn native_capture_failure_log_line(
         "native pane capture failed: window={window} app={}x{} layout={}x{}+{},{} err={err}",
         layout.app_cols, layout.app_rows, layout.cols, layout.rows, layout.x, layout.y
     )
+}
+
+fn native_send_pane_bytes_logged(
+    pane: &mut NativePane,
+    operation: &str,
+    bytes: &[u8],
+    dbg: &Debugger,
+) -> bool {
+    match pane.app.send_bytes(bytes) {
+        Ok(()) => true,
+        Err(err) => {
+            dbg.log(&native_socket_input_failure_log_line(
+                &pane.window,
+                operation,
+                bytes.len(),
+                &err,
+            ));
+            false
+        }
+    }
 }
 
 fn native_socket_input_failure_log_line(
@@ -8735,6 +8769,12 @@ mod native_pane_tests {
         assert!(
             mouse_line.contains("operation=send-mouse-direct"),
             "{mouse_line}"
+        );
+        let keyboard_line =
+            native_socket_input_failure_log_line("native-1", "keyboard-byte", 1, &"closed");
+        assert!(
+            keyboard_line.contains("operation=keyboard-byte"),
+            "{keyboard_line}"
         );
         assert!(line.contains("bytes=42"), "{line}");
         assert!(line.contains("err=non-utf8 browser input"), "{line}");
