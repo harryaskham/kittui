@@ -444,6 +444,17 @@ fn launch_plan_scene(plan: &LaunchPlan) -> Scene {
     launch_plan_scene_for_cols(plan, launch_plan_scene_cols())
 }
 
+fn launch_plan_heading_label(status_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-launch-plan-heading:"
+            .len()
+            .saturating_add(status_label.len()),
+    );
+    label.push_str("kittwm-launch-plan-heading:");
+    label.push_str(status_label);
+    label
+}
+
 fn launch_plan_scene_for_cols(plan: &LaunchPlan, cols: u16) -> Scene {
     let rows = 5;
     let cell = CellSize::default();
@@ -476,7 +487,7 @@ fn launch_plan_scene_for_cols(plan: &LaunchPlan, cols: u16) -> Scene {
                 },
             },
             Layer {
-                label: Some(format!("kittwm-launch-plan-heading:{status_label}")),
+                label: Some(launch_plan_heading_label(&status_label)),
                 root: Node::Rect {
                     rect: PxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                     fill: Paint::Solid {
@@ -760,6 +771,14 @@ mod tests {
         );
         assert!(reply.ends_with("SPAWNED window=native-2\n"), "{reply}");
         assert_eq!(reply.lines().count(), 2);
+    }
+
+    #[test]
+    fn launch_plan_heading_label_builds_directly() {
+        assert_eq!(
+            launch_plan_heading_label("backend=browser"),
+            "kittwm-launch-plan-heading:backend=browser"
+        );
     }
 
     #[test]
