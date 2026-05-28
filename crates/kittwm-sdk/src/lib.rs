@@ -2741,10 +2741,16 @@ fn parse_ps_process_line(output: &str) -> Option<HostProcessInfo> {
     let state = parts.next().map(str::to_string);
     let rss_kib = parts.next().and_then(|value| value.parse().ok());
     let cpu_percent = parts.next().and_then(|value| value.parse().ok());
-    let process_name = {
-        let rest = parts.collect::<Vec<_>>().join(" ");
-        (!rest.is_empty()).then_some(rest)
-    };
+    let process_name = parts.next().map(|first| {
+        let remaining_len = parts.clone().map(|part| 1 + part.len()).sum::<usize>();
+        let mut rest = String::with_capacity(first.len() + remaining_len);
+        rest.push_str(first);
+        for part in parts {
+            rest.push(' ');
+            rest.push_str(part);
+        }
+        rest
+    });
     Some(HostProcessInfo {
         ppid,
         state,
@@ -6306,7 +6312,9 @@ mod tests {
         assert_eq!(parsed.state.as_deref(), Some("S"));
         assert_eq!(parsed.rss_kib, Some(4096));
         assert_eq!(parsed.cpu_percent, Some(3.5));
-        assert_eq!(parsed.process_name.as_deref(), Some("zsh -l"));
+        let process_name = parsed.process_name.as_ref().unwrap();
+        assert_eq!(process_name, "zsh -l");
+        assert_eq!(process_name.capacity(), process_name.len());
 
         let panes = vec![NativePaneDetail {
             window: "native-1".to_string(),
