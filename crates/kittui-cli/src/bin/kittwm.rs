@@ -4456,17 +4456,17 @@ fn native_surfaces_json_cmd() -> Result<()> {
 fn native_surfaces_text() -> String {
     let contract = kittwm_sdk::ArchitectureContract::current();
     let mut out = String::from("kittwm native surfaces — SDK + kitty graphics coverage\n");
-    out.push_str(&format!(
-        "all ready: {}\n\n",
-        if contract.all_native_surfaces_ready() {
-            "yes"
-        } else {
-            "no"
-        }
-    ));
+    out.push_str("all ready: ");
+    out.push_str(if contract.all_native_surfaces_ready() {
+        "yes"
+    } else {
+        "no"
+    });
+    out.push_str("\n\n");
     for surface in &contract.first_party_native_surfaces {
-        out.push_str(&format!(
-            "  {:16} kind:{:<9} sdk:{:<38} kitty:{}\n",
+        let _ = writeln!(
+            out,
+            "  {:16} kind:{:<9} sdk:{:<38} kitty:{}",
             surface.name,
             surface.surface_kind,
             surface.sdk_entry,
@@ -4475,8 +4475,10 @@ fn native_surfaces_text() -> String {
             } else {
                 "no"
             }
-        ));
-        out.push_str(&format!("    kittui: {}\n", surface.kittui_entry));
+        );
+        out.push_str("    kittui: ");
+        out.push_str(&surface.kittui_entry);
+        out.push('\n');
     }
     out
 }
