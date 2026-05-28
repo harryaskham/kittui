@@ -5998,7 +5998,7 @@ fn shortcuts_scene_for_cols(cols: u16) -> Scene {
     let height = rows as f32 * cell.height_px as f32;
     let mut layers = vec![
         Layer {
-            label: Some(format!("kittwm-shortcuts-backdrop:count={}", entries.len())),
+            label: Some(shortcuts_scene_backdrop_label(entries.len())),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
                 fill: Paint::Solid {
@@ -6053,6 +6053,13 @@ fn shortcuts_scene_for_cols(cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn shortcuts_scene_backdrop_label(entry_count: usize) -> String {
+    let mut label = String::with_capacity("kittwm-shortcuts-backdrop:count=".len() + 20);
+    label.push_str("kittwm-shortcuts-backdrop:count=");
+    let _ = write!(label, "{entry_count}");
+    label
 }
 
 fn shortcuts_scene_rows(entry_count: usize) -> u16 {
@@ -9410,6 +9417,16 @@ mod tests {
                 .iter()
                 .any(|label| label.contains("kittwm-command-row:lifecycle:start")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn shortcuts_scene_backdrop_label_builds_directly() {
+        let label = shortcuts_scene_backdrop_label(12);
+        assert_eq!(label, "kittwm-shortcuts-backdrop:count=12");
+        assert_eq!(
+            label.capacity(),
+            "kittwm-shortcuts-backdrop:count=".len() + 20
         );
     }
 
