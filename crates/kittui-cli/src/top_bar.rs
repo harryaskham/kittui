@@ -175,7 +175,11 @@ impl BarModel {
         let display_workspace = top_bar_display_label(workspace);
         for layer in &mut scene.layers {
             if layer.label.as_deref() == Some("background") {
-                layer.label = Some(format!("{label_prefix}:{}:{display_workspace}", self.state));
+                layer.label = Some(top_bar_background_label(
+                    label_prefix,
+                    self.state.as_str(),
+                    &display_workspace,
+                ));
             }
         }
         let cell_w = scene.cell_size.width_px.max(1) as f32;
@@ -277,6 +281,22 @@ impl BarModel {
         ));
         scene
     }
+}
+
+fn top_bar_background_label(label_prefix: &str, state: &str, display_workspace: &str) -> String {
+    let mut out = String::with_capacity(
+        label_prefix
+            .len()
+            .saturating_add(state.len())
+            .saturating_add(display_workspace.len())
+            .saturating_add(2),
+    );
+    out.push_str(label_prefix);
+    out.push(':');
+    out.push_str(state);
+    out.push(':');
+    out.push_str(display_workspace);
+    out
 }
 
 fn top_bar_clock_text(clock: &str) -> String {
@@ -652,6 +672,14 @@ mod tests {
     fn top_bar_clock_text_wraps_trimmed_clock() {
         assert_eq!(top_bar_clock_text("09:05"), " 09:05 ");
         assert_eq!(top_bar_clock_text(""), "  ");
+    }
+
+    #[test]
+    fn top_bar_background_label_builds_directly() {
+        assert_eq!(
+            top_bar_background_label("kittwm-bar", "active", "dev"),
+            "kittwm-bar:active:dev"
+        );
     }
 
     #[test]
