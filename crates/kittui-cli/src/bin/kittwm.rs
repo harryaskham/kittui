@@ -4234,19 +4234,41 @@ fn completion_words() -> Vec<&'static str> {
 }
 
 fn completions_text(shell: &str) -> Result<String> {
-    let words = completion_words().join(" ");
     match shell {
-        "bash" => Ok(format!(
-            "_kittwm() {{\n  local cur=\"${{COMP_WORDS[COMP_CWORD]}}\"\n  COMPREPLY=( $(compgen -W '{words}' -- \"$cur\") )\n}}\ncomplete -F _kittwm kittwm\n"
-        )),
-        "zsh" => Ok(format!(
-            "#compdef kittwm\n_arguments '1:command:({words})' '*::arg:->args'\n"
-        )),
+        "bash" => Ok(bash_completions_text()),
+        "zsh" => Ok(zsh_completions_text()),
         "fish" => Ok(fish_completions_text()),
         other => Err(anyhow!(
             "unsupported completion shell {other:?}; expected bash, zsh, or fish"
         )),
     }
+}
+
+fn push_completion_words(out: &mut String) {
+    for (idx, word) in completion_words().into_iter().enumerate() {
+        if idx > 0 {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+}
+
+fn bash_completions_text() -> String {
+    let mut out = String::with_capacity(512);
+    out.push_str(
+        "_kittwm() {\n  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n  COMPREPLY=( $(compgen -W '",
+    );
+    push_completion_words(&mut out);
+    out.push_str("' -- \"$cur\") )\n}\ncomplete -F _kittwm kittwm\n");
+    out
+}
+
+fn zsh_completions_text() -> String {
+    let mut out = String::with_capacity(512);
+    out.push_str("#compdef kittwm\n_arguments '1:command:(");
+    push_completion_words(&mut out);
+    out.push_str(")' '*::arg:->args'\n");
+    out
 }
 
 fn fish_completions_text() -> String {
