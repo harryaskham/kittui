@@ -6185,16 +6185,29 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
         return Ok(());
     }
     if cli.json {
-        println!(
-            "{{\"default_command\": {:?}, \"default_resolved\": {}, \"path_commands\": [{}], \"macos_apps\": [{}]}}",
-            default_cmd,
-            default_path
-                .as_ref()
-                .map(|p| format!("{:?}", p.display().to_string()))
-                .unwrap_or_else(|| "null".to_string()),
+        let mut out = String::with_capacity(
+            default_cmd
+                .len()
+                .saturating_add(path_cmds.iter().map(String::len).sum::<usize>())
+                .saturating_add(mac_apps.iter().map(String::len).sum::<usize>())
+                .saturating_add(128),
+        );
+        let _ = write!(
+            out,
+            "{{\"default_command\": {default_cmd:?}, \"default_resolved\": "
+        );
+        if let Some(path) = default_path.as_ref() {
+            let _ = write!(out, "{:?}", path.display().to_string());
+        } else {
+            out.push_str("null");
+        }
+        let _ = write!(
+            out,
+            ", \"path_commands\": [{}], \"macos_apps\": [{}]}}",
             json_string_array(&path_cmds),
             json_string_array(&mac_apps),
         );
+        println!("{out}");
         return Ok(());
     }
     println!("kittwm apps");
@@ -8165,6 +8178,17 @@ mod tests {
             json_string_array(&["alpha".to_string(), "quote \" item".to_string()]),
             "\"alpha\", \"quote \\\" item\""
         );
+    }
+
+    #[test]
+    fn apps_json_response_writes_default_path_or_null() {
+        let cli = Cli {
+            apps: true,
+            json: true,
+            apps_limit: Some(1),
+            ..Cli::default()
+        };
+        assert!(apps_cmd(&cli).is_ok());
     }
 
     #[test]
