@@ -3748,7 +3748,18 @@ fn shell_quote(value: &str) -> String {
     {
         value.to_string()
     } else {
-        format!("'{}'", value.replace('\'', "'\\''"))
+        let quote_count = value.bytes().filter(|byte| *byte == b'\'').count();
+        let mut out = String::with_capacity(2 + value.len() + quote_count * 3);
+        out.push('\'');
+        for ch in value.chars() {
+            if ch == '\'' {
+                out.push_str("'\\''");
+            } else {
+                out.push(ch);
+            }
+        }
+        out.push('\'');
+        out
     }
 }
 
@@ -4300,6 +4311,9 @@ mod tests {
             browser_surface_command("https://example.com/a%20b"),
             "kittwm-browser 'https://example.com/a%20b'"
         );
+        let shell_quoted = shell_quote("https://example.com/it's");
+        assert_eq!(shell_quoted, "'https://example.com/it'\\''s'");
+        assert_eq!(shell_quoted.capacity(), shell_quoted.len());
         let quoted = browser_surface_command("https://example.com/it's");
         assert_eq!(quoted, "kittwm-browser 'https://example.com/it'\\''s'");
         assert_eq!(quoted.capacity(), quoted.len());
