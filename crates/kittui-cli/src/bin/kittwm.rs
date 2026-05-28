@@ -2332,8 +2332,9 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
         if let Some(source) = &transport_diagnostics.override_source {
             let _ = writeln!(out, "  transport set  : {source}");
         }
+        let text_cols = doctor_text_cols();
         if let Some(reason) = &transport_diagnostics.fallback_reason {
-            let _ = writeln!(out, "  transport note : {reason}");
+            append_doctor_wrapped_row(&mut out, "  transport note : ", reason, text_cols);
         }
         let _ = writeln!(
             out,
@@ -2561,6 +2562,53 @@ fn doctor_scene_cols_from_sources(value: Option<&str>, detected_cols: Option<u16
     graphical_scene_cols_from_sources(value, detected_cols, 64, 120)
 }
 
+fn doctor_text_cols() -> usize {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(100)
+        .clamp(40, 160)
+}
+
+fn append_doctor_wrapped_row(out: &mut String, label: &str, value: &str, cols: usize) {
+    let continuation = " ".repeat(label.chars().count());
+    let width = cols.saturating_sub(label.chars().count()).max(12);
+    let mut line = String::new();
+    let mut first_line = true;
+    let flush_line = |out: &mut String, line: &mut String, first_line: &mut bool| {
+        if line.is_empty() {
+            return;
+        }
+        if *first_line {
+            out.push_str(label);
+            *first_line = false;
+        } else {
+            out.push_str(&continuation);
+        }
+        out.push_str(line);
+        out.push('\n');
+        line.clear();
+    };
+    for word in value.split_whitespace() {
+        let word_len = word.chars().count();
+        if line.is_empty() {
+            line.push_str(word);
+        } else if line.chars().count() + 1 + word_len <= width {
+            line.push(' ');
+            line.push_str(word);
+        } else {
+            flush_line(out, &mut line, &mut first_line);
+            line.push_str(word);
+        }
+    }
+    flush_line(out, &mut line, &mut first_line);
+    if first_line {
+        out.push_str(label);
+        out.push('\n');
+    }
+}
+
 fn doctor_daily_driver_text(transport: &TransportDiagnostics, log_present: bool) -> String {
     use kittui_cli::daemon::default_socket_path;
     let socket_path = default_socket_path();
@@ -2588,9 +2636,18 @@ fn doctor_daily_driver_text(transport: &TransportDiagnostics, log_present: bool)
     } else {
         "log file missing so far; start kittwm once to create it, or set KITTUI_WM_LOG for a custom path."
     };
-    format!(
-        "\nDaily driver readiness\n  renderer        : {renderer_hint}\n  socket          : {socket_hint}\n  next steps      : run `kittwm quickstart`, `kittwm examples`, or `kittwm help panes` for copy-paste workflows.\n  log hint        : {log_hint}\n"
-    )
+    let mut out = String::from("\nDaily driver readiness\n");
+    let cols = doctor_text_cols();
+    append_doctor_wrapped_row(&mut out, "  renderer        : ", renderer_hint, cols);
+    append_doctor_wrapped_row(&mut out, "  socket          : ", &socket_hint, cols);
+    append_doctor_wrapped_row(
+        &mut out,
+        "  next steps      : ",
+        "run `kittwm quickstart`, `kittwm examples`, or `kittwm help panes` for copy-paste workflows.",
+        cols,
+    );
+    append_doctor_wrapped_row(&mut out, "  log hint        : ", log_hint, cols);
+    out
 }
 
 fn kitty_probe_env_enabled() -> bool {
@@ -8953,6 +9010,28 @@ mod tests {
             header_gap_rows: 2,
             footer_gap_rows: 1,
         }
+    }
+
+    #[test]
+    fn doctor_wrapped_rows_indent_continuations_under_value_column() {
+        let mut out = String::new();
+        append_doctor_wrapped_row(
+            &mut out,
+            "  renderer        : ",
+            "tmux detected: kittwm defaults to the pure terminal renderer",
+            44,
+        );
+        let lines = out.lines().collect::<Vec<_>>();
+        assert!(lines.len() > 1, "{out}");
+        assert!(
+            lines[0].starts_with("  renderer        : tmux detected:"),
+            "{out}"
+        );
+        assert!(
+            lines[1].starts_with("                    defaults"),
+            "{out}"
+        );
+        assert!(lines.iter().all(|line| line.chars().count() <= 44), "{out}");
     }
 
     #[test]
