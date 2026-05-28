@@ -3703,7 +3703,11 @@ fn parse_app_candidate_fields(fields: &str) -> Result<AppCandidate> {
 }
 
 fn browser_surface_command(target: &str) -> String {
-    format!("kittwm-browser {}", shell_quote(target))
+    let quoted = shell_quote(target);
+    let mut out = String::with_capacity("kittwm-browser ".len() + quoted.len());
+    out.push_str("kittwm-browser ");
+    out.push_str(&quoted);
+    out
 }
 
 fn parse_wait_match(reply: &str) -> Result<WaitMatch> {
@@ -4296,10 +4300,9 @@ mod tests {
             browser_surface_command("https://example.com/a%20b"),
             "kittwm-browser 'https://example.com/a%20b'"
         );
-        assert_eq!(
-            browser_surface_command("https://example.com/it's"),
-            "kittwm-browser 'https://example.com/it'\\''s'"
-        );
+        let quoted = browser_surface_command("https://example.com/it's");
+        assert_eq!(quoted, "kittwm-browser 'https://example.com/it'\\''s'");
+        assert_eq!(quoted.capacity(), quoted.len());
     }
 
     #[test]
