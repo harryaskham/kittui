@@ -6556,6 +6556,12 @@ struct ConfigSummary {
     libghostty_background: String,
     libghostty_opacity: f32,
     libghostty_kitty_graphics: bool,
+    hidpi: bool,
+    cell_width_px: u32,
+    cell_height_px: u32,
+    tile_gap_px: u32,
+    header_gap_px: u32,
+    footer_gap_px: u32,
     keymap_path: String,
     launch_cmd: String,
     launch_query: String,
@@ -6564,6 +6570,44 @@ struct ConfigSummary {
     bindings: usize,
     duplicate_chords: usize,
     status: &'static str,
+}
+
+const KITTWM_BASE_CELL_WIDTH_PX: u32 = 8;
+const KITTWM_BASE_CELL_HEIGHT_PX: u32 = 16;
+const KITTWM_HIDPI_SCALE: u32 = 2;
+const KITTWM_MAX_CELL_WIDTH_PX: u32 = 64;
+const KITTWM_MAX_CELL_HEIGHT_PX: u32 = 128;
+
+fn kittwm_hidpi_enabled_from_env() -> bool {
+    !matches!(
+        std::env::var("KITTWM_HIDPI")
+            .unwrap_or_else(|_| "1".to_string())
+            .to_ascii_lowercase()
+            .as_str(),
+        "0" | "false" | "off" | "no"
+    )
+}
+
+fn kittwm_env_u32(key: &str, default: u32) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(default)
+}
+
+fn kittwm_cell_px_from_env(key: &str, base: u32, max: u32, hidpi: bool) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| {
+            if hidpi {
+                base.saturating_mul(KITTWM_HIDPI_SCALE)
+            } else {
+                base
+            }
+        })
+        .clamp(1, max)
 }
 
 fn config_cmd(cli: &Cli) -> Result<()> {
@@ -6595,6 +6639,14 @@ fn config_cmd(cli: &Cli) -> Result<()> {
         "libghostty.kitty_graphics: {}",
         summary.libghostty_kitty_graphics
     );
+    println!("KITTWM_HIDPI           : {}", summary.hidpi);
+    println!(
+        "KITTWM_NATIVE_CELL     : {}x{} px",
+        summary.cell_width_px, summary.cell_height_px
+    );
+    println!("KITTWM_TILE_GAP_PX     : {}", summary.tile_gap_px);
+    println!("KITTWM_HEADER_GAP_PX   : {}", summary.header_gap_px);
+    println!("KITTWM_FOOTER_GAP_PX   : {}", summary.footer_gap_px);
     println!("KITTUI_WM_KEYMAP       : {}", summary.keymap_path);
     println!("KITTUI_WM_LAUNCH_CMD   : {}", summary.launch_cmd);
     println!("KITTUI_WM_LAUNCH_QUERY : {}", summary.launch_query);
@@ -6616,6 +6668,7 @@ fn config_summary(cli: &Cli) -> Result<ConfigSummary> {
     };
     let duplicate_chords = keymap_duplicate_count(&keymap);
     let kittwm_config = KittwmConfig::load_default()?;
+    let hidpi = kittwm_hidpi_enabled_from_env();
     Ok(ConfigSummary {
         config_path: default_kittwm_config_path().display().to_string(),
         background_color: kittwm_config.background.color,
@@ -6634,6 +6687,22 @@ fn config_summary(cli: &Cli) -> Result<ConfigSummary> {
         libghostty_background: kittwm_config.libghostty.background,
         libghostty_opacity: kittwm_config.libghostty.background_opacity,
         libghostty_kitty_graphics: kittwm_config.libghostty.kitty_graphics,
+        hidpi,
+        cell_width_px: kittwm_cell_px_from_env(
+            "KITTWM_NATIVE_CELL_WIDTH_PX",
+            KITTWM_BASE_CELL_WIDTH_PX,
+            KITTWM_MAX_CELL_WIDTH_PX,
+            hidpi,
+        ),
+        cell_height_px: kittwm_cell_px_from_env(
+            "KITTWM_NATIVE_CELL_HEIGHT_PX",
+            KITTWM_BASE_CELL_HEIGHT_PX,
+            KITTWM_MAX_CELL_HEIGHT_PX,
+            hidpi,
+        ),
+        tile_gap_px: kittwm_env_u32("KITTWM_TILE_GAP_PX", 0),
+        header_gap_px: kittwm_env_u32("KITTWM_HEADER_GAP_PX", 0),
+        footer_gap_px: kittwm_env_u32("KITTWM_FOOTER_GAP_PX", 0),
         keymap_path: keymap_path.unwrap_or_else(|| "<default>".to_string()),
         launch_cmd: std::env::var("KITTUI_WM_LAUNCH_CMD")
             .unwrap_or_else(|_| "<default: xterm>".to_string()),
@@ -6661,7 +6730,7 @@ fn config_scene(summary: &ConfigSummary) -> Scene {
 }
 
 fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
-    let rows = 21;
+    let rows = 26;
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -6692,6 +6761,14 @@ fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
         format!("terminal.backend={terminal_backend}"),
         format!("libghostty.theme={libghostty_theme}"),
         format!("libghostty.opacity={:.2}", summary.libghostty_opacity),
+        format!("hidpi={}", summary.hidpi),
+        format!(
+            "cell_px={}x{}",
+            summary.cell_width_px, summary.cell_height_px
+        ),
+        format!("tile_gap_px={}", summary.tile_gap_px),
+        format!("header_gap_px={}", summary.header_gap_px),
+        format!("footer_gap_px={}", summary.footer_gap_px),
         format!("keymap={keymap_path}"),
         format!("launch_cmd={launch_cmd}"),
         format!("launch_query={launch_query}"),
@@ -6776,6 +6853,61 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn config_display_tuning_helpers_default_hidpi_and_respect_overrides() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        for key in [
+            "KITTWM_HIDPI",
+            "KITTWM_NATIVE_CELL_WIDTH_PX",
+            "KITTWM_NATIVE_CELL_HEIGHT_PX",
+            "KITTWM_TILE_GAP_PX",
+        ] {
+            std::env::remove_var(key);
+        }
+        assert!(kittwm_hidpi_enabled_from_env());
+        assert_eq!(
+            kittwm_cell_px_from_env(
+                "KITTWM_NATIVE_CELL_WIDTH_PX",
+                KITTWM_BASE_CELL_WIDTH_PX,
+                KITTWM_MAX_CELL_WIDTH_PX,
+                true,
+            ),
+            16
+        );
+        std::env::set_var("KITTWM_HIDPI", "0");
+        assert!(!kittwm_hidpi_enabled_from_env());
+        std::env::set_var("KITTWM_NATIVE_CELL_WIDTH_PX", "24");
+        std::env::set_var("KITTWM_NATIVE_CELL_HEIGHT_PX", "48");
+        std::env::set_var("KITTWM_TILE_GAP_PX", "18");
+        assert_eq!(
+            kittwm_cell_px_from_env(
+                "KITTWM_NATIVE_CELL_WIDTH_PX",
+                KITTWM_BASE_CELL_WIDTH_PX,
+                KITTWM_MAX_CELL_WIDTH_PX,
+                false,
+            ),
+            24
+        );
+        assert_eq!(
+            kittwm_cell_px_from_env(
+                "KITTWM_NATIVE_CELL_HEIGHT_PX",
+                KITTWM_BASE_CELL_HEIGHT_PX,
+                KITTWM_MAX_CELL_HEIGHT_PX,
+                false,
+            ),
+            48
+        );
+        assert_eq!(kittwm_env_u32("KITTWM_TILE_GAP_PX", 0), 18);
+        for key in [
+            "KITTWM_HIDPI",
+            "KITTWM_NATIVE_CELL_WIDTH_PX",
+            "KITTWM_NATIVE_CELL_HEIGHT_PX",
+            "KITTWM_TILE_GAP_PX",
+        ] {
+            std::env::remove_var(key);
+        }
     }
 
     #[test]
@@ -8000,6 +8132,12 @@ mod tests {
             libghostty_background: "nord0".to_string(),
             libghostty_opacity: 0.72,
             libghostty_kitty_graphics: true,
+            hidpi: true,
+            cell_width_px: 16,
+            cell_height_px: 32,
+            tile_gap_px: 12,
+            header_gap_px: 8,
+            footer_gap_px: 4,
             keymap_path: "<default>".to_string(),
             launch_cmd: "<default: xterm>".to_string(),
             launch_query: "<unset>".to_string(),
@@ -8066,13 +8204,31 @@ mod tests {
         assert!(
             labels
                 .iter()
-                .any(|label| label.contains("kittwm-config-row:15:prefix=C-a")),
+                .any(|label| label.contains("kittwm-config-row:11:hidpi=true")),
             "{labels:?}"
         );
         assert!(
             labels
                 .iter()
-                .any(|label| label.contains("kittwm-config-row:18:status=ok")),
+                .any(|label| label.contains("kittwm-config-row:12:cell_px=16x32")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-config-row:13:tile_gap_px=12")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-config-row:20:prefix=C-a")),
+            "{labels:?}"
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("kittwm-config-row:23:status=ok")),
             "{labels:?}"
         );
     }
@@ -8117,18 +8273,18 @@ mod tests {
         );
         assert!(
             labels.iter().any(|label| label.contains(
-                "kittwm-config-row:12:launch_cmd=launcher-command --with --pathologically --long…"
+                "kittwm-config-row:17:launch_cmd=launcher-command --with --pathologically --long…"
             )),
             "{labels:?}"
         );
         assert!(
             labels.iter().any(|label| label
-                .contains("kittwm-config-row:13:launch_query=query-value-that-is-pathologically-long-and-wou…")),
+                .contains("kittwm-config-row:18:launch_query=query-value-that-is-pathologically-long-and-wou…")),
             "{labels:?}"
         );
         assert!(
             labels.iter().any(|label| label
-                .contains("kittwm-config-row:15:prefix=prefix-value-that-is-pathologic…")),
+                .contains("kittwm-config-row:20:prefix=prefix-value-that-is-pathologic…")),
             "{labels:?}"
         );
     }
