@@ -144,15 +144,25 @@ fn unknown_option_error(option: &str) -> String {
     out
 }
 
+fn unknown_backend_error(value: &str) -> String {
+    let mut out = String::with_capacity(
+        "unknown backend ; expected auto|terminal|app|browser"
+            .len()
+            .saturating_add(value.len()),
+    );
+    out.push_str("unknown backend ");
+    out.push_str(value);
+    out.push_str("; expected auto|terminal|app|browser");
+    out
+}
+
 fn parse_backend(value: &str) -> Result<Backend, String> {
     match value.to_ascii_lowercase().as_str() {
         "auto" => Ok(Backend::Auto),
         "terminal" | "term" | "pty" => Ok(Backend::Terminal),
         "app" | "native" => Ok(Backend::App),
         "browser" | "web" => Ok(Backend::Browser),
-        _ => Err(format!(
-            "unknown backend {value}; expected auto|terminal|app|browser"
-        )),
+        _ => Err(unknown_backend_error(value)),
     }
 }
 
@@ -719,6 +729,16 @@ mod tests {
     fn parses_backend_aliases() {
         let args = LaunchArgs::parse_from(["--backend", "term", "htop"]).unwrap();
         assert_eq!(args.backend, Backend::Terminal);
+    }
+
+    #[test]
+    fn unknown_backend_error_builds_directly() {
+        let err = LaunchArgs::parse_from(["--backend", "bogus", "firefox"]).unwrap_err();
+        assert_eq!(
+            err,
+            "unknown backend bogus; expected auto|terminal|app|browser"
+        );
+        assert_eq!(unknown_backend_error("bogus"), err);
     }
 
     #[test]
