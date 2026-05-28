@@ -2627,17 +2627,7 @@ fn doctor_daily_driver_text(transport: &TransportDiagnostics, log_present: bool)
     } else {
         "kitty graphics not confirmed; kittwm can run with KITTWM_NATIVE_RENDERER=terminal for a stable ANSI path."
     };
-    let socket_hint = if socket_reachable {
-        format!(
-            "running WM detected at {}; inspect it with `kittwm info`, `kittwm panes`, or `kittwm events 1000`.",
-            socket_path.display()
-        )
-    } else {
-        format!(
-            "no running WM socket at {}; start one with `kittwm`, then inspect with `kittwm info`.",
-            socket_path.display()
-        )
-    };
+    let socket_hint = doctor_socket_hint(&socket_path, socket_reachable);
     let log_hint = if log_present {
         "log file exists; use `tail -f ${KITTUI_WM_LOG:-/tmp/kittui-wm.log}` while iterating."
     } else {
@@ -2654,6 +2644,20 @@ fn doctor_daily_driver_text(transport: &TransportDiagnostics, log_present: bool)
         cols,
     );
     append_doctor_wrapped_row(&mut out, "  log hint        : ", log_hint, cols);
+    out
+}
+
+fn doctor_socket_hint(socket_path: &std::path::Path, socket_reachable: bool) -> String {
+    let mut out = String::with_capacity(160);
+    if socket_reachable {
+        out.push_str("running WM detected at ");
+        let _ = write!(out, "{}", socket_path.display());
+        out.push_str("; inspect it with `kittwm info`, `kittwm panes`, or `kittwm events 1000`.");
+    } else {
+        out.push_str("no running WM socket at ");
+        let _ = write!(out, "{}", socket_path.display());
+        out.push_str("; start one with `kittwm`, then inspect with `kittwm info`.");
+    }
     out
 }
 
@@ -9262,6 +9266,19 @@ mod tests {
             header_gap_rows: 2,
             footer_gap_rows: 1,
         }
+    }
+
+    #[test]
+    fn doctor_socket_hint_builds_reachable_and_missing_variants_directly() {
+        let path = std::path::Path::new("/tmp/kittwm-test.sock");
+        assert_eq!(
+            doctor_socket_hint(path, true),
+            "running WM detected at /tmp/kittwm-test.sock; inspect it with `kittwm info`, `kittwm panes`, or `kittwm events 1000`."
+        );
+        assert_eq!(
+            doctor_socket_hint(path, false),
+            "no running WM socket at /tmp/kittwm-test.sock; start one with `kittwm`, then inspect with `kittwm info`."
+        );
     }
 
     #[test]
