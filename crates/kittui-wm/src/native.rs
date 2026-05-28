@@ -3621,6 +3621,16 @@ fn next_headless_chrome_user_data_dir() -> PathBuf {
     ))
 }
 
+fn cleanup_headless_chrome_user_data_dir(path: &Path) {
+    let _ = std::fs::remove_dir_all(path);
+}
+
+fn cleanup_headless_browser_child(child: &mut Child, user_data_dir: &Path) {
+    let _ = child.kill();
+    let _ = child.wait();
+    cleanup_headless_chrome_user_data_dir(user_data_dir);
+}
+
 impl HeadlessBrowserApp {
     /// Launch Chrome headless and navigate to `url`.
     pub fn launch(url: &str, width: u32, height: u32) -> Result<Self> {
@@ -3652,22 +3662,31 @@ impl HeadlessBrowserApp {
         let (mut socket, _) = match launch_result {
             Ok(value) => value,
             Err(err) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = std::fs::remove_dir_all(&user_data_dir);
+                cleanup_headless_browser_child(&mut child, &user_data_dir);
                 return Err(err);
             }
         };
-        set_devtools_socket_timeouts(&mut socket, devtools_socket_timeout())?;
-        cdp_send_raw(&mut socket, 1, "Page.enable", json!({}))?;
-        cdp_send_raw(
-            &mut socket,
-            2,
-            "Emulation.setDeviceMetricsOverride",
-            json!({"width": width, "height": height, "deviceScaleFactor": 1, "mobile": false}),
-        )?;
-        let mut next_id = 3;
-        let _ = wait_for_browser_document_ready(&mut socket, &mut next_id, Duration::from_secs(2));
+        let init_result = (|| -> Result<u64> {
+            set_devtools_socket_timeouts(&mut socket, devtools_socket_timeout())?;
+            cdp_send_raw(&mut socket, 1, "Page.enable", json!({}))?;
+            cdp_send_raw(
+                &mut socket,
+                2,
+                "Emulation.setDeviceMetricsOverride",
+                json!({"width": width, "height": height, "deviceScaleFactor": 1, "mobile": false}),
+            )?;
+            let mut next_id = 3;
+            let _ =
+                wait_for_browser_document_ready(&mut socket, &mut next_id, Duration::from_secs(2));
+            Ok(next_id)
+        })();
+        let next_id = match init_result {
+            Ok(next_id) => next_id,
+            Err(err) => {
+                cleanup_headless_browser_child(&mut child, &user_data_dir);
+                return Err(err);
+            }
+        };
         Ok(Self {
             child,
             socket,
@@ -3703,7 +3722,7 @@ impl HeadlessBrowserApp {
     }
 
     fn cleanup_user_data_dir(&self) {
-        let _ = std::fs::remove_dir_all(&self.user_data_dir);
+        cleanup_headless_chrome_user_data_dir(&self.user_data_dir);
     }
 
     /// Extract a best-effort DOM/ARIA semantic snapshot from the page.
@@ -5578,6 +5597,17 @@ mod tests {
             .to_string_lossy()
             .starts_with(&prefix));
         assert_eq!(a.parent(), Some(std::env::temp_dir().as_path()));
+    }
+
+    #[test]
+    fn headless_chrome_profile_cleanup_removes_profile_dir() {
+        let dir = next_headless_chrome_user_data_dir();
+        let nested = dir.join("Default");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("Preferences"), b"{}").unwrap();
+        assert!(dir.exists());
+        cleanup_headless_chrome_user_data_dir(&dir);
+        assert!(!dir.exists(), "profile dir should be removed: {dir:?}");
     }
 
     #[test]
