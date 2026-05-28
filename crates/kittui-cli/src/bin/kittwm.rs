@@ -1716,13 +1716,32 @@ fn pick_backend(forced: Option<Backend>) -> Backend {
 
 fn main() -> ExitCode {
     cli_update::maybe_apply_staged_update("kittwm");
-    match real_main() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
+    let default_panic_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if !panic_payload_is_broken_pipe(info.payload()) {
+            default_panic_hook(info);
+        }
+    }));
+    match std::panic::catch_unwind(real_main) {
+        Ok(Ok(())) => ExitCode::SUCCESS,
+        Ok(Err(e)) => {
             eprintln!("kittwm: {e}");
             ExitCode::from(1)
         }
+        Err(payload) if panic_payload_is_broken_pipe(payload.as_ref()) => ExitCode::SUCCESS,
+        Err(_) => ExitCode::from(101),
     }
+}
+
+fn panic_payload_is_broken_pipe(payload: &(dyn std::any::Any + Send)) -> bool {
+    let Some(message) = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+    else {
+        return false;
+    };
+    message.contains("Broken pipe") || message.contains("os error 32")
 }
 
 fn real_main() -> Result<()> {
@@ -7018,6 +7037,17 @@ mod tests {
         ] {
             std::env::remove_var(key);
         }
+    }
+
+    #[test]
+    fn broken_pipe_panic_payload_is_detected() {
+        assert!(panic_payload_is_broken_pipe(
+            &"failed printing to stdout: Broken pipe (os error 32)"
+        ));
+        assert!(panic_payload_is_broken_pipe(
+            &"failed printing to stdout: os error 32".to_string()
+        ));
+        assert!(!panic_payload_is_broken_pipe(&"unrelated panic"));
     }
 
     #[test]
