@@ -3224,13 +3224,8 @@ impl SurfaceHandle {
     /// Send a pane-local mouse event at cell coordinates.
     pub fn send_mouse(&self, event: MouseEvent, col: u16, row: u16) -> Result<String> {
         self.client.capabilities.ensure(Capability::SendInput)?;
-        self.client.request_protocol(format!(
-            "SEND_MOUSE {} {} {} {}",
-            self.id,
-            event.protocol_label(),
-            col,
-            row
-        ))
+        self.client
+            .request_protocol(surface_mouse_request(&self.id, event, col, row))
     }
 
     /// Read the current screen text snapshot.
@@ -3593,6 +3588,31 @@ fn surface_wait_ms_request(verb: &str, id: &str, ms: u64, needle: &str) -> Strin
     out.push_str(&ms_text);
     out.push(' ');
     out.push_str(needle);
+    out
+}
+
+fn surface_mouse_request(id: &str, event: MouseEvent, col: u16, row: u16) -> String {
+    let event_label = event.protocol_label();
+    let col_text = col.to_string();
+    let row_text = row.to_string();
+    let mut out = String::with_capacity(
+        "SEND_MOUSE ".len()
+            + id.len()
+            + 1
+            + event_label.len()
+            + 1
+            + col_text.len()
+            + 1
+            + row_text.len(),
+    );
+    out.push_str("SEND_MOUSE ");
+    out.push_str(id);
+    out.push(' ');
+    out.push_str(event_label);
+    out.push(' ');
+    out.push_str(&col_text);
+    out.push(' ');
+    out.push_str(&row_text);
     out
 }
 
@@ -5462,6 +5482,18 @@ mod tests {
         assert_eq!(
             surface_wait_ms_request("WAIT_OUTPUT_MS", "native-1", 60_000, "build finished"),
             "WAIT_OUTPUT_MS native-1 60000 build finished"
+        );
+    }
+
+    #[test]
+    fn surface_mouse_request_builds_directly() {
+        assert_eq!(
+            surface_mouse_request("native-1", MouseEvent::PressLeft, 7, 9),
+            "SEND_MOUSE native-1 press-left 7 9"
+        );
+        assert_eq!(
+            surface_mouse_request("native-2", MouseEvent::ReleaseRight, 12, 34),
+            "SEND_MOUSE native-2 release-right 12 34"
         );
     }
 
