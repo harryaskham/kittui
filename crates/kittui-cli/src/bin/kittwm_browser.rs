@@ -73,9 +73,9 @@ impl BrowserArgs {
                         url = Some(value);
                     }
                     if let Some(extra) = iter.next() {
-                        return Err(format!(
-                            "unexpected extra argument {extra}\n\n{}",
-                            help_text()
+                        return Err(browser_arg_error_with_help(
+                            "unexpected extra argument ",
+                            &extra,
                         ));
                     }
                     break;
@@ -85,9 +85,9 @@ impl BrowserArgs {
                 }
                 other => {
                     if url.replace(other.to_string()).is_some() {
-                        return Err(format!(
-                            "unexpected extra argument {other}\n\n{}",
-                            help_text()
+                        return Err(browser_arg_error_with_help(
+                            "unexpected extra argument ",
+                            other,
                         ));
                     }
                 }
@@ -1663,6 +1663,19 @@ mod tests {
         assert!(err.contains("--semantic-snapshot"));
         let direct = browser_arg_error_with_help("unknown option ", "--bogus");
         assert_eq!(err, direct);
+    }
+
+    #[test]
+    fn rejects_extra_browser_arguments_with_shared_diagnostic() {
+        let positional =
+            BrowserArgs::parse_from(["https://one.example", "https://two.example"]).unwrap_err();
+        assert!(positional.starts_with("unexpected extra argument https://two.example\n\n"));
+        assert!(positional.contains("--semantic-snapshot"));
+
+        let after_dash_dash =
+            BrowserArgs::parse_from(["--", "https://one.example", "extra"]).unwrap_err();
+        assert!(after_dash_dash.starts_with("unexpected extra argument extra\n\n"));
+        assert!(after_dash_dash.contains("--semantic-snapshot"));
     }
 
     #[test]
