@@ -1688,7 +1688,7 @@ fn native_status_line_text(panes: usize, log_path: &str) -> String {
         String::new()
     } else {
         let log_path = bounded_ellipsis(log_path, NATIVE_STATUS_LOG_PATH_MAX_CHARS);
-        format!(" C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: {log_path}")
+        format!(" C-a ? help · C-a g launcher · C-a Enter term · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · log: {log_path}")
     }
 }
 
@@ -3563,7 +3563,7 @@ fn native_showcase_scenes(cols: u16, rows: u16, help_overlay: bool) -> Vec<Nativ
         ],
         footer: NativeFooterChrome {
             row: rows.saturating_sub(1),
-            text: " C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase"
+            text: " C-a ? help · C-a g launcher · C-a Enter term · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · log: showcase"
                 .to_string(),
         },
         help_overlay,
@@ -7269,7 +7269,7 @@ mod native_pane_tests {
     #[test]
     fn native_footer_toast_is_only_for_transient_errors() {
         assert!(!native_should_show_footer_toast(
-            "C-a ? help · C-a g launcher · C-a Enter/t terminal"
+            "C-a ? help · C-a g launcher · C-a Enter term"
         ));
         assert!(native_should_show_footer_toast(
             "launcher.error no candidate"

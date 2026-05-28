@@ -62,7 +62,7 @@
     "x": 0,
     "y": 23,
     "layers": [
-      "status-bar-backdrop: C-a ? help · C-a g launcher · C-a Enter/t terminal · C-a x close · Ctrl-] exit · log: showcase",
+      "status-bar-backdrop: C-a ? help · C-a g launcher · C-a Enter term · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · log: showcase",
       "status-chip-help",
       "status-chip-terminal",
       "status-chip-close"

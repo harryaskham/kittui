@@ -997,7 +997,7 @@ DAILY DRIVER BASICS
   Examples:        kittwm examples
   Cheat sheet:     kittwm cheat
   Start:           kittwm        (or: kittwm start)
-  New terminal:    press C-a Enter or C-a t inside kittwm
+  New terminal:    press C-a Enter inside kittwm
   Launcher:        press C-a g inside kittwm
   Help overlay:    press C-a ? inside kittwm
   Exit:            press Ctrl-]
@@ -1250,7 +1250,10 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              KITTWM_NATIVE_RENDERER=kitty    use kitty graphics renderer\n\
              KITTWM_NATIVE_CHROME_RENDERER=affordance-scene\n\
                                             opt into kittui scene chrome\n\
-             Ctrl-A Enter / Ctrl-A t        launch terminal from empty workspace\n\
+             Ctrl-A Enter                   launch terminal from empty workspace\n\
+             Ctrl-A t                       toggle floating mode\n\
+             Ctrl-A f                       toggle fullscreen\n\
+             Ctrl-A e                       toggle current split vertical/horizontal\n\
              Ctrl-]                         exit kittwm\n"),
         "panes" | "pane" => Ok("kittwm help panes
 \
@@ -4094,7 +4097,10 @@ fn quickstart_text() -> &'static str {
    # equivalent: kittwm start
 
 2. Inside kittwm
-   C-a Enter / C-a t   open a terminal pane
+   C-a Enter           open a terminal pane
+   C-a t               toggle floating mode
+   C-a f               toggle fullscreen
+   C-a e               toggle current split vertical/horizontal
    C-a g               open launcher
    C-a ?               show the shortcut overlay
    C-a Tab             focus next pane
@@ -4206,7 +4212,8 @@ fn cheat_text() -> &'static str {
     r#"kittwm cheat — daily keys + commands
 
 IN SESSION
-  C-a Enter/t  terminal     C-a g launcher   C-a ? help
+  C-a Enter    terminal     C-a g launcher   C-a ? help
+  C-a t float  C-a f full   C-a e split-toggle
   C-a % split columns       C-a - split rows  C-a x close
   C-a Tab focus next        C-a b balance     C-a +/- resize
 
@@ -8556,7 +8563,14 @@ mod tests {
     fn quickstart_teaches_daily_driver_path() {
         let text = quickstart_text();
         assert!(text.contains("kittwm quickstart"), "{text}");
-        assert!(text.contains("C-a Enter / C-a t"), "{text}");
+        assert!(text.contains("C-a Enter"), "{text}");
+        assert!(!text.contains("C-a Enter / C-a t"), "{text}");
+        assert!(text.contains("C-a t"), "{text}");
+        assert!(text.contains("toggle floating mode"), "{text}");
+        assert!(text.contains("C-a f"), "{text}");
+        assert!(text.contains("toggle fullscreen"), "{text}");
+        assert!(text.contains("C-a e"), "{text}");
+        assert!(text.contains("toggle current split"), "{text}");
         assert!(text.contains("C-a g"), "{text}");
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("kittwm spawn htop"), "{text}");
@@ -8594,7 +8608,11 @@ mod tests {
     #[test]
     fn cheat_sheet_is_compact_daily_reference() {
         let text = cheat_text();
-        assert!(text.contains("C-a Enter/t"), "{text}");
+        assert!(text.contains("C-a Enter"), "{text}");
+        assert!(!text.contains("C-a Enter/t"), "{text}");
+        assert!(text.contains("C-a t float"), "{text}");
+        assert!(text.contains("C-a f full"), "{text}");
+        assert!(text.contains("C-a e split-toggle"), "{text}");
         assert!(text.contains("C-a g launcher"), "{text}");
         assert!(text.contains("kittwm info"), "{text}");
         assert!(text.contains("kittwm spawn htop"), "{text}");
@@ -9135,7 +9153,26 @@ END
     #[test]
     fn shortcuts_command_uses_native_shortcut_list() {
         let text = kittui_cli::shortcuts::render_native_shortcuts();
-        assert!(text.contains("launch terminal"), "{text}");
+        assert!(
+            text.contains("C-a Enter          launch terminal"),
+            "{text}"
+        );
+        assert!(
+            text.contains("C-a t              toggle floating mode"),
+            "{text}"
+        );
+        assert!(
+            text.contains("C-a f              toggle fullscreen"),
+            "{text}"
+        );
+        assert!(
+            text.contains("C-a e              toggle current split"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("C-a Enter / C-a t  launch terminal"),
+            "{text}"
+        );
         assert!(text.contains("toggle this help"), "{text}");
         assert!(text.contains("Ctrl-]"), "{text}");
     }
@@ -9145,11 +9182,19 @@ END
         let value: serde_json::Value =
             serde_json::from_str(&kittui_cli::shortcuts::render_native_shortcuts_json()).unwrap();
         assert_eq!(value["kind"], "kittwm-native-shortcuts");
-        assert!(value["shortcuts"]
-            .as_array()
-            .unwrap()
+        let shortcuts = value["shortcuts"].as_array().unwrap();
+        assert!(shortcuts
             .iter()
-            .any(|entry| entry["id"] == "launch_terminal"));
+            .any(|entry| entry["id"] == "launch_terminal" && entry["keys"] == "C-a Enter"));
+        assert!(shortcuts
+            .iter()
+            .any(|entry| entry["id"] == "toggle_floating" && entry["keys"] == "C-a t"));
+        assert!(shortcuts
+            .iter()
+            .any(|entry| entry["id"] == "toggle_fullscreen" && entry["keys"] == "C-a f"));
+        assert!(shortcuts
+            .iter()
+            .any(|entry| entry["id"] == "toggle_split" && entry["keys"] == "C-a e"));
     }
 
     #[test]

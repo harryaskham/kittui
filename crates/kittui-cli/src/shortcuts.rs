@@ -15,7 +15,7 @@ pub struct NativeShortcut {
 pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
     NativeShortcut {
         id: "launch_terminal",
-        keys: "C-a Enter / C-a t",
+        keys: "C-a Enter",
         description: "launch terminal",
     },
     NativeShortcut {
@@ -42,6 +42,21 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
         id: "split_rows",
         keys: "C-a -",
         description: "split rows",
+    },
+    NativeShortcut {
+        id: "toggle_split",
+        keys: "C-a e",
+        description: "toggle current split vertical/horizontal",
+    },
+    NativeShortcut {
+        id: "toggle_floating",
+        keys: "C-a t",
+        description: "toggle floating mode",
+    },
+    NativeShortcut {
+        id: "toggle_fullscreen",
+        keys: "C-a f",
+        description: "toggle fullscreen",
     },
     NativeShortcut {
         id: "focus_next",
@@ -84,12 +99,15 @@ pub const NATIVE_SHORTCUT_COMMAND_HINTS: &[&str] = &[
 /// Native kittwm shortcut rows, shared by `C-a ?` and CLI inspection.
 pub const NATIVE_SHORTCUTS: &[&str] = &[
     "kittwm shortcuts",
-    "C-a Enter / C-a t  launch terminal",
+    "C-a Enter          launch terminal",
     "C-a g              open launcher",
     "C-a ?              toggle this help",
     "C-a 1..9           switch/create workspace on demand",
     "C-a % / C-a |      split columns",
     "C-a -              split rows",
+    "C-a e              toggle current split vertical/horizontal",
+    "C-a t              toggle floating mode",
+    "C-a f              toggle fullscreen",
     "C-a Tab            focus next pane",
     "C-a x              close pane (last pane returns to empty workspace)",
     "C-a +/-            resize focused pane",
