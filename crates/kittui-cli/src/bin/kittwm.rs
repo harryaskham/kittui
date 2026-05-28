@@ -6287,9 +6287,7 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
         let chord_label = keymap_chord_label(&binding.chord, 48);
         let action_label = keymap_action_label(&binding.action, 48);
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-keymap-row:{idx}:{chord_label}:{action_label}"
-            )),
+            label: Some(keymap_scene_row_label(idx, &chord_label, &action_label)),
             root: Node::Rect {
                 rect: keymap_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -6306,6 +6304,23 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn keymap_scene_row_label(idx: usize, chord_label: &str, action_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-keymap-row::"
+            .len()
+            .saturating_add(chord_label.len())
+            .saturating_add(action_label.len())
+            .saturating_add(20),
+    );
+    label.push_str("kittwm-keymap-row:");
+    let _ = write!(label, "{idx}");
+    label.push(':');
+    label.push_str(chord_label);
+    label.push(':');
+    label.push_str(action_label);
+    label
 }
 
 fn keymap_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -9392,6 +9407,14 @@ mod tests {
             labels.iter().any(|label| label
                 .contains("kittwm-config-row:20:prefix=prefix-value-that-is-pathologic…")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn keymap_scene_row_label_builds_directly() {
+        assert_eq!(
+            keymap_scene_row_label(2, "C-a c", "workspace.new"),
+            "kittwm-keymap-row:2:C-a c:workspace.new"
         );
     }
 
