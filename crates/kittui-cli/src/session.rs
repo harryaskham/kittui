@@ -605,7 +605,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             let old_focused = focused;
                             let closing_focused = idx == old_focused;
                             if closing_focused {
-                                native_send_focus_event(&mut panes[idx], false)?;
+                                let _ = native_send_focus_event(&mut panes[idx], false);
                             }
                             panes[idx].app.terminate()?;
                             panes.remove(idx);
@@ -614,7 +614,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             } else {
                                 focused = focus_after_remove(old_focused, idx, panes.len() + 1);
                                 if closing_focused {
-                                    native_send_focus_event(&mut panes[focused], true)?;
+                                    let _ = native_send_focus_event(&mut panes[focused], true);
                                 }
                                 resize_native_panes_for_display_mode(
                                     &mut panes,
@@ -773,7 +773,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             layout_axis = new_axis;
                             focused = new_focus;
                             if should_focus_restored_pane(panes.len(), focused) {
-                                native_send_focus_event(&mut panes[focused], true)?;
+                                let _ = native_send_focus_event(&mut panes[focused], true);
                             }
                             clear = true;
                             dbg.log(&format!(
@@ -2805,14 +2805,14 @@ fn process_native_terminal_byte(
             }
             b'x' | b'X' => {
                 if !panes.is_empty() {
-                    native_send_focus_event(&mut panes[*focused], false)?;
+                    let _ = native_send_focus_event(&mut panes[*focused], false);
                     panes[*focused].app.terminate()?;
                     panes.remove(*focused);
                     if panes.is_empty() {
                         *focused = 0;
                     } else {
                         *focused = focus_after_remove(*focused, *focused, panes.len() + 1);
-                        native_send_focus_event(&mut panes[*focused], true)?;
+                        let _ = native_send_focus_event(&mut panes[*focused], true);
                         resize_native_panes_for_display_mode(
                             panes,
                             *focused,
@@ -3746,11 +3746,12 @@ fn native_focus_event_payload(focus_reporting: bool, focused: bool) -> Option<&'
     Some(if focused { b"\x1b[I" } else { b"\x1b[O" })
 }
 
-fn native_send_focus_event(pane: &mut NativePane, focused: bool) -> Result<()> {
-    if let Some(payload) = native_focus_event_payload(pane.app.focus_reporting_enabled(), focused) {
-        pane.app.send_bytes(payload)?;
-    }
-    Ok(())
+fn native_send_focus_event(pane: &mut NativePane, focused: bool) -> bool {
+    let Some(payload) = native_focus_event_payload(pane.app.focus_reporting_enabled(), focused)
+    else {
+        return true;
+    };
+    pane.app.send_bytes(payload).is_ok()
 }
 
 fn native_set_focus(
@@ -3767,9 +3768,9 @@ fn native_set_focus(
         return Ok(false);
     }
     if *focused < panes.len() {
-        native_send_focus_event(&mut panes[*focused], false)?;
+        let _ = native_send_focus_event(&mut panes[*focused], false);
     }
-    native_send_focus_event(&mut panes[new_focus], true)?;
+    let _ = native_send_focus_event(&mut panes[new_focus], true);
     *focused = new_focus;
     Ok(true)
 }
@@ -3872,7 +3873,7 @@ fn reap_exited_native_panes(
             panes.remove(idx);
             focused = focus_after_remove(focused, idx, len_before);
             if removed_focused && !panes.is_empty() {
-                native_send_focus_event(&mut panes[focused], true)?;
+                let _ = native_send_focus_event(&mut panes[focused], true);
             }
             dbg.log(&format!("native terminal reaped exited pane {window}"));
         } else {
@@ -7126,6 +7127,8 @@ mod native_pane_tests {
 
     #[test]
     fn native_focus_event_payloads_require_reporting() {
+        let mut pane = dummy_native_pane("native-1", "sh", 1);
+        assert!(native_send_focus_event(&mut pane, true));
         assert_eq!(native_focus_event_payload(false, true), None);
         assert_eq!(native_focus_event_payload(false, false), None);
         assert_eq!(
