@@ -870,14 +870,26 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         if panes[idx].app.supports_direct_pointer() {
                             let events = native_surface_pointer_events(&event, col, row);
+                            let mut sent = 0usize;
                             for pointer_event in events.iter().copied() {
-                                NativeSurface::send_surface_pointer(
+                                match NativeSurface::send_surface_pointer(
                                     &mut panes[idx].app,
                                     pointer_event,
-                                )?;
+                                ) {
+                                    Ok(()) => sent += 1,
+                                    Err(err) => {
+                                        dbg.log(&native_socket_input_failure_log_line(
+                                            &window,
+                                            "send-mouse-direct",
+                                            events.len(),
+                                            &err,
+                                        ));
+                                        break;
+                                    }
+                                }
                             }
                             dbg.log(&format!(
-                                "native terminal socket send mouse direct: {window} event={event} col={col} row={row} events={}",
+                                "native terminal socket send mouse direct: {window} event={event} col={col} row={row} events={sent}/{}",
                                 events.len()
                             ));
                         } else {
@@ -885,11 +897,18 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             if let Some(payload) =
                                 native_mouse_event_payload(&event, col, row, modes)
                             {
-                                panes[idx].app.send_bytes(&payload)?;
-                                dbg.log(&format!(
-                                    "native terminal socket send mouse: {window} event={event} col={col} row={row} bytes={}",
-                                    payload.len()
-                                ));
+                                match panes[idx].app.send_bytes(&payload) {
+                                    Ok(()) => dbg.log(&format!(
+                                        "native terminal socket send mouse: {window} event={event} col={col} row={row} bytes={}",
+                                        payload.len()
+                                    )),
+                                    Err(err) => dbg.log(&native_socket_input_failure_log_line(
+                                        &window,
+                                        "send-mouse",
+                                        payload.len(),
+                                        &err,
+                                    )),
+                                };
                             } else {
                                 dbg.log(&format!(
                                     "native terminal socket send mouse ignored: {window} event={event} modes={modes:?}"
@@ -8708,6 +8727,12 @@ mod native_pane_tests {
         );
         assert!(line.contains("window=native-browser"), "{line}");
         assert!(line.contains("operation=paste-bytes"), "{line}");
+        let mouse_line =
+            native_socket_input_failure_log_line("native-1", "send-mouse-direct", 2, &"boom");
+        assert!(
+            mouse_line.contains("operation=send-mouse-direct"),
+            "{mouse_line}"
+        );
         assert!(line.contains("bytes=42"), "{line}");
         assert!(line.contains("err=non-utf8 browser input"), "{line}");
         assert!(line.chars().count() < 260, "{line}");
