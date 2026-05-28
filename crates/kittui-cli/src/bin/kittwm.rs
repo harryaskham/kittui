@@ -4245,13 +4245,12 @@ fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
     for layer in contract.layers.iter().take(8) {
         let y = row as f32 * cell.height_px as f32;
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-architecture-layer:{}:owner={}:responsibilities={}:must_not={}:native_contracts={}",
-                layer.id,
-                layer.owner,
+            label: Some(architecture_layer_label(
+                &layer.id,
+                &layer.owner,
                 layer.responsibilities.len(),
                 layer.must_not.len(),
-                layer.native_contracts.len()
+                layer.native_contracts.len(),
             )),
             root: Node::Rect {
                 rect: architecture_scene_row_rect(width, y),
@@ -4329,6 +4328,33 @@ fn architecture_backdrop_label(
     let _ = write!(label, "{surface_count}");
     label.push_str(":schema=");
     let _ = write!(label, "{schema_version}");
+    label
+}
+
+fn architecture_layer_label(
+    id: &str,
+    owner: &str,
+    responsibilities: usize,
+    must_not: usize,
+    native_contracts: usize,
+) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-architecture-layer::owner=:responsibilities=:must_not=:native_contracts="
+            .len()
+            .saturating_add(id.len())
+            .saturating_add(owner.len())
+            .saturating_add(60),
+    );
+    label.push_str("kittwm-architecture-layer:");
+    label.push_str(id);
+    label.push_str(":owner=");
+    label.push_str(owner);
+    label.push_str(":responsibilities=");
+    let _ = write!(label, "{responsibilities}");
+    label.push_str(":must_not=");
+    let _ = write!(label, "{must_not}");
+    label.push_str(":native_contracts=");
+    let _ = write!(label, "{native_contracts}");
     label
 }
 
@@ -9866,6 +9892,14 @@ mod tests {
             }
         }
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn architecture_layer_label_builds_directly() {
+        assert_eq!(
+            architecture_layer_label("tiling-engine", "kittui-wm", 2, 1, 3),
+            "kittwm-architecture-layer:tiling-engine:owner=kittui-wm:responsibilities=2:must_not=1:native_contracts=3"
+        );
     }
 
     #[test]
