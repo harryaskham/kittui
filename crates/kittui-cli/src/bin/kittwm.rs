@@ -4225,7 +4225,7 @@ fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
             },
         },
         Layer {
-            label: Some(format!("kittwm-architecture-heading:{}", contract.kind)),
+            label: Some(architecture_scene_heading_label(&contract.kind)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                 fill: Paint::Solid {
@@ -4329,6 +4329,17 @@ fn architecture_backdrop_label(
     let _ = write!(label, "{surface_count}");
     label.push_str(":schema=");
     let _ = write!(label, "{schema_version}");
+    label
+}
+
+fn architecture_scene_heading_label(kind: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-architecture-heading:"
+            .len()
+            .saturating_add(kind.len()),
+    );
+    label.push_str("kittwm-architecture-heading:");
+    label.push_str(kind);
     label
 }
 
@@ -9867,6 +9878,14 @@ mod tests {
         assert_eq!(
             label.capacity(),
             "kittwm-architecture-backdrop:layers=:planes=:surfaces=:schema=".len() + 80
+        );
+    }
+
+    #[test]
+    fn architecture_scene_heading_label_builds_directly() {
+        assert_eq!(
+            architecture_scene_heading_label("kittwm-v2"),
+            "kittwm-architecture-heading:kittwm-v2"
         );
     }
 
