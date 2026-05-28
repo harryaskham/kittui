@@ -3492,9 +3492,15 @@ fn parse_events_ms_value(ms: &str) -> Result<u64> {
 fn events_request(ms: &str) -> Result<String> {
     let parsed = parse_events_ms_value(ms)
         .map_err(|_| anyhow!("--events-ms expects integer milliseconds in 1..=60000"))?;
-    let mut out = String::with_capacity("EVENTS 60000".len());
-    let _ = write!(out, "EVENTS {parsed}");
-    Ok(out)
+    Ok(events_request_millis(parsed))
+}
+
+fn events_request_millis(ms: u64) -> String {
+    let ms_text = ms.to_string();
+    let mut out = String::with_capacity("EVENTS ".len() + ms_text.len());
+    out.push_str("EVENTS ");
+    out.push_str(&ms_text);
+    out
 }
 
 fn wait_needle(needle: &str, verb: &str) -> Result<String> {
@@ -5428,7 +5434,8 @@ fn load_panes_snapshot() -> Result<serde_json::Value> {
 fn load_events_snapshot(ms: u64) -> Result<Vec<String>> {
     use kittui_cli::daemon::{client_request_multi, default_socket_path};
     let path = default_socket_path();
-    let reply = client_request_multi(&path, &format!("EVENTS {ms}"))
+    let request = events_request_millis(ms);
+    let reply = client_request_multi(&path, &request)
         .map_err(|err| anyhow!("connect {}: {err}", path.display()))?;
     Ok(event_kinds_from_lines(&reply))
 }
@@ -11621,7 +11628,10 @@ END
         assert!(semantic_publish_request("focused", "not-json").is_err());
         let events = events_request("2500").unwrap();
         assert_eq!(events, "EVENTS 2500");
-        assert!(events.capacity() >= events.len());
+        assert_eq!(events.capacity(), events.len());
+        let snapshot_events = events_request_millis(750);
+        assert_eq!(snapshot_events, "EVENTS 750");
+        assert_eq!(snapshot_events.capacity(), snapshot_events.len());
         assert!(events_request("0").is_err());
         assert!(events_request("60001").is_err());
         assert!(wait_ms_request("WAIT_TEXT_MS", "0", "focused", "ready").is_err());
