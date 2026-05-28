@@ -6841,10 +6841,10 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
     let query_label = truncate(query, 48);
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-launcher-backdrop:query={query_label}:selected={}:count={}",
+            label: Some(launcher_backdrop_label(
+                &query_label,
                 selected_idx + 1,
-                candidates.len()
+                candidates.len(),
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -6907,6 +6907,22 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
         layers,
         animation: None,
     }
+}
+
+fn launcher_backdrop_label(query_label: &str, selected: usize, count: usize) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-launcher-backdrop:query=:selected=:count="
+            .len()
+            .saturating_add(query_label.len())
+            .saturating_add(40),
+    );
+    label.push_str("kittwm-launcher-backdrop:query=");
+    label.push_str(query_label);
+    label.push_str(":selected=");
+    let _ = write!(label, "{selected}");
+    label.push_str(":count=");
+    let _ = write!(label, "{count}");
+    label
 }
 
 fn launcher_preview_row_text(index: usize, candidate: &AppCandidate, selected: bool) -> String {
@@ -8294,6 +8310,14 @@ mod tests {
         let huge_title = format!("{}Terminal{}", "x".repeat(10_000), "y".repeat(10_000));
         assert!(ascii_casefold_contains(&huge_title, "TERMINAL"));
         assert!(!ascii_casefold_contains(&huge_title, "browser"));
+    }
+
+    #[test]
+    fn launcher_backdrop_label_builds_directly() {
+        assert_eq!(
+            launcher_backdrop_label("term", 2, 3),
+            "kittwm-launcher-backdrop:query=term:selected=2:count=3"
+        );
     }
 
     #[test]
