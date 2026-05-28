@@ -3153,6 +3153,7 @@ fn send_key_request(window: &str, key: &str) -> Result<String> {
 }
 
 fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result<String> {
+    let window = protocol_token(window, "automation window")?;
     let event = event.trim();
     if !matches!(
         event,
@@ -3185,7 +3186,10 @@ fn send_mouse_request(window: &str, event: &str, col: &str, row: &str) -> Result
             "--send-mouse COL and ROW are 1-indexed and must be positive"
         ));
     }
-    automation_request("SEND_MOUSE", window, &format!("{event} {col} {row}"))
+    let mut out =
+        String::with_capacity("SEND_MOUSE   65535 65535".len() + window.len() + event.len());
+    let _ = write!(out, "SEND_MOUSE {window} {event} {col} {row}");
+    Ok(out)
 }
 
 fn validated_base64_arg<'a>(encoded: &'a str, label: &str) -> Result<&'a str> {
@@ -10133,10 +10137,9 @@ END
         assert!(send_bytes_b64_request("focused", "!!!").is_err());
         assert!(paste_bytes_b64_request("focused", "").is_err());
         assert!(paste_bytes_b64_request("focused", "!!!").is_err());
-        assert_eq!(
-            send_mouse_request("focused", "press-left", "7", "9").unwrap(),
-            "SEND_MOUSE focused press-left 7 9"
-        );
+        let mouse_request = send_mouse_request("focused", "press-left", "7", "9").unwrap();
+        assert_eq!(mouse_request, "SEND_MOUSE focused press-left 7 9");
+        assert!(mouse_request.capacity() >= mouse_request.len());
         assert_eq!(
             send_mouse_request("focused", "move-left", "7", "9").unwrap(),
             "SEND_MOUSE focused move-left 7 9"
