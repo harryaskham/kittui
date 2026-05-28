@@ -437,6 +437,20 @@ fn launch_surface_error(action: &str, backend: Backend, err: impl std::fmt::Disp
     out
 }
 
+fn app_discovery_error(action: &str, err: impl std::fmt::Display) -> String {
+    let err = err.to_string();
+    let mut out = String::with_capacity(
+        action
+            .len()
+            .saturating_add(" app via discovery: ".len())
+            .saturating_add(err.len()),
+    );
+    out.push_str(action);
+    out.push_str(" app via discovery: ");
+    out.push_str(&err);
+    out
+}
+
 fn run(args: LaunchArgs) -> Result<String, String> {
     let plan = build_launch_plan(&args);
     if args.dry_run {
@@ -467,10 +481,10 @@ fn run(args: LaunchArgs) -> Result<String, String> {
             let reply = if args.status {
                 let candidate = wm
                     .app_first(&args.query)
-                    .map_err(|err| format!("find app via discovery: {err}"))?;
+                    .map_err(|err| app_discovery_error("find", err))?;
                 let launch = wm
                     .app_launch_first(&args.query)
-                    .map_err(|err| format!("launch app via discovery: {err}"))?;
+                    .map_err(|err| app_discovery_error("launch", err))?;
                 app_launch_status_reply(
                     launch.pid,
                     &launch.candidate.kind,
@@ -481,7 +495,7 @@ fn run(args: LaunchArgs) -> Result<String, String> {
             } else {
                 let launch = wm
                     .app_launch_first(&args.query)
-                    .map_err(|err| format!("launch app via discovery: {err}"))?;
+                    .map_err(|err| app_discovery_error("launch", err))?;
                 app_launch_reply(launch.pid, &launch.candidate.kind, &launch.candidate.name)
             };
             if args.replace {
@@ -934,6 +948,13 @@ mod tests {
     fn launch_surface_error_builds_directly() {
         let err = launch_surface_error("spawn", Backend::Browser, "offline");
         assert_eq!(err, "spawn browser surface: offline");
+        assert_eq!(err.capacity(), err.len());
+    }
+
+    #[test]
+    fn app_discovery_error_builds_directly() {
+        let err = app_discovery_error("launch", "not found");
+        assert_eq!(err, "launch app via discovery: not found");
         assert_eq!(err.capacity(), err.len());
     }
 
