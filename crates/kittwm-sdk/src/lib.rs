@@ -3335,7 +3335,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::ReadText)?;
         let needle = validated_wait_needle(needle.as_ref(), "WAIT_TEXT_JSON")?;
         Ok(serde_json::from_str(&self.client.request_protocol(
-            format!("WAIT_TEXT_JSON {} {needle}", self.id),
+            surface_payload_request("WAIT_TEXT_JSON", &self.id, needle),
         )?)?)
     }
 
@@ -3344,7 +3344,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::ReadText)?;
         let needle = validated_wait_needle(needle.as_ref(), "WAIT_OUTPUT_JSON")?;
         Ok(serde_json::from_str(&self.client.request_protocol(
-            format!("WAIT_OUTPUT_JSON {} {needle}", self.id),
+            surface_payload_request("WAIT_OUTPUT_JSON", &self.id, needle),
         )?)?)
     }
 
@@ -5481,6 +5481,14 @@ mod tests {
         assert_eq!(
             surface_payload_request("SEMANTIC_FOCUS", "native-2", "button-1"),
             "SEMANTIC_FOCUS native-2 button-1"
+        );
+        assert_eq!(
+            surface_payload_request("WAIT_TEXT_JSON", "native-2", "prompt json"),
+            "WAIT_TEXT_JSON native-2 prompt json"
+        );
+        assert_eq!(
+            surface_payload_request("WAIT_OUTPUT_JSON", "native-2", "done json"),
+            "WAIT_OUTPUT_JSON native-2 done json"
         );
     }
 
