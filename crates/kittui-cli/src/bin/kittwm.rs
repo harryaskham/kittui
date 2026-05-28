@@ -4281,13 +4281,12 @@ fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
     for surface in contract.first_party_native_surfaces.iter().take(6) {
         let y = row as f32 * cell.height_px as f32;
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-architecture-surface:{}:kind={}:sdk={}:kitty={}:kittui={}",
-                surface.name,
-                surface.surface_kind,
+            label: Some(architecture_surface_label(
+                &surface.name,
+                &surface.surface_kind,
                 surface.sdk_backed,
                 surface.kitty_graphics_native,
-                surface.kittui_entry
+                &surface.kittui_entry,
             )),
             root: Node::Rect {
                 rect: architecture_scene_row_rect(width, y),
@@ -4325,6 +4324,34 @@ fn architecture_backdrop_label(
     let _ = write!(label, "{surface_count}");
     label.push_str(":schema=");
     let _ = write!(label, "{schema_version}");
+    label
+}
+
+fn architecture_surface_label(
+    name: &str,
+    surface_kind: &str,
+    sdk_backed: bool,
+    kitty_graphics_native: bool,
+    kittui_entry: &str,
+) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-architecture-surface::kind=:sdk=:kitty=:kittui=".len()
+            + name.len()
+            + surface_kind.len()
+            + 5
+            + 5
+            + kittui_entry.len(),
+    );
+    label.push_str("kittwm-architecture-surface:");
+    label.push_str(name);
+    label.push_str(":kind=");
+    label.push_str(surface_kind);
+    label.push_str(":sdk=");
+    let _ = write!(label, "{sdk_backed}");
+    label.push_str(":kitty=");
+    let _ = write!(label, "{kitty_graphics_native}");
+    label.push_str(":kittui=");
+    label.push_str(kittui_entry);
     label
 }
 
@@ -9898,6 +9925,22 @@ mod tests {
             }
         }
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn architecture_surface_label_builds_directly() {
+        let label = architecture_surface_label(
+            "kittwm-browser",
+            "browser",
+            true,
+            true,
+            "HeadlessBrowserApp",
+        );
+        assert_eq!(
+            label,
+            "kittwm-architecture-surface:kittwm-browser:kind=browser:sdk=true:kitty=true:kittui=HeadlessBrowserApp"
+        );
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
