@@ -164,8 +164,15 @@ fn default_terminal_command() -> String {
     env::var("KITTWM_TERMINAL_CMD")
         .or_else(|_| env::var("KITTWM_TERMINAL_BINARY"))
         .or_else(|_| config.terminal.command.ok_or(env::VarError::NotPresent))
-        .or_else(|_| env::var("SHELL").map(|shell| format!("{shell} -l")))
+        .or_else(|_| env::var("SHELL").map(login_shell_command))
         .unwrap_or_else(|_| "/bin/sh -l".to_string())
+}
+
+fn login_shell_command(shell: String) -> String {
+    let mut out = String::with_capacity(shell.len() + " -l".len());
+    out.push_str(&shell);
+    out.push_str(" -l");
+    out
 }
 
 #[cfg(test)]
@@ -646,6 +653,13 @@ mod tests {
 
         let bare = TerminalArgs::parse_from(["printf", "it's", "ok"]).unwrap();
         assert_eq!(bare.command, "printf 'it'\\''s' ok");
+    }
+
+    #[test]
+    fn login_shell_command_builds_directly() {
+        let command = login_shell_command("/bin/zsh".to_string());
+        assert_eq!(command, "/bin/zsh -l");
+        assert_eq!(command.capacity(), command.len());
     }
 
     #[test]
