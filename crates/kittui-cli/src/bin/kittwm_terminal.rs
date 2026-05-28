@@ -546,8 +546,7 @@ fn run(args: TerminalArgs) -> Result<String, String> {
         let model = terminal_status_model(status, panes);
         return match args.status {
             StatusMode::Text => Ok(render_status_text(&model)),
-            StatusMode::SceneJson => serde_json::to_string(&terminal_status_scene(&model))
-                .map(|json| format!("{json}\n"))
+            StatusMode::SceneJson => scene_json_line(&terminal_status_scene(&model))
                 .map_err(|err| format!("encode status scene: {err}")),
             StatusMode::Kitty => render_status_kitty(&model),
             StatusMode::None => unreachable!(),
@@ -566,8 +565,7 @@ fn run(args: TerminalArgs) -> Result<String, String> {
         );
         return match request.mode {
             EventsMode::Text => Ok(render_events_text(&model)),
-            EventsMode::SceneJson => serde_json::to_string(&terminal_events_scene(&model))
-                .map(|json| format!("{json}\n"))
+            EventsMode::SceneJson => scene_json_line(&terminal_events_scene(&model))
                 .map_err(|err| format!("encode events scene: {err}")),
             EventsMode::Kitty => render_events_kitty(&model),
         };
@@ -587,6 +585,12 @@ fn run(args: TerminalArgs) -> Result<String, String> {
             .map(|spawn| spawn.reply)
             .map_err(|err| format!("spawn terminal surface: {err}"))
     }
+}
+
+fn scene_json_line(scene: &Scene) -> Result<String, serde_json::Error> {
+    let mut out = serde_json::to_string(scene)?;
+    out.push('\n');
+    Ok(out)
 }
 
 fn main() -> ExitCode {
@@ -740,6 +744,19 @@ mod tests {
             ]),
             "printf 'hello world' 'it'\\''s' /tmp/file:name"
         );
+    }
+
+    #[test]
+    fn scene_json_line_appends_newline_directly() {
+        let model = TerminalStatusModel {
+            panes: 1,
+            focus: "native-1".to_string(),
+            layout: "columns".to_string(),
+            details: 0,
+        };
+        let json = scene_json_line(&terminal_status_scene(&model)).unwrap();
+        assert!(json.ends_with('\n'));
+        assert!(json.contains("kittwm-terminal-status-backdrop"), "{json}");
     }
 
     #[test]
