@@ -455,6 +455,17 @@ fn launch_plan_heading_label(status_label: &str) -> String {
     label
 }
 
+fn launch_plan_command_label(command: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-launch-plan-command:"
+            .len()
+            .saturating_add(command.len()),
+    );
+    label.push_str("kittwm-launch-plan-command:");
+    label.push_str(command);
+    label
+}
+
 fn launch_plan_scene_for_cols(plan: &LaunchPlan, cols: u16) -> Scene {
     let rows = 5;
     let cell = CellSize::default();
@@ -503,7 +514,7 @@ fn launch_plan_scene_for_cols(plan: &LaunchPlan, cols: u16) -> Scene {
                 },
             },
             Layer {
-                label: Some(format!("kittwm-launch-plan-command:{command}")),
+                label: Some(launch_plan_command_label(&command)),
                 root: Node::Rect {
                     rect: command_rect,
                     fill: Paint::Solid {
@@ -778,6 +789,14 @@ mod tests {
         assert_eq!(
             launch_plan_heading_label("backend=browser"),
             "kittwm-launch-plan-heading:backend=browser"
+        );
+    }
+
+    #[test]
+    fn launch_plan_command_label_builds_directly() {
+        assert_eq!(
+            launch_plan_command_label("SPAWN_PTY kittwm-browser https://example.com"),
+            "kittwm-launch-plan-command:SPAWN_PTY kittwm-browser https://example.com"
         );
     }
 
