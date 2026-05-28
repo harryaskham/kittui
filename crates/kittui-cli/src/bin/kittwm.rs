@@ -4247,16 +4247,22 @@ fn completions_text(shell: &str) -> Result<String> {
         "zsh" => Ok(format!(
             "#compdef kittwm\n_arguments '1:command:({words})' '*::arg:->args'\n"
         )),
-        "fish" => Ok(completion_words()
-            .into_iter()
-            .map(|word| format!("complete -c kittwm -f -a '{word}'"))
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n"),
+        "fish" => Ok(fish_completions_text()),
         other => Err(anyhow!(
             "unsupported completion shell {other:?}; expected bash, zsh, or fish"
         )),
     }
+}
+
+fn fish_completions_text() -> String {
+    let words = completion_words();
+    let mut out = String::with_capacity(words.len().saturating_mul(32));
+    for word in words {
+        out.push_str("complete -c kittwm -f -a '");
+        out.push_str(&word);
+        out.push_str("'\n");
+    }
+    out
 }
 
 fn completions_cmd(shell: &str) -> Result<()> {
