@@ -28,6 +28,7 @@ struct BarOptions {
     mode: OutputMode,
     reserve: bool,
     release: bool,
+    help: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -98,10 +99,14 @@ fn main() -> ExitCode {
         Ok(opts) => opts,
         Err(err) => {
             eprintln!("kittwm-bar: {err}");
-            eprintln!("usage: kittwm-bar [--json|--scene-json|--kitty] [--reserve|--release]");
+            eprintln!("{}", kittwm_bar_usage());
             return ExitCode::from(2);
         }
     };
+    if opts.help {
+        println!("{}", kittwm_bar_usage());
+        return ExitCode::SUCCESS;
+    }
     if let Err(err) = apply_reservation_options(&opts) {
         eprintln!("kittwm-bar: {err}");
         return ExitCode::from(1);
@@ -134,6 +139,10 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn kittwm_bar_usage() -> &'static str {
+    "usage: kittwm-bar [--json|--scene-json|--kitty] [--reserve|--release]\n\nRenders the kittwm top bar from the live KITTWM_SOCKET when available, or an offline fallback otherwise.\n\nOptions:\n  --json              Print the bar model as JSON\n  --scene-json        Print the kittui scene JSON\n  --kitty, --graphics Render the bar through kitty graphics\n  --reserve           Reserve the top chrome row through the kittwm socket\n  --release           Clear the current chrome reservation\n  -h, --help          Show this help text"
+}
+
 fn parse_options(args: impl IntoIterator<Item = String>) -> Result<BarOptions, String> {
     let mut mode = OutputMode::Text;
     let mut reserve = false;
@@ -148,7 +157,14 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<BarOptions, S
             }
             "--reserve" => reserve = true,
             "--release" | "--clear-reservation" => release = true,
-            "--help" | "-h" => return Err("usage requested".to_string()),
+            "--help" | "-h" => {
+                return Ok(BarOptions {
+                    mode: OutputMode::Text,
+                    reserve: false,
+                    release: false,
+                    help: true,
+                })
+            }
             other => return Err(unknown_argument_error(other)),
         }
     }
@@ -159,6 +175,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<BarOptions, S
         mode,
         reserve,
         release,
+        help: false,
     })
 }
 
@@ -516,6 +533,16 @@ mod tests {
         let err = prefixed_error("connect to kittwm", "socket missing");
         assert_eq!(err, "connect to kittwm: socket missing");
         assert_eq!(err.capacity(), err.len());
+    }
+
+    #[test]
+    fn help_option_is_successful_and_descriptive() {
+        let opts = parse_options(["--help".to_string()]).unwrap();
+        assert!(opts.help);
+        let usage = kittwm_bar_usage();
+        assert!(usage.starts_with("usage: kittwm-bar"), "{usage}");
+        assert!(usage.contains("--scene-json"), "{usage}");
+        assert!(usage.contains("--reserve"), "{usage}");
     }
 
     #[test]
