@@ -3279,7 +3279,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::ReadText)?;
         let needle = validated_wait_needle(needle.as_ref(), "WAIT_TEXT")?;
         self.client
-            .request_protocol(format!("WAIT_TEXT {} {needle}", self.id))
+            .request_protocol(surface_payload_request("WAIT_TEXT", &self.id, needle))
     }
 
     /// Wait up to the daemon's default timeout for visible screen or scrollback text.
@@ -3287,7 +3287,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::ReadText)?;
         let needle = validated_wait_needle(needle.as_ref(), "WAIT_OUTPUT")?;
         self.client
-            .request_protocol(format!("WAIT_OUTPUT {} {needle}", self.id))
+            .request_protocol(surface_payload_request("WAIT_OUTPUT", &self.id, needle))
     }
 
     /// Wait for visible screen text and return typed match metadata.
@@ -5349,6 +5349,14 @@ mod tests {
         assert_eq!(
             surface_payload_request("PASTE_BYTES_B64", "native-2", "cGFzdGU="),
             "PASTE_BYTES_B64 native-2 cGFzdGU="
+        );
+        assert_eq!(
+            surface_payload_request("WAIT_TEXT", "native-2", "ready"),
+            "WAIT_TEXT native-2 ready"
+        );
+        assert_eq!(
+            surface_payload_request("WAIT_OUTPUT", "native-2", "done"),
+            "WAIT_OUTPUT native-2 done"
         );
     }
 
