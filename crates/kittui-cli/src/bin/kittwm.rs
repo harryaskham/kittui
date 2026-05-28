@@ -3253,7 +3253,10 @@ fn layout_request(axis: &str) -> Result<String> {
     if !matches!(axis.as_str(), "columns" | "rows") {
         return Err(anyhow!("--layout expects columns or rows"));
     }
-    Ok(format!("LAYOUT {axis}"))
+    let mut out = String::with_capacity("LAYOUT ".len() + axis.len());
+    out.push_str("LAYOUT ");
+    out.push_str(&axis);
+    Ok(out)
 }
 
 fn move_pane_request(window: &str, direction: &str) -> Result<String> {
@@ -3267,13 +3270,23 @@ fn move_pane_request(window: &str, direction: &str) -> Result<String> {
             "--move-pane direction expects left|right|up|down|first|last"
         ));
     }
-    Ok(format!("MOVE_PANE {window} {direction}"))
+    let mut out = String::with_capacity("MOVE_PANE  ".len() + window.len() + direction.len());
+    out.push_str("MOVE_PANE ");
+    out.push_str(&window);
+    out.push(' ');
+    out.push_str(&direction);
+    Ok(out)
 }
 
 fn resize_pane_request(window: &str, amount: &str) -> Result<String> {
     let window = protocol_token(window, "window")?;
     let amount = protocol_token(amount, "resize amount")?;
-    Ok(format!("RESIZE_PANE {window} {amount}"))
+    let mut out = String::with_capacity("RESIZE_PANE  ".len() + window.len() + amount.len());
+    out.push_str("RESIZE_PANE ");
+    out.push_str(&window);
+    out.push(' ');
+    out.push_str(&amount);
+    Ok(out)
 }
 
 fn rename_pane_request(window: &str, title: &str) -> Result<String> {
@@ -3282,7 +3295,12 @@ fn rename_pane_request(window: &str, title: &str) -> Result<String> {
     if title.is_empty() {
         return Err(anyhow!("--rename-pane TITLE must be nonempty"));
     }
-    protocol_payload_request("RENAME_PANE", &format!("{window} {title}"))
+    let mut out = String::with_capacity("RENAME_PANE  ".len() + window.len() + title.len());
+    out.push_str("RENAME_PANE ");
+    out.push_str(&window);
+    out.push(' ');
+    out.push_str(title);
+    Ok(out)
 }
 
 fn parse_optional_events_ms(ms: Option<String>) -> Result<u64> {
@@ -10001,19 +10019,18 @@ END
         let focus_request = protocol_token_request("focus_pane", "native-2").unwrap();
         assert_eq!(focus_request, "FOCUS_PANE native-2");
         assert_eq!(focus_request.capacity(), focus_request.len());
-        assert_eq!(layout_request("ROWS").unwrap(), "LAYOUT rows");
-        assert_eq!(
-            move_pane_request("focused", "LAST").unwrap(),
-            "MOVE_PANE focused last"
-        );
-        assert_eq!(
-            resize_pane_request("focused", "+2").unwrap(),
-            "RESIZE_PANE focused +2"
-        );
-        assert_eq!(
-            rename_pane_request("native-2", " Editor Pane ").unwrap(),
-            "RENAME_PANE native-2 Editor Pane"
-        );
+        let layout = layout_request("ROWS").unwrap();
+        assert_eq!(layout, "LAYOUT rows");
+        assert_eq!(layout.capacity(), layout.len());
+        let move_request = move_pane_request("focused", "LAST").unwrap();
+        assert_eq!(move_request, "MOVE_PANE focused last");
+        assert_eq!(move_request.capacity(), move_request.len());
+        let resize_request = resize_pane_request("focused", "+2").unwrap();
+        assert_eq!(resize_request, "RESIZE_PANE focused +2");
+        assert_eq!(resize_request.capacity(), resize_request.len());
+        let rename_request = rename_pane_request("native-2", " Editor Pane ").unwrap();
+        assert_eq!(rename_request, "RENAME_PANE native-2 Editor Pane");
+        assert_eq!(rename_request.capacity(), rename_request.len());
         assert!(rename_pane_request("native-2", "   ").is_err());
         assert_eq!(
             protocol_payload_request("apps_first", "Safari Browser").unwrap(),
