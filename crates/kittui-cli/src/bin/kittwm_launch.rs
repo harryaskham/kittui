@@ -249,7 +249,8 @@ fn push_shell_word(out: &mut String, arg: &str) {
 fn help_text() -> String {
     "kittwm-launch — SDK app/surface launcher for kittwm\n\n\
 Usage:\n  kittwm-launch [--replace|--new-window] [--dry-run|--status] [--plan-scene-json|--plan-kitty] [--backend auto|terminal|app|browser] [--title TITLE] QUERY\n  kittwm-launch --terminal [--title TITLE] -- PROGRAM [ARGS...]\n\n\
-Backends:\n  auto      choose browser for URLs, terminal for shell-like commands, app discovery otherwise\n  terminal  spawn a PTY terminal surface through kittwm-sdk\n  app      ask kittwm app discovery to launch the first matching app\n  browser  launch the first-party kittwm-browser app in a PTY surface\n"
+Backends:\n  auto      choose browser for URLs, terminal for shell-like commands, app discovery otherwise\n  terminal  spawn a PTY terminal surface through kittwm-sdk\n  app       ask kittwm app discovery to launch the first matching app\n  browser   launch the first-party kittwm-browser app in a PTY surface\n\n\
+Options:\n  --replace                  Replace the current kittwm pane\n  --new-window               Spawn in a new kittwm pane\n  --dry-run                  Print the planned launch command without sending it\n  --status                   Include launch status text after sending\n  --plan-scene-json          Render the dry-run launch plan as kittui scene JSON\n  --plan-kitty               Render the dry-run launch plan through kitty graphics\n  --backend MODE             Select auto, terminal, app, or browser backend\n  --terminal, --app, --browser  Shortcut backend selectors\n  --title TITLE              Set the launched surface title\n  -h, --help                 Show this help text\n"
         .to_string()
 }
 
@@ -821,6 +822,18 @@ mod tests {
         assert!(err.starts_with("missing launch query\n\n"), "{err}");
         assert!(err.contains("Usage:\n  kittwm-launch"), "{err}");
         assert_eq!(missing_query_error(), err);
+    }
+
+    #[test]
+    fn help_text_lists_operator_options() {
+        let help = help_text();
+        assert!(help.contains("Options:"), "{help}");
+        assert!(help.contains("--replace"), "{help}");
+        assert!(help.contains("--new-window"), "{help}");
+        assert!(help.contains("--dry-run"), "{help}");
+        assert!(help.contains("--plan-scene-json"), "{help}");
+        assert!(help.contains("--backend MODE"), "{help}");
+        assert!(help.contains("--title TITLE"), "{help}");
     }
 
     #[test]
