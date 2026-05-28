@@ -860,7 +860,7 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
         (
             "SEND_KEY <window|focused> <key>",
             "control",
-            "send a named key sequence to a native pane; keys: enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|delete|del|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|shift/alt/ctrl arrows|shift/alt/ctrl home/end/page-up/page-down|f5..f12|ctrl-a..ctrl-z",
+            "send a named key sequence to a native pane; keys: enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|insert|ins|shift-insert|alt-insert|ctrl-insert|delete|del|shift-delete|alt-delete|ctrl-delete|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|shift/alt/ctrl arrows|shift/alt/ctrl insert/delete|shift/alt/ctrl home/end/page-up/page-down|f5..f12|ctrl-a..ctrl-z",
         ),
         (
             "SEND_MOUSE <window|focused> <event> <col> <row>",
@@ -1669,7 +1669,7 @@ fn native_mouse_event_known(event: &str) -> bool {
     )
 }
 
-const NATIVE_SEND_KEY_SUPPORTED_HELP: &str = "enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|delete|del|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|shift-left|shift-right|shift-up|shift-down|shift-arrow-left|shift-arrow-right|shift-arrow-up|shift-arrow-down|alt-left|alt-right|alt-up|alt-down|alt-arrow-left|alt-arrow-right|alt-arrow-up|alt-arrow-down|ctrl-left|ctrl-right|ctrl-up|ctrl-down|shift-home|alt-home|ctrl-home|shift-end|alt-end|ctrl-end|home|end|shift-page-up|alt-page-up|ctrl-page-up|shift-page-down|alt-page-down|ctrl-page-down|pageup|page-up|pagedown|page-down|f5..f12|ctrl-a..ctrl-z";
+const NATIVE_SEND_KEY_SUPPORTED_HELP: &str = "enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|insert|ins|shift-insert|alt-insert|ctrl-insert|delete|del|shift-delete|alt-delete|ctrl-delete|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|shift-left|shift-right|shift-up|shift-down|shift-arrow-left|shift-arrow-right|shift-arrow-up|shift-arrow-down|alt-left|alt-right|alt-up|alt-down|alt-arrow-left|alt-arrow-right|alt-arrow-up|alt-arrow-down|ctrl-left|ctrl-right|ctrl-up|ctrl-down|shift-home|alt-home|ctrl-home|shift-end|alt-end|ctrl-end|home|end|shift-page-up|alt-page-up|ctrl-page-up|shift-page-down|alt-page-down|ctrl-page-down|pageup|page-up|pagedown|page-down|f5..f12|ctrl-a..ctrl-z";
 
 fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
     let Some((window, key)) = rest.trim().split_once(' ') else {
@@ -1720,7 +1720,14 @@ fn native_key_bytes(key: &str) -> Option<Vec<u8>> {
         "shift-tab" | "backtab" => b"\x1b[Z",
         "escape" | "esc" => b"\x1b",
         "backspace" | "bs" => b"\x7f",
+        "insert" | "ins" => b"\x1b[2~",
+        "shift-insert" | "shift-ins" => b"\x1b[2;2~",
+        "alt-insert" | "alt-ins" => b"\x1b[2;3~",
+        "ctrl-insert" | "ctrl-ins" => b"\x1b[2;5~",
         "delete" | "del" => b"\x1b[3~",
+        "shift-delete" | "shift-del" => b"\x1b[3;2~",
+        "alt-delete" | "alt-del" => b"\x1b[3;3~",
+        "ctrl-delete" | "ctrl-del" => b"\x1b[3;5~",
         "left" | "arrow-left" => b"\x1b[D",
         "right" | "arrow-right" => b"\x1b[C",
         "up" | "arrow-up" => b"\x1b[A",
@@ -3154,6 +3161,8 @@ mod tests {
         assert!(reply.starts_with("ERR SEND_KEY unsupported key; expected "));
         assert!(reply.contains("shift-tab"));
         assert!(reply.contains("backtab"));
+        assert!(reply.contains("shift-insert"));
+        assert!(reply.contains("ctrl-delete"));
         assert!(reply.contains("arrow-left"));
         assert!(reply.contains("shift-left"));
         assert!(reply.contains("alt-left"));
@@ -3203,6 +3212,14 @@ mod tests {
         );
         assert!(
             native_spawn_queue_reply("SEND_KEY native-2 shift-tab", &pending)
+                .starts_with("SEND_KEY_QUEUED")
+        );
+        assert!(
+            native_spawn_queue_reply("SEND_KEY native-2 shift-insert", &pending)
+                .starts_with("SEND_KEY_QUEUED")
+        );
+        assert!(
+            native_spawn_queue_reply("SEND_KEY native-2 ctrl-delete", &pending)
                 .starts_with("SEND_KEY_QUEUED")
         );
         assert!(
@@ -3316,6 +3333,16 @@ mod tests {
                     window: "native-2".to_string(),
                     bytes: b"\x1b[Z".to_vec(),
                     label: "shift-tab".to_string(),
+                },
+                NativePaneCommand::SendBytes {
+                    window: "native-2".to_string(),
+                    bytes: b"\x1b[2;2~".to_vec(),
+                    label: "shift-insert".to_string(),
+                },
+                NativePaneCommand::SendBytes {
+                    window: "native-2".to_string(),
+                    bytes: b"\x1b[3;5~".to_vec(),
+                    label: "ctrl-delete".to_string(),
                 },
                 NativePaneCommand::SendBytes {
                     window: "native-2".to_string(),

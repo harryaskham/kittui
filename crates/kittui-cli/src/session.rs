@@ -1496,7 +1496,13 @@ impl NativeTerminalApp {
             BrowserSocketKey::Enter => app.send_enter()?,
             BrowserSocketKey::Escape => app.send_escape()?,
             BrowserSocketKey::Insert => app.send_insert()?,
+            BrowserSocketKey::ShiftInsert => app.send_shift_insert()?,
+            BrowserSocketKey::AltInsert => app.send_alt_insert()?,
+            BrowserSocketKey::CtrlInsert => app.send_ctrl_insert()?,
             BrowserSocketKey::Delete => app.send_delete()?,
+            BrowserSocketKey::ShiftDelete => app.send_shift_delete()?,
+            BrowserSocketKey::AltDelete => app.send_alt_delete()?,
+            BrowserSocketKey::CtrlDelete => app.send_ctrl_delete()?,
             BrowserSocketKey::Home => app.send_home()?,
             BrowserSocketKey::ShiftHome => app.send_shift_home()?,
             BrowserSocketKey::AltHome => app.send_alt_home()?,
@@ -1585,7 +1591,13 @@ enum BrowserSocketKey {
     Enter,
     Escape,
     Insert,
+    ShiftInsert,
+    AltInsert,
+    CtrlInsert,
     Delete,
+    ShiftDelete,
+    AltDelete,
+    CtrlDelete,
     Home,
     ShiftHome,
     AltHome,
@@ -1613,7 +1625,13 @@ fn browser_key_label(label: &str) -> Option<BrowserSocketKey> {
         "enter" | "return" => Some(BrowserSocketKey::Enter),
         "escape" | "esc" => Some(BrowserSocketKey::Escape),
         "insert" | "ins" => Some(BrowserSocketKey::Insert),
+        "shift-insert" | "shift-ins" => Some(BrowserSocketKey::ShiftInsert),
+        "alt-insert" | "alt-ins" => Some(BrowserSocketKey::AltInsert),
+        "ctrl-insert" | "ctrl-ins" => Some(BrowserSocketKey::CtrlInsert),
         "delete" | "del" => Some(BrowserSocketKey::Delete),
+        "shift-delete" | "shift-del" => Some(BrowserSocketKey::ShiftDelete),
+        "alt-delete" | "alt-del" => Some(BrowserSocketKey::AltDelete),
+        "ctrl-delete" | "ctrl-del" => Some(BrowserSocketKey::CtrlDelete),
         "home" => Some(BrowserSocketKey::Home),
         "shift-home" => Some(BrowserSocketKey::ShiftHome),
         "alt-home" => Some(BrowserSocketKey::AltHome),
@@ -6758,6 +6776,14 @@ mod native_pane_tests {
         assert_eq!(
             browser_key_label("ctrl-arrow-up"),
             Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Up))
+        );
+        assert_eq!(
+            browser_key_label("shift-insert"),
+            Some(BrowserSocketKey::ShiftInsert)
+        );
+        assert_eq!(
+            browser_key_label("ctrl-delete"),
+            Some(BrowserSocketKey::CtrlDelete)
         );
         assert_eq!(
             browser_key_label("ctrl-home"),
