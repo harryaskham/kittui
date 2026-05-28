@@ -4669,9 +4669,10 @@ fn daily_help_scene(kind: &str, text: &str) -> Scene {
         .count();
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-daily-help-backdrop:{kind_label}:lines={}:commands={command_count}",
-                content_lines.len()
+            label: Some(daily_help_backdrop_label(
+                &kind_label,
+                content_lines.len(),
+                command_count,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -5023,6 +5024,19 @@ fn info_scene_rows(pane_count: u64) -> u16 {
 
 fn daily_help_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn daily_help_backdrop_label(kind_label: &str, line_count: usize, command_count: usize) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-daily-help-backdrop::lines=:commands=".len() + kind_label.len() + 20 + 20,
+    );
+    label.push_str("kittwm-daily-help-backdrop:");
+    label.push_str(kind_label);
+    label.push_str(":lines=");
+    let _ = write!(label, "{line_count}");
+    label.push_str(":commands=");
+    let _ = write!(label, "{command_count}");
+    label
 }
 
 fn daily_help_scene_rows(line_count: usize) -> u16 {
@@ -7833,6 +7847,19 @@ mod tests {
         assert_eq!(native_surfaces_scene_rows(0), 8);
         assert_eq!(native_surfaces_scene_rows(12), 17);
         assert_eq!(native_surfaces_scene_rows(usize::MAX), 22);
+    }
+
+    #[test]
+    fn daily_help_backdrop_label_builds_directly() {
+        let label = daily_help_backdrop_label("quickstart", 12, 5);
+        assert_eq!(
+            label,
+            "kittwm-daily-help-backdrop:quickstart:lines=12:commands=5"
+        );
+        assert_eq!(
+            label.capacity(),
+            "kittwm-daily-help-backdrop::lines=:commands=".len() + "quickstart".len() + 40
+        );
     }
 
     #[test]
