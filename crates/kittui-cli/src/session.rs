@@ -367,6 +367,9 @@ fn should_publish_native_layout(last: &mut String, next: &str) -> bool {
     true
 }
 
+const MAX_NATIVE_TERMINAL_COLS: u16 = 512;
+const MAX_NATIVE_TERMINAL_ROWS: u16 = 256;
+
 /// Drive the kittui-wm UI loop until the operator quits.
 ///
 /// `compositor` and `layout` are passed in so callers can wire any
@@ -7542,6 +7545,14 @@ mod native_pane_tests {
         assert_eq!(clamp_native_terminal_size(0, 0, (100, 40)), (1, 1));
         assert_eq!(clamp_native_terminal_size(80, 24, (0, 0)), (1, 1));
         assert_eq!(clamp_native_terminal_size(80, 24, (100, 40)), (80, 24));
+        assert_eq!(
+            clamp_native_terminal_size(u16::MAX, u16::MAX, (u16::MAX, u16::MAX)),
+            (MAX_NATIVE_TERMINAL_COLS, MAX_NATIVE_TERMINAL_ROWS)
+        );
+        assert_eq!(
+            clamp_native_terminal_size(1_000, 500, (2_000, 1_000)),
+            (MAX_NATIVE_TERMINAL_COLS, MAX_NATIVE_TERMINAL_ROWS)
+        );
     }
 
     #[test]
@@ -8563,9 +8574,11 @@ fn clamp_native_terminal_size(
     requested_rows: u16,
     host: (u16, u16),
 ) -> (u16, u16) {
+    let host_cols = host.0.max(1).min(MAX_NATIVE_TERMINAL_COLS);
+    let host_rows = host.1.max(1).min(MAX_NATIVE_TERMINAL_ROWS);
     (
-        requested_cols.max(1).min(host.0.max(1)),
-        requested_rows.max(1).min(host.1.max(1)),
+        requested_cols.max(1).min(host_cols),
+        requested_rows.max(1).min(host_rows),
     )
 }
 
