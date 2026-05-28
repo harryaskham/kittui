@@ -4415,6 +4415,16 @@ fn architecture_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
 }
 
+fn native_surfaces_backdrop_label(surface_count: usize, all_ready: bool) -> String {
+    let mut label =
+        String::with_capacity("kittwm-native-surfaces-backdrop:count=:all_ready=".len() + 20 + 5);
+    label.push_str("kittwm-native-surfaces-backdrop:count=");
+    let _ = write!(label, "{surface_count}");
+    label.push_str(":all_ready=");
+    let _ = write!(label, "{all_ready}");
+    label
+}
+
 fn native_surfaces_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
 }
@@ -4492,10 +4502,7 @@ fn native_surfaces_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
     let all_ready = contract.all_native_surfaces_ready();
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-native-surfaces-backdrop:count={}:all_ready={all_ready}",
-                surfaces.len()
-            )),
+            label: Some(native_surfaces_backdrop_label(surfaces.len(), all_ready)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
                 fill: Paint::Solid {
@@ -10080,6 +10087,19 @@ mod tests {
     }
 
     #[test]
+    fn native_surfaces_backdrop_label_builds_directly() {
+        let label = native_surfaces_backdrop_label(4, true);
+        assert_eq!(
+            label,
+            "kittwm-native-surfaces-backdrop:count=4:all_ready=true"
+        );
+        assert_eq!(
+            label.capacity(),
+            "kittwm-native-surfaces-backdrop:count=:all_ready=".len() + 25
+        );
+    }
+
+    #[test]
     fn native_surfaces_scene_labels_sdk_kittui_kitty_coverage() {
         let contract = kittwm_sdk::ArchitectureContract::current();
         let scene = native_surfaces_scene(&contract);
@@ -10092,7 +10112,7 @@ mod tests {
             labels
                 .iter()
                 .any(|label| label
-                    .contains("kittwm-native-surfaces-backdrop:count=3:all_ready=true")),
+                    .contains("kittwm-native-surfaces-backdrop:count=4:all_ready=true")),
             "{labels:?}"
         );
         assert!(
