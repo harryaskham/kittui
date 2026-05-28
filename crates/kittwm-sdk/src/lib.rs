@@ -3201,8 +3201,11 @@ impl SurfaceHandle {
     pub fn send_bytes_b64(&self, payload_b64: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::SendInput)?;
         let payload_b64 = validated_base64_payload(payload_b64.as_ref(), "SEND_BYTES_B64")?;
-        self.client
-            .request_protocol(format!("SEND_BYTES_B64 {} {payload_b64}", self.id))
+        self.client.request_protocol(surface_payload_request(
+            "SEND_BYTES_B64",
+            &self.id,
+            payload_b64,
+        ))
     }
 
     /// Paste exact bytes, base64-encoding them for `PASTE_BYTES_B64`.
@@ -3214,8 +3217,11 @@ impl SurfaceHandle {
     pub fn paste_bytes_b64(&self, payload_b64: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::SendInput)?;
         let payload_b64 = validated_base64_payload(payload_b64.as_ref(), "PASTE_BYTES_B64")?;
-        self.client
-            .request_protocol(format!("PASTE_BYTES_B64 {} {payload_b64}", self.id))
+        self.client.request_protocol(surface_payload_request(
+            "PASTE_BYTES_B64",
+            &self.id,
+            payload_b64,
+        ))
     }
 
     /// Send a pane-local mouse event at cell coordinates.
@@ -5335,6 +5341,14 @@ mod tests {
         assert_eq!(
             surface_payload_request("SEND_KEY", "native-2", "ctrl-c"),
             "SEND_KEY native-2 ctrl-c"
+        );
+        assert_eq!(
+            surface_payload_request("SEND_BYTES_B64", "native-2", "aGk="),
+            "SEND_BYTES_B64 native-2 aGk="
+        );
+        assert_eq!(
+            surface_payload_request("PASTE_BYTES_B64", "native-2", "cGFzdGU="),
+            "PASTE_BYTES_B64 native-2 cGFzdGU="
         );
     }
 
