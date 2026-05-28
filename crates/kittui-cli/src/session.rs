@@ -3669,7 +3669,14 @@ fn native_spawn_failure_log_line(command: &str, err: &dyn std::fmt::Display) -> 
 
 fn native_terminate_failure_log_line(window: &str, err: &dyn std::fmt::Display) -> String {
     let err = bounded_ellipsis(&err.to_string(), 160);
-    format!("native pane terminate failed: window={window} err={err}")
+    let mut out = String::with_capacity(
+        "native pane terminate failed: window= err=".len() + window.len() + err.len(),
+    );
+    out.push_str("native pane terminate failed: window=");
+    out.push_str(window);
+    out.push_str(" err=");
+    out.push_str(&err);
+    out
 }
 
 fn native_terminate_pane_logged(pane: &mut NativePane, dbg: &Debugger) -> bool {
@@ -8977,6 +8984,7 @@ mod native_pane_tests {
         let line = native_terminate_failure_log_line("native-2", &"terminate failed ".repeat(20));
         assert!(line.contains("window=native-2"), "{line}");
         assert!(line.contains("err=terminate failed"), "{line}");
+        assert!(line.capacity() >= line.len());
         assert!(line.chars().count() < 220, "{line}");
     }
 
