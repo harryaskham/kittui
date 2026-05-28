@@ -1209,9 +1209,7 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
         let trimmed = line.trim();
         let row_label = truncate(trimmed, 80);
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-help-topic-row:{topic_label}:{idx}:{row_label}"
-            )),
+            label: Some(help_topic_row_label(&topic_label, idx, &row_label)),
             root: Node::Rect {
                 rect: info_indicator_rect(width, y),
                 fill: Paint::Solid {
@@ -1232,6 +1230,19 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn help_topic_row_label(topic_label: &str, idx: usize, row_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-help-topic-row::".len() + topic_label.len() + 20 + row_label.len(),
+    );
+    label.push_str("kittwm-help-topic-row:");
+    label.push_str(topic_label);
+    label.push(':');
+    let _ = write!(label, "{idx}");
+    label.push(':');
+    label.push_str(row_label);
+    label
 }
 
 fn help_topic_heading_label(topic_label: &str, heading_label: &str) -> String {
@@ -8432,6 +8443,16 @@ mod tests {
                 .iter()
                 .any(|label| label.contains("kittwm-chrome-row:7:gap_rows=2")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn help_topic_row_label_builds_directly() {
+        let label = help_topic_row_label("panes", 3, "--spawn-pty CMD");
+        assert_eq!(label, "kittwm-help-topic-row:panes:3:--spawn-pty CMD");
+        assert_eq!(
+            label.capacity(),
+            "kittwm-help-topic-row::".len() + "panes".len() + 20 + "--spawn-pty CMD".len()
         );
     }
 
