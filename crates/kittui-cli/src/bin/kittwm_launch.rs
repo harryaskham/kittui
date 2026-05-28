@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt::Write as _;
 use std::process::ExitCode;
 
 use kittui::{
@@ -343,6 +344,45 @@ fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
     }
 }
 
+fn app_launch_reply(pid: u32, kind: &str, name: &str) -> String {
+    let mut out = String::with_capacity(
+        "APPS_LAUNCH_FIRST pid= kind= name=\n"
+            .len()
+            .saturating_add(10)
+            .saturating_add(kind.len())
+            .saturating_add(name.len()),
+    );
+    let _ = writeln!(out, "APPS_LAUNCH_FIRST pid={pid} kind={kind} name={name}");
+    out
+}
+
+fn app_launch_status_reply(
+    launch_pid: u32,
+    launch_kind: &str,
+    launch_name: &str,
+    candidate_kind: &str,
+    candidate_name: &str,
+) -> String {
+    let mut out = String::with_capacity(
+        "APPS_LAUNCH_FIRST pid= kind= name=\nAPPS_FIRST kind= name=\n"
+            .len()
+            .saturating_add(10)
+            .saturating_add(launch_kind.len())
+            .saturating_add(launch_name.len())
+            .saturating_add(candidate_kind.len())
+            .saturating_add(candidate_name.len()),
+    );
+    let _ = writeln!(
+        out,
+        "APPS_LAUNCH_FIRST pid={launch_pid} kind={launch_kind} name={launch_name}"
+    );
+    let _ = writeln!(
+        out,
+        "APPS_FIRST kind={candidate_kind} name={candidate_name}"
+    );
+    out
+}
+
 fn run(args: LaunchArgs) -> Result<String, String> {
     let plan = build_launch_plan(&args);
     if args.dry_run {
@@ -381,22 +421,18 @@ fn run(args: LaunchArgs) -> Result<String, String> {
                 let launch = wm
                     .app_launch_first(&args.query)
                     .map_err(|err| format!("launch app via discovery: {err}"))?;
-                format!(
-                    "APPS_LAUNCH_FIRST pid={} kind={} name={}\nAPPS_FIRST kind={} name={}\n",
+                app_launch_status_reply(
                     launch.pid,
-                    launch.candidate.kind,
-                    launch.candidate.name,
-                    candidate.kind,
-                    candidate.name
+                    &launch.candidate.kind,
+                    &launch.candidate.name,
+                    &candidate.kind,
+                    &candidate.name,
                 )
             } else {
                 let launch = wm
                     .app_launch_first(&args.query)
                     .map_err(|err| format!("launch app via discovery: {err}"))?;
-                format!(
-                    "APPS_LAUNCH_FIRST pid={} kind={} name={}\n",
-                    launch.pid, launch.candidate.kind, launch.candidate.name
-                )
+                app_launch_reply(launch.pid, &launch.candidate.kind, &launch.candidate.name)
             };
             if args.replace {
                 if let Some(current) = wm.current_window_from_env() {
@@ -814,6 +850,18 @@ mod tests {
         );
         assert!(reply.ends_with("SPAWNED window=native-2\n"), "{reply}");
         assert_eq!(reply.lines().count(), 2);
+    }
+
+    #[test]
+    fn app_launch_replies_build_directly() {
+        assert_eq!(
+            app_launch_reply(123, "path", "Terminal"),
+            "APPS_LAUNCH_FIRST pid=123 kind=path name=Terminal\n"
+        );
+        assert_eq!(
+            app_launch_status_reply(123, "path", "Terminal", "macos", "Terminal.app"),
+            "APPS_LAUNCH_FIRST pid=123 kind=path name=Terminal\nAPPS_FIRST kind=macos name=Terminal.app\n"
+        );
     }
 
     #[test]
