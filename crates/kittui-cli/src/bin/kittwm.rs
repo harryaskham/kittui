@@ -4415,6 +4415,50 @@ fn architecture_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
 }
 
+fn native_surface_row_label(
+    idx: usize,
+    name: &str,
+    surface_kind: &str,
+    ready: bool,
+    sdk_backed: bool,
+    kitty_graphics_native: bool,
+    plane: &str,
+    z_index: &str,
+    kittui_entry: &str,
+) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-native-surface-row::kind=:ready=:sdk=:kitty=:plane=:z=:kittui=".len()
+            + 20
+            + name.len()
+            + surface_kind.len()
+            + 5
+            + 5
+            + 5
+            + plane.len()
+            + z_index.len()
+            + kittui_entry.len(),
+    );
+    label.push_str("kittwm-native-surface-row:");
+    let _ = write!(label, "{idx}");
+    label.push(':');
+    label.push_str(name);
+    label.push_str(":kind=");
+    label.push_str(surface_kind);
+    label.push_str(":ready=");
+    let _ = write!(label, "{ready}");
+    label.push_str(":sdk=");
+    let _ = write!(label, "{sdk_backed}");
+    label.push_str(":kitty=");
+    let _ = write!(label, "{kitty_graphics_native}");
+    label.push_str(":plane=");
+    label.push_str(plane);
+    label.push_str(":z=");
+    label.push_str(z_index);
+    label.push_str(":kittui=");
+    label.push_str(kittui_entry);
+    label
+}
+
 fn native_surfaces_backdrop_label(surface_count: usize, all_ready: bool) -> String {
     let mut label =
         String::with_capacity("kittwm-native-surfaces-backdrop:count=:all_ready=".len() + 20 + 5);
@@ -4544,15 +4588,16 @@ fn native_surfaces_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
             .map(|z| z.to_string())
             .unwrap_or_else(|| "unknown".to_string());
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-native-surface-row:{}:{}:kind={}:ready={}:sdk={}:kitty={}:plane={plane}:z={z_index}:kittui={}",
+            label: Some(native_surface_row_label(
                 idx,
-                surface.name,
-                surface.surface_kind,
+                &surface.name,
+                &surface.surface_kind,
                 surface.is_native_ready(),
                 surface.sdk_backed,
                 surface.kitty_graphics_native,
-                surface.kittui_entry
+                plane,
+                &z_index,
+                &surface.kittui_entry,
             )),
             root: Node::Rect {
                 rect: native_surfaces_scene_row_rect(width, y),
@@ -10086,6 +10131,26 @@ mod tests {
             }
         }
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn native_surface_row_label_builds_directly() {
+        let label = native_surface_row_label(
+            2,
+            "kittwm-browser",
+            "browser",
+            true,
+            true,
+            true,
+            "app-surfaces",
+            "0",
+            "HeadlessBrowserApp",
+        );
+        assert_eq!(
+            label,
+            "kittwm-native-surface-row:2:kittwm-browser:kind=browser:ready=true:sdk=true:kitty=true:plane=app-surfaces:z=0:kittui=HeadlessBrowserApp"
+        );
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
