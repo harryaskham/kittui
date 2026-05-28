@@ -4509,15 +4509,15 @@ fn native_surfaces_json_text() -> String {
     let contract = kittwm_sdk::ArchitectureContract::current();
     let surfaces = contract.first_party_native_surfaces.clone();
     let all_ready = surfaces.iter().all(|surface| surface.is_native_ready());
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "schema_version": contract.schema_version,
-            "kind": "kittwm-native-surface-coverage",
-            "all_ready": all_ready,
-            "surfaces": surfaces,
-        })
-    )
+    let mut out = serde_json::json!({
+        "schema_version": contract.schema_version,
+        "kind": "kittwm-native-surface-coverage",
+        "all_ready": all_ready,
+        "surfaces": surfaces,
+    })
+    .to_string();
+    out.push('\n');
+    out
 }
 
 fn native_surfaces_json_cmd() -> Result<()> {
@@ -10543,7 +10543,9 @@ mod tests {
 
     #[test]
     fn native_surfaces_json_reports_sdk_and_kitty_native_coverage() {
-        let json: serde_json::Value = serde_json::from_str(&native_surfaces_json_text()).unwrap();
+        let text = native_surfaces_json_text();
+        assert!(text.ends_with('\n'));
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(json["kind"], "kittwm-native-surface-coverage");
         assert_eq!(json["all_ready"], true);
         let surfaces = json["surfaces"].as_array().unwrap();
