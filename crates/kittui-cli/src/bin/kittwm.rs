@@ -4067,10 +4067,7 @@ fn commands_scene() -> Scene {
     let summary = command_category_summary_label(&by_category);
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-commands-backdrop:count={}:categories={summary}",
-                entries.len()
-            )),
+            label: Some(commands_backdrop_label(entries.len(), &summary)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
                 fill: Paint::Solid {
@@ -4142,6 +4139,17 @@ fn commands_scene_row_label(category: &str, command: &str, description: &str) ->
     label.push_str(command);
     label.push(':');
     label.push_str(description);
+    label
+}
+
+fn commands_backdrop_label(command_count: usize, summary: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-commands-backdrop:count=:categories=".len() + 20 + summary.len(),
+    );
+    label.push_str("kittwm-commands-backdrop:count=");
+    let _ = write!(label, "{command_count}");
+    label.push_str(":categories=");
+    label.push_str(summary);
     label
 }
 
@@ -9673,6 +9681,19 @@ mod tests {
         assert_eq!(
             commands_scene_row_label("help", "commands-kitty", "Render command catalog"),
             "kittwm-command-row:help:commands-kitty:Render command catalog"
+        );
+    }
+
+    #[test]
+    fn commands_backdrop_label_builds_directly() {
+        let label = commands_backdrop_label(12, "help=3,lifecycle=2");
+        assert_eq!(
+            label,
+            "kittwm-commands-backdrop:count=12:categories=help=3,lifecycle=2"
+        );
+        assert_eq!(
+            label.capacity(),
+            "kittwm-commands-backdrop:count=:categories=".len() + 20 + "help=3,lifecycle=2".len()
         );
     }
 
