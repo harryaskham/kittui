@@ -5231,7 +5231,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..8 {
+            for _ in 0..9 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -5248,6 +5248,7 @@ mod tests {
         assert_eq!(client.focus_next().unwrap().trim(), "OK");
         assert_eq!(client.focus_prev().unwrap().trim(), "OK");
         assert_eq!(client.layout(LayoutMode::Columns).unwrap().trim(), "OK");
+        assert_eq!(client.layout(LayoutMode::Grid).unwrap().trim(), "OK");
         assert_eq!(
             client
                 .split_focused(LayoutMode::Rows, "htop --tree")
@@ -5271,6 +5272,7 @@ mod tests {
                 "FOCUS_NEXT",
                 "FOCUS_PREV",
                 "LAYOUT columns",
+                "LAYOUT grid",
                 "SPLIT_PANE focused rows htop --tree",
                 "BALANCE_PANES",
                 "RENAME_PANE native-2 Editor Pane",
@@ -5319,6 +5321,7 @@ mod tests {
     fn control_protocol_labels_match_daemon_vocab() {
         assert_eq!(LayoutMode::Columns.protocol_label(), "columns");
         assert_eq!(LayoutMode::Rows.protocol_label(), "rows");
+        assert_eq!(LayoutMode::Grid.protocol_label(), "grid");
         assert_eq!(MoveDirection::Left.protocol_label(), "left");
         assert_eq!(MoveDirection::Right.protocol_label(), "right");
         assert_eq!(MoveDirection::Up.protocol_label(), "up");
