@@ -4105,9 +4105,10 @@ fn commands_scene() -> Scene {
     for (idx, entry) in entries.iter().take(20).enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-command-row:{}:{}:{}",
-                entry.category, entry.command, entry.description
+            label: Some(commands_scene_row_label(
+                entry.category,
+                entry.command,
+                entry.description,
             )),
             root: Node::Rect {
                 rect: commands_scene_row_rect(width, y),
@@ -4125,6 +4126,23 @@ fn commands_scene() -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn commands_scene_row_label(category: &str, command: &str, description: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-command-row::"
+            .len()
+            .saturating_add(category.len())
+            .saturating_add(command.len())
+            .saturating_add(description.len()),
+    );
+    label.push_str("kittwm-command-row:");
+    label.push_str(category);
+    label.push(':');
+    label.push_str(command);
+    label.push(':');
+    label.push_str(description);
+    label
 }
 
 fn command_category_summary_label(by_category: &std::collections::BTreeMap<&str, usize>) -> String {
@@ -9648,6 +9666,14 @@ mod tests {
         let chord_label = keymap_chord_label(&km.bindings[0].chord, 48);
         assert_eq!(chord_label.chars().count(), 48);
         assert!(chord_label.capacity() >= 48);
+    }
+
+    #[test]
+    fn commands_scene_row_label_builds_directly() {
+        assert_eq!(
+            commands_scene_row_label("help", "commands-kitty", "Render command catalog"),
+            "kittwm-command-row:help:commands-kitty:Render command catalog"
+        );
     }
 
     #[test]
