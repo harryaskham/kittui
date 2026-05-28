@@ -8155,6 +8155,29 @@ fn config_scene_row_label(
     out
 }
 
+fn config_scene_backdrop_label(
+    keymap_path: &str,
+    bindings: usize,
+    duplicate_chords: usize,
+    status: &str,
+) -> String {
+    let mut out = String::with_capacity(
+        "kittwm-config-backdrop:keymap=:bindings=:duplicates=:status=".len()
+            + keymap_path.len()
+            + status.len()
+            + 40,
+    );
+    out.push_str("kittwm-config-backdrop:keymap=");
+    out.push_str(keymap_path);
+    out.push_str(":bindings=");
+    let _ = write!(out, "{bindings}");
+    out.push_str(":duplicates=");
+    let _ = write!(out, "{duplicate_chords}");
+    out.push_str(":status=");
+    out.push_str(status);
+    out
+}
+
 fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
     let rows = 30;
     let cell = CellSize::default();
@@ -8175,9 +8198,11 @@ fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
     let status = truncate(summary.status, 32);
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-config-backdrop:keymap={keymap_path}:bindings={}:duplicates={}:status={status}",
-                summary.bindings, summary.duplicate_chords
+            label: Some(config_scene_backdrop_label(
+                &keymap_path,
+                summary.bindings,
+                summary.duplicate_chords,
+                &status,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -9827,6 +9852,16 @@ mod tests {
                 assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
             }
         }
+    }
+
+    #[test]
+    fn config_scene_backdrop_label_builds_directly() {
+        let label = config_scene_backdrop_label("<default>", 12, 0, "ok");
+        assert_eq!(
+            label,
+            "kittwm-config-backdrop:keymap=<default>:bindings=12:duplicates=0:status=ok"
+        );
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
