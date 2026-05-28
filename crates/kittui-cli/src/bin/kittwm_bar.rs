@@ -149,7 +149,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<BarOptions, S
             "--reserve" => reserve = true,
             "--release" | "--clear-reservation" => release = true,
             "--help" | "-h" => return Err("usage requested".to_string()),
-            other => return Err(format!("unknown argument {other:?}")),
+            other => return Err(unknown_argument_error(other)),
         }
     }
     if reserve && release {
@@ -160,6 +160,15 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> Result<BarOptions, S
         reserve,
         release,
     })
+}
+
+fn unknown_argument_error(argument: &str) -> String {
+    let mut out = String::with_capacity("unknown argument \"\"".len() + argument.len());
+    out.push_str("unknown argument ");
+    out.push('"');
+    out.push_str(argument);
+    out.push('"');
+    out
 }
 
 fn apply_reservation_options(opts: &BarOptions) -> Result<(), String> {
@@ -483,6 +492,13 @@ mod tests {
     fn output_mode_rejects_multiple_formats() {
         let err = parse_options(["--json".to_string(), "--scene-json".to_string()]).unwrap_err();
         assert!(err.contains("choose only one"), "{err}");
+    }
+
+    #[test]
+    fn unknown_argument_error_builds_directly() {
+        let err = parse_options(["--wat".to_string()]).unwrap_err();
+        assert_eq!(err, "unknown argument \"--wat\"");
+        assert_eq!(err.capacity(), err.len());
     }
 
     #[test]
