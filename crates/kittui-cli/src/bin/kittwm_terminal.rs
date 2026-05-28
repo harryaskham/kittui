@@ -414,6 +414,16 @@ fn terminal_events_scene(model: &TerminalEventsModel) -> Scene {
     terminal_events_scene_for_cols(model, terminal_status_scene_cols())
 }
 
+fn terminal_events_heading_label(model: &TerminalEventsModel) -> String {
+    let mut label = String::with_capacity("kittwm-terminal-events-heading:count= ms=".len() + 40);
+    let _ = write!(
+        label,
+        "kittwm-terminal-events-heading:count={} ms={}",
+        model.count, model.ms
+    );
+    label
+}
+
 fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Scene {
     let rows = 5;
     let cell = CellSize::default();
@@ -442,10 +452,7 @@ fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Sce
                 },
             },
             Layer {
-                label: Some(format!(
-                    "kittwm-terminal-events-heading:count={} ms={}",
-                    model.count, model.ms
-                )),
+                label: Some(terminal_events_heading_label(model)),
                 root: Node::Rect {
                     rect: PxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                     fill: Paint::Solid {
@@ -817,6 +824,16 @@ mod tests {
         assert!(label.contains("focused-window-with-a-p…"), "{label}");
         assert!(label.contains("layout-name-that-is-far…"), "{label}");
         assert!(label.len() < 150, "{label}");
+    }
+
+    #[test]
+    fn terminal_events_heading_label_builds_directly() {
+        let model =
+            terminal_events_model(250, vec!["status".to_string(), "pane_opened".to_string()]);
+        assert_eq!(
+            terminal_events_heading_label(&model),
+            "kittwm-terminal-events-heading:count=2 ms=250"
+        );
     }
 
     #[test]
