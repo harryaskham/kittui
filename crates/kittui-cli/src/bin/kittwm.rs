@@ -3066,11 +3066,13 @@ fn protocol_payload_request(verb: &str, payload: &str) -> Result<String> {
 }
 
 fn protocol_token_request(verb: &str, token: &str) -> Result<String> {
-    Ok(format!(
-        "{} {}",
-        verb.trim().to_ascii_uppercase(),
-        protocol_token(token, "argument")?
-    ))
+    let verb = verb.trim();
+    let token = protocol_token(token, "argument")?;
+    let mut out = String::with_capacity(verb.len() + 1 + token.len());
+    push_ascii_uppercase(&mut out, verb);
+    out.push(' ');
+    out.push_str(&token);
+    Ok(out)
 }
 
 fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String> {
@@ -9983,10 +9985,9 @@ END
         let spawn_request = protocol_payload_request("spawn_pty", "  htop  ").unwrap();
         assert_eq!(spawn_request, "SPAWN_PTY htop");
         assert_eq!(spawn_request.capacity(), spawn_request.len());
-        assert_eq!(
-            protocol_token_request("focus_pane", "native-2").unwrap(),
-            "FOCUS_PANE native-2"
-        );
+        let focus_request = protocol_token_request("focus_pane", "native-2").unwrap();
+        assert_eq!(focus_request, "FOCUS_PANE native-2");
+        assert_eq!(focus_request.capacity(), focus_request.len());
         assert_eq!(layout_request("ROWS").unwrap(), "LAYOUT rows");
         assert_eq!(
             move_pane_request("focused", "LAST").unwrap(),
