@@ -2653,31 +2653,30 @@ fn native_spawn_session_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) 
         .find(|pane| pane.focused)
         .map(|pane| pane.window.as_str())
         .unwrap_or("-");
-    let panes = state
-        .panes
-        .iter()
-        .enumerate()
-        .map(|(index, pane)| {
-            serde_json::json!({
-                "index": index,
-                "window": pane.window,
-                "title": pane.title,
-                "command": pane.command,
-                "weight": pane.weight,
-                "focused": pane.focused,
-            })
-        })
-        .collect::<Vec<_>>();
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "schema_version": 1,
-            "kind": "kittwm-native-session",
-            "layout": state.layout.as_deref().unwrap_or("-"),
-            "focus": focused,
-            "panes": panes,
-        })
-    )
+    let layout = state.layout.as_deref().unwrap_or("-");
+    let mut out = String::with_capacity(state.panes.len().saturating_mul(128).saturating_add(128));
+    let _ = write!(
+        out,
+        "{{\"schema_version\":1,\"kind\":\"kittwm-native-session\",\"layout\":{},\"focus\":{},\"panes\":[",
+        serde_json::to_string(layout).unwrap(),
+        serde_json::to_string(focused).unwrap()
+    );
+    for (index, pane) in state.panes.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        let _ = write!(
+            out,
+            "{{\"index\":{index},\"window\":{},\"title\":{},\"command\":{},\"weight\":{},\"focused\":{}}}",
+            serde_json::to_string(&pane.window).unwrap(),
+            serde_json::to_string(&pane.title).unwrap(),
+            serde_json::to_string(&pane.command).unwrap(),
+            pane.weight,
+            pane.focused
+        );
+    }
+    out.push_str("]}\n");
+    out
 }
 
 fn native_spawn_panes_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
