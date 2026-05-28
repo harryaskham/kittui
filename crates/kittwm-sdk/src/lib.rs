@@ -3256,10 +3256,11 @@ impl SurfaceHandle {
     pub fn wait_text_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::ReadText)?;
         let needle = validated_wait_needle(needle.as_ref(), "WAIT_TEXT_MS")?;
-        self.client.request_protocol(format!(
-            "WAIT_TEXT_MS {} {} {needle}",
-            self.id,
-            ms.clamp(1, 60_000)
+        self.client.request_protocol(surface_wait_ms_request(
+            "WAIT_TEXT_MS",
+            &self.id,
+            ms.clamp(1, 60_000),
+            needle,
         ))
     }
 
@@ -3267,10 +3268,11 @@ impl SurfaceHandle {
     pub fn wait_output_ms(&self, ms: u64, needle: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::ReadText)?;
         let needle = validated_wait_needle(needle.as_ref(), "WAIT_OUTPUT_MS")?;
-        self.client.request_protocol(format!(
-            "WAIT_OUTPUT_MS {} {} {needle}",
-            self.id,
-            ms.clamp(1, 60_000)
+        self.client.request_protocol(surface_wait_ms_request(
+            "WAIT_OUTPUT_MS",
+            &self.id,
+            ms.clamp(1, 60_000),
+            needle,
         ))
     }
 
@@ -3559,6 +3561,20 @@ fn surface_payload_request(verb: &str, id: &str, payload: &str) -> String {
     out.push_str(id);
     out.push(' ');
     out.push_str(payload);
+    out
+}
+
+fn surface_wait_ms_request(verb: &str, id: &str, ms: u64, needle: &str) -> String {
+    let ms_text = ms.to_string();
+    let mut out =
+        String::with_capacity(verb.len() + 1 + id.len() + 1 + ms_text.len() + 1 + needle.len());
+    out.push_str(verb);
+    out.push(' ');
+    out.push_str(id);
+    out.push(' ');
+    out.push_str(&ms_text);
+    out.push(' ');
+    out.push_str(needle);
     out
 }
 
@@ -5357,6 +5373,18 @@ mod tests {
         assert_eq!(
             surface_payload_request("WAIT_OUTPUT", "native-2", "done"),
             "WAIT_OUTPUT native-2 done"
+        );
+    }
+
+    #[test]
+    fn surface_wait_ms_request_builds_directly() {
+        assert_eq!(
+            surface_wait_ms_request("WAIT_TEXT_MS", "native-1", 250, "ready"),
+            "WAIT_TEXT_MS native-1 250 ready"
+        );
+        assert_eq!(
+            surface_wait_ms_request("WAIT_OUTPUT_MS", "native-1", 60_000, "build finished"),
+            "WAIT_OUTPUT_MS native-1 60000 build finished"
         );
     }
 
