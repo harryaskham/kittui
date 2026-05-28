@@ -3354,7 +3354,7 @@ impl SurfaceHandle {
             .capabilities
             .ensure(Capability::ReadSemanticTree)?;
         Ok(serde_json::from_str(&self.client.request_protocol(
-            format!("SEMANTIC_SNAPSHOT {}", self.id),
+            surface_token_request("SEMANTIC_SNAPSHOT", &self.id),
         )?)?)
     }
 
@@ -3393,8 +3393,11 @@ impl SurfaceHandle {
             .capabilities
             .ensure(Capability::InvokeSemanticAction)?;
         let component = validated_protocol_token(component.as_ref(), "semantic component")?;
-        self.client
-            .request_protocol(format!("SEMANTIC_FOCUS {} {component}", self.id))
+        self.client.request_protocol(surface_payload_request(
+            "SEMANTIC_FOCUS",
+            &self.id,
+            component,
+        ))
     }
 
     /// Convenience alias for [`SurfaceHandle::semantic_focus`].
@@ -5431,6 +5434,10 @@ mod tests {
             surface_token_request("READ_SCROLLBACK_JSON", "native-2"),
             "READ_SCROLLBACK_JSON native-2"
         );
+        assert_eq!(
+            surface_token_request("SEMANTIC_SNAPSHOT", "native-2"),
+            "SEMANTIC_SNAPSHOT native-2"
+        );
     }
 
     #[test]
@@ -5470,6 +5477,10 @@ mod tests {
         assert_eq!(
             surface_payload_request("WAIT_OUTPUT", "native-2", "done"),
             "WAIT_OUTPUT native-2 done"
+        );
+        assert_eq!(
+            surface_payload_request("SEMANTIC_FOCUS", "native-2", "button-1"),
+            "SEMANTIC_FOCUS native-2 button-1"
         );
     }
 
