@@ -3173,7 +3173,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::SendInput)?;
         let text = validated_text_payload(text.as_ref(), "SEND_TEXT")?;
         self.client
-            .request_protocol(format!("SEND_TEXT {} {text}", self.id))
+            .request_protocol(surface_payload_request("SEND_TEXT", &self.id, text))
     }
 
     /// Send one line, appending a newline in the daemon.
@@ -3181,7 +3181,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::SendInput)?;
         let text = validated_text_payload(text.as_ref(), "SEND_LINE")?;
         self.client
-            .request_protocol(format!("SEND_LINE {} {text}", self.id))
+            .request_protocol(surface_payload_request("SEND_LINE", &self.id, text))
     }
 
     /// Send a named key such as `ctrl-c`, `escape`, or `up`.
@@ -3189,7 +3189,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::SendInput)?;
         let key = validated_protocol_token(key.as_ref(), "SEND_KEY key")?;
         self.client
-            .request_protocol(format!("SEND_KEY {} {key}", self.id))
+            .request_protocol(surface_payload_request("SEND_KEY", &self.id, key))
     }
 
     /// Send exact bytes, base64-encoding them for `SEND_BYTES_B64`.
@@ -5327,6 +5327,14 @@ mod tests {
         assert_eq!(
             surface_payload_request("MOVE_PANE", "native-2", "down"),
             "MOVE_PANE native-2 down"
+        );
+        assert_eq!(
+            surface_payload_request("SEND_TEXT", "native-2", "hello world"),
+            "SEND_TEXT native-2 hello world"
+        );
+        assert_eq!(
+            surface_payload_request("SEND_KEY", "native-2", "ctrl-c"),
+            "SEND_KEY native-2 ctrl-c"
         );
     }
 
