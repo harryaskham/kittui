@@ -6016,8 +6016,16 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
     let tilable_rows_label = truncate(&tilable_rows, 32);
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-chrome-backdrop:workspace={workspace_label}:owner={owner_label}:top={top}:bottom={bottom}:left={left}:right={right}:gap_cols={gap_cols}:gap_rows={gap_rows}:tilable_rows={tilable_rows_label}"
+            label: Some(chrome_backdrop_label(
+                &workspace_label,
+                &owner_label,
+                top,
+                bottom,
+                left,
+                right,
+                gap_cols,
+                gap_rows,
+                &tilable_rows_label,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -6080,6 +6088,46 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn chrome_backdrop_label(
+    workspace_label: &str,
+    owner_label: &str,
+    top: u64,
+    bottom: u64,
+    left: u64,
+    right: u64,
+    gap_cols: u64,
+    gap_rows: u64,
+    tilable_rows_label: &str,
+) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-chrome-backdrop:workspace=:owner=:top=:bottom=:left=:right=:gap_cols=:gap_rows=:tilable_rows="
+            .len()
+            .saturating_add(workspace_label.len())
+            .saturating_add(owner_label.len())
+            .saturating_add(tilable_rows_label.len())
+            .saturating_add(120),
+    );
+    label.push_str("kittwm-chrome-backdrop:workspace=");
+    label.push_str(workspace_label);
+    label.push_str(":owner=");
+    label.push_str(owner_label);
+    label.push_str(":top=");
+    let _ = write!(label, "{top}");
+    label.push_str(":bottom=");
+    let _ = write!(label, "{bottom}");
+    label.push_str(":left=");
+    let _ = write!(label, "{left}");
+    label.push_str(":right=");
+    let _ = write!(label, "{right}");
+    label.push_str(":gap_cols=");
+    let _ = write!(label, "{gap_cols}");
+    label.push_str(":gap_rows=");
+    let _ = write!(label, "{gap_rows}");
+    label.push_str(":tilable_rows=");
+    label.push_str(tilable_rows_label);
+    label
 }
 
 fn chrome_scene_row_label(
@@ -8871,6 +8919,14 @@ mod tests {
             "{row}"
         );
         assert!(row.len() < 220, "{row}");
+    }
+
+    #[test]
+    fn chrome_backdrop_label_builds_directly() {
+        assert_eq!(
+            chrome_backdrop_label("dev", "bar", 2, 1, 4, 3, 1, 2, "19"),
+            "kittwm-chrome-backdrop:workspace=dev:owner=bar:top=2:bottom=1:left=4:right=3:gap_cols=1:gap_rows=2:tilable_rows=19"
+        );
     }
 
     #[test]
