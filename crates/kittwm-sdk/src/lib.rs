@@ -3356,8 +3356,11 @@ impl SurfaceHandle {
             .capabilities
             .ensure(Capability::PublishSemanticTree)?;
         let payload = serde_json::to_string(snapshot)?;
-        self.client
-            .request_protocol(format!("SEMANTIC_PUBLISH {} {}", self.id, payload))
+        self.client.request_protocol(surface_payload_request(
+            "SEMANTIC_PUBLISH",
+            &self.id,
+            &payload,
+        ))
     }
 
     /// Invoke a semantic component action with a JSON payload.
@@ -5473,6 +5476,10 @@ mod tests {
         assert_eq!(
             surface_payload_request("SEMANTIC_FOCUS", "native-2", "button-1"),
             "SEMANTIC_FOCUS native-2 button-1"
+        );
+        assert_eq!(
+            surface_payload_request("SEMANTIC_PUBLISH", "native-2", "{\"surface\":\"native-2\"}"),
+            "SEMANTIC_PUBLISH native-2 {\"surface\":\"native-2\"}"
         );
         assert_eq!(
             surface_payload_request("WAIT_TEXT_JSON", "native-2", "prompt json"),
