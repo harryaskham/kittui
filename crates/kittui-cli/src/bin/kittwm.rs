@@ -5670,8 +5670,13 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
     let sock_label = truncate(sock, 48);
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-status-backdrop:pid={pid}:panes={panes}:pending={pending}:focus={focus_label}:layout={layout_label}:workspace={workspace_label}"
+            label: Some(status_scene_backdrop_label(
+                &pid,
+                panes,
+                pending,
+                &focus_label,
+                &layout_label,
+                &workspace_label,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -5733,6 +5738,38 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn status_scene_backdrop_label(
+    pid: &str,
+    panes: u64,
+    pending: u64,
+    focus_label: &str,
+    layout_label: &str,
+    workspace_label: &str,
+) -> String {
+    let mut out = String::with_capacity(
+        "kittwm-status-backdrop:pid=:panes=:pending=:focus=:layout=:workspace="
+            .len()
+            .saturating_add(pid.len())
+            .saturating_add(focus_label.len())
+            .saturating_add(layout_label.len())
+            .saturating_add(workspace_label.len())
+            .saturating_add(40),
+    );
+    out.push_str("kittwm-status-backdrop:pid=");
+    out.push_str(pid);
+    out.push_str(":panes=");
+    let _ = write!(out, "{panes}");
+    out.push_str(":pending=");
+    let _ = write!(out, "{pending}");
+    out.push_str(":focus=");
+    out.push_str(focus_label);
+    out.push_str(":layout=");
+    out.push_str(layout_label);
+    out.push_str(":workspace=");
+    out.push_str(workspace_label);
+    out
 }
 
 fn status_scene_heading_label(sock_label: &str) -> String {
@@ -8830,6 +8867,14 @@ mod tests {
             labels.iter().any(|label| label
                 .contains("kittwm-app-row:macos:macOS Application Name That Is Pathologically L…")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn status_scene_backdrop_label_builds_directly() {
+        assert_eq!(
+            status_scene_backdrop_label("1234", 2, 1, "native-2", "rows", "dev"),
+            "kittwm-status-backdrop:pid=1234:panes=2:pending=1:focus=native-2:layout=rows:workspace=dev"
         );
     }
 
