@@ -1936,24 +1936,26 @@ fn native_pane_bracketed_paste_label(pane: &NativePaneStatus) -> &'static str {
 }
 
 fn native_pane_mouse_label(pane: &NativePaneStatus) -> String {
-    let mut modes = Vec::new();
-    if pane.mouse_reporting == Some(true) {
-        modes.push("basic");
-    }
-    if pane.mouse_button_motion == Some(true) {
-        modes.push("button-motion");
-    }
-    if pane.mouse_all_motion == Some(true) {
-        modes.push("all-motion");
-    }
-    if pane.mouse_sgr == Some(true) {
-        modes.push("sgr");
-    }
-    if modes.is_empty() {
+    let mut out = String::new();
+    append_native_pane_mouse_mode(&mut out, pane.mouse_reporting, "basic");
+    append_native_pane_mouse_mode(&mut out, pane.mouse_button_motion, "button-motion");
+    append_native_pane_mouse_mode(&mut out, pane.mouse_all_motion, "all-motion");
+    append_native_pane_mouse_mode(&mut out, pane.mouse_sgr, "sgr");
+    if out.is_empty() {
         "-".to_string()
     } else {
-        modes.join(",")
+        out
     }
+}
+
+fn append_native_pane_mouse_mode(out: &mut String, enabled: Option<bool>, label: &str) {
+    if enabled != Some(true) {
+        return;
+    }
+    if !out.is_empty() {
+        out.push(',');
+    }
+    out.push_str(label);
 }
 
 fn native_pane_bool_label(value: Option<bool>) -> &'static str {
@@ -3343,6 +3345,16 @@ mod tests {
             scrollback_snapshot: Some("secret scrollback is not serialized".to_string()),
             app_rows: None,
         }
+    }
+
+    #[test]
+    fn native_pane_mouse_label_builds_enabled_modes_directly() {
+        let mut pane = native_status("native-1", true, 1);
+        assert_eq!(native_pane_mouse_label(&pane), "-");
+        pane.mouse_reporting = Some(true);
+        pane.mouse_all_motion = Some(true);
+        pane.mouse_sgr = Some(true);
+        assert_eq!(native_pane_mouse_label(&pane), "basic,all-motion,sgr");
     }
 
     #[test]
