@@ -2523,9 +2523,9 @@ fn doctor_scene(
                 },
             },
             Layer {
-                label: Some(format!(
-                    "kittwm-doctor-heading:transport={:?}:compression={:?}",
-                    transport.selected_transport, transport.compression_mode
+                label: Some(doctor_heading_label(
+                    transport.selected_transport,
+                    transport.compression_mode,
                 )),
                 root: Node::Rect {
                     rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
@@ -2588,6 +2588,19 @@ fn doctor_detail_rect(width: f32, cell: CellSize, row: f32) -> KittuiPxRect {
         available,
         2.0,
     )
+}
+
+fn doctor_heading_label(
+    selected_transport: impl std::fmt::Debug,
+    compression_mode: impl std::fmt::Debug,
+) -> String {
+    let mut label =
+        String::with_capacity("kittwm-doctor-heading:transport=:compression=".len() + 32);
+    label.push_str("kittwm-doctor-heading:transport=");
+    let _ = write!(label, "{selected_transport:?}");
+    label.push_str(":compression=");
+    let _ = write!(label, "{compression_mode:?}");
+    label
 }
 
 fn doctor_backdrop_label(readiness: &str) -> String {
@@ -10071,6 +10084,19 @@ mod tests {
         std::env::set_var("KITTWM_DOCTOR_COLS", "200");
         assert_eq!(doctor_scene_cols(), 120);
         std::env::remove_var("KITTWM_DOCTOR_COLS");
+    }
+
+    #[test]
+    fn doctor_heading_label_builds_directly() {
+        let label = doctor_heading_label(
+            kittui::Transport::Direct,
+            kittui_core::terminal::GraphicsCompressionMode::Zlib,
+        );
+        assert_eq!(
+            label,
+            "kittwm-doctor-heading:transport=Direct:compression=Zlib"
+        );
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
