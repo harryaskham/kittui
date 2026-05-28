@@ -837,17 +837,33 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     row,
                 } => {
                     if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
-                        let modes = panes[idx].app.mouse_reporting_modes();
-                        if let Some(payload) = native_mouse_event_payload(&event, col, row, modes) {
-                            panes[idx].app.send_bytes(&payload)?;
+                        if panes[idx].app.supports_direct_pointer() {
+                            let events = native_surface_pointer_events(&event, col, row);
+                            for pointer_event in events.iter().copied() {
+                                NativeSurface::send_surface_pointer(
+                                    &mut panes[idx].app,
+                                    pointer_event,
+                                )?;
+                            }
                             dbg.log(&format!(
-                                "native terminal socket send mouse: {window} event={event} col={col} row={row} bytes={}",
-                                payload.len()
+                                "native terminal socket send mouse direct: {window} event={event} col={col} row={row} events={}",
+                                events.len()
                             ));
                         } else {
-                            dbg.log(&format!(
-                                "native terminal socket send mouse ignored: {window} event={event} modes={modes:?}"
-                            ));
+                            let modes = panes[idx].app.mouse_reporting_modes();
+                            if let Some(payload) =
+                                native_mouse_event_payload(&event, col, row, modes)
+                            {
+                                panes[idx].app.send_bytes(&payload)?;
+                                dbg.log(&format!(
+                                    "native terminal socket send mouse: {window} event={event} col={col} row={row} bytes={}",
+                                    payload.len()
+                                ));
+                            } else {
+                                dbg.log(&format!(
+                                    "native terminal socket send mouse ignored: {window} event={event} modes={modes:?}"
+                                ));
+                            }
                         }
                     }
                 }
