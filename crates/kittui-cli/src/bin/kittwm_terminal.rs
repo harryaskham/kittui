@@ -569,7 +569,7 @@ fn run(args: TerminalArgs) -> Result<String, String> {
         return match args.status {
             StatusMode::Text => Ok(render_status_text(&model)),
             StatusMode::SceneJson => scene_json_line(&terminal_status_scene(&model))
-                .map_err(|err| format!("encode status scene: {err}")),
+                .map_err(|err| sdk_error("encode status scene", &err)),
             StatusMode::Kitty => render_status_kitty(&model),
             StatusMode::None => unreachable!(),
         };
@@ -588,7 +588,7 @@ fn run(args: TerminalArgs) -> Result<String, String> {
         return match request.mode {
             EventsMode::Text => Ok(render_events_text(&model)),
             EventsMode::SceneJson => scene_json_line(&terminal_events_scene(&model))
-                .map_err(|err| format!("encode events scene: {err}")),
+                .map_err(|err| sdk_error("encode events scene", &err)),
             EventsMode::Kitty => render_events_kitty(&model),
         };
     }
@@ -698,6 +698,8 @@ mod tests {
         let err = sdk_error("connect to kittwm", &"socket missing");
         assert_eq!(err, "connect to kittwm: socket missing");
         assert!(err.capacity() >= err.len());
+        let encode = sdk_error("encode status scene", &"bad scene");
+        assert_eq!(encode, "encode status scene: bad scene");
     }
 
     #[test]
