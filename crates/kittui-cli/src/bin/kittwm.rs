@@ -2563,7 +2563,7 @@ fn doctor_scene(
                 },
             },
             Layer {
-                label: Some(format!("kittwm-doctor-display:{display_label}")),
+                label: Some(doctor_display_label(&display_label)),
                 root: Node::Rect {
                     rect: doctor_detail_rect(width, cell, 3.4),
                     fill: Paint::Solid {
@@ -2591,6 +2591,13 @@ fn doctor_detail_rect(width: f32, cell: CellSize, row: f32) -> KittuiPxRect {
         available,
         2.0,
     )
+}
+
+fn doctor_display_label(display_label: &str) -> String {
+    let mut label = String::with_capacity("kittwm-doctor-display:".len() + display_label.len());
+    label.push_str("kittwm-doctor-display:");
+    label.push_str(display_label);
+    label
 }
 
 fn doctor_readiness_label(
@@ -10140,6 +10147,16 @@ mod tests {
         std::env::set_var("KITTWM_DOCTOR_COLS", "200");
         assert_eq!(doctor_scene_cols(), 120);
         std::env::remove_var("KITTWM_DOCTOR_COLS");
+    }
+
+    #[test]
+    fn doctor_display_label_builds_directly() {
+        let label = doctor_display_label("hidpi=true:cell=16x32");
+        assert_eq!(label, "kittwm-doctor-display:hidpi=true:cell=16x32");
+        assert_eq!(
+            label.capacity(),
+            "kittwm-doctor-display:".len() + "hidpi=true:cell=16x32".len()
+        );
     }
 
     #[test]
