@@ -5784,9 +5784,12 @@ fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
         .unwrap_or_else(|| "-".to_string());
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-session-backdrop:kind={kind_label}:schema={schema}:layout={layout_label}:focus={focus_label}:panes={}",
-                panes.len()
+            label: Some(session_backdrop_label(
+                &kind_label,
+                &schema,
+                &layout_label,
+                &focus_label,
+                panes.len(),
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -5869,6 +5872,35 @@ fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn session_backdrop_label(
+    kind_label: &str,
+    schema: &str,
+    layout_label: &str,
+    focus_label: &str,
+    pane_count: usize,
+) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-session-backdrop:kind=:schema=:layout=:focus=:panes="
+            .len()
+            .saturating_add(kind_label.len())
+            .saturating_add(schema.len())
+            .saturating_add(layout_label.len())
+            .saturating_add(focus_label.len())
+            .saturating_add(20),
+    );
+    label.push_str("kittwm-session-backdrop:kind=");
+    label.push_str(kind_label);
+    label.push_str(":schema=");
+    label.push_str(schema);
+    label.push_str(":layout=");
+    label.push_str(layout_label);
+    label.push_str(":focus=");
+    label.push_str(focus_label);
+    label.push_str(":panes=");
+    let _ = write!(label, "{pane_count}");
+    label
 }
 
 fn session_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -8633,6 +8665,14 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn session_backdrop_label_builds_directly() {
+        assert_eq!(
+            session_backdrop_label("kittwm-native-session", "1", "rows", "native-2", 2),
+            "kittwm-session-backdrop:kind=kittwm-native-session:schema=1:layout=rows:focus=native-2:panes=2"
+        );
     }
 
     #[test]
