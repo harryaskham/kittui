@@ -1168,9 +1168,10 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
         .count();
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-help-topic-backdrop:{topic_label}:lines={}:commands={command_count}",
-                content_lines.len()
+            label: Some(help_topic_backdrop_label(
+                &topic_label,
+                content_lines.len(),
+                command_count,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -1233,6 +1234,19 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn help_topic_backdrop_label(topic_label: &str, line_count: usize, command_count: usize) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-help-topic-backdrop::lines=:commands=".len() + topic_label.len() + 20 + 20,
+    );
+    label.push_str("kittwm-help-topic-backdrop:");
+    label.push_str(topic_label);
+    label.push_str(":lines=");
+    let _ = write!(label, "{line_count}");
+    label.push_str(":commands=");
+    let _ = write!(label, "{command_count}");
+    label
 }
 
 fn help_topic_scene_rows(line_count: usize) -> u16 {
@@ -8395,6 +8409,16 @@ mod tests {
                 .iter()
                 .any(|label| label.contains("kittwm-chrome-row:7:gap_rows=2")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn help_topic_backdrop_label_builds_directly() {
+        let label = help_topic_backdrop_label("panes", 9, 4);
+        assert_eq!(label, "kittwm-help-topic-backdrop:panes:lines=9:commands=4");
+        assert_eq!(
+            label.capacity(),
+            "kittwm-help-topic-backdrop::lines=:commands=".len() + "panes".len() + 40
         );
     }
 
