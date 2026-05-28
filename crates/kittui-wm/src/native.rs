@@ -4392,7 +4392,7 @@ fn browser_actions_for_role(role: &str) -> Vec<ComponentAction> {
 }
 
 fn browser_viewport_pixels(cols: u16, rows: u16) -> (u32, u32) {
-    (u32::from(cols) * 8, u32::from(rows) * 16)
+    (u32::from(cols.max(1)) * 8, u32::from(rows.max(1)) * 16)
 }
 
 fn browser_surface_metadata(pid: u32, title: String, width: u32, height: u32) -> SurfaceMetadata {
@@ -7010,6 +7010,7 @@ mod tests {
 
     #[test]
     fn browser_viewport_pixels_match_kittwm_cell_contract() {
+        assert_eq!(browser_viewport_pixels(0, 0), (8, 16));
         assert_eq!(browser_viewport_pixels(1, 1), (8, 16));
         assert_eq!(browser_viewport_pixels(80, 24), (640, 384));
         assert_eq!(
