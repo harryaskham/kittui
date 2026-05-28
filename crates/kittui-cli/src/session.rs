@@ -1500,6 +1500,7 @@ impl NativeTerminalApp {
             BrowserSocketKey::Home => app.send_home()?,
             BrowserSocketKey::End => app.send_end()?,
             BrowserSocketKey::Arrow(direction) => app.send_arrow_key(direction)?,
+            BrowserSocketKey::CtrlArrow(direction) => app.send_ctrl_arrow_key(direction)?,
             BrowserSocketKey::Page(direction) => app.send_page_key(direction)?,
             BrowserSocketKey::Function(key) => app.send_function_key(key)?,
         }
@@ -1577,6 +1578,7 @@ enum BrowserSocketKey {
     Home,
     End,
     Arrow(BrowserArrowKey),
+    CtrlArrow(BrowserArrowKey),
     Page(BrowserPageKey),
     Function(BrowserFunctionKey),
 }
@@ -1596,6 +1598,12 @@ fn browser_key_label(label: &str) -> Option<BrowserSocketKey> {
         "right" | "arrow-right" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Right)),
         "up" | "arrow-up" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Up)),
         "down" | "arrow-down" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Down)),
+        "ctrl-left" | "ctrl-arrow-left" => Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Left)),
+        "ctrl-right" | "ctrl-arrow-right" => {
+            Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Right))
+        }
+        "ctrl-up" | "ctrl-arrow-up" => Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Up)),
+        "ctrl-down" | "ctrl-arrow-down" => Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Down)),
         "pageup" | "page-up" => Some(BrowserSocketKey::Page(BrowserPageKey::Up)),
         "pagedown" | "page-down" => Some(BrowserSocketKey::Page(BrowserPageKey::Down)),
         "f5" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F5)),
@@ -6674,6 +6682,14 @@ mod native_pane_tests {
         assert_eq!(
             browser_key_label("page-down"),
             Some(BrowserSocketKey::Page(BrowserPageKey::Down))
+        );
+        assert_eq!(
+            browser_key_label("ctrl-left"),
+            Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Left))
+        );
+        assert_eq!(
+            browser_key_label("ctrl-arrow-up"),
+            Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Up))
         );
         assert_eq!(browser_key_label("return"), Some(BrowserSocketKey::Enter));
         assert_eq!(
