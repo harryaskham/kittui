@@ -1055,7 +1055,14 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         for (idx, pane) in panes.iter_mut().enumerate() {
             let layout = layouts[idx];
             let frame_start = Instant::now();
-            let surface_frame = NativeSurface::capture_surface(&mut pane.app)?;
+            let surface_frame = match NativeSurface::capture_surface(&mut pane.app) {
+                Ok(surface_frame) => surface_frame,
+                Err(err) => {
+                    pane.dirty_frame = None;
+                    dbg.log(&native_capture_failure_log_line(&pane.window, layout, &err));
+                    continue;
+                }
+            };
             match surface_frame.frame {
                 NativeFrame::Rgba {
                     width,
@@ -3194,6 +3201,18 @@ fn native_app_frame_footprint(layout: NativePaneLayout) -> CellRect {
 
 fn native_status_outer_rows(layout: NativePaneLayout) -> u16 {
     layout.rows
+}
+
+fn native_capture_failure_log_line(
+    window: &str,
+    layout: NativePaneLayout,
+    err: &dyn std::fmt::Display,
+) -> String {
+    let err = bounded_ellipsis(&err.to_string(), 160);
+    format!(
+        "native pane capture failed: window={window} app={}x{} layout={}x{}+{},{} err={err}",
+        layout.app_cols, layout.app_rows, layout.cols, layout.rows, layout.x, layout.y
+    )
 }
 
 fn native_resize_failure_log_line(
@@ -8446,6 +8465,26 @@ mod native_pane_tests {
             native_status_outer_rows(layout),
             layout.app_rows.saturating_add(1)
         );
+    }
+
+    #[test]
+    fn native_capture_failure_log_includes_window_canvas_and_bounded_error() {
+        let layout = NativePaneLayout {
+            x: 2,
+            y: 3,
+            cols: 40,
+            rows: 12,
+            app_x: 3,
+            app_y: 4,
+            app_cols: 38,
+            app_rows: 10,
+        };
+        let line = native_capture_failure_log_line("native-2", layout, &"boom".repeat(100));
+        assert!(line.contains("window=native-2"), "{line}");
+        assert!(line.contains("app=38x10"), "{line}");
+        assert!(line.contains("layout=40x12+2,3"), "{line}");
+        assert!(line.contains("err=boom"), "{line}");
+        assert!(!line.contains(&"boom".repeat(80)), "{line}");
     }
 
     #[test]
