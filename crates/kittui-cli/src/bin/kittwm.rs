@@ -5160,8 +5160,10 @@ fn info_scene(
             },
         },
         Layer {
-            label: Some(format!(
-                "kittwm-info-heading:socket={socket_label}:focus={focus_label}:layout={layout_label}"
+            label: Some(info_heading_label(
+                &socket_label,
+                &focus_label,
+                &layout_label,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
@@ -5237,6 +5239,23 @@ fn info_scene(
         layers,
         animation: None,
     }
+}
+
+fn info_heading_label(socket_label: &str, focus_label: &str, layout_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-info-heading:socket=:focus=:layout="
+            .len()
+            .saturating_add(socket_label.len())
+            .saturating_add(focus_label.len())
+            .saturating_add(layout_label.len()),
+    );
+    label.push_str("kittwm-info-heading:socket=");
+    label.push_str(socket_label);
+    label.push_str(":focus=");
+    label.push_str(focus_label);
+    label.push_str(":layout=");
+    label.push_str(layout_label);
+    label
 }
 
 fn info_backdrop_label(workspace_label: &str, pane_count: u64) -> String {
@@ -10583,6 +10602,14 @@ mod tests {
         std::env::set_var("KITTWM_INFO_COLS", "200");
         assert_eq!(info_scene_cols(), 140);
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn info_heading_label_builds_directly() {
+        assert_eq!(
+            info_heading_label("/tmp/kittwm.sock", "native-2", "columns"),
+            "kittwm-info-heading:socket=/tmp/kittwm.sock:focus=native-2:layout=columns"
+        );
     }
 
     #[test]
