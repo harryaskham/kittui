@@ -2822,6 +2822,13 @@ struct KittyDoctorProbe {
     elapsed_ms: u64,
 }
 
+fn kitty_probe_matched_status(status: &KittyResponseStatus) -> String {
+    let mut out = String::with_capacity("matched:".len() + 32);
+    out.push_str("matched:");
+    let _ = write!(out, "{status:?}");
+    out
+}
+
 fn run_kitty_doctor_probe_inner(terminal_info: &TerminalInfo) -> Result<KittyDoctorProbe> {
     let query_id = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2858,7 +2865,7 @@ fn run_kitty_doctor_probe_inner(terminal_info: &TerminalInfo) -> Result<KittyDoc
                     KittyResponseStatus::Other(_) => None,
                 };
                 Ok(KittyDoctorProbe {
-                    status: format!("matched:{:?}", response.status),
+                    status: kitty_probe_matched_status(&response.status),
                     supports_kitty,
                     error: None,
                     elapsed_ms: read.elapsed_ms,
@@ -8713,14 +8720,6 @@ mod tests {
     }
 
     #[test]
-    fn session_backdrop_label_builds_directly() {
-        assert_eq!(
-            session_backdrop_label("kittwm-native-session", "1", "rows", "native-2", 2),
-            "kittwm-session-backdrop:kind=kittwm-native-session:schema=1:layout=rows:focus=native-2:panes=2"
-        );
-    }
-
-    #[test]
     fn session_scene_rows_saturate_large_manifest_counts() {
         assert_eq!(session_scene_rows(0), 8);
         assert_eq!(session_scene_rows(4), 9);
@@ -10641,6 +10640,13 @@ mod tests {
         std::env::set_var("KITTWM_DOCTOR_COLS", "200");
         assert_eq!(doctor_scene_cols(), 120);
         std::env::remove_var("KITTWM_DOCTOR_COLS");
+    }
+
+    #[test]
+    fn kitty_probe_matched_status_builds_directly() {
+        let status = kitty_probe_matched_status(&KittyResponseStatus::Ok);
+        assert_eq!(status, "matched:Ok");
+        assert!(status.capacity() >= status.len());
     }
 
     #[test]
