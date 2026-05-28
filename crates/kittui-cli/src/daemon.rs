@@ -1720,6 +1720,14 @@ fn native_key_bytes(key: &str) -> Option<Vec<u8>> {
         "end" => b"\x1b[F",
         "pageup" | "page-up" => b"\x1b[5~",
         "pagedown" | "page-down" => b"\x1b[6~",
+        "f5" => b"\x1b[15~",
+        "f6" => b"\x1b[17~",
+        "f7" => b"\x1b[18~",
+        "f8" => b"\x1b[19~",
+        "f9" => b"\x1b[20~",
+        "f10" => b"\x1b[21~",
+        "f11" => b"\x1b[23~",
+        "f12" => b"\x1b[24~",
         _ => return native_ctrl_key_bytes(&normalized),
     };
     Some(bytes.to_vec())
@@ -3131,6 +3139,8 @@ mod tests {
             native_spawn_queue_reply("SEND_KEY native-2 page-down", &pending)
                 .starts_with("SEND_KEY_QUEUED")
         );
+        assert!(native_spawn_queue_reply("SEND_KEY native-2 f12", &pending)
+            .starts_with("SEND_KEY_QUEUED"));
         assert!(
             native_spawn_queue_reply("SEND_MOUSE focused press-left 7 9", &pending)
                 .starts_with("SEND_MOUSE_QUEUED")
@@ -3215,6 +3225,11 @@ mod tests {
                     window: "native-2".to_string(),
                     bytes: b"\x1b[6~".to_vec(),
                     label: "page-down".to_string(),
+                },
+                NativePaneCommand::SendBytes {
+                    window: "native-2".to_string(),
+                    bytes: b"\x1b[24~".to_vec(),
+                    label: "f12".to_string(),
                 },
                 NativePaneCommand::SendMouse {
                     window: "focused".to_string(),

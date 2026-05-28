@@ -34,8 +34,9 @@ use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
 use kittui_wm::native::{
-    GhosttyTerminalApp, HeadlessBrowserApp, MouseReportingModes, NativeFrame, NativeSurface,
-    PtyTerminalApp, SurfaceFrame, SurfaceMetadata, SurfacePointerButton, SurfacePointerEvent,
+    BrowserArrowKey, BrowserFunctionKey, BrowserPageKey, GhosttyTerminalApp, HeadlessBrowserApp,
+    MouseReportingModes, NativeFrame, NativeSurface, PtyTerminalApp, SurfaceFrame, SurfaceMetadata,
+    SurfacePointerButton, SurfacePointerEvent,
 };
 use kittui_xvfb::XServer;
 use kittwm_sdk::{ArchitectureContract, KittwmConfig, LibghosttyConfig, SurfacePlacementRole};
@@ -811,11 +812,17 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     label,
                 } => {
                     if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
-                        panes[idx].app.send_bytes(&bytes)?;
-                        dbg.log(&format!(
-                            "native terminal socket send key: {window} key={label} bytes={}",
-                            bytes.len()
-                        ));
+                        if panes[idx].app.send_browser_key_label(&label)? {
+                            dbg.log(&format!(
+                                "native terminal socket send browser key: {window} key={label}"
+                            ));
+                        } else {
+                            panes[idx].app.send_bytes(&bytes)?;
+                            dbg.log(&format!(
+                                "native terminal socket send key: {window} key={label} bytes={}",
+                                bytes.len()
+                            ));
+                        }
                     }
                 }
                 crate::daemon::NativePaneCommand::PasteBytes { window, bytes } => {
@@ -1463,6 +1470,29 @@ impl NativeTerminalApp {
             Self::Browser(app) => NativeSurface::send_surface_bytes(app, bytes),
         }
     }
+
+    fn send_browser_key_label(&mut self, label: &str) -> Result<bool> {
+        let Self::Browser(app) = self else {
+            return Ok(false);
+        };
+        let Some(key) = browser_key_label(label) else {
+            return Ok(false);
+        };
+        match key {
+            BrowserSocketKey::Backspace => app.send_backspace()?,
+            BrowserSocketKey::Tab => app.send_tab()?,
+            BrowserSocketKey::Enter => app.send_enter()?,
+            BrowserSocketKey::Escape => app.send_escape()?,
+            BrowserSocketKey::Insert => app.send_insert()?,
+            BrowserSocketKey::Delete => app.send_delete()?,
+            BrowserSocketKey::Home => app.send_home()?,
+            BrowserSocketKey::End => app.send_end()?,
+            BrowserSocketKey::Arrow(direction) => app.send_arrow_key(direction)?,
+            BrowserSocketKey::Page(direction) => app.send_page_key(direction)?,
+            BrowserSocketKey::Function(key) => app.send_function_key(key)?,
+        }
+        Ok(true)
+    }
 }
 
 impl NativeSurface for NativeTerminalApp {
@@ -1520,6 +1550,49 @@ impl NativeSurface for NativeTerminalApp {
             Self::Ghostty(app) => app.send_surface_pointer(event),
             Self::Browser(app) => app.send_surface_pointer(event),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BrowserSocketKey {
+    Backspace,
+    Tab,
+    Enter,
+    Escape,
+    Insert,
+    Delete,
+    Home,
+    End,
+    Arrow(BrowserArrowKey),
+    Page(BrowserPageKey),
+    Function(BrowserFunctionKey),
+}
+
+fn browser_key_label(label: &str) -> Option<BrowserSocketKey> {
+    match label.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+        "backspace" | "bs" => Some(BrowserSocketKey::Backspace),
+        "tab" => Some(BrowserSocketKey::Tab),
+        "enter" | "return" => Some(BrowserSocketKey::Enter),
+        "escape" | "esc" => Some(BrowserSocketKey::Escape),
+        "insert" | "ins" => Some(BrowserSocketKey::Insert),
+        "delete" | "del" => Some(BrowserSocketKey::Delete),
+        "home" => Some(BrowserSocketKey::Home),
+        "end" => Some(BrowserSocketKey::End),
+        "left" | "arrow-left" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Left)),
+        "right" | "arrow-right" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Right)),
+        "up" | "arrow-up" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Up)),
+        "down" | "arrow-down" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Down)),
+        "pageup" | "page-up" => Some(BrowserSocketKey::Page(BrowserPageKey::Up)),
+        "pagedown" | "page-down" => Some(BrowserSocketKey::Page(BrowserPageKey::Down)),
+        "f5" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F5)),
+        "f6" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F6)),
+        "f7" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F7)),
+        "f8" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F8)),
+        "f9" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F9)),
+        "f10" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F10)),
+        "f11" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F11)),
+        "f12" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F12)),
+        _ => None,
     }
 }
 
@@ -6518,6 +6591,24 @@ mod native_pane_tests {
             .unwrap(),
             b"\x1b[<64;7;9M".to_vec()
         );
+    }
+
+    #[test]
+    fn browser_key_labels_cover_socket_send_key_names() {
+        assert_eq!(
+            browser_key_label("arrow-left"),
+            Some(BrowserSocketKey::Arrow(BrowserArrowKey::Left))
+        );
+        assert_eq!(
+            browser_key_label("page-down"),
+            Some(BrowserSocketKey::Page(BrowserPageKey::Down))
+        );
+        assert_eq!(browser_key_label("return"), Some(BrowserSocketKey::Enter));
+        assert_eq!(
+            browser_key_label("f12"),
+            Some(BrowserSocketKey::Function(BrowserFunctionKey::F12))
+        );
+        assert_eq!(browser_key_label("ctrl-c"), None);
     }
 
     #[test]
