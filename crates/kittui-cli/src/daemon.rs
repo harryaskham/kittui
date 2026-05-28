@@ -12,6 +12,7 @@ use kittwm_sdk::{
     SemanticComponentId, SemanticSurfaceSnapshot,
 };
 use std::collections::{HashMap, VecDeque};
+use std::fmt::Write as FmtWrite;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -1042,17 +1043,23 @@ fn native_spawn_help_reply() -> String {
 }
 
 fn native_spawn_help_json_reply() -> String {
-    let commands = native_spawn_help_entries()
-        .into_iter()
-        .map(|(command, category, description)| {
-            serde_json::json!({
-                "command": command,
-                "category": category,
-                "description": description,
-            })
-        })
-        .collect::<Vec<_>>();
-    format!("{}\n", serde_json::json!({ "commands": commands }))
+    let entries = native_spawn_help_entries();
+    let mut out = String::with_capacity(entries.len().saturating_mul(96));
+    out.push_str("{\"commands\":[");
+    for (idx, (command, category, description)) in entries.into_iter().enumerate() {
+        if idx > 0 {
+            out.push(',');
+        }
+        let _ = write!(
+            out,
+            "{{\"command\":{},\"category\":{},\"description\":{}}}",
+            serde_json::to_string(command).unwrap(),
+            serde_json::to_string(category).unwrap(),
+            serde_json::to_string(description).unwrap()
+        );
+    }
+    out.push_str("]}\n");
+    out
 }
 
 fn publish_native_surface_events(
