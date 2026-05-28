@@ -5213,9 +5213,7 @@ fn info_scene(
             let title_label = truncate(title, 48);
             let y = (idx as f32 + 3.0) * cell.height_px as f32;
             layers.push(Layer {
-                label: Some(format!(
-                    "kittwm-info-pane:{window_label}:focused={focused}:title={title_label}"
-                )),
+                label: Some(info_pane_label(&window_label, focused, &title_label)),
                 root: Node::Rect {
                     rect: info_indicator_rect(width, y),
                     fill: Paint::Solid {
@@ -5253,6 +5251,23 @@ fn info_heading_label(socket_label: &str, focus_label: &str, layout_label: &str)
     label.push_str(focus_label);
     label.push_str(":layout=");
     label.push_str(layout_label);
+    label
+}
+
+fn info_pane_label(window_label: &str, focused: bool, title_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-info-pane::focused=:title="
+            .len()
+            .saturating_add(window_label.len())
+            .saturating_add(title_label.len())
+            .saturating_add(5),
+    );
+    label.push_str("kittwm-info-pane:");
+    label.push_str(window_label);
+    label.push_str(":focused=");
+    let _ = write!(label, "{focused}");
+    label.push_str(":title=");
+    label.push_str(title_label);
     label
 }
 
@@ -10610,6 +10625,14 @@ mod tests {
         std::env::set_var("KITTWM_INFO_COLS", "200");
         assert_eq!(info_scene_cols(), 140);
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn info_pane_label_builds_directly() {
+        assert_eq!(
+            info_pane_label("native-2", true, "editor"),
+            "kittwm-info-pane:native-2:focused=true:title=editor"
+        );
     }
 
     #[test]
