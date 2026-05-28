@@ -4050,14 +4050,14 @@ fn commands_json_text() -> String {
             })
         })
         .collect();
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "schema_version": 1,
-            "kind": "kittwm-local-commands",
-            "commands": commands,
-        })
-    )
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "kind": "kittwm-local-commands",
+        "commands": commands,
+    });
+    let mut out = value.to_string();
+    out.push('\n');
+    out
 }
 
 fn commands_cmd() -> Result<()> {
@@ -8675,7 +8675,11 @@ mod tests {
         assert!(text.contains("focus WINDOW"), "{text}");
         assert!(text.contains("doctor"), "{text}");
 
-        let json: serde_json::Value = serde_json::from_str(&commands_json_text()).unwrap();
+        let json_text = commands_json_text();
+        assert!(json_text.ends_with('\n'));
+        assert_eq!(json_text.matches('\n').count(), 1);
+        assert!(json_text.capacity() >= json_text.len());
+        let json: serde_json::Value = serde_json::from_str(&json_text).unwrap();
         assert_eq!(json["kind"], "kittwm-local-commands");
         assert!(json["commands"]
             .as_array()
