@@ -5144,9 +5144,7 @@ fn info_scene(
     let layout_label = truncate(layout, 32);
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-info-backdrop:workspace={workspace_label}:panes={pane_count}"
-            )),
+            label: Some(info_backdrop_label(&workspace_label, pane_count)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
                 fill: Paint::Solid {
@@ -5239,6 +5237,20 @@ fn info_scene(
         layers,
         animation: None,
     }
+}
+
+fn info_backdrop_label(workspace_label: &str, pane_count: u64) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-info-backdrop:workspace=:panes="
+            .len()
+            .saturating_add(workspace_label.len())
+            .saturating_add(20),
+    );
+    label.push_str("kittwm-info-backdrop:workspace=");
+    label.push_str(workspace_label);
+    label.push_str(":panes=");
+    let _ = write!(label, "{pane_count}");
+    label
 }
 
 fn info_scene_rows(pane_count: u64) -> u16 {
@@ -10571,6 +10583,14 @@ mod tests {
         std::env::set_var("KITTWM_INFO_COLS", "200");
         assert_eq!(info_scene_cols(), 140);
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn info_backdrop_label_builds_directly() {
+        assert_eq!(
+            info_backdrop_label("dev", 2),
+            "kittwm-info-backdrop:workspace=dev:panes=2"
+        );
     }
 
     #[test]
