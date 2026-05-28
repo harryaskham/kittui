@@ -5435,16 +5435,6 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
     let workspace_label = truncate(&workspace, 32);
     let owner_label = truncate(owner, 32);
     let tilable_rows_label = truncate(&tilable_rows, 32);
-    let rows_data = [
-        format!("workspace={workspace_label}"),
-        format!("owner={owner_label}"),
-        format!("top_bar_rows={top}"),
-        format!("bottom_bar_rows={bottom}"),
-        format!("left_cols={left}"),
-        format!("right_cols={right}"),
-        format!("gap_cols={gap_cols}"),
-        format!("gap_rows={gap_rows}"),
-    ];
     let mut layers = vec![
         Layer {
             label: Some(format!(
@@ -5481,10 +5471,20 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
             },
         },
     ];
-    for (idx, row) in rows_data.iter().enumerate() {
+    for idx in 0..8 {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         layers.push(Layer {
-            label: Some(format!("kittwm-chrome-row:{idx}:{row}")),
+            label: Some(chrome_scene_row_label(
+                idx,
+                &workspace_label,
+                &owner_label,
+                top,
+                bottom,
+                left,
+                right,
+                gap_cols,
+                gap_rows,
+            )),
             root: Node::Rect {
                 rect: chrome_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -5501,6 +5501,51 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn chrome_scene_row_label(
+    idx: usize,
+    workspace: &str,
+    owner: &str,
+    top: u64,
+    bottom: u64,
+    left: u64,
+    right: u64,
+    gap_cols: u64,
+    gap_rows: u64,
+) -> String {
+    let mut out = String::with_capacity(44);
+    let _ = write!(out, "kittwm-chrome-row:{idx}:");
+    match idx {
+        0 => {
+            out.push_str("workspace=");
+            out.push_str(workspace);
+        }
+        1 => {
+            out.push_str("owner=");
+            out.push_str(owner);
+        }
+        2 => {
+            let _ = write!(out, "top_bar_rows={top}");
+        }
+        3 => {
+            let _ = write!(out, "bottom_bar_rows={bottom}");
+        }
+        4 => {
+            let _ = write!(out, "left_cols={left}");
+        }
+        5 => {
+            let _ = write!(out, "right_cols={right}");
+        }
+        6 => {
+            let _ = write!(out, "gap_cols={gap_cols}");
+        }
+        7 => {
+            let _ = write!(out, "gap_rows={gap_rows}");
+        }
+        _ => out.push_str("unknown=-"),
+    }
+    out
 }
 
 fn chrome_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
