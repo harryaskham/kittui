@@ -438,6 +438,13 @@ fn terminal_events_heading_label(model: &TerminalEventsModel) -> String {
     label
 }
 
+fn terminal_events_kinds_label(summary: &str) -> String {
+    let mut label = String::with_capacity("kittwm-terminal-events-kinds:".len() + summary.len());
+    label.push_str("kittwm-terminal-events-kinds:");
+    label.push_str(summary);
+    label
+}
+
 fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Scene {
     let rows = 5;
     let cell = CellSize::default();
@@ -482,7 +489,7 @@ fn terminal_events_scene_for_cols(model: &TerminalEventsModel, cols: u16) -> Sce
                 },
             },
             Layer {
-                label: Some(format!("kittwm-terminal-events-kinds:{summary}")),
+                label: Some(terminal_events_kinds_label(&summary)),
                 root: Node::Rect {
                     rect: content_rect,
                     fill: Paint::Solid {
@@ -853,6 +860,14 @@ mod tests {
         assert_eq!(
             terminal_events_heading_label(&model),
             "kittwm-terminal-events-heading:count=2 ms=250"
+        );
+    }
+
+    #[test]
+    fn terminal_events_kinds_label_builds_directly() {
+        assert_eq!(
+            terminal_events_kinds_label("status,pane_opened"),
+            "kittwm-terminal-events-kinds:status,pane_opened"
         );
     }
 
