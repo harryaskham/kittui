@@ -3726,10 +3726,13 @@ fn native_pane_title_push(out: &mut String, count: &mut usize, width: usize, tex
 }
 
 fn ansi_fg_bg(fg: Rgba, bg: Rgba) -> String {
-    format!(
+    let mut out = String::with_capacity(38);
+    let _ = write!(
+        out,
         "\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m",
         fg.0, fg.1, fg.2, bg.0, bg.1, bg.2
-    )
+    );
+    out
 }
 
 fn native_initial_frame_requires_explicit_clear() -> bool {
@@ -6915,6 +6918,7 @@ mod native_pane_tests {
             highlight: Rgba::rgba(0, 0, 0, 0),
         };
         let (top, focused, unfocused) = native_terminal_chrome_styles(colors);
+        assert!(top.capacity() >= 38);
         assert_eq!(top, "\x1b[38;2;1;2;3m\x1b[48;2;4;5;6m");
         assert_eq!(focused, "\x1b[38;2;1;2;3m\x1b[48;2;7;8;9m");
         assert_eq!(unfocused, "\x1b[38;2;1;2;3m\x1b[48;2;4;5;6m");
