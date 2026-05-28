@@ -664,6 +664,11 @@ impl SurfaceSpec {
         }
     }
 
+    /// Build a process-viewer surface spec using the first-party `kittwm-top` app.
+    pub fn top() -> Self {
+        Self::terminal("kittwm-top")
+    }
+
     /// Return the concrete command used by the current v0 native socket
     /// transport for this typed surface. Browser specs still use a
     /// `kittwm-browser` command string, and live kittwm recognizes that command
@@ -2185,6 +2190,59 @@ pub struct NativePaneDetail {
     pub transport: Option<Value>,
 }
 
+/// Process information for one kittwm-owned pane.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KittwmProcessInfo {
+    /// Pane/window id that owns this process, when known.
+    pub window: String,
+    /// Pane title.
+    pub title: String,
+    /// Whether this pane is focused.
+    pub focused: bool,
+    /// Process id, if reported by the session.
+    #[serde(default)]
+    pub pid: Option<u32>,
+    /// Parent process id, when available from the host.
+    #[serde(default)]
+    pub ppid: Option<u32>,
+    /// Spawned pane command, when reported by the session.
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Host process state/stat string, when available.
+    #[serde(default)]
+    pub state: Option<String>,
+    /// Resident set size in KiB, when available.
+    #[serde(default)]
+    pub rss_kib: Option<u64>,
+    /// CPU percentage from the host process table, when available.
+    #[serde(default)]
+    pub cpu_percent: Option<f32>,
+    /// Host command name, when available.
+    #[serde(default)]
+    pub process_name: Option<String>,
+}
+
+/// Process snapshot for the current kittwm session.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KittwmProcessSnapshot {
+    /// Socket path used for the snapshot.
+    pub socket: PathBuf,
+    /// Pane/process entries.
+    pub processes: Vec<KittwmProcessInfo>,
+}
+
+impl KittwmProcessSnapshot {
+    /// Number of process entries.
+    pub fn len(&self) -> usize {
+        self.processes.len()
+    }
+
+    /// Whether the snapshot contains no process entries.
+    pub fn is_empty(&self) -> bool {
+        self.processes.is_empty()
+    }
+}
+
 impl NativePaneDetail {
     /// Outer pane bounds as `(x, y, cols, rows)` when geometry is available.
     pub fn bounds(&self) -> Option<(u16, u16, u16, u16)> {
@@ -2616,6 +2674,71 @@ pub struct WindowSpec {
     pub command: String,
 }
 
+fn process_snapshot_from_panes(
+    socket: PathBuf,
+    panes: &[NativePaneDetail],
+) -> KittwmProcessSnapshot {
+    let processes = panes
+        .iter()
+        .map(|pane| {
+            let host = pane.pid.and_then(read_host_process_info);
+            KittwmProcessInfo {
+                window: pane.window.clone(),
+                title: pane.title.clone(),
+                focused: pane.focused,
+                pid: pane.pid,
+                ppid: host.as_ref().and_then(|info| info.ppid),
+                command: pane.command.clone(),
+                state: host.as_ref().and_then(|info| info.state.clone()),
+                rss_kib: host.as_ref().and_then(|info| info.rss_kib),
+                cpu_percent: host.as_ref().and_then(|info| info.cpu_percent),
+                process_name: host.and_then(|info| info.process_name),
+            }
+        })
+        .collect();
+    KittwmProcessSnapshot { socket, processes }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct HostProcessInfo {
+    ppid: Option<u32>,
+    state: Option<String>,
+    rss_kib: Option<u64>,
+    cpu_percent: Option<f32>,
+    process_name: Option<String>,
+}
+
+fn read_host_process_info(pid: u32) -> Option<HostProcessInfo> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "ppid=,stat=,rss=,pcpu=,comm=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_ps_process_line(std::str::from_utf8(&output.stdout).ok()?)
+}
+
+fn parse_ps_process_line(output: &str) -> Option<HostProcessInfo> {
+    let line = output.lines().find(|line| !line.trim().is_empty())?;
+    let mut parts = line.split_whitespace();
+    let ppid = parts.next().and_then(|value| value.parse().ok());
+    let state = parts.next().map(str::to_string);
+    let rss_kib = parts.next().and_then(|value| value.parse().ok());
+    let cpu_percent = parts.next().and_then(|value| value.parse().ok());
+    let process_name = {
+        let rest = parts.collect::<Vec<_>>().join(" ");
+        (!rest.is_empty()).then_some(rest)
+    };
+    Some(HostProcessInfo {
+        ppid,
+        state,
+        rss_kib,
+        cpu_percent,
+        process_name,
+    })
+}
+
 impl Kittwm {
     /// Connect using `KITTWM_SOCKET` / `KITTWM_SOCK` / DISPLAY-like env vars.
     pub fn connect_from_env() -> Result<Self> {
@@ -2693,6 +2816,20 @@ impl Kittwm {
     /// Fetch typed native pane details from `PANES_JSON`.
     pub fn panes(&self) -> Result<PanesStatus> {
         Ok(serde_json::from_str(&self.request_protocol("PANES_JSON")?)?)
+    }
+
+    /// Fetch process information for panes in the current kittwm session.
+    pub fn processes(&self) -> Result<KittwmProcessSnapshot> {
+        let panes = self.panes()?;
+        Ok(process_snapshot_from_panes(
+            self.socket.clone(),
+            &panes.panes_detail,
+        ))
+    }
+
+    /// Fetch process information for panes in the current kittwm session.
+    pub fn process_snapshot(&self) -> Result<KittwmProcessSnapshot> {
+        self.processes()
     }
 
     /// Fetch typed native chrome/workspace reservation metadata from `CHROME_JSON`.
@@ -3916,10 +4053,22 @@ mod tests {
                 title: Some("web".to_string())
             }
         );
+        assert_eq!(
+            SurfaceSpec::top().titled("top"),
+            SurfaceSpec {
+                kind: SurfaceKind::Terminal,
+                command: "kittwm-top".to_string(),
+                title: Some("top".to_string())
+            }
+        );
     }
 
     #[test]
     fn surface_spec_exposes_native_pty_command_for_dry_runs() {
+        assert_eq!(
+            SurfaceSpec::top().native_pty_command().unwrap(),
+            "kittwm-top"
+        );
         assert_eq!(
             SurfaceSpec::terminal(" htop ")
                 .native_pty_command()
@@ -5667,5 +5816,46 @@ mod tests {
                 "WAIT_OUTPUT_JSON native-1 done json"
             ]
         );
+    }
+    #[test]
+    fn process_snapshot_maps_panes_and_ps_lines() {
+        let parsed = parse_ps_process_line(" 12 S 4096 3.5 zsh -l\n").unwrap();
+        assert_eq!(parsed.ppid, Some(12));
+        assert_eq!(parsed.state.as_deref(), Some("S"));
+        assert_eq!(parsed.rss_kib, Some(4096));
+        assert_eq!(parsed.cpu_percent, Some(3.5));
+        assert_eq!(parsed.process_name.as_deref(), Some("zsh -l"));
+
+        let panes = vec![NativePaneDetail {
+            window: "native-1".to_string(),
+            title: "shell".to_string(),
+            focused: true,
+            weight: 1,
+            pid: Some(999999),
+            command: Some("zsh".to_string()),
+            x: None,
+            y: None,
+            cols: None,
+            rows: None,
+            app_x: None,
+            app_y: None,
+            app_cols: None,
+            app_rows: None,
+            cursor_col: None,
+            cursor_row: None,
+            cursor_visible: None,
+            bracketed_paste: None,
+            application_cursor_keys: None,
+            mouse_reporting: None,
+            mouse_button_motion: None,
+            mouse_all_motion: None,
+            mouse_sgr: None,
+            dirty_frame: None,
+            transport: None,
+        }];
+        let snapshot = process_snapshot_from_panes(PathBuf::from("/tmp/kittwm.sock"), &panes);
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot.processes[0].window, "native-1");
+        assert_eq!(snapshot.processes[0].command.as_deref(), Some("zsh"));
     }
 }
