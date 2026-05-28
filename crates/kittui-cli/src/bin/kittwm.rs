@@ -4204,11 +4204,10 @@ fn commands_scene_rows(entry_count: usize) -> u16 {
 }
 
 fn architecture_contract_json_text() -> String {
-    format!(
-        "{}\n",
-        serde_json::to_string(&kittwm_sdk::ArchitectureContract::current())
-            .expect("architecture contract serializes")
-    )
+    let mut out = serde_json::to_string(&kittwm_sdk::ArchitectureContract::current())
+        .expect("architecture contract serializes");
+    out.push('\n');
+    out
 }
 fn architecture_json_cmd() -> Result<()> {
     print!("{}", architecture_contract_json_text());
@@ -10568,8 +10567,11 @@ mod tests {
 
     #[test]
     fn architecture_contract_names_clean_wm_boundaries() {
-        let json: serde_json::Value =
-            serde_json::from_str(&architecture_contract_json_text()).unwrap();
+        let json_text = architecture_contract_json_text();
+        assert!(json_text.ends_with('\n'));
+        assert_eq!(json_text.matches('\n').count(), 1);
+        assert!(json_text.capacity() >= json_text.len());
+        let json: serde_json::Value = serde_json::from_str(&json_text).unwrap();
         assert_eq!(json["kind"], "kittwm-architecture-contract");
         let layer_ids = json["layers"]
             .as_array()

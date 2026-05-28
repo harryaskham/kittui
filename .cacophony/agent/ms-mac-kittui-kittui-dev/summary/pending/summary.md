@@ -1,36 +1,35 @@
-# Session summary — bd-7017ad direct SDK app launch reply parsing
+# Session summary — bd-512e10 direct kittwm architecture JSON newline
 
 ## Bead
 
-- `bd-7017ad` — `kittwm SDK app launch reply: avoid rest Vec join`
+- `bd-512e10` — `kittwm architecture JSON: append newline directly`
 
 ## Change
 
-- `parse_app_launch_reply` in `crates/kittwm-sdk/src/lib.rs` now writes non-`pid=` APPS_LAUNCH_FIRST fields directly into one `String`.
-- Removed the temporary `Vec` plus `.join(" ")` used before parsing app candidate fields.
-- Preserved APPS_LAUNCH_FIRST parsing with `pid=` in different field positions and candidate names containing spaces.
+- `architecture_contract_json_text` in `crates/kittui-cli/src/bin/kittwm.rs` now serializes the architecture contract JSON and appends the trailing newline directly.
+- Removed the surrounding `format!("{}\n", ...)` wrapper.
+- Extended architecture contract coverage to assert one trailing newline before parsing the JSON.
 
 ## Validation
 
 Passed:
 
-- `cargo test -p kittwm-sdk app_catalog_and_candidate_shapes_decode -- --nocapture`
-- `cargo test -p kittwm-sdk app_discovery_helpers_send_expected_socket_commands -- --nocapture`
-- `CARGO_BUILD_JOBS=1 cargo check -p kittwm-sdk`
+- `nix develop . -c cargo test -p kittui-cli --bin kittwm architecture_contract_names_clean_wm_boundaries -- --nocapture`
+- `nix develop . -c cargo check -p kittui-cli --bin kittwm`
 - `git diff --check`
 
 ## Evidence assessment
 
 Claim:
-- SDK APPS_LAUNCH_FIRST parsing avoids the temporary non-pid field `Vec`/`.join(" ")` allocation while preserving exact app launch reply parsing.
+- `architecture_contract_json_text` no longer uses a wrapper `format!` for the trailing newline and preserves valid architecture contract JSON output.
 
 Artifacts:
-- `file-543deb35553a-1780004440207` — verdict: VALIDATION_ONLY
-  - What it shows: targeted SDK app discovery parser tests and checks passed.
+- `file-e2a0bc0302ed-1780004733813` — verdict: VALIDATION_ONLY
+  - What it shows: targeted tests/checks passed, including architecture contract JSON parse coverage and exactly-one-newline assertion.
   - Where to look: the text artifact lists the validation commands and outcomes.
-  - Why it supports the claim: this bead changes an internal SDK reply parser allocation path; exact parser assertions and code diff are the relevant proof.
+  - Why it supports the claim: this bead changes an internal CLI JSON string construction path; exact output-shape tests and code diff are the relevant proof.
   - Broken/ambiguous output noticed: none.
-  - If VALIDATION_ONLY, why visual proof is not applicable: no kittwm UI/UX surface behavior changed; a screenshot would only show test output and would not prove allocation behavior.
+  - If VALIDATION_ONLY, why visual proof is not applicable: no kittwm UI/UX surface behavior changed; a screenshot would only show command output and would not prove allocation behavior.
 
 Closure decision:
-- PASS: validation-only evidence is appropriate for this internal SDK reply parser cleanup.
+- PASS: validation-only evidence is appropriate for this internal CLI JSON builder cleanup.
