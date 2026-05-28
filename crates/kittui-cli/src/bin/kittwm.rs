@@ -4207,33 +4207,28 @@ fn native_surfaces_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
     }
 }
 
-fn completion_words() -> Vec<String> {
+fn completion_words() -> Vec<&'static str> {
     let mut words = local_command_entries()
         .iter()
         .filter_map(|entry| entry.command.split_whitespace().next())
-        .map(str::to_string)
         .collect::<Vec<_>>();
-    words.extend(
-        [
-            "--help",
-            "--socket",
-            "--display",
-            "--status-json",
-            "--help-json",
-            "--panes",
-            "--panes-json",
-            "--session-json",
-            "--events",
-            "--events-ms",
-            "--shortcuts",
-            "--shortcuts-json",
-            "--read-text-json",
-            "--wait-output-json-ms",
-        ]
-        .into_iter()
-        .map(str::to_string),
-    );
-    words.sort();
+    words.extend([
+        "--help",
+        "--socket",
+        "--display",
+        "--status-json",
+        "--help-json",
+        "--panes",
+        "--panes-json",
+        "--session-json",
+        "--events",
+        "--events-ms",
+        "--shortcuts",
+        "--shortcuts-json",
+        "--read-text-json",
+        "--wait-output-json-ms",
+    ]);
+    words.sort_unstable();
     words.dedup();
     words
 }
