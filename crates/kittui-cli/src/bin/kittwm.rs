@@ -2507,7 +2507,7 @@ fn doctor_scene(
         cell_size: cell,
         layers: vec![
             Layer {
-                label: Some(format!("kittwm-doctor-backdrop:{readiness}")),
+                label: Some(doctor_backdrop_label(readiness)),
                 root: Node::Rect {
                     rect: KittuiPxRect::new(0.0, 0.0, width, height),
                     fill: Paint::Solid {
@@ -2588,6 +2588,13 @@ fn doctor_detail_rect(width: f32, cell: CellSize, row: f32) -> KittuiPxRect {
         available,
         2.0,
     )
+}
+
+fn doctor_backdrop_label(readiness: &str) -> String {
+    let mut label = String::with_capacity("kittwm-doctor-backdrop:".len() + readiness.len());
+    label.push_str("kittwm-doctor-backdrop:");
+    label.push_str(readiness);
+    label
 }
 
 fn doctor_display_tuning_label(
@@ -10064,6 +10071,16 @@ mod tests {
         std::env::set_var("KITTWM_DOCTOR_COLS", "200");
         assert_eq!(doctor_scene_cols(), 120);
         std::env::remove_var("KITTWM_DOCTOR_COLS");
+    }
+
+    #[test]
+    fn doctor_backdrop_label_builds_directly() {
+        let label = doctor_backdrop_label("kitty-ready");
+        assert_eq!(label, "kittwm-doctor-backdrop:kitty-ready");
+        assert_eq!(
+            label.capacity(),
+            "kittwm-doctor-backdrop:".len() + "kitty-ready".len()
+        );
     }
 
     #[test]
