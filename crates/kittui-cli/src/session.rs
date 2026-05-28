@@ -1501,6 +1501,7 @@ impl NativeTerminalApp {
             BrowserSocketKey::End => app.send_end()?,
             BrowserSocketKey::Arrow(direction) => app.send_arrow_key(direction)?,
             BrowserSocketKey::ShiftArrow(direction) => app.send_shift_arrow_key(direction)?,
+            BrowserSocketKey::AltArrow(direction) => app.send_alt_arrow_key(direction)?,
             BrowserSocketKey::CtrlArrow(direction) => app.send_ctrl_arrow_key(direction)?,
             BrowserSocketKey::Page(direction) => app.send_page_key(direction)?,
             BrowserSocketKey::Function(key) => app.send_function_key(key)?,
@@ -1580,6 +1581,7 @@ enum BrowserSocketKey {
     End,
     Arrow(BrowserArrowKey),
     ShiftArrow(BrowserArrowKey),
+    AltArrow(BrowserArrowKey),
     CtrlArrow(BrowserArrowKey),
     Page(BrowserPageKey),
     Function(BrowserFunctionKey),
@@ -1610,6 +1612,10 @@ fn browser_key_label(label: &str) -> Option<BrowserSocketKey> {
         "shift-down" | "shift-arrow-down" => {
             Some(BrowserSocketKey::ShiftArrow(BrowserArrowKey::Down))
         }
+        "alt-left" | "alt-arrow-left" => Some(BrowserSocketKey::AltArrow(BrowserArrowKey::Left)),
+        "alt-right" | "alt-arrow-right" => Some(BrowserSocketKey::AltArrow(BrowserArrowKey::Right)),
+        "alt-up" | "alt-arrow-up" => Some(BrowserSocketKey::AltArrow(BrowserArrowKey::Up)),
+        "alt-down" | "alt-arrow-down" => Some(BrowserSocketKey::AltArrow(BrowserArrowKey::Down)),
         "ctrl-left" | "ctrl-arrow-left" => Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Left)),
         "ctrl-right" | "ctrl-arrow-right" => {
             Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Right))
@@ -6702,6 +6708,14 @@ mod native_pane_tests {
         assert_eq!(
             browser_key_label("shift-arrow-up"),
             Some(BrowserSocketKey::ShiftArrow(BrowserArrowKey::Up))
+        );
+        assert_eq!(
+            browser_key_label("alt-left"),
+            Some(BrowserSocketKey::AltArrow(BrowserArrowKey::Left))
+        );
+        assert_eq!(
+            browser_key_label("alt-arrow-up"),
+            Some(BrowserSocketKey::AltArrow(BrowserArrowKey::Up))
         );
         assert_eq!(
             browser_key_label("ctrl-left"),

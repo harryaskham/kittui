@@ -1052,7 +1052,7 @@ INPUT AND AUTOMATION
   wait [WINDOW] TEXT               Wait for text or scrollback
   --send-text WINDOW TEXT          Send text bytes
   --send-line WINDOW TEXT          Send text plus newline
-  --send-key WINDOW KEY            KEY: ctrl-c, shift-left/right, ctrl-left/right, shift-tab, page-up/down, f5..f12, arrows
+  --send-key WINDOW KEY            KEY: ctrl-c, shift-left/right, alt-left/right, ctrl-left/right, shift-tab, page-up/down, f5..f12, arrows
   --send-mouse WINDOW EVENT C R    Send terminal mouse event
   --send-bytes-b64 WINDOW BASE64   Send arbitrary bytes
   --paste-bytes-b64 WINDOW BASE64  Paste arbitrary bytes
@@ -1316,7 +1316,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              key [WINDOW] KEY               short alias for --send-key\n\
              --send-text WINDOW TEXT        send text bytes\n\
              --send-line WINDOW TEXT        send text plus newline\n\
-             --send-key WINDOW KEY          send named key (ctrl-c, shift-left/right, ctrl-left/right, shift-tab, page-up/down, f5..f12, arrows)\n\
+             --send-key WINDOW KEY          send named key (ctrl-c, shift-left/right, alt-left/right, ctrl-left/right, shift-tab, page-up/down, f5..f12, arrows)\n\
              --send-mouse WINDOW EVENT C R  send terminal mouse event if app enabled it\n\
              --send-bytes-b64 WINDOW B64    send exact bytes\n\
              --paste-bytes-b64 WINDOW B64   paste exact bytes\n\
@@ -10043,7 +10043,7 @@ END
         assert!(text.contains("--spawn-pty CMD"), "{text}");
         assert!(text.contains("--wait-output-json-ms"), "{text}");
         assert!(
-            text.contains("shift-left/right, ctrl-left/right, shift-tab, page-up/down, f5..f12"),
+            text.contains("shift-left/right, alt-left/right, ctrl-left/right, shift-tab, page-up/down, f5..f12"),
             "{text}"
         );
         assert!(text.contains("kittwm shortcuts"), "{text}");
@@ -10113,7 +10113,7 @@ END
         let text = help_topic_text("input").unwrap();
         assert!(text.contains("--send-text WINDOW TEXT"), "{text}");
         assert!(
-            text.contains("shift-left/right, ctrl-left/right, shift-tab, page-up/down, f5..f12"),
+            text.contains("shift-left/right, alt-left/right, ctrl-left/right, shift-tab, page-up/down, f5..f12"),
             "{text}"
         );
         assert!(text.contains("--semantic-action"), "{text}");

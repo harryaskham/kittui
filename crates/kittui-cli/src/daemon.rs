@@ -1669,7 +1669,7 @@ fn native_mouse_event_known(event: &str) -> bool {
     )
 }
 
-const NATIVE_SEND_KEY_SUPPORTED_HELP: &str = "enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|delete|del|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|shift-left|shift-right|shift-up|shift-down|shift-arrow-left|shift-arrow-right|shift-arrow-up|shift-arrow-down|ctrl-left|ctrl-right|ctrl-up|ctrl-down|home|end|pageup|page-up|pagedown|page-down|f5..f12|ctrl-a..ctrl-z";
+const NATIVE_SEND_KEY_SUPPORTED_HELP: &str = "enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|delete|del|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|shift-left|shift-right|shift-up|shift-down|shift-arrow-left|shift-arrow-right|shift-arrow-up|shift-arrow-down|alt-left|alt-right|alt-up|alt-down|alt-arrow-left|alt-arrow-right|alt-arrow-up|alt-arrow-down|ctrl-left|ctrl-right|ctrl-up|ctrl-down|home|end|pageup|page-up|pagedown|page-down|f5..f12|ctrl-a..ctrl-z";
 
 fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
     let Some((window, key)) = rest.trim().split_once(' ') else {
@@ -1729,6 +1729,10 @@ fn native_key_bytes(key: &str) -> Option<Vec<u8>> {
         "shift-right" | "shift-arrow-right" => b"\x1b[1;2C",
         "shift-up" | "shift-arrow-up" => b"\x1b[1;2A",
         "shift-down" | "shift-arrow-down" => b"\x1b[1;2B",
+        "alt-left" | "alt-arrow-left" => b"\x1b[1;3D",
+        "alt-right" | "alt-arrow-right" => b"\x1b[1;3C",
+        "alt-up" | "alt-arrow-up" => b"\x1b[1;3A",
+        "alt-down" | "alt-arrow-down" => b"\x1b[1;3B",
         "ctrl-left" | "ctrl-arrow-left" => b"\x1b[1;5D",
         "ctrl-right" | "ctrl-arrow-right" => b"\x1b[1;5C",
         "ctrl-up" | "ctrl-arrow-up" => b"\x1b[1;5A",
@@ -3140,6 +3144,7 @@ mod tests {
         assert!(reply.contains("backtab"));
         assert!(reply.contains("arrow-left"));
         assert!(reply.contains("shift-left"));
+        assert!(reply.contains("alt-left"));
         assert!(reply.contains("ctrl-left"));
         assert!(reply.contains("page-up"));
         assert!(reply.contains("f5..f12"));
@@ -3188,6 +3193,10 @@ mod tests {
         );
         assert!(
             native_spawn_queue_reply("SEND_KEY native-2 shift-left", &pending)
+                .starts_with("SEND_KEY_QUEUED")
+        );
+        assert!(
+            native_spawn_queue_reply("SEND_KEY native-2 alt-left", &pending)
                 .starts_with("SEND_KEY_QUEUED")
         );
         assert!(
@@ -3290,6 +3299,11 @@ mod tests {
                     window: "native-2".to_string(),
                     bytes: b"\x1b[1;2D".to_vec(),
                     label: "shift-left".to_string(),
+                },
+                NativePaneCommand::SendBytes {
+                    window: "native-2".to_string(),
+                    bytes: b"\x1b[1;3D".to_vec(),
+                    label: "alt-left".to_string(),
                 },
                 NativePaneCommand::SendBytes {
                     window: "native-2".to_string(),
