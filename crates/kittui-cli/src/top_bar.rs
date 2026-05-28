@@ -463,7 +463,17 @@ pub fn time_label(now: SystemTime) -> String {
     let day = secs % 86_400;
     let hour = day / 3_600;
     let minute = (day % 3_600) / 60;
-    format!("{hour:02}:{minute:02} UTC")
+    let mut out = String::with_capacity("00:00 UTC".len());
+    push_two_digit(&mut out, hour);
+    out.push(':');
+    push_two_digit(&mut out, minute);
+    out.push_str(" UTC");
+    out
+}
+
+fn push_two_digit(out: &mut String, value: u64) {
+    out.push(char::from(b'0' + ((value / 10) % 10) as u8));
+    out.push(char::from(b'0' + (value % 10) as u8));
 }
 
 #[cfg(test)]
@@ -565,6 +575,9 @@ mod tests {
             time_label(UNIX_EPOCH + std::time::Duration::from_secs(23 * 3_600 + 59 * 60)),
             "23:59 UTC"
         );
+        let label = time_label(UNIX_EPOCH + std::time::Duration::from_secs(5 * 60));
+        assert_eq!(label, "00:05 UTC");
+        assert_eq!(label.capacity(), "00:00 UTC".len());
     }
 
     #[test]
