@@ -7201,6 +7201,132 @@ fn config_scene(summary: &ConfigSummary) -> Scene {
     config_scene_for_cols(summary, info_scene_cols())
 }
 
+fn config_scene_row_label(
+    idx: usize,
+    summary: &ConfigSummary,
+    config_path: &str,
+    background_color: &str,
+    colorscheme_name: &str,
+    colorscheme_fg: &str,
+    colorscheme_bg: &str,
+    terminal_backend: &str,
+    libghostty_theme: &str,
+    keymap_path: &str,
+    launch_cmd: &str,
+    launch_query: &str,
+    launcher_overlay: &str,
+    prefix: &str,
+    status: &str,
+) -> String {
+    let mut out = String::with_capacity(72);
+    let _ = write!(out, "kittwm-config-row:{idx}:");
+    match idx {
+        0 => {
+            out.push_str("config_path=");
+            out.push_str(config_path);
+        }
+        1 => {
+            out.push_str("background.color=");
+            out.push_str(background_color);
+        }
+        2 => {
+            let _ = write!(out, "background.opacity={:.2}", summary.background_opacity);
+        }
+        3 => {
+            let _ = write!(out, "background.effects={}", summary.background_effects);
+        }
+        4 => {
+            out.push_str("colorscheme.name=");
+            out.push_str(colorscheme_name);
+        }
+        5 => {
+            out.push_str("colorscheme.fg=");
+            out.push_str(colorscheme_fg);
+        }
+        6 => {
+            out.push_str("colorscheme.bg=");
+            out.push_str(colorscheme_bg);
+        }
+        7 => {
+            let _ = write!(out, "colorscheme.colors={}", summary.colorscheme_colors);
+        }
+        8 => {
+            out.push_str("terminal.backend=");
+            out.push_str(terminal_backend);
+        }
+        9 => {
+            out.push_str("libghostty.theme=");
+            out.push_str(libghostty_theme);
+        }
+        10 => {
+            let _ = write!(out, "libghostty.opacity={:.2}", summary.libghostty_opacity);
+        }
+        11 => {
+            let _ = write!(out, "display.hidpi={}", summary.hidpi_enabled);
+        }
+        12 => {
+            let _ = write!(
+                out,
+                "display.cell_px={}x{}",
+                summary.cell_width_px, summary.cell_height_px
+            );
+        }
+        13 => {
+            let _ = write!(
+                out,
+                "display.tile_gap={}px={}x{}cells",
+                summary.tile_gap_px, summary.tile_gap_cols, summary.tile_gap_rows
+            );
+        }
+        14 => {
+            let _ = write!(
+                out,
+                "display.header_gap={}px={}rows",
+                summary.header_gap_px, summary.header_gap_rows
+            );
+        }
+        15 => {
+            let _ = write!(
+                out,
+                "display.footer_gap={}px={}rows",
+                summary.footer_gap_px, summary.footer_gap_rows
+            );
+        }
+        16 => {
+            out.push_str("keymap=");
+            out.push_str(keymap_path);
+        }
+        17 => {
+            out.push_str("launch_cmd=");
+            out.push_str(launch_cmd);
+        }
+        18 => {
+            out.push_str("launch_query=");
+            out.push_str(launch_query);
+        }
+        19 => {
+            out.push_str("launcher_overlay=");
+            out.push_str(launcher_overlay);
+        }
+        20 => {
+            out.push_str("prefix=");
+            out.push_str(prefix);
+        }
+        21 => {
+            let _ = write!(out, "bindings={}", summary.bindings);
+        }
+        22 => {
+            let _ = write!(out, "duplicates={}", summary.duplicate_chords);
+        }
+        23 => {
+            out.push_str("status=");
+            out.push_str(status);
+        }
+        _ => out.push_str("unknown=-"),
+    }
+    out
+}
+
 fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
     let rows = 30;
     let cell = CellSize::default();
@@ -7208,59 +7334,17 @@ fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
     let height = rows as f32 * cell.height_px as f32;
     let config_path = truncate(&summary.config_path, 48);
     let background_color = truncate(&summary.background_color, 32);
-    let background_effects = summary.background_effects.to_string();
     let colorscheme_name = truncate(&summary.colorscheme_name, 32);
     let colorscheme_fg = truncate(&summary.colorscheme_fg, 32);
     let colorscheme_bg = truncate(&summary.colorscheme_bg, 32);
-    let colorscheme_colors = summary.colorscheme_colors.to_string();
     let terminal_backend = truncate(&summary.terminal_backend, 32);
     let libghostty_theme = truncate(&summary.libghostty_theme, 32);
     let keymap_path = truncate(&summary.keymap_path, 48);
     let launch_cmd = truncate(&summary.launch_cmd, 48);
     let launch_query = truncate(&summary.launch_query, 48);
     let launcher_overlay = truncate(&summary.launcher_overlay, 48);
-    let display_hidpi = summary.hidpi_enabled.to_string();
-    let display_cell = format!("{}x{}", summary.cell_width_px, summary.cell_height_px);
-    let tile_gap = format!(
-        "{}px={}x{}cells",
-        summary.tile_gap_px, summary.tile_gap_cols, summary.tile_gap_rows
-    );
-    let header_gap = format!(
-        "{}px={}rows",
-        summary.header_gap_px, summary.header_gap_rows
-    );
-    let footer_gap = format!(
-        "{}px={}rows",
-        summary.footer_gap_px, summary.footer_gap_rows
-    );
     let prefix = truncate(&summary.prefix, 32);
     let status = truncate(summary.status, 32);
-    let rows_data = [
-        format!("config_path={config_path}"),
-        format!("background.color={background_color}"),
-        format!("background.opacity={:.2}", summary.background_opacity),
-        format!("background.effects={background_effects}"),
-        format!("colorscheme.name={colorscheme_name}"),
-        format!("colorscheme.fg={colorscheme_fg}"),
-        format!("colorscheme.bg={colorscheme_bg}"),
-        format!("colorscheme.colors={colorscheme_colors}"),
-        format!("terminal.backend={terminal_backend}"),
-        format!("libghostty.theme={libghostty_theme}"),
-        format!("libghostty.opacity={:.2}", summary.libghostty_opacity),
-        format!("display.hidpi={display_hidpi}"),
-        format!("display.cell_px={display_cell}"),
-        format!("display.tile_gap={tile_gap}"),
-        format!("display.header_gap={header_gap}"),
-        format!("display.footer_gap={footer_gap}"),
-        format!("keymap={keymap_path}"),
-        format!("launch_cmd={launch_cmd}"),
-        format!("launch_query={launch_query}"),
-        format!("launcher_overlay={launcher_overlay}"),
-        format!("prefix={prefix}"),
-        format!("bindings={}", summary.bindings),
-        format!("duplicates={}", summary.duplicate_chords),
-        format!("status={status}"),
-    ];
     let mut layers = vec![
         Layer {
             label: Some(format!(
@@ -7298,10 +7382,26 @@ fn config_scene_for_cols(summary: &ConfigSummary, cols: u16) -> Scene {
             },
         },
     ];
-    for (idx, row) in rows_data.iter().enumerate() {
+    for idx in 0..24 {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         layers.push(Layer {
-            label: Some(format!("kittwm-config-row:{idx}:{row}")),
+            label: Some(config_scene_row_label(
+                idx,
+                summary,
+                &config_path,
+                &background_color,
+                &colorscheme_name,
+                &colorscheme_fg,
+                &colorscheme_bg,
+                &terminal_backend,
+                &libghostty_theme,
+                &keymap_path,
+                &launch_cmd,
+                &launch_query,
+                &launcher_overlay,
+                &prefix,
+                &status,
+            )),
             root: Node::Rect {
                 rect: info_indicator_rect(width, y),
                 fill: Paint::Solid {
