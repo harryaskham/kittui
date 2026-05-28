@@ -45,12 +45,7 @@ impl TopArgs {
                     )
                 }
                 "-h" | "--help" => return Err(anyhow!(help_text())),
-                other => {
-                    return Err(anyhow!(
-                        "unknown kittwm-top option {other}\n\n{}",
-                        help_text()
-                    ))
-                }
+                other => return Err(anyhow!(unknown_option_error(other))),
             }
         }
         Ok(Self {
@@ -59,6 +54,17 @@ impl TopArgs {
             display,
         })
     }
+}
+
+fn unknown_option_error(option: &str) -> String {
+    let help = help_text();
+    let mut out =
+        String::with_capacity("unknown kittwm-top option \n\n".len() + option.len() + help.len());
+    out.push_str("unknown kittwm-top option ");
+    out.push_str(option);
+    out.push_str("\n\n");
+    out.push_str(help);
+    out
 }
 
 fn help_text() -> &'static str {
@@ -235,6 +241,16 @@ mod tests {
         let args = TopArgs::parse_from(["--json", "--display", ":7"]).unwrap();
         assert!(args.json);
         assert_eq!(args.display.as_deref(), Some(":7"));
+    }
+
+    #[test]
+    fn unknown_option_error_includes_help() {
+        let err = TopArgs::parse_from(["--wat"]).unwrap_err().to_string();
+        assert!(err.starts_with("unknown kittwm-top option --wat"), "{err}");
+        assert!(
+            err.contains("kittwm-top — SDK-backed process viewer"),
+            "{err}"
+        );
     }
 
     #[test]
