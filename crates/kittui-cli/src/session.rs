@@ -560,20 +560,25 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             match command {
                 crate::daemon::NativePaneCommand::SpawnPty(spawn_cmd) => {
                     let id = next_native_pane_id(&panes);
-                    panes.push(spawn_native_pane(id, &spawn_cmd, &sock, 1, 1)?);
-                    let new_focus = panes.len() - 1;
-                    native_set_focus(&mut panes, &mut focused, new_focus)?;
-                    resize_native_panes_for_display_mode(
-                        &mut panes,
-                        focused,
-                        cols,
-                        rows,
-                        layout_axis,
-                        layout_mode,
-                        &last_chrome_reservation,
-                    )?;
-                    clear = true;
-                    dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
+                    match spawn_native_pane(id, &spawn_cmd, &sock, 1, 1) {
+                        Ok(pane) => {
+                            panes.push(pane);
+                            let new_focus = panes.len() - 1;
+                            native_set_focus(&mut panes, &mut focused, new_focus)?;
+                            resize_native_panes_for_display_mode(
+                                &mut panes,
+                                focused,
+                                cols,
+                                rows,
+                                layout_axis,
+                                layout_mode,
+                                &last_chrome_reservation,
+                            )?;
+                            clear = true;
+                            dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
+                        }
+                        Err(err) => dbg.log(&native_spawn_failure_log_line(&spawn_cmd, &err)),
+                    }
                 }
                 crate::daemon::NativePaneCommand::Focus(window) => {
                     if let Some(idx) = native_pane_index(&panes, &window) {
@@ -3500,6 +3505,12 @@ fn balance_native_pane_weights(panes: &mut [NativePane]) {
     for pane in panes {
         pane.weight = 1;
     }
+}
+
+fn native_spawn_failure_log_line(command: &str, err: &dyn std::fmt::Display) -> String {
+    let command = bounded_ellipsis(command, 120);
+    let err = bounded_ellipsis(&err.to_string(), 160);
+    format!("native pane spawn failed: command={command} err={err}")
 }
 
 fn native_terminate_failure_log_line(window: &str, err: &dyn std::fmt::Display) -> String {
@@ -8767,6 +8778,17 @@ mod native_pane_tests {
         native_capture_failure_recovered(&mut failed);
         assert!(!failed);
         assert!(should_log_native_capture_failure(&mut failed));
+    }
+
+    #[test]
+    fn native_spawn_failure_log_includes_command_and_bounded_error() {
+        let line = native_spawn_failure_log_line(
+            &"very-long-command ".repeat(20),
+            &"spawn failed ".repeat(20),
+        );
+        assert!(line.contains("command=very-long-command"), "{line}");
+        assert!(line.contains("err=spawn failed"), "{line}");
+        assert!(line.chars().count() < 320, "{line}");
     }
 
     #[test]
