@@ -3138,15 +3138,23 @@ fn semantic_action_request(
     action: &str,
     payload: &str,
 ) -> Result<String> {
+    let window = protocol_token(window, "automation window")?;
     let component = protocol_token(component, "semantic component")?;
     let action = protocol_token(action, "semantic action")?;
     serde_json::from_str::<serde_json::Value>(payload)
         .map_err(|_| anyhow!("--semantic-action JSON payload must be valid JSON"))?;
-    automation_request(
-        "SEMANTIC_ACTION",
-        window,
-        &format!("{component} {action} {payload}"),
-    )
+    let mut out = String::with_capacity(
+        "SEMANTIC_ACTION".len() + 4 + window.len() + component.len() + action.len() + payload.len(),
+    );
+    out.push_str("SEMANTIC_ACTION ");
+    out.push_str(&window);
+    out.push(' ');
+    out.push_str(&component);
+    out.push(' ');
+    out.push_str(&action);
+    out.push(' ');
+    out.push_str(payload);
+    Ok(out)
 }
 
 fn send_key_request(window: &str, key: &str) -> Result<String> {
@@ -10237,16 +10245,18 @@ END
             .unwrap(),
             r#"SEMANTIC_PUBLISH focused {"revision":1,"root":{"id":"native-1.root","role":"group"},"schema_version":1,"surface":"native-1"}"#
         );
+        let semantic_action = semantic_action_request(
+            "focused",
+            "native-1.screen",
+            "insert_text",
+            r#"{"text":"hi"}"#,
+        )
+        .unwrap();
         assert_eq!(
-            semantic_action_request(
-                "focused",
-                "native-1.screen",
-                "insert_text",
-                r#"{"text":"hi"}"#
-            )
-            .unwrap(),
+            semantic_action,
             r#"SEMANTIC_ACTION focused native-1.screen insert_text {"text":"hi"}"#
         );
+        assert_eq!(semantic_action.capacity(), semantic_action.len());
         assert!(semantic_action_request("focused", "bad component", "set", "{}").is_err());
         assert!(semantic_action_request("focused", "field", "set", "not-json").is_err());
         assert!(semantic_publish_request("focused", "not-json").is_err());
