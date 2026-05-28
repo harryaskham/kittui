@@ -3653,11 +3653,7 @@ fn commands_scene() -> Scene {
     for entry in entries {
         *by_category.entry(entry.category).or_default() += 1;
     }
-    let summary = by_category
-        .iter()
-        .map(|(category, count)| format!("{category}={count}"))
-        .collect::<Vec<_>>()
-        .join(",");
+    let summary = command_category_summary_label(&by_category);
     let mut layers = vec![
         Layer {
             label: Some(format!(
@@ -3718,6 +3714,19 @@ fn commands_scene() -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn command_category_summary_label(by_category: &std::collections::BTreeMap<&str, usize>) -> String {
+    let mut summary = String::with_capacity(by_category.len().saturating_mul(16));
+    for (category, count) in by_category {
+        if !summary.is_empty() {
+            summary.push(',');
+        }
+        summary.push_str(category);
+        summary.push('=');
+        summary.push_str(&count.to_string());
+    }
+    summary
 }
 
 fn commands_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -8268,6 +8277,12 @@ mod tests {
             labels.iter().any(|label| label.contains("help=")),
             "{labels:?}"
         );
+        let mut by_category = std::collections::BTreeMap::new();
+        by_category.insert("help", 3usize);
+        by_category.insert("lifecycle", 2usize);
+        let summary = command_category_summary_label(&by_category);
+        assert_eq!(summary, "help=3,lifecycle=2");
+        assert!(summary.capacity() >= 32);
         assert!(
             labels
                 .iter()
