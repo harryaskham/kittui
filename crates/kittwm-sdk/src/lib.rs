@@ -3128,14 +3128,14 @@ impl SurfaceHandle {
     pub fn focus(&self) -> Result<String> {
         self.client.capabilities.ensure(Capability::ControlWindow)?;
         self.client
-            .request_protocol(format!("FOCUS_PANE {}", self.id))
+            .request_protocol(surface_token_request("FOCUS_PANE", &self.id))
     }
 
     /// Close this surface/window.
     pub fn close(&self) -> Result<String> {
         self.client.capabilities.ensure(Capability::ControlWindow)?;
         self.client
-            .request_protocol(format!("CLOSE_PANE {}", self.id))
+            .request_protocol(surface_token_request("CLOSE_PANE", &self.id))
     }
 
     /// Rename this surface/window.
@@ -3535,6 +3535,14 @@ fn events_request(ms: u64) -> String {
     let mut out = String::with_capacity("EVENTS ".len() + 5);
     out.push_str("EVENTS ");
     out.push_str(&ms.to_string());
+    out
+}
+
+fn surface_token_request(verb: &str, id: &str) -> String {
+    let mut out = String::with_capacity(verb.len() + 1 + id.len());
+    out.push_str(verb);
+    out.push(' ');
+    out.push_str(id);
     out
 }
 
@@ -5282,6 +5290,50 @@ mod tests {
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(seen, "EVENTS 750");
+    }
+
+    #[test]
+    fn surface_token_request_builds_directly() {
+        assert_eq!(
+            surface_token_request("FOCUS_PANE", "native-2"),
+            "FOCUS_PANE native-2"
+        );
+        assert_eq!(
+            surface_token_request("CLOSE_PANE", "focused"),
+            "CLOSE_PANE focused"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_focus_close_send_expected_socket_commands() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwfc-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                seen.push(request.trim().to_string());
+                stream.write_all(b"OK\n").unwrap();
+            }
+            seen
+        });
+
+        let surface = Kittwm::connect_path(&path).surface("native-2");
+        assert_eq!(surface.focus().unwrap().trim(), "OK");
+        assert_eq!(surface.close().unwrap().trim(), "OK");
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen, ["FOCUS_PANE native-2", "CLOSE_PANE native-2"]);
     }
 
     #[cfg(unix)]
