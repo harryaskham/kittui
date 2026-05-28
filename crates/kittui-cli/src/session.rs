@@ -2642,6 +2642,10 @@ fn native_app_frame_footprint(layout: NativePaneLayout) -> CellRect {
     CellRect::new(layout.app_x, layout.app_y, layout.app_cols, layout.app_rows)
 }
 
+fn native_status_outer_rows(layout: NativePaneLayout) -> u16 {
+    layout.rows
+}
+
 fn native_resize_failure_log_line(
     window: &str,
     layout: NativePaneLayout,
@@ -2996,7 +3000,7 @@ fn native_pane_statuses(
                 x: layout.map(|l| l.x),
                 y: layout.map(|l| l.y),
                 cols: layout.map(|l| l.cols),
-                rows: layout.map(|l| l.app_rows.saturating_add(1)),
+                rows: layout.map(native_status_outer_rows),
                 app_x: layout.map(|l| l.app_x),
                 app_y: layout.map(|l| l.app_y),
                 app_cols: layout.map(|l| l.app_cols),
@@ -7538,6 +7542,25 @@ mod native_pane_tests {
         assert_eq!(clamp_native_terminal_size(0, 0, (100, 40)), (1, 1));
         assert_eq!(clamp_native_terminal_size(80, 24, (0, 0)), (1, 1));
         assert_eq!(clamp_native_terminal_size(80, 24, (100, 40)), (80, 24));
+    }
+
+    #[test]
+    fn native_status_outer_rows_reports_layout_not_app_height() {
+        let layout = NativePaneLayout {
+            x: 0,
+            y: 3,
+            cols: 40,
+            rows: 12,
+            app_x: 1,
+            app_y: 4,
+            app_cols: 38,
+            app_rows: 10,
+        };
+        assert_eq!(native_status_outer_rows(layout), 12);
+        assert_ne!(
+            native_status_outer_rows(layout),
+            layout.app_rows.saturating_add(1)
+        );
     }
 
     #[test]
