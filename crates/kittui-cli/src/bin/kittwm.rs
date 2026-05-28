@@ -1360,6 +1360,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              launcher [--filter Q] [--limit N]\n\
                                             boxed launcher preview\n\
              kittwm-launch                  first-party SDK launcher helper\n\
+             kittwm-top                     first-party SDK process viewer\n\
              kittwm-bar --kitty --reserve   kitty-native top bar chrome app; reserves drawable row\n\
              kittwm-bar --release           clear the bar chrome reservation\n"),
         other => Err(friendly_unknown_help_topic_error(other)),
@@ -10161,6 +10162,7 @@ END
     fn help_topic_apps_mentions_bar_chrome_contract() {
         let text = help_topic_text("apps").unwrap();
         assert!(text.contains("kittwm-launch"), "{text}");
+        assert!(text.contains("kittwm-top"), "{text}");
         assert!(text.contains("kittwm-bar --kitty --reserve"), "{text}");
         assert!(text.contains("kittwm-bar --release"), "{text}");
     }
