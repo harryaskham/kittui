@@ -239,7 +239,7 @@ impl BarModel {
             top_bar_clock_chip_x(cols.max(1) as f32 * cell_w, last_chip_end_x, clock_w)
         {
             scene.layers.push(Layer::new(
-                format!("{label_prefix}-clock-chip:{clock}:high-contrast"),
+                top_bar_clock_chip_label(label_prefix, clock),
                 Node::Rect {
                     rect: PxRect::new(clock_x + 1.0, 1.0, clock_w, chip_h),
                     fill: Paint::Solid {
@@ -250,7 +250,7 @@ impl BarModel {
                 },
             ));
             scene.layers.push(Layer::new(
-                format!("{label_prefix}-clock-chip-foreground:{clock}"),
+                top_bar_clock_chip_foreground_label(label_prefix, clock),
                 Node::Rect {
                     rect: PxRect::new(clock_x, ((cell_h - chip_h) / 2.0).max(0.0), clock_w, chip_h),
                     fill: Paint::Solid {
@@ -278,6 +278,33 @@ impl BarModel {
         ));
         scene
     }
+}
+
+fn top_bar_clock_chip_label(label_prefix: &str, clock: &str) -> String {
+    let mut out = String::with_capacity(
+        label_prefix
+            .len()
+            .saturating_add("-clock-chip::high-contrast".len())
+            .saturating_add(clock.len()),
+    );
+    out.push_str(label_prefix);
+    out.push_str("-clock-chip:");
+    out.push_str(clock);
+    out.push_str(":high-contrast");
+    out
+}
+
+fn top_bar_clock_chip_foreground_label(label_prefix: &str, clock: &str) -> String {
+    let mut out = String::with_capacity(
+        label_prefix
+            .len()
+            .saturating_add("-clock-chip-foreground:".len())
+            .saturating_add(clock.len()),
+    );
+    out.push_str(label_prefix);
+    out.push_str("-clock-chip-foreground:");
+    out.push_str(clock);
+    out
 }
 
 fn top_bar_workspace_chip_label(label_prefix: &str, display_label: &str, active: bool) -> String {
@@ -726,6 +753,18 @@ mod tests {
         assert_eq!(
             top_bar_workspace_chip_label("kittwm-bar", "dev", false),
             "kittwm-bar-workspace-chip:dev:inactive"
+        );
+    }
+
+    #[test]
+    fn top_bar_clock_chip_labels_build_directly() {
+        assert_eq!(
+            top_bar_clock_chip_label("kittwm-bar", "09:05"),
+            "kittwm-bar-clock-chip:09:05:high-contrast"
+        );
+        assert_eq!(
+            top_bar_clock_chip_foreground_label("kittwm-bar", "09:05"),
+            "kittwm-bar-clock-chip-foreground:09:05"
         );
     }
 
