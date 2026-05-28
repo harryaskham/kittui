@@ -1716,6 +1716,7 @@ fn native_key_bytes(key: &str) -> Option<Vec<u8>> {
     let bytes: &[u8] = match normalized.as_str() {
         "enter" | "return" => b"\r",
         "tab" => b"\t",
+        "shift-tab" | "backtab" => b"\x1b[Z",
         "escape" | "esc" => b"\x1b",
         "backspace" | "bs" => b"\x7f",
         "delete" | "del" => b"\x1b[3~",
@@ -3151,6 +3152,10 @@ mod tests {
             native_spawn_queue_reply("SEND_KEY native-2 page-down", &pending)
                 .starts_with("SEND_KEY_QUEUED")
         );
+        assert!(
+            native_spawn_queue_reply("SEND_KEY native-2 shift-tab", &pending)
+                .starts_with("SEND_KEY_QUEUED")
+        );
         assert!(native_spawn_queue_reply("SEND_KEY native-2 f12", &pending)
             .starts_with("SEND_KEY_QUEUED"));
         assert!(
@@ -3237,6 +3242,11 @@ mod tests {
                     window: "native-2".to_string(),
                     bytes: b"\x1b[6~".to_vec(),
                     label: "page-down".to_string(),
+                },
+                NativePaneCommand::SendBytes {
+                    window: "native-2".to_string(),
+                    bytes: b"\x1b[Z".to_vec(),
+                    label: "shift-tab".to_string(),
                 },
                 NativePaneCommand::SendBytes {
                     window: "native-2".to_string(),

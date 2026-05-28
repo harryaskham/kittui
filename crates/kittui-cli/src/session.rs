@@ -1492,6 +1492,7 @@ impl NativeTerminalApp {
         match key {
             BrowserSocketKey::Backspace => app.send_backspace()?,
             BrowserSocketKey::Tab => app.send_tab()?,
+            BrowserSocketKey::ShiftTab => app.send_shift_tab()?,
             BrowserSocketKey::Enter => app.send_enter()?,
             BrowserSocketKey::Escape => app.send_escape()?,
             BrowserSocketKey::Insert => app.send_insert()?,
@@ -1568,6 +1569,7 @@ impl NativeSurface for NativeTerminalApp {
 enum BrowserSocketKey {
     Backspace,
     Tab,
+    ShiftTab,
     Enter,
     Escape,
     Insert,
@@ -1583,6 +1585,7 @@ fn browser_key_label(label: &str) -> Option<BrowserSocketKey> {
     match label.trim().to_ascii_lowercase().replace('_', "-").as_str() {
         "backspace" | "bs" => Some(BrowserSocketKey::Backspace),
         "tab" => Some(BrowserSocketKey::Tab),
+        "shift-tab" | "backtab" => Some(BrowserSocketKey::ShiftTab),
         "enter" | "return" => Some(BrowserSocketKey::Enter),
         "escape" | "esc" => Some(BrowserSocketKey::Escape),
         "insert" | "ins" => Some(BrowserSocketKey::Insert),
@@ -6673,6 +6676,14 @@ mod native_pane_tests {
             Some(BrowserSocketKey::Page(BrowserPageKey::Down))
         );
         assert_eq!(browser_key_label("return"), Some(BrowserSocketKey::Enter));
+        assert_eq!(
+            browser_key_label("shift-tab"),
+            Some(BrowserSocketKey::ShiftTab)
+        );
+        assert_eq!(
+            browser_key_label("backtab"),
+            Some(BrowserSocketKey::ShiftTab)
+        );
         assert_eq!(
             browser_key_label("f12"),
             Some(BrowserSocketKey::Function(BrowserFunctionKey::F12))
