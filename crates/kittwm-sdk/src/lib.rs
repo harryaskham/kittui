@@ -2968,7 +2968,7 @@ impl Kittwm {
     /// Set the session layout axis.
     pub fn layout(&self, mode: LayoutMode) -> Result<String> {
         self.capabilities.ensure(Capability::ControlWindow)?;
-        self.request_protocol(format!("LAYOUT {}", mode.protocol_label()))
+        self.request_protocol(layout_request(mode))
     }
 
     /// Split next to a target pane, set the layout axis, and launch a terminal command.
@@ -3503,6 +3503,14 @@ pub fn display_to_socket_path(display: &str) -> PathBuf {
         .unwrap_or(display)
         .replace('/', "_");
     env::temp_dir().join(format!("kittwm-{token}.sock"))
+}
+
+fn layout_request(mode: LayoutMode) -> String {
+    let label = mode.protocol_label();
+    let mut out = String::with_capacity("LAYOUT ".len() + label.len());
+    out.push_str("LAYOUT ");
+    out.push_str(label);
+    out
 }
 
 fn parse_app_first_reply(reply: &str) -> Result<AppCandidate> {
@@ -5322,6 +5330,9 @@ mod tests {
         assert_eq!(LayoutMode::Columns.protocol_label(), "columns");
         assert_eq!(LayoutMode::Rows.protocol_label(), "rows");
         assert_eq!(LayoutMode::Grid.protocol_label(), "grid");
+        assert_eq!(layout_request(LayoutMode::Columns), "LAYOUT columns");
+        assert_eq!(layout_request(LayoutMode::Rows), "LAYOUT rows");
+        assert_eq!(layout_request(LayoutMode::Grid), "LAYOUT grid");
         assert_eq!(MoveDirection::Left.protocol_label(), "left");
         assert_eq!(MoveDirection::Right.protocol_label(), "right");
         assert_eq!(MoveDirection::Up.protocol_label(), "up");
