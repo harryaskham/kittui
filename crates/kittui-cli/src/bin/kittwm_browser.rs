@@ -634,34 +634,41 @@ fn browser_capabilities_text() -> String {
     let json: serde_json::Value = serde_json::from_str(&browser_capabilities_json_text())
         .expect("capabilities JSON is valid");
     let mut out = String::from("kittwm-browser native capabilities\n");
-    out.push_str(&format!(
-        "surface: {} ({})\n",
+    let _ = writeln!(
+        out,
+        "surface: {} ({})",
         json["surface"].as_str().unwrap_or("kittwm-browser"),
         json["surface_kind"].as_str().unwrap_or("browser")
-    ));
-    out.push_str(&format!(
-        "sdk: {} backed={}\n",
+    );
+    let _ = writeln!(
+        out,
+        "sdk: {} backed={}",
         json["sdk_entry"].as_str().unwrap_or("SurfaceSpec::browser"),
         json["sdk_backed"].as_bool().unwrap_or(false)
-    ));
-    out.push_str(&format!(
-        "kitty graphics native: {}\n",
+    );
+    out.push_str("kitty graphics native: ");
+    out.push_str(
         if json["kitty_graphics_native"].as_bool().unwrap_or(false) {
             "yes"
         } else {
             "no"
-        }
-    ));
+        },
+    );
+    out.push('\n');
     out.push_str("kittui entries:\n");
     if let Some(entries) = json["kittui_entries"].as_array() {
         for entry in entries {
-            out.push_str(&format!("  - {}\n", entry.as_str().unwrap_or_default()));
+            out.push_str("  - ");
+            out.push_str(entry.as_str().unwrap_or_default());
+            out.push('\n');
         }
     }
     out.push_str("semantic outputs:\n");
     if let Some(outputs) = json["semantic_outputs"].as_array() {
         for output in outputs {
-            out.push_str(&format!("  - {}\n", output.as_str().unwrap_or_default()));
+            out.push_str("  - ");
+            out.push_str(output.as_str().unwrap_or_default());
+            out.push('\n');
         }
     }
     out
