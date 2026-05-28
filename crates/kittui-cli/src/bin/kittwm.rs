@@ -3732,6 +3732,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "spawn a terminal pane",
         },
         LocalCommandEntry {
+            command: "split [WINDOW] columns|rows|grid CMD [ARGS...]",
+            category: "action",
+            description: "spawn next to a target pane and set split axis",
+        },
+        LocalCommandEntry {
             command: "read [WINDOW]",
             category: "action",
             description: "read pane text",
@@ -7973,6 +7978,10 @@ mod tests {
         assert!(text.contains("kittwm commands"), "{text}");
         assert!(text.contains("LIFECYCLE"), "{text}");
         assert!(text.contains("spawn CMD [ARGS...]"), "{text}");
+        assert!(
+            text.contains("split [WINDOW] columns|rows|grid CMD [ARGS...]"),
+            "{text}"
+        );
         assert!(text.contains("focus WINDOW"), "{text}");
         assert!(text.contains("doctor"), "{text}");
 
@@ -7996,6 +8005,10 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "cheat-kitty" && entry["category"] == "help" }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "split [WINDOW] columns|rows|grid CMD [ARGS...]"
+                && entry["category"] == "action"
+        }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "wait [WINDOW] TEXT" && entry["category"] == "action"
         }));
