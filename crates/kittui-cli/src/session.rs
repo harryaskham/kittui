@@ -797,11 +797,18 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         if newline {
                             text.push('\n');
                         }
-                        panes[idx].app.send_bytes(text.as_bytes())?;
-                        dbg.log(&format!(
-                            "native terminal socket send text: {window} bytes={}",
-                            text.len()
-                        ));
+                        match panes[idx].app.send_bytes(text.as_bytes()) {
+                            Ok(()) => dbg.log(&format!(
+                                "native terminal socket send text: {window} bytes={}",
+                                text.len()
+                            )),
+                            Err(err) => dbg.log(&native_socket_input_failure_log_line(
+                                &window,
+                                "send-text",
+                                text.len(),
+                                &err,
+                            )),
+                        };
                     }
                 }
                 crate::daemon::NativePaneCommand::SendBytes {
@@ -810,29 +817,48 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     label,
                 } => {
                     if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
-                        if panes[idx].app.send_browser_key_label(&label)? {
-                            dbg.log(&format!(
+                        match panes[idx].app.send_browser_key_label(&label) {
+                            Ok(true) => dbg.log(&format!(
                                 "native terminal socket send browser key: {window} key={label}"
-                            ));
-                        } else {
-                            panes[idx].app.send_bytes(&bytes)?;
-                            dbg.log(&format!(
-                                "native terminal socket send key: {window} key={label} bytes={}",
-                                bytes.len()
-                            ));
-                        }
+                            )),
+                            Ok(false) => match panes[idx].app.send_bytes(&bytes) {
+                                Ok(()) => dbg.log(&format!(
+                                    "native terminal socket send key: {window} key={label} bytes={}",
+                                    bytes.len()
+                                )),
+                                Err(err) => dbg.log(&native_socket_input_failure_log_line(
+                                    &window,
+                                    "send-key",
+                                    bytes.len(),
+                                    &err,
+                                )),
+                            },
+                            Err(err) => dbg.log(&native_socket_input_failure_log_line(
+                                &window,
+                                "send-browser-key",
+                                bytes.len(),
+                                &err,
+                            )),
+                        };
                     }
                 }
                 crate::daemon::NativePaneCommand::PasteBytes { window, bytes } => {
                     if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         let bracketed = panes[idx].app.bracketed_paste_enabled();
                         let payload = native_paste_payload(&bytes, bracketed);
-                        panes[idx].app.send_bytes(&payload)?;
-                        dbg.log(&format!(
-                            "native terminal socket paste bytes: {window} bytes={} bracketed={}",
-                            bytes.len(),
-                            bracketed
-                        ));
+                        match panes[idx].app.send_bytes(&payload) {
+                            Ok(()) => dbg.log(&format!(
+                                "native terminal socket paste bytes: {window} bytes={} bracketed={}",
+                                bytes.len(),
+                                bracketed
+                            )),
+                            Err(err) => dbg.log(&native_socket_input_failure_log_line(
+                                &window,
+                                "paste-bytes",
+                                bytes.len(),
+                                &err,
+                            )),
+                        };
                     }
                 }
                 crate::daemon::NativePaneCommand::SendMouse {
@@ -3324,6 +3350,18 @@ fn native_capture_failure_log_line(
     format!(
         "native pane capture failed: window={window} app={}x{} layout={}x{}+{},{} err={err}",
         layout.app_cols, layout.app_rows, layout.cols, layout.rows, layout.x, layout.y
+    )
+}
+
+fn native_socket_input_failure_log_line(
+    window: &str,
+    operation: &str,
+    bytes: usize,
+    err: &dyn std::fmt::Display,
+) -> String {
+    let err = bounded_ellipsis(&err.to_string(), 160);
+    format!(
+        "native pane socket input failed: window={window} operation={operation} bytes={bytes} err={err}"
     )
 }
 
@@ -8658,6 +8696,21 @@ mod native_pane_tests {
         native_capture_failure_recovered(&mut failed);
         assert!(!failed);
         assert!(should_log_native_capture_failure(&mut failed));
+    }
+
+    #[test]
+    fn native_socket_input_failure_log_includes_window_operation_bytes_and_bounded_error() {
+        let line = native_socket_input_failure_log_line(
+            "native-browser",
+            "paste-bytes",
+            42,
+            &"non-utf8 browser input ".repeat(20),
+        );
+        assert!(line.contains("window=native-browser"), "{line}");
+        assert!(line.contains("operation=paste-bytes"), "{line}");
+        assert!(line.contains("bytes=42"), "{line}");
+        assert!(line.contains("err=non-utf8 browser input"), "{line}");
+        assert!(line.chars().count() < 260, "{line}");
     }
 
     #[test]
