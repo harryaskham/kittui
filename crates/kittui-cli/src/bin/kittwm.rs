@@ -4689,9 +4689,7 @@ fn daily_help_scene(kind: &str, text: &str) -> Scene {
             },
         },
         Layer {
-            label: Some(format!(
-                "kittwm-daily-help-heading:{kind_label}:{heading_label}"
-            )),
+            label: Some(daily_help_heading_label(&kind_label, &heading_label)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                 fill: Paint::Solid {
@@ -5024,6 +5022,17 @@ fn info_scene_rows(pane_count: u64) -> u16 {
 
 fn daily_help_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn daily_help_heading_label(kind_label: &str, heading_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-daily-help-heading::".len() + kind_label.len() + heading_label.len(),
+    );
+    label.push_str("kittwm-daily-help-heading:");
+    label.push_str(kind_label);
+    label.push(':');
+    label.push_str(heading_label);
+    label
 }
 
 fn daily_help_backdrop_label(kind_label: &str, line_count: usize, command_count: usize) -> String {
@@ -7847,6 +7856,19 @@ mod tests {
         assert_eq!(native_surfaces_scene_rows(0), 8);
         assert_eq!(native_surfaces_scene_rows(12), 17);
         assert_eq!(native_surfaces_scene_rows(usize::MAX), 22);
+    }
+
+    #[test]
+    fn daily_help_heading_label_builds_directly() {
+        let label = daily_help_heading_label("quickstart", "kittwm quickstart");
+        assert_eq!(
+            label,
+            "kittwm-daily-help-heading:quickstart:kittwm quickstart"
+        );
+        assert_eq!(
+            label.capacity(),
+            "kittwm-daily-help-heading::".len() + "quickstart".len() + "kittwm quickstart".len()
+        );
     }
 
     #[test]
