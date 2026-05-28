@@ -5149,7 +5149,7 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         let kind_label = truncate(kind, 48);
         layers.push(Layer {
-            label: Some(format!("kittwm-event-row:{idx}:{kind_label}")),
+            label: Some(events_row_label(idx, &kind_label)),
             root: Node::Rect {
                 rect: info_indicator_rect(width, y),
                 fill: Paint::Solid {
@@ -5166,6 +5166,20 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn events_row_label(idx: usize, kind_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-event-row::"
+            .len()
+            .saturating_add(kind_label.len())
+            .saturating_add(20),
+    );
+    label.push_str("kittwm-event-row:");
+    let _ = write!(label, "{idx}");
+    label.push(':');
+    label.push_str(kind_label);
+    label
 }
 
 fn events_heading_label(summary: &str) -> String {
@@ -10156,6 +10170,14 @@ mod tests {
             "{row}"
         );
         assert!(row.len() < 130, "{row}");
+    }
+
+    #[test]
+    fn events_row_label_builds_directly() {
+        assert_eq!(
+            events_row_label(2, "pane_frame_presented"),
+            "kittwm-event-row:2:pane_frame_presented"
+        );
     }
 
     #[test]
