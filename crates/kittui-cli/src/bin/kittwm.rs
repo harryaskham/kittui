@@ -1449,9 +1449,11 @@ fn known_kittwm_commands() -> &'static [&'static str] {
 
 fn friendly_unknown_command_error(command: &str) -> anyhow::Error {
     let suggestion = closest_command(command, known_kittwm_commands());
-    let mut msg = format!("unknown kittwm command or flag {command:?}.");
+    let mut msg = String::with_capacity(command.len().saturating_add(128));
+    let _ = write!(msg, "unknown kittwm command or flag {command:?}.");
     if let Some(suggestion) = suggestion {
-        msg.push_str(&format!("\n\nDid you mean?\n  kittwm {suggestion}"));
+        msg.push_str("\n\nDid you mean?\n  kittwm ");
+        msg.push_str(suggestion);
     }
     msg.push_str("\n\nStart here:\n  kittwm quickstart\n  kittwm --help\n  kittwm help topics\n");
     anyhow!(msg)
@@ -1459,9 +1461,11 @@ fn friendly_unknown_command_error(command: &str) -> anyhow::Error {
 
 fn friendly_unknown_help_topic_error(topic: &str) -> anyhow::Error {
     let suggestion = closest_command(topic, known_help_topics());
-    let mut msg = format!("unknown kittwm help topic {topic:?}.");
+    let mut msg = String::with_capacity(topic.len().saturating_add(96));
+    let _ = write!(msg, "unknown kittwm help topic {topic:?}.");
     if let Some(suggestion) = suggestion {
-        msg.push_str(&format!("\n\nDid you mean?\n  kittwm help {suggestion}"));
+        msg.push_str("\n\nDid you mean?\n  kittwm help ");
+        msg.push_str(suggestion);
     }
     msg.push_str("\n\nAvailable topics:\n  kittwm help topics\n  kittwm quickstart\n");
     anyhow!(msg)
@@ -7456,6 +7460,7 @@ mod tests {
     #[test]
     fn unknown_help_topic_errors_point_to_topics() {
         let err = help_topic_text("panez").unwrap_err().to_string();
+        assert!(err.capacity() >= err.len());
         assert!(err.contains("unknown kittwm help topic"), "{err}");
         assert!(err.contains("kittwm help panes"), "{err}");
         assert!(err.contains("kittwm help topics"), "{err}");
