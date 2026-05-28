@@ -418,6 +418,25 @@ fn launch_connect_error(err: impl std::fmt::Display) -> String {
     out
 }
 
+fn launch_surface_error(action: &str, backend: Backend, err: impl std::fmt::Display) -> String {
+    let backend = backend.label();
+    let err = err.to_string();
+    let mut out = String::with_capacity(
+        action
+            .len()
+            .saturating_add(1)
+            .saturating_add(backend.len())
+            .saturating_add(" surface: ".len())
+            .saturating_add(err.len()),
+    );
+    out.push_str(action);
+    out.push(' ');
+    out.push_str(backend);
+    out.push_str(" surface: ");
+    out.push_str(&err);
+    out
+}
+
 fn run(args: LaunchArgs) -> Result<String, String> {
     let plan = build_launch_plan(&args);
     if args.dry_run {
@@ -433,15 +452,15 @@ fn run(args: LaunchArgs) -> Result<String, String> {
             if args.replace {
                 wm.replace_current(&WindowSpec {
                     title: spec.title.clone(),
-                    command: spec.native_pty_command().map_err(|err| {
-                        format!("prepare {} surface: {err}", plan.backend.label())
-                    })?,
+                    command: spec
+                        .native_pty_command()
+                        .map_err(|err| launch_surface_error("prepare", plan.backend, err))?,
                 })
-                .map_err(|err| format!("replace {} surface: {err}", plan.backend.label()))?
+                .map_err(|err| launch_surface_error("replace", plan.backend, err))?
             } else {
                 wm.spawn_surface(spec)
                     .map(|spawn| spawn.reply)
-                    .map_err(|err| format!("spawn {} surface: {err}", plan.backend.label()))?
+                    .map_err(|err| launch_surface_error("spawn", plan.backend, err))?
             }
         }
         Backend::App | Backend::Auto => {
@@ -908,6 +927,13 @@ mod tests {
             err,
             "connect to kittwm: socket missing. Set KITTWM_SOCKET/KITTWM_SOCK or run inside a kittwm pane"
         );
+        assert_eq!(err.capacity(), err.len());
+    }
+
+    #[test]
+    fn launch_surface_error_builds_directly() {
+        let err = launch_surface_error("spawn", Backend::Browser, "offline");
+        assert_eq!(err, "spawn browser surface: offline");
         assert_eq!(err.capacity(), err.len());
     }
 
