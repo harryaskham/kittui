@@ -444,6 +444,18 @@ fn launch_plan_scene(plan: &LaunchPlan) -> Scene {
     launch_plan_scene_for_cols(plan, launch_plan_scene_cols())
 }
 
+fn launch_plan_backdrop_label(backend: Backend) -> String {
+    let backend = backend.label();
+    let mut label = String::with_capacity(
+        "kittwm-launch-plan-backdrop:"
+            .len()
+            .saturating_add(backend.len()),
+    );
+    label.push_str("kittwm-launch-plan-backdrop:");
+    label.push_str(backend);
+    label
+}
+
 fn launch_plan_heading_label(status_label: &str) -> String {
     let mut label = String::with_capacity(
         "kittwm-launch-plan-heading:"
@@ -479,10 +491,7 @@ fn launch_plan_scene_for_cols(plan: &LaunchPlan, cols: u16) -> Scene {
         cell_size: cell,
         layers: vec![
             Layer {
-                label: Some(format!(
-                    "kittwm-launch-plan-backdrop:{}",
-                    plan.backend.label()
-                )),
+                label: Some(launch_plan_backdrop_label(plan.backend)),
                 root: Node::Rect {
                     rect: PxRect::new(0.0, 0.0, width, height),
                     fill: Paint::Solid {
@@ -782,6 +791,14 @@ mod tests {
         );
         assert!(reply.ends_with("SPAWNED window=native-2\n"), "{reply}");
         assert_eq!(reply.lines().count(), 2);
+    }
+
+    #[test]
+    fn launch_plan_backdrop_label_builds_directly() {
+        assert_eq!(
+            launch_plan_backdrop_label(Backend::Browser),
+            "kittwm-launch-plan-backdrop:browser"
+        );
     }
 
     #[test]
