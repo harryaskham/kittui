@@ -5677,7 +5677,7 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
             },
         },
         Layer {
-            label: Some(format!("kittwm-status-heading:sock={sock_label}")),
+            label: Some(status_scene_heading_label(&sock_label)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                 fill: Paint::Solid {
@@ -5722,6 +5722,17 @@ fn status_scene_for_cols(status: &serde_json::Value, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn status_scene_heading_label(sock_label: &str) -> String {
+    let mut out = String::with_capacity(
+        "kittwm-status-heading:sock="
+            .len()
+            .saturating_add(sock_label.len()),
+    );
+    out.push_str("kittwm-status-heading:sock=");
+    out.push_str(sock_label);
+    out
 }
 
 fn status_scene_row_label(
@@ -8800,6 +8811,14 @@ mod tests {
             labels.iter().any(|label| label
                 .contains("kittwm-app-row:macos:macOS Application Name That Is Pathologically L…")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn status_scene_heading_label_builds_directly() {
+        assert_eq!(
+            status_scene_heading_label("/tmp/kittwm.sock"),
+            "kittwm-status-heading:sock=/tmp/kittwm.sock"
         );
     }
 
