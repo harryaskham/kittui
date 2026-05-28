@@ -5130,10 +5130,7 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
     let summary = events_summary_label(kinds);
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-events-backdrop:count={}:ms={ms}",
-                kinds.len()
-            )),
+            label: Some(events_backdrop_label(kinds.len(), ms)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
                 fill: Paint::Solid {
@@ -5186,6 +5183,15 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn events_backdrop_label(count: usize, ms: u64) -> String {
+    let mut label = String::with_capacity("kittwm-events-backdrop:count=:ms=".len() + 40);
+    label.push_str("kittwm-events-backdrop:count=");
+    let _ = write!(label, "{count}");
+    label.push_str(":ms=");
+    let _ = write!(label, "{ms}");
+    label
 }
 
 fn events_row_label(idx: usize, kind_label: &str) -> String {
@@ -10210,6 +10216,14 @@ mod tests {
             "{row}"
         );
         assert!(row.len() < 130, "{row}");
+    }
+
+    #[test]
+    fn events_backdrop_label_builds_directly() {
+        assert_eq!(
+            events_backdrop_label(3, 250),
+            "kittwm-events-backdrop:count=3:ms=250"
+        );
     }
 
     #[test]
