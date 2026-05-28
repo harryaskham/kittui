@@ -4204,12 +4204,11 @@ fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
     let height = rows as f32 * cell.height_px as f32;
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-architecture-backdrop:layers={}:planes={}:surfaces={}:schema={}",
+            label: Some(architecture_backdrop_label(
                 contract.layers.len(),
                 contract.composition_order.len(),
                 contract.first_party_native_surfaces.len(),
-                contract.schema_version
+                contract.schema_version,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -4311,6 +4310,26 @@ fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn architecture_backdrop_label(
+    layer_count: usize,
+    plane_count: usize,
+    surface_count: usize,
+    schema_version: u32,
+) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-architecture-backdrop:layers=:planes=:surfaces=:schema=".len() + 20 * 4,
+    );
+    label.push_str("kittwm-architecture-backdrop:layers=");
+    let _ = write!(label, "{layer_count}");
+    label.push_str(":planes=");
+    let _ = write!(label, "{plane_count}");
+    label.push_str(":surfaces=");
+    let _ = write!(label, "{surface_count}");
+    label.push_str(":schema=");
+    let _ = write!(label, "{schema_version}");
+    label
 }
 
 fn architecture_scene_rows(layer_count: usize, plane_count: usize, surface_count: usize) -> u16 {
@@ -9836,6 +9855,19 @@ mod tests {
             }
         }
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn architecture_backdrop_label_builds_directly() {
+        let label = architecture_backdrop_label(3, 4, 5, 1);
+        assert_eq!(
+            label,
+            "kittwm-architecture-backdrop:layers=3:planes=4:surfaces=5:schema=1"
+        );
+        assert_eq!(
+            label.capacity(),
+            "kittwm-architecture-backdrop:layers=:planes=:surfaces=:schema=".len() + 80
+        );
     }
 
     #[test]
