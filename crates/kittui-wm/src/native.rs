@@ -3666,7 +3666,7 @@ impl HeadlessBrowserApp {
                 return Err(err);
             }
         };
-        let init_result = (|| -> Result<u64> {
+        let init_result = (|| -> Result<(u64, Option<String>)> {
             set_devtools_socket_timeouts(&mut socket, devtools_socket_timeout())?;
             cdp_send_raw(&mut socket, 1, "Page.enable", json!({}))?;
             cdp_send_raw(
@@ -3678,10 +3678,11 @@ impl HeadlessBrowserApp {
             let mut next_id = 3;
             let _ =
                 wait_for_browser_document_ready(&mut socket, &mut next_id, Duration::from_secs(2));
-            Ok(next_id)
+            let title = read_browser_document_title(&mut socket, &mut next_id).ok();
+            Ok((next_id, title))
         })();
-        let next_id = match init_result {
-            Ok(next_id) => next_id,
+        let (next_id, title) = match init_result {
+            Ok((next_id, title)) => (next_id, title),
             Err(err) => {
                 cleanup_headless_browser_child(&mut child, &user_data_dir);
                 return Err(err);
@@ -3691,7 +3692,7 @@ impl HeadlessBrowserApp {
             child,
             socket,
             next_id,
-            title: url.to_string(),
+            title: title.unwrap_or_else(|| url.to_string()),
             width,
             height,
             mouse_x: 0,
@@ -4534,6 +4535,32 @@ fn wait_for_browser_document_ready(
         std::thread::sleep(Duration::from_millis(50));
     }
     Ok(false)
+}
+
+fn read_browser_document_title(
+    socket: &mut WebSocket<MaybeTlsStream<std::net::TcpStream>>,
+    next_id: &mut u64,
+) -> Result<String> {
+    let id = *next_id;
+    *next_id = (*next_id).saturating_add(1);
+    let value = cdp_send_raw(
+        socket,
+        id,
+        "Runtime.evaluate",
+        json!({"expression": "document.title || location.href", "returnByValue": true}),
+    )?;
+    browser_document_title_from_cdp_result(&value)
+        .map(|title| title.to_string())
+        .ok_or_else(|| anyhow!("browser document title was empty"))
+}
+
+fn browser_document_title_from_cdp_result(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("result")
+        .and_then(|result| result.get("value"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
 }
 
 fn browser_ready_state_from_cdp_result(value: &serde_json::Value) -> Option<&str> {
@@ -5553,6 +5580,18 @@ mod tests {
         assert!(!state.mouse_modes.button_motion);
         assert!(state.mouse_modes.all_motion);
         assert!(!state.mouse_modes.sgr);
+    }
+
+    #[test]
+    fn browser_document_title_parser_uses_nonempty_trimmed_title() {
+        let titled = json!({"result": {"type": "string", "value": "  Example Page  "}});
+        let blank = json!({"result": {"type": "string", "value": "   "}});
+        assert_eq!(
+            browser_document_title_from_cdp_result(&titled),
+            Some("Example Page")
+        );
+        assert_eq!(browser_document_title_from_cdp_result(&blank), None);
+        assert_eq!(browser_document_title_from_cdp_result(&json!({})), None);
     }
 
     #[test]
