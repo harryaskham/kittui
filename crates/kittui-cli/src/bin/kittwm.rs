@@ -10648,10 +10648,9 @@ mod tests {
 
     #[test]
     fn info_pane_label_builds_directly() {
-        assert_eq!(
-            info_pane_label("native-2", true, "editor"),
-            "kittwm-info-pane:native-2:focused=true:title=editor"
-        );
+        let label = info_pane_label("native-2", true, "editor");
+        assert_eq!(label, "kittwm-info-pane:native-2:focused=true:title=editor");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
