@@ -4893,6 +4893,28 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_footer_key_reuses_precomputed_state_labels() {
+        let key = raw_compositor_footer_key(
+            24,
+            "dev",
+            "split",
+            "columns",
+            "cfg",
+            "focus",
+            "swap",
+            "normal",
+            2,
+            " — last launch pid=12345",
+            " — action=launch",
+            "q to quit",
+        );
+        assert_eq!(
+            key,
+            "row=24;ws=dev;panes=split;layout=columns;cfg=cfg;focus=focus;swap=swap;mode=normal;windows=2;launch= — last launch pid=12345;keymap= — action=launch;quit=q to quit"
+        );
+    }
+
+    #[test]
     fn raw_compositor_footer_text_clips_to_terminal_width() {
         let text = raw_compositor_footer_text(
             123,
@@ -9505,16 +9527,27 @@ pub fn run_loop_with<S: XServer>(
                         .unwrap_or_default()
                 };
                 if let Some(footer_row) = safe_footer_row {
-                    let footer_key = format!(
-                        "row={footer_row};ws={};panes={};layout={};cfg={};focus={};swap={};mode={};windows={last_window_count};launch={launch_note};keymap={keymap_note};quit={}",
-                        workspaces.label(),
-                        split_state.label(),
-                        layout_state.label(),
-                        config_state.label(),
-                        focus_state.label(),
-                        swap_state.label(),
-                        toggle_state.label(),
-                        ctrl_c_guard.quit_hint(last_window_count > 0),
+                    let workspace_label = workspaces.label();
+                    let split_label = split_state.label();
+                    let layout_label = layout_state.label();
+                    let config_label = config_state.label();
+                    let focus_label = focus_state.label();
+                    let swap_label = swap_state.label();
+                    let mode_label = toggle_state.label();
+                    let quit_hint = ctrl_c_guard.quit_hint(last_window_count > 0);
+                    let footer_key = raw_compositor_footer_key(
+                        footer_row,
+                        &workspace_label,
+                        &split_label,
+                        &layout_label,
+                        &config_label,
+                        &focus_label,
+                        &swap_label,
+                        &mode_label,
+                        last_window_count,
+                        &launch_note,
+                        &keymap_note,
+                        quit_hint,
                     );
                     if should_write_compositor_footer(
                         &last_footer_key,
@@ -9529,20 +9562,20 @@ pub fn run_loop_with<S: XServer>(
                         }
                         let footer_text = raw_compositor_footer_text(
                             frame,
-                            &workspaces.label(),
-                            &split_state.label(),
-                            &layout_state.label(),
-                            &config_state.label(),
-                            &focus_state.label(),
-                            &swap_state.label(),
-                            &toggle_state.label(),
+                            &workspace_label,
+                            &split_label,
+                            &layout_label,
+                            &config_label,
+                            &focus_label,
+                            &swap_label,
+                            &mode_label,
                             last_window_count,
                             live_fps,
                             peak_fps,
                             fps,
                             &launch_note,
                             &keymap_note,
-                            ctrl_c_guard.quit_hint(last_window_count > 0),
+                            quit_hint,
                             &dbg.path_display(),
                             terminal_cols,
                         );
@@ -9681,6 +9714,26 @@ pub fn run_loop_with<S: XServer>(
 
 fn frame_sleep_chunk(slack: Duration) -> Duration {
     slack.min(Duration::from_millis(16))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn raw_compositor_footer_key(
+    footer_row: u16,
+    workspace: &str,
+    split: &str,
+    layout: &str,
+    config: &str,
+    focus: &str,
+    swap: &str,
+    mode: &str,
+    window_count: usize,
+    launch_note: &str,
+    keymap_note: &str,
+    quit_hint: &str,
+) -> String {
+    format!(
+        "row={footer_row};ws={workspace};panes={split};layout={layout};cfg={config};focus={focus};swap={swap};mode={mode};windows={window_count};launch={launch_note};keymap={keymap_note};quit={quit_hint}"
+    )
 }
 
 fn raw_compositor_footer_text(
