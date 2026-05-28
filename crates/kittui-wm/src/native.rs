@@ -3805,6 +3805,14 @@ impl HeadlessBrowserApp {
         )
     }
 
+    /// Dispatch a Ctrl+letter key press/release to the focused page element.
+    pub fn send_ctrl_letter(&mut self, letter: char) -> Result<()> {
+        let Some((key, code, key_code)) = browser_letter_key_fields(letter) else {
+            return Err(anyhow!("browser Ctrl-letter key must be ASCII a-z"));
+        };
+        self.dispatch_browser_key_with_modifiers(&key, &code, key_code, BROWSER_CTRL_MODIFIER)
+    }
+
     /// Dispatch a Ctrl+Backspace key press/release to the focused page element.
     pub fn send_ctrl_backspace(&mut self) -> Result<()> {
         self.dispatch_browser_key_with_modifiers("Backspace", "Backspace", 8, BROWSER_CTRL_MODIFIER)
@@ -4069,6 +4077,15 @@ impl HeadlessBrowserApp {
 const BROWSER_ALT_MODIFIER: u32 = 1;
 const BROWSER_CTRL_MODIFIER: u32 = 2;
 const BROWSER_SHIFT_MODIFIER: u32 = 8;
+
+fn browser_letter_key_fields(letter: char) -> Option<(String, String, u32)> {
+    let lower = letter.to_ascii_lowercase();
+    if !lower.is_ascii_lowercase() {
+        return None;
+    }
+    let upper = lower.to_ascii_uppercase();
+    Some((lower.to_string(), format!("Key{upper}"), upper as u32))
+}
 
 fn browser_key_event_params(key: &str, code: &str, key_code: u32) -> serde_json::Value {
     browser_key_event_params_with_modifiers(key, code, key_code, 0)
@@ -6676,6 +6693,21 @@ mod tests {
 
     #[test]
     fn browser_key_event_params_map_editing_and_page_keys() {
+        assert_eq!(
+            browser_letter_key_fields('a'),
+            Some(("a".to_string(), "KeyA".to_string(), 65))
+        );
+        assert_eq!(
+            browser_letter_key_fields('Z'),
+            Some(("z".to_string(), "KeyZ".to_string(), 90))
+        );
+        assert_eq!(browser_letter_key_fields('1'), None);
+        let ctrl_a =
+            browser_key_event_params_with_modifiers("a", "KeyA", 65, BROWSER_CTRL_MODIFIER);
+        assert_eq!(ctrl_a["key"], "a");
+        assert_eq!(ctrl_a["code"], "KeyA");
+        assert_eq!(ctrl_a["windowsVirtualKeyCode"], 65);
+        assert_eq!(ctrl_a["modifiers"], BROWSER_CTRL_MODIFIER);
         let params = browser_key_event_params("Enter", "Enter", 13);
         assert_eq!(params["key"], "Enter");
         assert_eq!(params["code"], "Enter");

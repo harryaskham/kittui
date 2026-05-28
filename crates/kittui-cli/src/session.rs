@@ -1519,6 +1519,7 @@ impl NativeTerminalApp {
             BrowserSocketKey::ShiftPage(direction) => app.send_shift_page_key(direction)?,
             BrowserSocketKey::AltPage(direction) => app.send_alt_page_key(direction)?,
             BrowserSocketKey::CtrlPage(direction) => app.send_ctrl_page_key(direction)?,
+            BrowserSocketKey::CtrlLetter(letter) => app.send_ctrl_letter(letter)?,
             BrowserSocketKey::Function(key) => app.send_function_key(key)?,
         }
         Ok(true)
@@ -1614,11 +1615,13 @@ enum BrowserSocketKey {
     ShiftPage(BrowserPageKey),
     AltPage(BrowserPageKey),
     CtrlPage(BrowserPageKey),
+    CtrlLetter(char),
     Function(BrowserFunctionKey),
 }
 
 fn browser_key_label(label: &str) -> Option<BrowserSocketKey> {
-    match label.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+    let normalized = label.trim().to_ascii_lowercase().replace('_', "-");
+    match normalized.as_str() {
         "backspace" | "bs" => Some(BrowserSocketKey::Backspace),
         "tab" => Some(BrowserSocketKey::Tab),
         "shift-tab" | "backtab" => Some(BrowserSocketKey::ShiftTab),
@@ -1684,7 +1687,18 @@ fn browser_key_label(label: &str) -> Option<BrowserSocketKey> {
         "f10" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F10)),
         "f11" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F11)),
         "f12" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F12)),
-        _ => None,
+        _ => browser_ctrl_letter_label(&normalized),
+    }
+}
+
+fn browser_ctrl_letter_label(normalized: &str) -> Option<BrowserSocketKey> {
+    let letter = normalized.strip_prefix("ctrl-")?;
+    let mut chars = letter.chars();
+    let ch = chars.next()?;
+    if chars.next().is_none() && ch.is_ascii_lowercase() {
+        Some(BrowserSocketKey::CtrlLetter(ch))
+    } else {
+        None
     }
 }
 
@@ -6814,7 +6828,19 @@ mod native_pane_tests {
             browser_key_label("f12"),
             Some(BrowserSocketKey::Function(BrowserFunctionKey::F12))
         );
-        assert_eq!(browser_key_label("ctrl-c"), None);
+        assert_eq!(
+            browser_key_label("ctrl-a"),
+            Some(BrowserSocketKey::CtrlLetter('a'))
+        );
+        assert_eq!(
+            browser_key_label("ctrl-c"),
+            Some(BrowserSocketKey::CtrlLetter('c'))
+        );
+        assert_eq!(
+            browser_key_label("ctrl-z"),
+            Some(BrowserSocketKey::CtrlLetter('z'))
+        );
+        assert_eq!(browser_key_label("ctrl-1"), None);
     }
 
     #[test]
