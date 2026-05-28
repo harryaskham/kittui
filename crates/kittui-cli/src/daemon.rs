@@ -2865,12 +2865,16 @@ fn daemon_help_entries() -> Vec<(&'static str, &'static str, &'static str)> {
 }
 
 fn daemon_help_reply() -> String {
-    let commands = daemon_help_entries()
-        .into_iter()
-        .map(|(command, _, _)| command)
-        .collect::<Vec<_>>()
-        .join(" | ");
-    format!("{commands}\n")
+    let entries = daemon_help_entries();
+    let mut out = String::with_capacity(entries.len().saturating_mul(16));
+    for (idx, (command, _, _)) in entries.into_iter().enumerate() {
+        if idx > 0 {
+            out.push_str(" | ");
+        }
+        out.push_str(command);
+    }
+    out.push('\n');
+    out
 }
 
 fn daemon_help_json_reply() -> String {
