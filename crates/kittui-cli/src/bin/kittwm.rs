@@ -4266,10 +4266,7 @@ fn architecture_scene(contract: &kittwm_sdk::ArchitectureContract) -> Scene {
     for plane in contract.composition_order.iter().take(6) {
         let y = row as f32 * cell.height_px as f32;
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-architecture-plane:{}:z={}",
-                plane.plane, plane.z_index
-            )),
+            label: Some(architecture_plane_label(&plane.plane, plane.z_index)),
             root: Node::Rect {
                 rect: architecture_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -4328,6 +4325,15 @@ fn architecture_backdrop_label(
     let _ = write!(label, "{surface_count}");
     label.push_str(":schema=");
     let _ = write!(label, "{schema_version}");
+    label
+}
+
+fn architecture_plane_label(plane: &str, z_index: i32) -> String {
+    let mut label = String::with_capacity("kittwm-architecture-plane::z=".len() + plane.len() + 12);
+    label.push_str("kittwm-architecture-plane:");
+    label.push_str(plane);
+    label.push_str(":z=");
+    let _ = write!(label, "{z_index}");
     label
 }
 
@@ -9892,6 +9898,16 @@ mod tests {
             }
         }
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn architecture_plane_label_builds_directly() {
+        let label = architecture_plane_label("decorations", 20);
+        assert_eq!(label, "kittwm-architecture-plane:decorations:z=20");
+        assert_eq!(
+            label.capacity(),
+            "kittwm-architecture-plane::z=".len() + "decorations".len() + 12
+        );
     }
 
     #[test]
