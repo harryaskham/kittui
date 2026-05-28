@@ -2977,7 +2977,14 @@ fn native_launch_terminal_pane(
     dbg: &Debugger,
 ) -> Result<()> {
     let id = next_native_pane_id(panes);
-    panes.push(spawn_native_pane(id, cmd, sock, 1, 1)?);
+    let pane = match spawn_native_pane(id, cmd, sock, 1, 1) {
+        Ok(pane) => pane,
+        Err(err) => {
+            dbg.log(&native_spawn_failure_log_line(cmd, &err));
+            return Ok(());
+        }
+    };
+    panes.push(pane);
     let new_focus = panes.len() - 1;
     native_set_focus(panes, focused, new_focus)?;
     resize_native_panes_for_layout_with_reservation(panes, cols, rows, axis, reservation)?;
@@ -3005,7 +3012,14 @@ fn native_split_focused(
 ) -> Result<()> {
     if panes.len() < 8 {
         let id = next_native_pane_id(panes);
-        panes.push(spawn_native_pane(id, cmd, sock, 1, 1)?);
+        let pane = match spawn_native_pane(id, cmd, sock, 1, 1) {
+            Ok(pane) => pane,
+            Err(err) => {
+                dbg.log(&native_spawn_failure_log_line(cmd, &err));
+                return Ok(());
+            }
+        };
+        panes.push(pane);
         let new_focus = panes.len() - 1;
         native_set_focus(panes, focused, new_focus)?;
         resize_native_panes_for_layout_with_reservation(panes, cols, rows, axis, reservation)?;
