@@ -601,33 +601,33 @@ fn print_semantic_snapshot(url: &str, compact: bool) -> Result<()> {
 }
 
 fn browser_capabilities_json_text() -> String {
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "schema_version": 1,
-            "kind": "kittwm-browser-native-capabilities",
-            "surface": "kittwm-browser",
-            "surface_kind": "browser",
-            "sdk_entry": "SurfaceSpec::browser",
-            "sdk_backed": true,
-            "kitty_graphics_native": true,
-            "kittui_entries": [
-                "HeadlessBrowserApp -> Runtime::place_png_frame_with_options",
-                "SemanticSurfaceSnapshot -> render_sdk_semantic_surface -> Runtime::place_at_with_options"
-            ],
-            "semantic_outputs": [
-                "--semantic-snapshot",
-                "--semantic-scene-json",
-                "--semantic-kitty",
-                "--semantic-graphics"
-            ],
-            "render_outputs": [
-                "default browser PNG surface",
-                "semantic kittui scene JSON",
-                "semantic kitty graphics"
-            ]
-        })
-    )
+    let mut out = serde_json::json!({
+        "schema_version": 1,
+        "kind": "kittwm-browser-native-capabilities",
+        "surface": "kittwm-browser",
+        "surface_kind": "browser",
+        "sdk_entry": "SurfaceSpec::browser",
+        "sdk_backed": true,
+        "kitty_graphics_native": true,
+        "kittui_entries": [
+            "HeadlessBrowserApp -> Runtime::place_png_frame_with_options",
+            "SemanticSurfaceSnapshot -> render_sdk_semantic_surface -> Runtime::place_at_with_options"
+        ],
+        "semantic_outputs": [
+            "--semantic-snapshot",
+            "--semantic-scene-json",
+            "--semantic-kitty",
+            "--semantic-graphics"
+        ],
+        "render_outputs": [
+            "default browser PNG surface",
+            "semantic kittui scene JSON",
+            "semantic kitty graphics"
+        ]
+    })
+    .to_string();
+    out.push('\n');
+    out
 }
 
 fn browser_capabilities_text() -> String {
@@ -1267,8 +1267,9 @@ mod tests {
 
     #[test]
     fn browser_capabilities_json_reports_sdk_and_kittui_paths() {
-        let json: serde_json::Value =
-            serde_json::from_str(&browser_capabilities_json_text()).unwrap();
+        let text = browser_capabilities_json_text();
+        assert!(text.ends_with('\n'));
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(json["kind"], "kittwm-browser-native-capabilities");
         assert_eq!(json["surface_kind"], "browser");
         assert_eq!(json["sdk_entry"], "SurfaceSpec::browser");
