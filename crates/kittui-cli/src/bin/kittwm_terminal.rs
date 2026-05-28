@@ -270,9 +270,7 @@ fn terminal_status_scene_for_cols(model: &TerminalStatusModel, cols: u16) -> Sce
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
     let content_rect = terminal_card_content_rect(width, cell);
-    let focus = terminal_scene_label_text(&model.focus, 24);
-    let layout = terminal_scene_label_text(&model.layout, 24);
-    let details = terminal_scene_label_text(&model.details.to_string(), 12);
+    let status_label = terminal_status_scene_text_label(model);
     Scene {
         footprint: CellRect::new(0, 0, cols, rows),
         cell_size: cell,
@@ -310,10 +308,7 @@ fn terminal_status_scene_for_cols(model: &TerminalStatusModel, cols: u16) -> Sce
                 },
             },
             Layer {
-                label: Some(format!(
-                    "kittwm-terminal-status-text:panes={} focus={} layout={} details={}",
-                    model.panes, focus, layout, details
-                )),
+                label: Some(status_label),
                 root: Node::Rect {
                     rect: content_rect,
                     fill: Paint::Solid {
@@ -326,6 +321,25 @@ fn terminal_status_scene_for_cols(model: &TerminalStatusModel, cols: u16) -> Sce
         ],
         animation: None,
     }
+}
+
+fn terminal_status_scene_text_label(model: &TerminalStatusModel) -> String {
+    let focus = terminal_scene_label_text(&model.focus, 24);
+    let layout = terminal_scene_label_text(&model.layout, 24);
+    let details = terminal_scene_label_text(&model.details.to_string(), 12);
+    let mut out = String::with_capacity(
+        "kittwm-terminal-status-text:panes= focus= layout= details=".len()
+            + 20
+            + focus.len()
+            + layout.len()
+            + details.len(),
+    );
+    let _ = write!(
+        out,
+        "kittwm-terminal-status-text:panes={} focus={} layout={} details={}",
+        model.panes, focus, layout, details
+    );
+    out
 }
 
 fn terminal_status_scene_cols() -> u16 {
@@ -814,6 +828,12 @@ mod tests {
             layout: "layout-name-that-is-far-too-long-for-a-scene-label".to_string(),
             details: usize::MAX,
         };
+        let direct = terminal_status_scene_text_label(&model);
+        assert!(direct.contains("focused-window-with-a-p…"), "{direct}");
+        assert!(direct.contains("layout-name-that-is-far…"), "{direct}");
+        assert!(direct.len() < 150, "{direct}");
+        assert!(direct.capacity() >= direct.len());
+
         let scene = terminal_status_scene_for_cols(&model, 8);
         let label = scene
             .layers
