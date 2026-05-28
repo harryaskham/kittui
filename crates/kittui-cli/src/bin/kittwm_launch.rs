@@ -287,6 +287,27 @@ fn launch_plan_command(surface: &Option<SurfaceSpec>, query: &str) -> String {
     }
 }
 
+fn launch_plan_status(backend: Backend, mode: &str, title: &str, query: &str) -> String {
+    let backend = backend.label();
+    let mut out = String::with_capacity(
+        "kittwm-launch: backend= mode= title= query="
+            .len()
+            .saturating_add(backend.len())
+            .saturating_add(mode.len())
+            .saturating_add(title.len())
+            .saturating_add(query.len()),
+    );
+    out.push_str("kittwm-launch: backend=");
+    out.push_str(backend);
+    out.push_str(" mode=");
+    out.push_str(mode);
+    out.push_str(" title=");
+    out.push_str(title);
+    out.push_str(" query=");
+    out.push_str(query);
+    out
+}
+
 fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
     let backend = args.effective_backend();
     let mode = if args.replace {
@@ -298,11 +319,7 @@ fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
     let command = launch_plan_command(&surface, &args.query);
     let title = bounded_label(args.title.as_deref().unwrap_or("-"), 48);
     let query = bounded_label(&args.query, 96);
-    let status = format!(
-        "kittwm-launch: backend={} mode={} title={title} query={query}",
-        backend.label(),
-        mode,
-    );
+    let status = launch_plan_status(backend, mode, &title, &query);
     LaunchPlan {
         backend,
         command,
@@ -675,6 +692,14 @@ mod tests {
         assert_eq!(
             launch_plan_command(&None, "firefox"),
             "APPS_LAUNCH_FIRST firefox"
+        );
+    }
+
+    #[test]
+    fn launch_plan_status_builds_directly() {
+        assert_eq!(
+            launch_plan_status(Backend::Browser, "replace", "Docs", "https://example.com"),
+            "kittwm-launch: backend=browser mode=replace title=Docs query=https://example.com"
         );
     }
 
