@@ -4527,17 +4527,29 @@ fn cdp_send_raw(
 }
 
 fn read_devtools_port(child: &mut Child) -> Result<u16> {
-    let mut stderr = child
+    let stderr = child
         .stderr
         .take()
         .ok_or_else(|| anyhow!("Chrome stderr unavailable"))?;
     let timeout = read_devtools_port_timeout();
-    let (tx, rx) = std::sync::mpsc::channel();
+    let result = read_devtools_port_from_reader(stderr, timeout);
+    if result.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    result
+}
+
+fn read_devtools_port_from_reader<R>(mut reader: R, timeout: Duration) -> Result<u16>
+where
+    R: Read + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let mut buf = Vec::new();
         loop {
             let mut byte = [0u8; 1];
-            match stderr.read(&mut byte) {
+            match reader.read(&mut byte) {
                 Ok(0) => {
                     let _ = tx.send(Err(anyhow!(
                         "Chrome exited before printing DevTools listening port"
@@ -4561,15 +4573,11 @@ fn read_devtools_port(child: &mut Child) -> Result<u16> {
     });
     match rx.recv_timeout(timeout) {
         Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Err(anyhow!(
-                "Chrome did not print DevTools listening port within {} ms",
-                timeout.as_millis()
-            ))
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(anyhow!(
+            "Chrome did not print DevTools listening port within {} ms",
+            timeout.as_millis()
+        )),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
             Err(anyhow!("Chrome DevTools port reader exited unexpectedly"))
         }
     }
@@ -6462,6 +6470,24 @@ mod tests {
         );
         assert!(child.try_wait().unwrap().is_some());
         std::env::remove_var("KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS");
+    }
+
+    #[test]
+    fn devtools_port_reader_reports_port_or_eof_without_blocking() {
+        let reader = std::io::Cursor::new(
+            b"noise\nDevTools listening on ws://127.0.0.1:54322/devtools/browser/abc\n".to_vec(),
+        );
+        assert_eq!(
+            read_devtools_port_from_reader(reader, Duration::from_secs(1)).unwrap(),
+            54322
+        );
+
+        let empty = std::io::Cursor::new(Vec::<u8>::new());
+        let err = read_devtools_port_from_reader(empty, Duration::from_secs(1)).unwrap_err();
+        assert!(
+            err.to_string().contains("Chrome exited before printing"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
