@@ -2606,9 +2606,18 @@ fn first_shell_word(input: &str) -> Option<String> {
     (consumed && quote.is_none()).then_some(out)
 }
 
+fn native_pane_window_id(id: u32) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("native-".len() + 10);
+    out.push_str("native-");
+    let _ = write!(out, "{id}");
+    out
+}
+
 fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Result<NativePane> {
     let config = KittwmConfig::load_default().unwrap_or_default();
-    let window = format!("native-{id}");
+    let window = native_pane_window_id(id);
     let mut envs = vec![
         ("KITTWM_SOCKET".to_string(), sock.to_string()),
         ("KITTWM_SOCK".to_string(), sock.to_string()),
@@ -8932,6 +8941,13 @@ mod native_pane_tests {
         let key = native_pane_title_key_from_text("* native-1 sh", layout, true);
         assert_eq!(key, "0,0,12x7:true:* native-1 sh");
         assert!(key.capacity() >= "* native-1 sh".len() + 32);
+    }
+
+    #[test]
+    fn native_pane_window_id_builds_directly() {
+        let id = native_pane_window_id(42);
+        assert_eq!(id, "native-42");
+        assert!(id.capacity() >= "native-".len() + 10);
     }
 
     #[test]
