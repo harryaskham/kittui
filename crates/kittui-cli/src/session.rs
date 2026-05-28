@@ -661,6 +661,41 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         ));
                     }
                 }
+                crate::daemon::NativePaneCommand::SplitPane {
+                    window,
+                    axis,
+                    command,
+                } => {
+                    if let Some(axis) = NativePaneLayoutAxis::parse(&axis) {
+                        let target = native_target_pane_index(&panes, focused, &window)
+                            .unwrap_or(focused.min(panes.len().saturating_sub(1)));
+                        layout_axis = axis;
+                        layout_mode = NativePaneLayoutMode::Tiled;
+                        let id = next_native_pane_id(&panes);
+                        match spawn_native_pane(id, &command, &sock, 1, 1) {
+                            Ok(pane) => {
+                                let insert_at = (target + 1).min(panes.len());
+                                panes.insert(insert_at, pane);
+                                focused = insert_at;
+                                resize_native_panes_for_display_mode(
+                                    &mut panes,
+                                    focused,
+                                    cols,
+                                    rows,
+                                    layout_axis,
+                                    layout_mode,
+                                    &last_chrome_reservation,
+                                )?;
+                                clear = true;
+                                dbg.log(&format!(
+                                    "native terminal socket split: target={window} axis={} command={command}",
+                                    axis.label()
+                                ));
+                            }
+                            Err(err) => dbg.log(&native_spawn_failure_log_line(&command, &err)),
+                        }
+                    }
+                }
                 crate::daemon::NativePaneCommand::Move { window, direction } => {
                     if let Some(from) = native_target_pane_index(&panes, focused, &window) {
                         let old_focused_window = panes.get(focused).map(|pane| pane.window.clone());
@@ -1769,6 +1804,7 @@ struct NativeDirtyFrameMetrics {
 enum NativePaneLayoutAxis {
     Columns,
     Rows,
+    Grid,
 }
 
 impl NativePaneLayoutAxis {
@@ -1776,6 +1812,7 @@ impl NativePaneLayoutAxis {
         match self {
             Self::Columns => "columns",
             Self::Rows => "rows",
+            Self::Grid => "grid",
         }
     }
 
@@ -1783,6 +1820,7 @@ impl NativePaneLayoutAxis {
         match self {
             Self::Columns => Self::Rows,
             Self::Rows => Self::Columns,
+            Self::Grid => Self::Columns,
         }
     }
 
@@ -1790,6 +1828,7 @@ impl NativePaneLayoutAxis {
         match value.to_ascii_lowercase().as_str() {
             "columns" => Some(Self::Columns),
             "rows" => Some(Self::Rows),
+            "grid" => Some(Self::Grid),
             _ => None,
         }
     }
@@ -3375,6 +3414,49 @@ fn native_pane_layouts_weighted(
                         .saturating_sub(NATIVE_PANE_TITLE_ROWS)
                         .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS),
                 });
+                y = y.saturating_add(pane_rows);
+            }
+            layouts
+        }
+        NativePaneLayoutAxis::Grid => {
+            let grid_cols = ((count as f64).sqrt().ceil() as usize).max(1);
+            let grid_rows = count.div_ceil(grid_cols).max(1);
+            let col_weights = vec![1; grid_cols];
+            let row_weights = vec![1; grid_rows];
+            let col_spans = native_weighted_spans(cols, &col_weights, 1);
+            let row_spans = native_weighted_spans(
+                rows,
+                &row_weights,
+                NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1,
+            );
+            let mut layouts = Vec::with_capacity(count);
+            let mut y = 0u16;
+            for (row_idx, pane_rows) in row_spans.into_iter().enumerate() {
+                let mut x = 0u16;
+                for pane_cols in col_spans.iter().copied() {
+                    if layouts.len() >= count {
+                        break;
+                    }
+                    let title_rows = NATIVE_PANE_TITLE_ROWS.min(pane_rows);
+                    layouts.push(NativePaneLayout {
+                        x,
+                        y,
+                        cols: pane_cols,
+                        rows: pane_rows,
+                        app_x: x
+                            .saturating_add(NATIVE_PANE_BORDER_COLS)
+                            .min(x.saturating_add(pane_cols.saturating_sub(1))),
+                        app_y: y.saturating_add(title_rows),
+                        app_cols: pane_cols.saturating_sub(NATIVE_PANE_BORDER_COLS * 2),
+                        app_rows: pane_rows
+                            .saturating_sub(NATIVE_PANE_TITLE_ROWS)
+                            .saturating_sub(NATIVE_PANE_BOTTOM_BORDER_ROWS),
+                    });
+                    x = x.saturating_add(pane_cols);
+                }
+                if row_idx + 1 >= grid_rows {
+                    break;
+                }
                 y = y.saturating_add(pane_rows);
             }
             layouts
@@ -9629,10 +9711,12 @@ mod native_pane_tests {
                             .saturating_add(NATIVE_PANE_BOTTOM_BORDER_ROWS)
                     })
                     .sum(),
+                NativePaneLayoutAxis::Grid => unreachable!("grid is covered by a dedicated test"),
             };
             let expected_total = match axis {
                 NativePaneLayoutAxis::Columns => 101,
                 NativePaneLayoutAxis::Rows => native_tilable_rows(31),
+                NativePaneLayoutAxis::Grid => unreachable!("grid is covered by a dedicated test"),
             };
             assert_eq!(total_outer, expected_total, "{axis:?}: {layouts:?}");
             for pair in layouts.windows(2) {
@@ -9656,6 +9740,9 @@ mod native_pane_tests {
                             a.app_y.saturating_add(a.app_rows) <= b.y,
                             "app bounds overlap chrome: {layouts:?}"
                         );
+                    }
+                    NativePaneLayoutAxis::Grid => {
+                        unreachable!("grid is covered by a dedicated test")
                     }
                 }
             }
@@ -9695,6 +9782,21 @@ mod native_pane_tests {
         assert_eq!(rows[0].app_rows, 8);
         assert_eq!(rows[1].app_rows, 18);
         assert_eq!(rows[1].y, 10);
+    }
+
+    #[test]
+    fn native_pane_layouts_grid_builds_two_by_two_for_four_panes() {
+        let layouts =
+            native_pane_layouts_weighted(100, 40, &[1, 1, 1, 1], NativePaneLayoutAxis::Grid);
+        assert_eq!(layouts.len(), 4);
+        assert_eq!(layouts[0].x, 0);
+        assert_eq!(layouts[0].y, 0);
+        assert!(layouts[1].x > layouts[0].x);
+        assert_eq!(layouts[1].y, layouts[0].y);
+        assert_eq!(layouts[2].x, layouts[0].x);
+        assert!(layouts[2].y > layouts[0].y);
+        assert_eq!(layouts[3].x, layouts[1].x);
+        assert_eq!(layouts[3].y, layouts[2].y);
     }
 
     #[test]

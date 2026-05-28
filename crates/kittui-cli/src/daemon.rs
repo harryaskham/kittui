@@ -198,6 +198,11 @@ pub enum NativePaneCommand {
     FocusPrev,
     Close(String),
     Layout(String),
+    SplitPane {
+        window: String,
+        axis: String,
+        command: String,
+    },
     Move {
         window: String,
         direction: String,
@@ -573,16 +578,19 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
     }
     if let Some(axis) = cmd.strip_prefix("LAYOUT ") {
         let axis = axis.trim().to_ascii_lowercase();
-        if !matches!(axis.as_str(), "columns" | "rows") {
-            return "ERR LAYOUT expects columns|rows\n".to_string();
+        if !matches!(axis.as_str(), "columns" | "rows" | "grid") {
+            return "ERR LAYOUT expects columns|rows|grid\n".to_string();
         }
         return queue_native_pane_command(
             pending,
             &axis,
-            "LAYOUT requires columns|rows",
+            "LAYOUT requires columns|rows|grid",
             NativePaneCommand::Layout,
             "LAYOUT_QUEUED",
         );
+    }
+    if let Some(rest) = cmd.strip_prefix("SPLIT_PANE ") {
+        return queue_native_split_pane(pending, rest);
     }
     if let Some(rest) = cmd.strip_prefix("MOVE_PANE ") {
         let Some((window, direction)) = rest.trim().split_once(' ') else {
@@ -759,7 +767,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | RESERVE_CHROME_JSON <json> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows|grid> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | RESERVE_CHROME_JSON <json> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -818,7 +826,7 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "close a native pane",
         ),
         (
-            "LAYOUT <columns|rows>",
+            "LAYOUT <columns|rows|grid>",
             "control",
             "switch native pane layout axis",
         ),
@@ -826,6 +834,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "MOVE_PANE <window|focused> <left|right|up|down|first|last>",
             "control",
             "move a native pane within the layout order",
+        ),
+        (
+            "SPLIT_PANE <window|focused> <columns|rows|grid> <cmd>",
+            "control",
+            "set split axis, spawn command, and place it next to target pane",
         ),
         (
             "RESIZE_PANE <window|focused> <grow|shrink|+N|-N>",
@@ -1405,6 +1418,33 @@ fn queue_native_pane_command(
     }
 }
 
+fn queue_native_split_pane(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
+    let Some((window, rest)) = rest.trim_start().split_once(' ') else {
+        return "ERR SPLIT_PANE requires window, axis, and command\n".to_string();
+    };
+    let Some((axis, command)) = rest.trim_start().split_once(' ') else {
+        return "ERR SPLIT_PANE requires window, axis, and command\n".to_string();
+    };
+    let window = window.trim();
+    let axis = axis.trim().to_ascii_lowercase();
+    let command = command.trim();
+    if window.is_empty()
+        || command.is_empty()
+        || !matches!(axis.as_str(), "columns" | "rows" | "grid")
+    {
+        return "ERR SPLIT_PANE expects <window|focused> <columns|rows|grid> <cmd>\n".to_string();
+    }
+    queue_native_pane_action(
+        pending,
+        NativePaneCommand::SplitPane {
+            window: window.to_string(),
+            axis,
+            command: command.to_string(),
+        },
+        "SPLIT_PANE_QUEUED",
+    )
+}
+
 fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, json: &str) -> String {
     let json = json.trim();
     if json.is_empty() {
@@ -1417,7 +1457,7 @@ fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, jso
     let layout = value
         .get("layout")
         .and_then(|v| v.as_str())
-        .filter(|layout| matches!(*layout, "columns" | "rows"))
+        .filter(|layout| matches!(*layout, "columns" | "rows" | "grid"))
         .map(str::to_string);
     let Some(items) = value.get("panes").and_then(|v| v.as_array()) else {
         return "ERR RESTORE_SESSION_JSON requires panes array\n".to_string();
@@ -3186,6 +3226,11 @@ mod tests {
             native_spawn_queue_reply("CLOSE_PANE focused", &pending).starts_with("CLOSE_QUEUED")
         );
         assert!(native_spawn_queue_reply("LAYOUT rows", &pending).starts_with("LAYOUT_QUEUED"));
+        assert!(native_spawn_queue_reply("LAYOUT grid", &pending).starts_with("LAYOUT_QUEUED"));
+        assert!(
+            native_spawn_queue_reply("SPLIT_PANE focused grid kittwm-top", &pending)
+                .starts_with("SPLIT_PANE_QUEUED")
+        );
         assert!(
             native_spawn_queue_reply("MOVE_PANE focused last", &pending).starts_with("MOVE_QUEUED")
         );
@@ -3296,6 +3341,12 @@ mod tests {
                 NativePaneCommand::FocusPrev,
                 NativePaneCommand::Close("focused".to_string()),
                 NativePaneCommand::Layout("rows".to_string()),
+                NativePaneCommand::Layout("grid".to_string()),
+                NativePaneCommand::SplitPane {
+                    window: "focused".to_string(),
+                    axis: "grid".to_string(),
+                    command: "kittwm-top".to_string(),
+                },
                 NativePaneCommand::Move {
                     window: "focused".to_string(),
                     direction: "last".to_string(),
@@ -3894,7 +3945,7 @@ mod tests {
         assert!(help.contains("EVENTS [ms]"), "{help}");
         assert!(help.contains("FOCUS_NEXT"), "{help}");
         assert!(help.contains("FOCUS_PREV"), "{help}");
-        assert!(help.contains("LAYOUT <columns|rows>"), "{help}");
+        assert!(help.contains("LAYOUT <columns|rows|grid>"), "{help}");
         assert!(help.contains("MOVE_PANE <window|focused>"), "{help}");
         assert!(help.contains("RESIZE_PANE <window|focused>"), "{help}");
         assert!(help.contains("BALANCE_PANES"), "{help}");
@@ -3954,7 +4005,7 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| {
-                entry["command"] == "LAYOUT <columns|rows>" && entry["category"] == "control"
+                entry["command"] == "LAYOUT <columns|rows|grid>" && entry["category"] == "control"
             }));
         assert!(help_json["commands"]
             .as_array()

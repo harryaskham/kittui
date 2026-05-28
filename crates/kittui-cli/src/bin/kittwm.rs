@@ -387,6 +387,11 @@ fn parse_args() -> Result<Cli> {
                 out.automation_request = Some(spawn_alias_request(&argv)?);
                 break;
             }
+            "split" => {
+                let argv = args.by_ref().collect::<Vec<_>>();
+                out.automation_request = Some(split_alias_request(&argv)?);
+                break;
+            }
             "read" => {
                 let argv = args.by_ref().collect::<Vec<_>>();
                 out.automation_request = Some(read_alias_request(false, &argv)?);
@@ -821,7 +826,7 @@ fn parse_args() -> Result<Cli> {
             "--layout" => {
                 let axis = args
                     .next()
-                    .ok_or_else(|| anyhow!("--layout columns|rows"))?;
+                    .ok_or_else(|| anyhow!("--layout columns|rows|grid"))?;
                 out.automation_request = Some(layout_request(&axis)?);
             }
             "--move-pane" => {
@@ -1025,9 +1030,11 @@ COMMON INSPECTION
 
 PANE CONTROL
   spawn CMD [ARGS...]         Spawn a terminal pane
+  split [WINDOW] columns|rows|grid CMD [ARGS...]
+                              Spawn next to focused/window and set split axis
   focus WINDOW                Alias for --focus-pane WINDOW
   close [WINDOW]              Alias for --close-pane (default focused)
-  layout columns|rows         Alias for --layout
+  layout columns|rows|grid         Alias for --layout
   move [WINDOW] DIR           Alias for --move-pane (default focused)
   resize [WINDOW] AMOUNT      Alias for --resize-pane (default focused)
   balance                     Alias for --balance-panes
@@ -1036,7 +1043,7 @@ PANE CONTROL
   --focus-pane WINDOW         Focus pane by id, or use focused
   --focus-next | --focus-prev Cycle focus
   --close-pane WINDOW         Close pane; last pane returns to empty workspace
-  --layout columns|rows       Change tiling axis
+  --layout columns|rows|grid       Change tiling axis/grid
   --move-pane WINDOW DIR      DIR: left/right/up/down/first/last
   --resize-pane WINDOW N      N: grow/shrink/+N/-N
   --balance-panes             Equalize pane weights
@@ -1270,7 +1277,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 \
              close [WINDOW]                 close pane (default focused)
 \
-             layout columns|rows            switch layout axis
+             layout columns|rows|grid            switch layout axis
 \
              move [WINDOW] DIR              move pane (default focused)
 \
@@ -1286,7 +1293,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 \
              --close-pane WINDOW            close pane; last pane returns empty
 \
-             --layout columns|rows          switch layout axis
+             --layout columns|rows|grid          switch layout axis
 \
              --move-pane WINDOW DIR         left/right/up/down/first/last
 \
@@ -1570,6 +1577,29 @@ fn spawn_alias_request(argv: &[String]) -> Result<String> {
     protocol_payload_request("SPAWN_PTY", &argv_to_shell_words(argv))
 }
 
+fn split_alias_request(argv: &[String]) -> Result<String> {
+    if argv.is_empty() {
+        return Err(anyhow!(
+            "usage: kittwm split [WINDOW] columns|rows|grid CMD [ARGS...]"
+        ));
+    }
+    let (window, axis, command_argv) = if matches!(argv[0].as_str(), "columns" | "rows" | "grid") {
+        ("focused", argv[0].as_str(), &argv[1..])
+    } else if argv.len() >= 2 && matches!(argv[1].as_str(), "columns" | "rows" | "grid") {
+        (argv[0].as_str(), argv[1].as_str(), &argv[2..])
+    } else {
+        return Err(anyhow!(
+            "usage: kittwm split [WINDOW] columns|rows|grid CMD [ARGS...]"
+        ));
+    };
+    if command_argv.is_empty() {
+        return Err(anyhow!(
+            "usage: kittwm split [WINDOW] columns|rows|grid CMD [ARGS...]"
+        ));
+    }
+    split_pane_request(window, axis, &argv_to_shell_words(command_argv))
+}
+
 fn read_alias_request(json: bool, argv: &[String]) -> Result<String> {
     let window = match argv {
         [] => "focused",
@@ -1614,7 +1644,7 @@ fn parse_pane_control_alias(alias: &str, mut args: impl Iterator<Item = String>)
             protocol_token_request("CLOSE_PANE", &window)?
         }
         "layout" => {
-            let axis = next().ok_or_else(|| anyhow!("kittwm layout columns|rows"))?;
+            let axis = next().ok_or_else(|| anyhow!("kittwm layout columns|rows|grid"))?;
             layout_request(&axis)?
         }
         "move" => {
@@ -3267,10 +3297,23 @@ fn file_bytes_request(
     build(window, &bytes)
 }
 
+fn split_pane_request(window: &str, axis: &str, command: &str) -> Result<String> {
+    let window = protocol_token(window, "SPLIT_PANE window")?;
+    let axis = axis.trim().to_ascii_lowercase();
+    if !matches!(axis.as_str(), "columns" | "rows" | "grid") {
+        return Err(anyhow!("SPLIT_PANE axis must be columns|rows|grid"));
+    }
+    let command = command.trim();
+    if command.is_empty() {
+        return Err(anyhow!("SPLIT_PANE requires command"));
+    }
+    Ok(format!("SPLIT_PANE {window} {axis} {command}"))
+}
+
 fn layout_request(axis: &str) -> Result<String> {
     let axis = axis.trim().to_ascii_lowercase();
-    if !matches!(axis.as_str(), "columns" | "rows") {
-        return Err(anyhow!("--layout expects columns or rows"));
+    if !matches!(axis.as_str(), "columns" | "rows" | "grid") {
+        return Err(anyhow!("--layout expects columns, rows, or grid"));
     }
     let mut out = String::with_capacity("LAYOUT ".len() + axis.len());
     out.push_str("LAYOUT ");
@@ -3734,7 +3777,7 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "close a pane",
         },
         LocalCommandEntry {
-            command: "layout columns|rows",
+            command: "layout columns|rows|grid",
             category: "panes",
             description: "change layout axis",
         },
@@ -4470,6 +4513,8 @@ INSPECT
 
 SPAWN AND TYPE
   kittwm spawn htop
+  kittwm split columns htop
+  kittwm split native-1 rows bash -lc 'cargo test'
   kittwm spawn bash -lc 'cargo test'
   kittwm type focused 'echo hello'
   kittwm line focused 'cargo test -p kittui-cli'
@@ -4493,6 +4538,7 @@ CONTROL PANES
   kittwm focus native-2
   kittwm close
   kittwm layout rows
+  kittwm layout grid
   kittwm move last
   kittwm resize focused +2
   kittwm balance
@@ -10324,6 +10370,18 @@ END
             spawn_alias_request(&args(&["htop", "--tree"])).unwrap(),
             "SPAWN_PTY htop --tree"
         );
+        assert_eq!(
+            split_alias_request(&args(&["columns", "htop", "--tree"])).unwrap(),
+            "SPLIT_PANE focused columns htop --tree"
+        );
+        assert_eq!(
+            split_alias_request(&args(&["native-1", "rows", "echo", "hi there"])).unwrap(),
+            "SPLIT_PANE native-1 rows echo 'hi there'"
+        );
+        assert_eq!(
+            split_alias_request(&args(&["grid", "kittwm-top"])).unwrap(),
+            "SPLIT_PANE focused grid kittwm-top"
+        );
         assert_eq!(read_alias_request(false, &[]).unwrap(), "READ_TEXT focused");
         assert_eq!(
             read_alias_request(true, &args(&["native-2"])).unwrap(),
@@ -10434,6 +10492,10 @@ END
         assert!(parse_pane_control_alias("focus", Vec::<String>::new().into_iter()).is_err());
         assert!(parse_pane_control_alias("balance", args(&["extra"]).into_iter()).is_err());
         assert!(parse_pane_control_alias("layout", args(&["diagonal"]).into_iter()).is_err());
+        assert_eq!(
+            parse_pane_control_alias("layout", args(&["grid"]).into_iter()).unwrap(),
+            "LAYOUT grid"
+        );
     }
 
     #[test]

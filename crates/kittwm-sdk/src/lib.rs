@@ -1350,6 +1350,8 @@ pub enum LayoutMode {
     Columns,
     /// Split panes into rows.
     Rows,
+    /// Arrange panes into a balanced grid.
+    Grid,
 }
 
 impl LayoutMode {
@@ -1357,6 +1359,7 @@ impl LayoutMode {
         match self {
             Self::Columns => "columns",
             Self::Rows => "rows",
+            Self::Grid => "grid",
         }
     }
 }
@@ -2966,6 +2969,28 @@ impl Kittwm {
     pub fn layout(&self, mode: LayoutMode) -> Result<String> {
         self.capabilities.ensure(Capability::ControlWindow)?;
         self.request_protocol(format!("LAYOUT {}", mode.protocol_label()))
+    }
+
+    /// Split next to a target pane, set the layout axis, and launch a terminal command.
+    pub fn split_pane(
+        &self,
+        target: impl AsRef<str>,
+        mode: LayoutMode,
+        command: impl AsRef<str>,
+    ) -> Result<String> {
+        self.capabilities.ensure(Capability::CreateWindow)?;
+        self.capabilities.ensure(Capability::ControlWindow)?;
+        let target = validated_protocol_token(target.as_ref(), "SPLIT_PANE target")?;
+        let command = validated_nonempty_trimmed(command.as_ref(), "SPLIT_PANE command")?;
+        self.request_protocol(format!(
+            "SPLIT_PANE {target} {} {command}",
+            mode.protocol_label()
+        ))
+    }
+
+    /// Split next to the focused pane and launch a terminal command.
+    pub fn split_focused(&self, mode: LayoutMode, command: impl AsRef<str>) -> Result<String> {
+        self.split_pane("focused", mode, command)
     }
 
     /// Balance pane weights in the current layout.
@@ -5206,7 +5231,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..7 {
+            for _ in 0..8 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -5223,6 +5248,13 @@ mod tests {
         assert_eq!(client.focus_next().unwrap().trim(), "OK");
         assert_eq!(client.focus_prev().unwrap().trim(), "OK");
         assert_eq!(client.layout(LayoutMode::Columns).unwrap().trim(), "OK");
+        assert_eq!(
+            client
+                .split_focused(LayoutMode::Rows, "htop --tree")
+                .unwrap()
+                .trim(),
+            "OK"
+        );
         assert_eq!(client.balance_panes().unwrap().trim(), "OK");
         let surface = client.surface("native-2");
         assert_eq!(surface.rename(" Editor Pane ").unwrap().trim(), "OK");
@@ -5239,6 +5271,7 @@ mod tests {
                 "FOCUS_NEXT",
                 "FOCUS_PREV",
                 "LAYOUT columns",
+                "SPLIT_PANE focused rows htop --tree",
                 "BALANCE_PANES",
                 "RENAME_PANE native-2 Editor Pane",
                 "MOVE_PANE native-2 first",
