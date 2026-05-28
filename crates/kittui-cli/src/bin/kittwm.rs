@@ -2212,6 +2212,7 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
     let display_count = displays.len();
 
     let terminal_info = TerminalInfo::detect();
+    let display_tuning = kittui_cli::session::native_display_tuning();
     let mut transport_diagnostics = TransportDiagnostics::detect(&terminal_info);
     if probe_kitty {
         transport_diagnostics = run_kitty_doctor_probe(&terminal_info, transport_diagnostics);
@@ -2219,7 +2220,12 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
     let kitty_graphics = transport_diagnostics.supports_kitty;
 
     if scene_json || kitty {
-        let scene = doctor_scene(&transport_diagnostics, log_present, display_count as u64);
+        let scene = doctor_scene(
+            &transport_diagnostics,
+            log_present,
+            display_count as u64,
+            &display_tuning,
+        );
         if scene_json {
             println!("{}", serde_json::to_string(&scene)?);
         } else {
@@ -2250,6 +2256,10 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
         buf.push_str(&format!(
             "  \"transport_diagnostics\": {},\n",
             serde_json::to_string(&transport_diagnostics)?
+        ));
+        buf.push_str(&format!(
+            "  \"display_tuning\": {},\n",
+            serde_json::to_string(&display_tuning)?
         ));
         buf.push_str(&format!("  \"log_path\": {:?},\n", log_path));
         buf.push_str(&format!("  \"log_present\": {},\n", log_present));
@@ -2309,6 +2319,22 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
         if let Some(error) = &transport_diagnostics.probe_error {
             println!("  probe note     : {error}");
         }
+        println!("  display hidpi  : {}", display_tuning.hidpi_enabled);
+        println!(
+            "  display cell   : {}x{} px",
+            display_tuning.cell_width_px, display_tuning.cell_height_px
+        );
+        println!(
+            "  tile gap       : {} px ({} cols / {} rows)",
+            display_tuning.tile_gap_px, display_tuning.tile_gap_cols, display_tuning.tile_gap_rows
+        );
+        println!(
+            "  header/footer  : {} px -> {} rows / {} px -> {} rows",
+            display_tuning.header_gap_px,
+            display_tuning.header_gap_rows,
+            display_tuning.footer_gap_px,
+            display_tuning.footer_gap_rows
+        );
         println!("  displays       : {display_count}");
         println!(
             "  log            : {} ({}{})",
@@ -2334,9 +2360,14 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
     Ok(())
 }
 
-fn doctor_scene(transport: &TransportDiagnostics, log_present: bool, display_count: u64) -> Scene {
+fn doctor_scene(
+    transport: &TransportDiagnostics,
+    log_present: bool,
+    display_count: u64,
+    display_tuning: &kittui_cli::session::NativeDisplayTuning,
+) -> Scene {
     let cols = doctor_scene_cols();
-    let rows = 6;
+    let rows = 7;
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -2352,6 +2383,7 @@ fn doctor_scene(transport: &TransportDiagnostics, log_present: bool, display_cou
     } else {
         "log-missing"
     };
+    let display_label = doctor_display_tuning_label(display_tuning);
     Scene {
         footprint: CellRect::new(0, 0, cols, rows),
         cell_size: cell,
@@ -2409,19 +2441,52 @@ fn doctor_scene(transport: &TransportDiagnostics, log_present: bool, display_cou
                     corners: Corners::uniform(1.0),
                 },
             },
+            Layer {
+                label: Some(format!("kittwm-doctor-display:{display_label}")),
+                root: Node::Rect {
+                    rect: doctor_detail_rect(width, cell, 3.4),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(180, 142, 173, 255),
+                    },
+                    stroke: None,
+                    corners: Corners::uniform(1.0),
+                },
+            },
         ],
         animation: None,
     }
 }
 
 fn doctor_readiness_rect(width: f32, cell: CellSize) -> KittuiPxRect {
+    doctor_detail_rect(width, cell, 2.2)
+}
+
+fn doctor_detail_rect(width: f32, cell: CellSize, row: f32) -> KittuiPxRect {
     let inset = (width * 0.12).min(10.0).floor().max(0.0);
     let available = (width - inset * 2.0).max(1.0).min(width.max(1.0));
     KittuiPxRect::new(
         inset.min((width - 1.0).max(0.0)),
-        cell.height_px as f32 * 2.2,
+        cell.height_px as f32 * row,
         available,
         2.0,
+    )
+}
+
+fn doctor_display_tuning_label(
+    display_tuning: &kittui_cli::session::NativeDisplayTuning,
+) -> String {
+    format!(
+        "hidpi={}:cell={}x{}:tile_gap={}px={}x{}:header_gap={}px={}:footer_gap={}px={}",
+        display_tuning.hidpi_enabled,
+        display_tuning.cell_width_px,
+        display_tuning.cell_height_px,
+        display_tuning.tile_gap_px,
+        display_tuning.tile_gap_cols,
+        display_tuning.tile_gap_rows,
+        display_tuning.header_gap_px,
+        display_tuning.header_gap_rows,
+        display_tuning.footer_gap_px,
+        display_tuning.footer_gap_rows
     )
 }
 
@@ -8822,6 +8887,21 @@ mod tests {
         );
     }
 
+    fn sample_doctor_display_tuning() -> kittui_cli::session::NativeDisplayTuning {
+        kittui_cli::session::NativeDisplayTuning {
+            hidpi_enabled: true,
+            cell_width_px: 16,
+            cell_height_px: 32,
+            tile_gap_px: 25,
+            header_gap_px: 49,
+            footer_gap_px: 1,
+            tile_gap_cols: 2,
+            tile_gap_rows: 1,
+            header_gap_rows: 2,
+            footer_gap_rows: 1,
+        }
+    }
+
     #[test]
     fn doctor_daily_driver_readiness_mentions_next_steps() {
         let diagnostics = TransportDiagnostics::detect(&TerminalInfo::override_with(
@@ -8851,7 +8931,8 @@ mod tests {
             true,
             kittui::Transport::Direct,
         ));
-        let scene = doctor_scene(&diagnostics, true, 1);
+        let display_tuning = sample_doctor_display_tuning();
+        let scene = doctor_scene(&diagnostics, true, 1, &display_tuning);
         assert_eq!(scene.footprint.cols, 8);
         let width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
         for layer in &scene.layers {
@@ -8879,7 +8960,8 @@ mod tests {
             true,
             kittui::Transport::Direct,
         ));
-        let scene = doctor_scene(&diagnostics, true, 2);
+        let display_tuning = sample_doctor_display_tuning();
+        let scene = doctor_scene(&diagnostics, true, 2, &display_tuning);
         let labels = scene
             .layers
             .iter()
@@ -8902,6 +8984,16 @@ mod tests {
                 .iter()
                 .any(|label| label.contains("displays=2:log-present")),
             "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label.contains(
+                "kittwm-doctor-display:hidpi=true:cell=16x32:tile_gap=25px=2x1:header_gap=49px=2:footer_gap=1px=1"
+            )),
+            "{labels:?}"
+        );
+        assert_eq!(
+            doctor_display_tuning_label(&display_tuning),
+            "hidpi=true:cell=16x32:tile_gap=25px=2x1:header_gap=49px=2:footer_gap=1px=1"
         );
     }
 

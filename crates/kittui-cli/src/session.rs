@@ -1923,7 +1923,7 @@ pub const NATIVE_MAX_CELL_WIDTH_PX: u32 = 64;
 pub const NATIVE_MAX_CELL_HEIGHT_PX: u32 = 128;
 pub const NATIVE_MAX_GAP_CELLS: u16 = 20;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct NativeDisplayTuning {
     pub hidpi_enabled: bool,
     pub cell_width_px: u32,
