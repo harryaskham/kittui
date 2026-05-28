@@ -2984,10 +2984,7 @@ impl Kittwm {
         self.capabilities.ensure(Capability::ControlWindow)?;
         let target = validated_protocol_token(target.as_ref(), "SPLIT_PANE target")?;
         let command = validated_nonempty_trimmed(command.as_ref(), "SPLIT_PANE command")?;
-        self.request_protocol(format!(
-            "SPLIT_PANE {target} {} {command}",
-            mode.protocol_label()
-        ))
+        self.request_protocol(split_pane_request(target, mode, command))
     }
 
     /// Split next to the focused pane and launch a terminal command.
@@ -3520,6 +3517,20 @@ fn layout_request(mode: LayoutMode) -> String {
     let mut out = String::with_capacity("LAYOUT ".len() + label.len());
     out.push_str("LAYOUT ");
     out.push_str(label);
+    out
+}
+
+fn split_pane_request(target: &str, mode: LayoutMode, command: &str) -> String {
+    let label = mode.protocol_label();
+    let mut out = String::with_capacity(
+        "SPLIT_PANE ".len() + target.len() + 1 + label.len() + 1 + command.len(),
+    );
+    out.push_str("SPLIT_PANE ");
+    out.push_str(target);
+    out.push(' ');
+    out.push_str(label);
+    out.push(' ');
+    out.push_str(command);
     out
 }
 
@@ -5534,6 +5545,10 @@ mod tests {
         assert_eq!(layout_request(LayoutMode::Columns), "LAYOUT columns");
         assert_eq!(layout_request(LayoutMode::Rows), "LAYOUT rows");
         assert_eq!(layout_request(LayoutMode::Grid), "LAYOUT grid");
+        assert_eq!(
+            split_pane_request("focused", LayoutMode::Rows, "htop --tree"),
+            "SPLIT_PANE focused rows htop --tree"
+        );
         assert_eq!(MoveDirection::Left.protocol_label(), "left");
         assert_eq!(MoveDirection::Right.protocol_label(), "right");
         assert_eq!(MoveDirection::Up.protocol_label(), "up");
