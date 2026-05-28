@@ -1669,7 +1669,7 @@ fn native_mouse_event_known(event: &str) -> bool {
     )
 }
 
-const NATIVE_SEND_KEY_SUPPORTED_HELP: &str = "enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|delete|del|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|shift-left|shift-right|shift-up|shift-down|shift-arrow-left|shift-arrow-right|shift-arrow-up|shift-arrow-down|alt-left|alt-right|alt-up|alt-down|alt-arrow-left|alt-arrow-right|alt-arrow-up|alt-arrow-down|ctrl-left|ctrl-right|ctrl-up|ctrl-down|home|end|pageup|page-up|pagedown|page-down|f5..f12|ctrl-a..ctrl-z";
+const NATIVE_SEND_KEY_SUPPORTED_HELP: &str = "enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|delete|del|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|shift-left|shift-right|shift-up|shift-down|shift-arrow-left|shift-arrow-right|shift-arrow-up|shift-arrow-down|alt-left|alt-right|alt-up|alt-down|alt-arrow-left|alt-arrow-right|alt-arrow-up|alt-arrow-down|ctrl-left|ctrl-right|ctrl-up|ctrl-down|shift-home|alt-home|ctrl-home|shift-end|alt-end|ctrl-end|home|end|shift-page-up|alt-page-up|ctrl-page-up|shift-page-down|alt-page-down|ctrl-page-down|pageup|page-up|pagedown|page-down|f5..f12|ctrl-a..ctrl-z";
 
 fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
     let Some((window, key)) = rest.trim().split_once(' ') else {
@@ -1739,8 +1739,20 @@ fn native_key_bytes(key: &str) -> Option<Vec<u8>> {
         "ctrl-down" | "ctrl-arrow-down" => b"\x1b[1;5B",
         "home" => b"\x1b[H",
         "end" => b"\x1b[F",
+        "shift-home" => b"\x1b[1;2H",
+        "shift-end" => b"\x1b[1;2F",
+        "alt-home" => b"\x1b[1;3H",
+        "alt-end" => b"\x1b[1;3F",
+        "ctrl-home" => b"\x1b[1;5H",
+        "ctrl-end" => b"\x1b[1;5F",
         "pageup" | "page-up" => b"\x1b[5~",
         "pagedown" | "page-down" => b"\x1b[6~",
+        "shift-pageup" | "shift-page-up" => b"\x1b[5;2~",
+        "shift-pagedown" | "shift-page-down" => b"\x1b[6;2~",
+        "alt-pageup" | "alt-page-up" => b"\x1b[5;3~",
+        "alt-pagedown" | "alt-page-down" => b"\x1b[6;3~",
+        "ctrl-pageup" | "ctrl-page-up" => b"\x1b[5;5~",
+        "ctrl-pagedown" | "ctrl-page-down" => b"\x1b[6;5~",
         "f5" => b"\x1b[15~",
         "f6" => b"\x1b[17~",
         "f7" => b"\x1b[18~",
@@ -3146,6 +3158,8 @@ mod tests {
         assert!(reply.contains("shift-left"));
         assert!(reply.contains("alt-left"));
         assert!(reply.contains("ctrl-left"));
+        assert!(reply.contains("shift-home"));
+        assert!(reply.contains("ctrl-page-up"));
         assert!(reply.contains("page-up"));
         assert!(reply.contains("f5..f12"));
         assert!(reply.contains("ctrl-a..ctrl-z"));
@@ -3201,6 +3215,14 @@ mod tests {
         );
         assert!(
             native_spawn_queue_reply("SEND_KEY native-2 ctrl-left", &pending)
+                .starts_with("SEND_KEY_QUEUED")
+        );
+        assert!(
+            native_spawn_queue_reply("SEND_KEY native-2 ctrl-home", &pending)
+                .starts_with("SEND_KEY_QUEUED")
+        );
+        assert!(
+            native_spawn_queue_reply("SEND_KEY native-2 shift-page-down", &pending)
                 .starts_with("SEND_KEY_QUEUED")
         );
         assert!(native_spawn_queue_reply("SEND_KEY native-2 f12", &pending)
@@ -3309,6 +3331,16 @@ mod tests {
                     window: "native-2".to_string(),
                     bytes: b"\x1b[1;5D".to_vec(),
                     label: "ctrl-left".to_string(),
+                },
+                NativePaneCommand::SendBytes {
+                    window: "native-2".to_string(),
+                    bytes: b"\x1b[1;5H".to_vec(),
+                    label: "ctrl-home".to_string(),
+                },
+                NativePaneCommand::SendBytes {
+                    window: "native-2".to_string(),
+                    bytes: b"\x1b[6;2~".to_vec(),
+                    label: "shift-page-down".to_string(),
                 },
                 NativePaneCommand::SendBytes {
                     window: "native-2".to_string(),

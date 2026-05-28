@@ -1498,12 +1498,21 @@ impl NativeTerminalApp {
             BrowserSocketKey::Insert => app.send_insert()?,
             BrowserSocketKey::Delete => app.send_delete()?,
             BrowserSocketKey::Home => app.send_home()?,
+            BrowserSocketKey::ShiftHome => app.send_shift_home()?,
+            BrowserSocketKey::AltHome => app.send_alt_home()?,
+            BrowserSocketKey::CtrlHome => app.send_ctrl_home()?,
             BrowserSocketKey::End => app.send_end()?,
+            BrowserSocketKey::ShiftEnd => app.send_shift_end()?,
+            BrowserSocketKey::AltEnd => app.send_alt_end()?,
+            BrowserSocketKey::CtrlEnd => app.send_ctrl_end()?,
             BrowserSocketKey::Arrow(direction) => app.send_arrow_key(direction)?,
             BrowserSocketKey::ShiftArrow(direction) => app.send_shift_arrow_key(direction)?,
             BrowserSocketKey::AltArrow(direction) => app.send_alt_arrow_key(direction)?,
             BrowserSocketKey::CtrlArrow(direction) => app.send_ctrl_arrow_key(direction)?,
             BrowserSocketKey::Page(direction) => app.send_page_key(direction)?,
+            BrowserSocketKey::ShiftPage(direction) => app.send_shift_page_key(direction)?,
+            BrowserSocketKey::AltPage(direction) => app.send_alt_page_key(direction)?,
+            BrowserSocketKey::CtrlPage(direction) => app.send_ctrl_page_key(direction)?,
             BrowserSocketKey::Function(key) => app.send_function_key(key)?,
         }
         Ok(true)
@@ -1578,12 +1587,21 @@ enum BrowserSocketKey {
     Insert,
     Delete,
     Home,
+    ShiftHome,
+    AltHome,
+    CtrlHome,
     End,
+    ShiftEnd,
+    AltEnd,
+    CtrlEnd,
     Arrow(BrowserArrowKey),
     ShiftArrow(BrowserArrowKey),
     AltArrow(BrowserArrowKey),
     CtrlArrow(BrowserArrowKey),
     Page(BrowserPageKey),
+    ShiftPage(BrowserPageKey),
+    AltPage(BrowserPageKey),
+    CtrlPage(BrowserPageKey),
     Function(BrowserFunctionKey),
 }
 
@@ -1597,7 +1615,13 @@ fn browser_key_label(label: &str) -> Option<BrowserSocketKey> {
         "insert" | "ins" => Some(BrowserSocketKey::Insert),
         "delete" | "del" => Some(BrowserSocketKey::Delete),
         "home" => Some(BrowserSocketKey::Home),
+        "shift-home" => Some(BrowserSocketKey::ShiftHome),
+        "alt-home" => Some(BrowserSocketKey::AltHome),
+        "ctrl-home" => Some(BrowserSocketKey::CtrlHome),
         "end" => Some(BrowserSocketKey::End),
+        "shift-end" => Some(BrowserSocketKey::ShiftEnd),
+        "alt-end" => Some(BrowserSocketKey::AltEnd),
+        "ctrl-end" => Some(BrowserSocketKey::CtrlEnd),
         "left" | "arrow-left" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Left)),
         "right" | "arrow-right" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Right)),
         "up" | "arrow-up" => Some(BrowserSocketKey::Arrow(BrowserArrowKey::Up)),
@@ -1624,6 +1648,16 @@ fn browser_key_label(label: &str) -> Option<BrowserSocketKey> {
         "ctrl-down" | "ctrl-arrow-down" => Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Down)),
         "pageup" | "page-up" => Some(BrowserSocketKey::Page(BrowserPageKey::Up)),
         "pagedown" | "page-down" => Some(BrowserSocketKey::Page(BrowserPageKey::Down)),
+        "shift-pageup" | "shift-page-up" => Some(BrowserSocketKey::ShiftPage(BrowserPageKey::Up)),
+        "shift-pagedown" | "shift-page-down" => {
+            Some(BrowserSocketKey::ShiftPage(BrowserPageKey::Down))
+        }
+        "alt-pageup" | "alt-page-up" => Some(BrowserSocketKey::AltPage(BrowserPageKey::Up)),
+        "alt-pagedown" | "alt-page-down" => Some(BrowserSocketKey::AltPage(BrowserPageKey::Down)),
+        "ctrl-pageup" | "ctrl-page-up" => Some(BrowserSocketKey::CtrlPage(BrowserPageKey::Up)),
+        "ctrl-pagedown" | "ctrl-page-down" => {
+            Some(BrowserSocketKey::CtrlPage(BrowserPageKey::Down))
+        }
         "f5" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F5)),
         "f6" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F6)),
         "f7" => Some(BrowserSocketKey::Function(BrowserFunctionKey::F7)),
@@ -6724,6 +6758,22 @@ mod native_pane_tests {
         assert_eq!(
             browser_key_label("ctrl-arrow-up"),
             Some(BrowserSocketKey::CtrlArrow(BrowserArrowKey::Up))
+        );
+        assert_eq!(
+            browser_key_label("ctrl-home"),
+            Some(BrowserSocketKey::CtrlHome)
+        );
+        assert_eq!(
+            browser_key_label("shift-end"),
+            Some(BrowserSocketKey::ShiftEnd)
+        );
+        assert_eq!(
+            browser_key_label("shift-page-down"),
+            Some(BrowserSocketKey::ShiftPage(BrowserPageKey::Down))
+        );
+        assert_eq!(
+            browser_key_label("ctrl-page-up"),
+            Some(BrowserSocketKey::CtrlPage(BrowserPageKey::Up))
         );
         assert_eq!(browser_key_label("return"), Some(BrowserSocketKey::Enter));
         assert_eq!(
