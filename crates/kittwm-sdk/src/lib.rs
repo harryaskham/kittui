@@ -3146,11 +3146,7 @@ impl SurfaceHandle {
     /// Resize this surface/window by a relative pane-weight delta.
     pub fn resize_weight(&self, delta: i16) -> Result<String> {
         self.client.capabilities.ensure(Capability::ControlWindow)?;
-        let label = if delta >= 0 {
-            format!("+{delta}")
-        } else {
-            delta.to_string()
-        };
+        let label = resize_delta_label(delta);
         self.client
             .request_protocol(surface_payload_request("RESIZE_PANE", &self.id, &label))
     }
@@ -3575,6 +3571,18 @@ fn surface_payload_request(verb: &str, id: &str, payload: &str) -> String {
     out.push_str(id);
     out.push(' ');
     out.push_str(payload);
+    out
+}
+
+fn resize_delta_label(delta: i16) -> String {
+    let magnitude = delta.unsigned_abs().to_string();
+    let mut out = String::with_capacity(if delta >= 0 {
+        1 + magnitude.len()
+    } else {
+        1 + magnitude.len()
+    });
+    out.push(if delta >= 0 { '+' } else { '-' });
+    out.push_str(&magnitude);
     out
 }
 
@@ -5458,6 +5466,14 @@ mod tests {
             surface_token_request("SEMANTIC_SNAPSHOT", "native-2"),
             "SEMANTIC_SNAPSHOT native-2"
         );
+    }
+
+    #[test]
+    fn resize_delta_label_builds_directly() {
+        assert_eq!(resize_delta_label(3), "+3");
+        assert_eq!(resize_delta_label(0), "+0");
+        assert_eq!(resize_delta_label(-2), "-2");
+        assert_eq!(resize_delta_label(i16::MIN), "-32768");
     }
 
     #[test]
