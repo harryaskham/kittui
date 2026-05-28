@@ -402,16 +402,28 @@ fn app_launch_status_reply(
     out
 }
 
+fn launch_connect_error(err: impl std::fmt::Display) -> String {
+    const PREFIX: &str = "connect to kittwm: ";
+    const SUFFIX: &str = ". Set KITTWM_SOCKET/KITTWM_SOCK or run inside a kittwm pane";
+    let err = err.to_string();
+    let mut out = String::with_capacity(
+        PREFIX
+            .len()
+            .saturating_add(err.len())
+            .saturating_add(SUFFIX.len()),
+    );
+    out.push_str(PREFIX);
+    out.push_str(&err);
+    out.push_str(SUFFIX);
+    out
+}
+
 fn run(args: LaunchArgs) -> Result<String, String> {
     let plan = build_launch_plan(&args);
     if args.dry_run {
         return render_launch_plan(&plan, args.plan_output);
     }
-    let wm = Kittwm::connect_from_env().map_err(|err| {
-        format!(
-            "connect to kittwm: {err}. Set KITTWM_SOCKET/KITTWM_SOCK or run inside a kittwm pane"
-        )
-    })?;
+    let wm = Kittwm::connect_from_env().map_err(launch_connect_error)?;
     let reply = match plan.backend {
         Backend::Terminal | Backend::Browser => {
             let spec = plan
@@ -887,6 +899,16 @@ mod tests {
         );
         assert!(reply.ends_with("SPAWNED window=native-2\n"), "{reply}");
         assert_eq!(reply.lines().count(), 2);
+    }
+
+    #[test]
+    fn launch_connect_error_builds_directly() {
+        let err = launch_connect_error("socket missing");
+        assert_eq!(
+            err,
+            "connect to kittwm: socket missing. Set KITTWM_SOCKET/KITTWM_SOCK or run inside a kittwm pane"
+        );
+        assert_eq!(err.capacity(), err.len());
     }
 
     #[test]
