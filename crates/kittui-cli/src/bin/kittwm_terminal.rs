@@ -169,19 +169,37 @@ fn default_terminal_command() -> String {
 }
 
 fn shell_words(args: &[String]) -> String {
-    args.iter()
-        .map(|arg| {
-            if arg
-                .chars()
-                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '/' | '.' | ':'))
-            {
-                arg.clone()
-            } else {
-                format!("'{}'", arg.replace('\'', "'\\''"))
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut out = String::with_capacity(
+        args.iter()
+            .map(|arg| arg.len().saturating_add(2))
+            .sum::<usize>(),
+    );
+    for (idx, arg) in args.iter().enumerate() {
+        if idx > 0 {
+            out.push(' ');
+        }
+        push_shell_word(&mut out, arg);
+    }
+    out
+}
+
+fn push_shell_word(out: &mut String, arg: &str) {
+    if arg
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '/' | '.' | ':'))
+    {
+        out.push_str(arg);
+        return;
+    }
+    out.push('\'');
+    for ch in arg.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
 }
 
 fn help_text() -> String {
@@ -645,6 +663,20 @@ mod tests {
                 .origin
                 .0,
             2.0
+        );
+    }
+
+    #[test]
+    fn shell_words_builds_directly_and_preserves_quoting() {
+        assert_eq!(shell_words(&[]), "");
+        assert_eq!(
+            shell_words(&[
+                "printf".to_string(),
+                "hello world".to_string(),
+                "it's".to_string(),
+                "/tmp/file:name".to_string(),
+            ]),
+            "printf 'hello world' 'it'\\''s' /tmp/file:name"
         );
     }
 
