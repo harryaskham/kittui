@@ -126,9 +126,7 @@ impl TerminalArgs {
                     }
                     break;
                 }
-                other if other.starts_with('-') => {
-                    return Err(format!("unknown option {other}\n\n{}", help_text()));
-                }
+                other if other.starts_with('-') => return Err(unknown_option_error(other)),
                 other => {
                     command = Some(shell_words_from_iter(
                         std::iter::once(other.to_string()).chain(iter),
@@ -145,6 +143,16 @@ impl TerminalArgs {
             events,
         })
     }
+}
+
+fn unknown_option_error(option: &str) -> String {
+    let help = help_text();
+    let mut out = String::with_capacity("unknown option \n\n".len() + option.len() + help.len());
+    out.push_str("unknown option ");
+    out.push_str(option);
+    out.push_str("\n\n");
+    out.push_str(&help);
+    out
 }
 
 fn parse_events_ms<I>(iter: &mut std::iter::Peekable<I>, flag: &str) -> Result<u64, String>
@@ -660,6 +668,14 @@ mod tests {
         let command = login_shell_command("/bin/zsh".to_string());
         assert_eq!(command, "/bin/zsh -l");
         assert_eq!(command.capacity(), command.len());
+    }
+
+    #[test]
+    fn unknown_option_error_includes_help() {
+        let err = TerminalArgs::parse_from(["--wat"]).unwrap_err();
+        assert!(err.starts_with("unknown option --wat"), "{err}");
+        assert!(err.contains("kittwm-terminal"), "{err}");
+        assert_eq!(err.capacity(), err.len());
     }
 
     #[test]
