@@ -5180,9 +5180,7 @@ fn info_scene(
             },
         },
         Layer {
-            label: Some(format!(
-                "kittwm-info-chrome:top_bar_rows={top_bar_rows}:tilable_rows={tilable_rows}"
-            )),
+            label: Some(info_chrome_label(top_bar_rows, tilable_rows)),
             root: Node::Rect {
                 rect: info_indicator_rect(width, cell.height_px as f32 * 2.0),
                 fill: Paint::Solid {
@@ -5255,6 +5253,16 @@ fn info_heading_label(socket_label: &str, focus_label: &str, layout_label: &str)
     label.push_str(focus_label);
     label.push_str(":layout=");
     label.push_str(layout_label);
+    label
+}
+
+fn info_chrome_label(top_bar_rows: u64, tilable_rows: u64) -> String {
+    let mut label =
+        String::with_capacity("kittwm-info-chrome:top_bar_rows=:tilable_rows=".len() + 20 + 20);
+    label.push_str("kittwm-info-chrome:top_bar_rows=");
+    let _ = write!(label, "{top_bar_rows}");
+    label.push_str(":tilable_rows=");
+    let _ = write!(label, "{tilable_rows}");
     label
 }
 
@@ -10602,6 +10610,16 @@ mod tests {
         std::env::set_var("KITTWM_INFO_COLS", "200");
         assert_eq!(info_scene_cols(), 140);
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn info_chrome_label_builds_directly() {
+        let label = info_chrome_label(1, 23);
+        assert_eq!(label, "kittwm-info-chrome:top_bar_rows=1:tilable_rows=23");
+        assert_eq!(
+            label.capacity(),
+            "kittwm-info-chrome:top_bar_rows=:tilable_rows=".len() + 40
+        );
     }
 
     #[test]
