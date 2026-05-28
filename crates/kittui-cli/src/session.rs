@@ -1821,8 +1821,12 @@ const NATIVE_TOP_BAR_ROWS: u16 = 1;
 const NATIVE_PANE_TITLE_ROWS: u16 = 1;
 const NATIVE_PANE_BORDER_COLS: u16 = 1;
 const NATIVE_PANE_BOTTOM_BORDER_ROWS: u16 = 1;
-const NATIVE_CELL_WIDTH_PX: u32 = 8;
-const NATIVE_CELL_HEIGHT_PX: u32 = 16;
+const NATIVE_BASE_CELL_WIDTH_PX: u32 = 8;
+const NATIVE_BASE_CELL_HEIGHT_PX: u32 = 16;
+const NATIVE_HIDPI_SCALE: u32 = 2;
+const NATIVE_MAX_CELL_WIDTH_PX: u32 = 64;
+const NATIVE_MAX_CELL_HEIGHT_PX: u32 = 128;
+const NATIVE_MAX_GAP_CELLS: u16 = 20;
 fn native_z_index(role: SurfacePlacementRole) -> i32 {
     ArchitectureContract::current()
         .z_index_for_role(role)
@@ -1839,7 +1843,94 @@ fn native_chrome_z_index() -> i32 {
 const NATIVE_FRAME_BG_RGBA: [u8; 4] = [0x08, 0x0d, 0x14, 0xff];
 
 fn native_cell_size() -> CellSize {
-    CellSize::new(NATIVE_CELL_WIDTH_PX as u16, NATIVE_CELL_HEIGHT_PX as u16)
+    CellSize::new(
+        native_cell_width_px() as u16,
+        native_cell_height_px() as u16,
+    )
+}
+
+fn native_cell_width_px() -> u32 {
+    native_cell_px_from_env(
+        "KITTWM_NATIVE_CELL_WIDTH_PX",
+        NATIVE_BASE_CELL_WIDTH_PX,
+        NATIVE_MAX_CELL_WIDTH_PX,
+    )
+}
+
+fn native_cell_height_px() -> u32 {
+    native_cell_px_from_env(
+        "KITTWM_NATIVE_CELL_HEIGHT_PX",
+        NATIVE_BASE_CELL_HEIGHT_PX,
+        NATIVE_MAX_CELL_HEIGHT_PX,
+    )
+}
+
+fn native_cell_px_from_env(key: &str, base: u32, max: u32) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| {
+            if native_hidpi_enabled() {
+                base.saturating_mul(NATIVE_HIDPI_SCALE)
+            } else {
+                base
+            }
+        })
+        .clamp(1, max)
+}
+
+fn native_hidpi_enabled() -> bool {
+    !matches!(
+        std::env::var("KITTWM_HIDPI")
+            .unwrap_or_else(|_| "1".to_string())
+            .to_ascii_lowercase()
+            .as_str(),
+        "0" | "false" | "off" | "no"
+    )
+}
+
+fn native_pixel_gap_cells(px_key: &str, cell_px: u32) -> u16 {
+    let Some(px) = std::env::var(px_key)
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+    else {
+        return 0;
+    };
+    if px == 0 {
+        return 0;
+    }
+    px.div_ceil(cell_px.max(1))
+        .min(u32::from(NATIVE_MAX_GAP_CELLS)) as u16
+}
+
+fn native_chrome_reservation_with_pixel_gaps(
+    reservation: &crate::daemon::NativeChromeReservationConfig,
+) -> crate::daemon::NativeChromeReservationConfig {
+    let mut reservation = reservation.clone();
+    let cell_width = native_cell_width_px();
+    let cell_height = native_cell_height_px();
+    let tile_gap_cols = native_pixel_gap_cells("KITTWM_TILE_GAP_PX", cell_width);
+    let tile_gap_rows = native_pixel_gap_cells("KITTWM_TILE_GAP_PX", cell_height);
+    let header_gap_rows = native_pixel_gap_cells("KITTWM_HEADER_GAP_PX", cell_height);
+    let footer_gap_rows = native_pixel_gap_cells("KITTWM_FOOTER_GAP_PX", cell_height);
+    reservation.gap_cols = reservation
+        .gap_cols
+        .saturating_add(tile_gap_cols)
+        .min(NATIVE_MAX_GAP_CELLS);
+    reservation.gap_rows = reservation
+        .gap_rows
+        .saturating_add(tile_gap_rows)
+        .min(NATIVE_MAX_GAP_CELLS);
+    reservation.top_bar_rows = reservation
+        .top_bar_rows
+        .saturating_add(header_gap_rows)
+        .min(20);
+    reservation.bottom_bar_rows = reservation
+        .bottom_bar_rows
+        .saturating_add(footer_gap_rows)
+        .min(20);
+    reservation
 }
 
 fn fit_rgba_frame_to_cells(
@@ -1849,8 +1940,10 @@ fn fit_rgba_frame_to_cells(
     cols: u16,
     rows: u16,
 ) -> (Vec<u8>, u32, u32) {
-    let target_width = u32::from(cols).saturating_mul(NATIVE_CELL_WIDTH_PX).max(1);
-    let target_height = u32::from(rows).saturating_mul(NATIVE_CELL_HEIGHT_PX).max(1);
+    let cell_width = native_cell_width_px();
+    let cell_height = native_cell_height_px();
+    let target_width = u32::from(cols).saturating_mul(cell_width).max(1);
+    let target_height = u32::from(rows).saturating_mul(cell_height).max(1);
     let expected_len = target_width as usize * target_height as usize * 4;
     if width == target_width && height == target_height && rgba.len() == expected_len {
         return (rgba, width, height);
@@ -2527,13 +2620,17 @@ fn native_layouts_for_weights_with_reservation(
     if weights.is_empty() {
         return Vec::new();
     }
+    let reservation = native_chrome_reservation_with_pixel_gaps(reservation);
     let count = weights.len().min(u16::MAX as usize);
     let left = reservation.left_cols.min(cols.saturating_sub(1));
     let right = reservation
         .right_cols
         .min(cols.saturating_sub(left).saturating_sub(1));
     let content_cols = cols.saturating_sub(left).saturating_sub(right).max(1);
-    let tilable_rows = native_tilable_rows_with_reservation(rows, reservation);
+    let tilable_rows = rows
+        .saturating_sub(reservation.top_bar_rows)
+        .saturating_sub(reservation.bottom_bar_rows)
+        .max(1);
     let gap_cols = if matches!(axis, NativePaneLayoutAxis::Columns) {
         reservation.gap_cols
     } else {
@@ -2599,6 +2696,7 @@ fn native_tilable_rows_with_reservation(
     rows: u16,
     reservation: &crate::daemon::NativeChromeReservationConfig,
 ) -> u16 {
+    let reservation = native_chrome_reservation_with_pixel_gaps(reservation);
     rows.saturating_sub(reservation.top_bar_rows)
         .saturating_sub(reservation.bottom_bar_rows)
         .max(1)
@@ -3513,8 +3611,8 @@ pub fn native_showcase_metrics_json(cols: u16, rows: u16, help_overlay: bool) ->
         "scene_count": scene_count,
         "layer_count": layer_count,
         "total_pixels": total_pixels,
-        "cell_width_px": NATIVE_CELL_WIDTH_PX,
-        "cell_height_px": NATIVE_CELL_HEIGHT_PX,
+        "cell_width_px": native_cell_width_px(),
+        "cell_height_px": native_cell_height_px(),
     }))
     .map_err(Into::into)
 }
@@ -7225,8 +7323,8 @@ mod native_pane_tests {
         assert_eq!(metrics["scene_count"], 4);
         assert!(metrics["layer_count"].as_u64().unwrap() >= 20, "{metrics}");
         assert!(metrics["total_pixels"].as_u64().unwrap() > 0, "{metrics}");
-        assert_eq!(metrics["cell_width_px"], NATIVE_CELL_WIDTH_PX);
-        assert_eq!(metrics["cell_height_px"], NATIVE_CELL_HEIGHT_PX);
+        assert_eq!(metrics["cell_width_px"], native_cell_width_px());
+        assert_eq!(metrics["cell_height_px"], native_cell_height_px());
     }
 
     #[test]
@@ -8336,25 +8434,82 @@ mod native_pane_tests {
 
     #[test]
     fn native_graphics_cell_size_defines_pixel_density_contract() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTWM_HIDPI");
+        std::env::remove_var("KITTWM_NATIVE_CELL_WIDTH_PX");
+        std::env::remove_var("KITTWM_NATIVE_CELL_HEIGHT_PX");
         let cell_size = native_cell_size();
-        assert_eq!(cell_size.width_px as u32, NATIVE_CELL_WIDTH_PX);
-        assert_eq!(cell_size.height_px as u32, NATIVE_CELL_HEIGHT_PX);
+        assert_eq!(cell_size.width_px as u32, native_cell_width_px());
+        assert_eq!(cell_size.height_px as u32, native_cell_height_px());
+        assert_eq!(
+            native_cell_width_px(),
+            NATIVE_BASE_CELL_WIDTH_PX * NATIVE_HIDPI_SCALE
+        );
+        assert_eq!(
+            native_cell_height_px(),
+            NATIVE_BASE_CELL_HEIGHT_PX * NATIVE_HIDPI_SCALE
+        );
 
         let scene = native_empty_workspace_scene(cell_size, 80, 20).2;
         assert_eq!(
             scene.pixel_width(),
-            scene.footprint.cols as u32 * NATIVE_CELL_WIDTH_PX
+            scene.footprint.cols as u32 * native_cell_width_px()
         );
         assert_eq!(
             scene.pixel_height(),
-            scene.footprint.rows as u32 * NATIVE_CELL_HEIGHT_PX
+            scene.footprint.rows as u32 * native_cell_height_px()
         );
 
         let source = vec![0xff; 4];
         let (fitted, width, height) = fit_rgba_frame_to_cells(source, 1, 1, 7, 3);
-        assert_eq!(width, 7 * NATIVE_CELL_WIDTH_PX);
-        assert_eq!(height, 3 * NATIVE_CELL_HEIGHT_PX);
+        assert_eq!(width, 7 * native_cell_width_px());
+        assert_eq!(height, 3 * native_cell_height_px());
         assert_eq!(fitted.len(), (width * height * 4) as usize);
+        std::env::remove_var("KITTWM_HIDPI");
+        std::env::remove_var("KITTWM_NATIVE_CELL_WIDTH_PX");
+        std::env::remove_var("KITTWM_NATIVE_CELL_HEIGHT_PX");
+    }
+
+    #[test]
+    fn native_hidpi_and_pixel_gap_env_are_configurable() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTWM_HIDPI", "0");
+        std::env::remove_var("KITTWM_NATIVE_CELL_WIDTH_PX");
+        std::env::remove_var("KITTWM_NATIVE_CELL_HEIGHT_PX");
+        assert_eq!(native_cell_width_px(), NATIVE_BASE_CELL_WIDTH_PX);
+        assert_eq!(native_cell_height_px(), NATIVE_BASE_CELL_HEIGHT_PX);
+        std::env::set_var("KITTWM_HIDPI", "1");
+        assert_eq!(
+            native_cell_width_px(),
+            NATIVE_BASE_CELL_WIDTH_PX * NATIVE_HIDPI_SCALE
+        );
+        assert_eq!(
+            native_cell_height_px(),
+            NATIVE_BASE_CELL_HEIGHT_PX * NATIVE_HIDPI_SCALE
+        );
+        std::env::set_var("KITTWM_NATIVE_CELL_WIDTH_PX", "24");
+        std::env::set_var("KITTWM_NATIVE_CELL_HEIGHT_PX", "48");
+        assert_eq!(native_cell_size(), CellSize::new(24, 48));
+        std::env::set_var("KITTWM_TILE_GAP_PX", "25");
+        std::env::set_var("KITTWM_HEADER_GAP_PX", "49");
+        std::env::set_var("KITTWM_FOOTER_GAP_PX", "1");
+        let reservation = native_chrome_reservation_with_pixel_gaps(
+            &crate::daemon::NativeChromeReservationConfig::default(),
+        );
+        assert_eq!(reservation.gap_cols, 2);
+        assert_eq!(reservation.gap_rows, 1);
+        assert_eq!(reservation.top_bar_rows, 3);
+        assert_eq!(reservation.bottom_bar_rows, 1);
+        for key in [
+            "KITTWM_HIDPI",
+            "KITTWM_NATIVE_CELL_WIDTH_PX",
+            "KITTWM_NATIVE_CELL_HEIGHT_PX",
+            "KITTWM_TILE_GAP_PX",
+            "KITTWM_HEADER_GAP_PX",
+            "KITTWM_FOOTER_GAP_PX",
+        ] {
+            std::env::remove_var(key);
+        }
     }
 
     #[test]
