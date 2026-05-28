@@ -6426,7 +6426,7 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
         let y = row as f32 * cell.height_px as f32;
         let cmd_label = truncate(cmd, 48);
         layers.push(Layer {
-            label: Some(format!("kittwm-app-row:path:{cmd_label}")),
+            label: Some(apps_scene_row_label("path", &cmd_label)),
             root: Node::Rect {
                 rect: apps_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -6442,7 +6442,7 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
         let y = row as f32 * cell.height_px as f32;
         let app_label = truncate(app, 48);
         layers.push(Layer {
-            label: Some(format!("kittwm-app-row:macos:{app_label}")),
+            label: Some(apps_scene_row_label("macos", &app_label)),
             root: Node::Rect {
                 rect: apps_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -6460,6 +6460,20 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn apps_scene_row_label(kind: &str, label: &str) -> String {
+    let mut out = String::with_capacity(
+        "kittwm-app-row::"
+            .len()
+            .saturating_add(kind.len())
+            .saturating_add(label.len()),
+    );
+    out.push_str("kittwm-app-row:");
+    out.push_str(kind);
+    out.push(':');
+    out.push_str(label);
+    out
 }
 
 fn apps_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -8557,6 +8571,18 @@ mod tests {
             ..Cli::default()
         };
         assert!(apps_cmd(&cli).is_ok());
+    }
+
+    #[test]
+    fn apps_scene_row_label_builds_directly() {
+        assert_eq!(
+            apps_scene_row_label("path", "xterm"),
+            "kittwm-app-row:path:xterm"
+        );
+        assert_eq!(
+            apps_scene_row_label("macos", "Terminal"),
+            "kittwm-app-row:macos:Terminal"
+        );
     }
 
     #[test]
