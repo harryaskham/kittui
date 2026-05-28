@@ -2522,7 +2522,9 @@ fn doctor_detail_rect(width: f32, cell: CellSize, row: f32) -> KittuiPxRect {
 fn doctor_display_tuning_label(
     display_tuning: &kittui_cli::session::NativeDisplayTuning,
 ) -> String {
-    format!(
+    let mut out = String::with_capacity(96);
+    let _ = write!(
+        out,
         "hidpi={}:cell={}x{}:tile_gap={}px={}x{}:header_gap={}px={}:footer_gap={}px={}",
         display_tuning.hidpi_enabled,
         display_tuning.cell_width_px,
@@ -2534,7 +2536,8 @@ fn doctor_display_tuning_label(
         display_tuning.header_gap_rows,
         display_tuning.footer_gap_px,
         display_tuning.footer_gap_rows
-    )
+    );
+    out
 }
 
 fn doctor_scene_cols() -> u16 {
