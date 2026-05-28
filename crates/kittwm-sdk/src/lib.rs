@@ -3043,7 +3043,7 @@ impl Kittwm {
     pub fn spawn_surface(&self, spec: &SurfaceSpec) -> Result<SurfaceSpawn> {
         self.capabilities.ensure(Capability::CreateWindow)?;
         let command = spec.native_pty_command()?;
-        let reply = self.request_protocol(format!("SPAWN_PTY {command}"))?;
+        let reply = self.request_protocol(spawn_pty_request(&command))?;
         let handle = self.focused_surface();
         if let Some(title) = &spec.title {
             let _ = handle.rename(title);
@@ -3530,6 +3530,13 @@ fn split_pane_request(target: &str, mode: LayoutMode, command: &str) -> String {
     out.push(' ');
     out.push_str(label);
     out.push(' ');
+    out.push_str(command);
+    out
+}
+
+fn spawn_pty_request(command: &str) -> String {
+    let mut out = String::with_capacity("SPAWN_PTY ".len() + command.len());
+    out.push_str("SPAWN_PTY ");
     out.push_str(command);
     out
 }
@@ -5090,6 +5097,15 @@ mod tests {
             client.app_launch_first(""),
             Err(Error::Daemon(message)) if message.contains("must be nonempty")
         ));
+    }
+
+    #[test]
+    fn spawn_pty_request_builds_directly() {
+        assert_eq!(spawn_pty_request("htop"), "SPAWN_PTY htop");
+        assert_eq!(
+            spawn_pty_request("kittwm-browser 'https://example.com/a%20b'"),
+            "SPAWN_PTY kittwm-browser 'https://example.com/a%20b'"
+        );
     }
 
     #[cfg(unix)]
