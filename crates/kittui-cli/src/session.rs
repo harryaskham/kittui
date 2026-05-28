@@ -3545,15 +3545,30 @@ fn native_resize_failure_log_line(
     layout: NativePaneLayout,
     err: &dyn std::fmt::Display,
 ) -> String {
-    format!(
-        "native pane resize failed: window={window} app={}x{} layout={}x{}+{},{} err={err}",
+    use std::fmt::Write as _;
+
+    let err = err.to_string();
+    let mut out = String::with_capacity(
+        "native pane resize failed: window= app=x layout=x+, err=".len()
+            + window.len()
+            + err.len()
+            + 32,
+    );
+    out.push_str("native pane resize failed: window=");
+    out.push_str(window);
+    out.push_str(" app=");
+    let _ = write!(
+        out,
+        "{}x{} layout={}x{}+{},{} err=",
         layout.app_cols.max(1),
         layout.app_rows.max(1),
         layout.cols,
         layout.rows,
         layout.x,
         layout.y
-    )
+    );
+    out.push_str(&err);
+    out
 }
 
 fn resize_native_panes_logged(
@@ -9007,6 +9022,7 @@ mod native_pane_tests {
         assert!(line.contains("app=38x10"), "{line}");
         assert!(line.contains("layout=40x12+2,3"), "{line}");
         assert!(line.contains("err=boom"), "{line}");
+        assert!(line.capacity() >= line.len());
     }
 
     #[test]
