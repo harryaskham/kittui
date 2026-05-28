@@ -199,7 +199,7 @@ impl BarModel {
             let x = chip_x;
             let y = ((cell_h - chip_h) / 2.0).max(0.0);
             scene.layers.push(Layer::new(
-                format!("{label_prefix}-workspace-chip-shadow:{display_label}"),
+                top_bar_workspace_chip_shadow_label(label_prefix, &display_label),
                 Node::Rect {
                     rect: PxRect::new(x + 1.0, y + 1.0, chip_w, chip_h),
                     fill: Paint::Solid {
@@ -281,6 +281,19 @@ impl BarModel {
         ));
         scene
     }
+}
+
+fn top_bar_workspace_chip_shadow_label(label_prefix: &str, display_label: &str) -> String {
+    let mut out = String::with_capacity(
+        label_prefix
+            .len()
+            .saturating_add("-workspace-chip-shadow:".len())
+            .saturating_add(display_label.len()),
+    );
+    out.push_str(label_prefix);
+    out.push_str("-workspace-chip-shadow:");
+    out.push_str(display_label);
+    out
 }
 
 fn top_bar_background_label(label_prefix: &str, state: &str, display_workspace: &str) -> String {
@@ -679,6 +692,14 @@ mod tests {
         assert_eq!(
             top_bar_background_label("kittwm-bar", "active", "dev"),
             "kittwm-bar:active:dev"
+        );
+    }
+
+    #[test]
+    fn top_bar_workspace_chip_shadow_label_builds_directly() {
+        assert_eq!(
+            top_bar_workspace_chip_shadow_label("kittwm-bar", "dev"),
+            "kittwm-bar-workspace-chip-shadow:dev"
         );
     }
 
