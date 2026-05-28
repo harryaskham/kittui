@@ -7,6 +7,7 @@
 //! the same binary ask a live kittwm host to create or replace panes.
 
 use std::borrow::Cow;
+use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -966,12 +967,22 @@ fn browser_status_text_with_precomputed_url(
     show_frame: bool,
     metadata: &BrowserStatusMetadata,
 ) -> String {
-    let mut status = format!(
-        "kittwm-browser — {} — window={} socket={} — Ctrl-] exits",
-        url_label, metadata.window, metadata.socket
+    let mut status = String::with_capacity(
+        "kittwm-browser —  — window= socket= — Ctrl-] exits".len()
+            + url_label.len()
+            + metadata.window.len()
+            + metadata.socket.len()
+            + if show_frame { 32 } else { 0 },
     );
+    status.push_str("kittwm-browser — ");
+    status.push_str(url_label);
+    status.push_str(" — window=");
+    status.push_str(&metadata.window);
+    status.push_str(" socket=");
+    status.push_str(&metadata.socket);
+    status.push_str(" — Ctrl-] exits");
     if show_frame {
-        status.push_str(&format!(" — frame {frame}"));
+        let _ = write!(status, " — frame {frame}");
     }
     status
 }
