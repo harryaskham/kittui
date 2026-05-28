@@ -4526,6 +4526,10 @@ fn devtools_socket_timeout() -> Duration {
     browser_timeout_from_env("KITTWM_BROWSER_CDP_TIMEOUT_MS", Duration::from_secs(5))
 }
 
+fn devtools_http_timeout() -> Duration {
+    browser_timeout_from_env("KITTWM_BROWSER_HTTP_TIMEOUT_MS", Duration::from_secs(5))
+}
+
 fn wait_for_browser_document_ready(
     socket: &mut WebSocket<MaybeTlsStream<std::net::TcpStream>>,
     next_id: &mut u64,
@@ -4698,7 +4702,10 @@ fn percent_encode(input: &str) -> String {
 
 fn create_target(port: u16, url: &str) -> Result<serde_json::Value> {
     let endpoint = format!("http://127.0.0.1:{port}/json/new?{}", percent_encode(url));
-    let text = ureq::put(&endpoint).call()?.into_string()?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout(devtools_http_timeout())
+        .build();
+    let text = agent.put(&endpoint).call()?.into_string()?;
     Ok(serde_json::from_str(&text)?)
 }
 
@@ -5617,6 +5624,12 @@ mod tests {
         std::env::set_var("KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS", "999999999");
         assert_eq!(read_devtools_port_timeout(), MAX_BROWSER_TIMEOUT);
         std::env::remove_var("KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS");
+
+        std::env::set_var("KITTWM_BROWSER_HTTP_TIMEOUT_MS", "250");
+        assert_eq!(devtools_http_timeout(), Duration::from_millis(250));
+        std::env::set_var("KITTWM_BROWSER_HTTP_TIMEOUT_MS", "999999999");
+        assert_eq!(devtools_http_timeout(), MAX_BROWSER_TIMEOUT);
+        std::env::remove_var("KITTWM_BROWSER_HTTP_TIMEOUT_MS");
     }
 
     #[test]
