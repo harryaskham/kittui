@@ -3405,7 +3405,16 @@ fn split_pane_request(window: &str, axis: &str, command: &str) -> Result<String>
     if command.is_empty() {
         return Err(anyhow!("SPLIT_PANE requires command"));
     }
-    Ok(format!("SPLIT_PANE {window} {axis} {command}"))
+    let mut out = String::with_capacity(
+        "SPLIT_PANE ".len() + window.len() + 1 + axis.len() + 1 + command.len(),
+    );
+    out.push_str("SPLIT_PANE ");
+    out.push_str(&window);
+    out.push(' ');
+    out.push_str(&axis);
+    out.push(' ');
+    out.push_str(command);
+    Ok(out)
 }
 
 fn layout_request(axis: &str) -> Result<String> {
@@ -11407,6 +11416,9 @@ END
         let layout = layout_request("ROWS").unwrap();
         assert_eq!(layout, "LAYOUT rows");
         assert_eq!(layout.capacity(), layout.len());
+        let split_request = split_pane_request("focused", "ROWS", " htop --tree ").unwrap();
+        assert_eq!(split_request, "SPLIT_PANE focused rows htop --tree");
+        assert_eq!(split_request.capacity(), split_request.len());
         let move_request = move_pane_request("focused", "LAST").unwrap();
         assert_eq!(move_request, "MOVE_PANE focused last");
         assert_eq!(move_request.capacity(), move_request.len());
