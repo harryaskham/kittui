@@ -6515,19 +6515,34 @@ fn exec_replace_argv(argv: &[String]) -> Result<()> {
 }
 
 fn argv_to_shell_words(args: &[String]) -> String {
-    args.iter()
-        .map(|arg| {
-            if arg
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_/.:".contains(c))
-            {
-                arg.clone()
-            } else {
-                format!("'{}'", arg.replace('\'', "'\\''"))
+    let capacity = args
+        .iter()
+        .map(|arg| arg.len().saturating_add(2))
+        .sum::<usize>()
+        .saturating_add(args.len().saturating_sub(1));
+    let mut out = String::with_capacity(capacity);
+    for (idx, arg) in args.iter().enumerate() {
+        if idx > 0 {
+            out.push(' ');
+        }
+        if arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_/.:".contains(c))
+        {
+            out.push_str(arg);
+        } else {
+            out.push('\'');
+            for ch in arg.chars() {
+                if ch == '\'' {
+                    out.push_str("'\\''");
+                } else {
+                    out.push(ch);
+                }
             }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+            out.push('\'');
+        }
+    }
+    out
 }
 
 fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
