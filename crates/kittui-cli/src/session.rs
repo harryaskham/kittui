@@ -3884,16 +3884,26 @@ fn native_top_bar_model_from_view(view: &NativeShellView) -> BarModel {
 }
 
 fn native_top_bar_time_from_text(text: &str) -> String {
-    let mut parts = text.split_whitespace().collect::<Vec<_>>();
-    if parts.len() >= 2 && parts.last() == Some(&"UTC") {
-        let zone = parts.pop().unwrap_or("UTC");
-        let clock = parts.pop().unwrap_or("00:00");
-        return format!("{clock} {zone}");
-    }
-    if let Some(clock) = parts.last().copied().filter(|part| is_hh_mm_clock(part)) {
-        return format!("{clock} UTC");
+    let mut parts = text.split_whitespace();
+    let Some(last) = parts.next_back() else {
+        return "00:00 UTC".to_string();
+    };
+    if last == "UTC" {
+        if let Some(clock) = parts.next_back().filter(|part| is_hh_mm_clock(part)) {
+            return native_top_bar_time_label(clock, "UTC");
+        }
+    } else if is_hh_mm_clock(last) {
+        return native_top_bar_time_label(last, "UTC");
     }
     "00:00 UTC".to_string()
+}
+
+fn native_top_bar_time_label(clock: &str, zone: &str) -> String {
+    let mut out = String::with_capacity(clock.len() + 1 + zone.len());
+    out.push_str(clock);
+    out.push(' ');
+    out.push_str(zone);
+    out
 }
 
 fn is_hh_mm_clock(value: &str) -> bool {
@@ -5585,6 +5595,11 @@ mod native_pane_tests {
             "12:34 UTC"
         );
         assert_eq!(native_top_bar_time_from_text("no clock here"), "00:00 UTC");
+        assert_eq!(
+            native_top_bar_time_from_text("broken 12:34 PST"),
+            "00:00 UTC"
+        );
+        assert_eq!(native_top_bar_time_from_text("UTC"), "00:00 UTC");
     }
 
     #[test]
