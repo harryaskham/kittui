@@ -3760,14 +3760,20 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
 }
 
 fn commands_text() -> String {
-    let mut out = String::from("kittwm commands — local CLI catalog\n");
+    let entries = local_command_entries();
+    let mut out = String::with_capacity(entries.len().saturating_mul(48).saturating_add(96));
+    out.push_str("kittwm commands — local CLI catalog\n");
     let mut current = "";
-    for entry in local_command_entries() {
+    for entry in entries {
         if entry.category != current {
             current = entry.category;
-            out.push_str(&format!("\n{}\n", current.to_ascii_uppercase()));
+            out.push('\n');
+            for ch in current.chars() {
+                out.push(ch.to_ascii_uppercase());
+            }
+            out.push('\n');
         }
-        out.push_str(&format!("  {:28} {}\n", entry.command, entry.description));
+        let _ = writeln!(out, "  {:28} {}", entry.command, entry.description);
     }
     out.push_str("\nFor socket verbs from a running WM: kittwm --help-json\n");
     out
@@ -7477,6 +7483,7 @@ mod tests {
     #[test]
     fn commands_catalog_lists_daily_driver_aliases() {
         let text = commands_text();
+        assert!(text.capacity() >= text.len());
         assert!(text.contains("kittwm commands"), "{text}");
         assert!(text.contains("LIFECYCLE"), "{text}");
         assert!(text.contains("spawn CMD [ARGS...]"), "{text}");
