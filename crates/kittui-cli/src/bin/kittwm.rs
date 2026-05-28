@@ -8713,10 +8713,12 @@ mod tests {
 
     #[test]
     fn session_row_label_builds_directly() {
+        let label = session_row_label(1, "native-2", "editor", "vim", "2", true);
         assert_eq!(
-            session_row_label(1, "native-2", "editor", "vim", "2", true),
+            label,
             "kittwm-session-row:1:window=native-2:title=editor:command=vim:weight=2:focused=true"
         );
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
