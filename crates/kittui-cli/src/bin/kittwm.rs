@@ -25,6 +25,7 @@
 //! XQuartz on macOS, xterm via Xvfb on Linux) and route keystrokes into
 //! it. See bead bd-a9ec5b.
 
+use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -2190,6 +2191,14 @@ fn resolve_capture_spec(spec: &str) -> Result<kittui_quartz::CaptureTarget> {
     ))
 }
 
+fn write_stdout_or_ignore_broken_pipe(bytes: &[u8]) -> Result<()> {
+    match std::io::stdout().write_all(bytes) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(err) => Err(err.into()),
+    }
+}
+
 fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let os = std::env::consts::OS;
@@ -2230,13 +2239,15 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
             &display_tuning,
         );
         if scene_json {
-            println!("{}", serde_json::to_string(&scene)?);
+            let mut out = serde_json::to_string(&scene)?;
+            out.push('\n');
+            write_stdout_or_ignore_broken_pipe(out.as_bytes())?;
         } else {
             let runtime = Runtime::builder().terminal(terminal_info).build()?;
             let options =
                 kittwm_scene_placement_options(kittwm_sdk::SurfacePlacementRole::Decoration);
             let placement = runtime.place_at_with_options(&scene, scene.footprint, &options)?;
-            print!("{}", placement.to_bytes());
+            write_stdout_or_ignore_broken_pipe(placement.to_bytes().as_bytes())?;
         }
     } else if json {
         let mut buf = String::new();
@@ -2268,20 +2279,23 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
         buf.push_str(&format!("  \"log_present\": {},\n", log_present));
         buf.push_str(&format!("  \"log_size_bytes\": {}\n", log_size));
         buf.push_str("}\n");
-        print!("{buf}");
+        write_stdout_or_ignore_broken_pipe(buf.as_bytes())?;
     } else {
-        println!("kittwm doctor");
-        println!("============");
-        println!("  version        : {version}");
-        println!("  os / arch      : {os} / {arch}");
-        println!(
+        let mut out = String::new();
+        out.push_str("kittwm doctor\n");
+        out.push_str("============\n");
+        let _ = writeln!(out, "  version        : {version}");
+        let _ = writeln!(out, "  os / arch      : {os} / {arch}");
+        let _ = writeln!(
+            out,
             "  features       : sck={} quartz={} xvfb={}",
             feat_sck, feat_quartz, feat_xvfb
         );
-        println!("  TERM           : {term}");
-        println!("  COLORTERM      : {colorterm}");
-        println!("  TERM_PROGRAM   : {term_program}");
-        println!(
+        let _ = writeln!(out, "  TERM           : {term}");
+        let _ = writeln!(out, "  COLORTERM      : {colorterm}");
+        let _ = writeln!(out, "  TERM_PROGRAM   : {term_program}");
+        let _ = writeln!(
+            out,
             "  kitty graphics : {}",
             if kitty_graphics {
                 "likely yes"
@@ -2289,7 +2303,8 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
                 "unknown"
             }
         );
-        println!(
+        let _ = writeln!(
+            out,
             "  transport      : {:?} (compression={:?}, tmux={}, remote={})",
             transport_diagnostics.selected_transport,
             transport_diagnostics.compression_mode,
@@ -2297,12 +2312,13 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
             transport_diagnostics.remote
         );
         if let Some(source) = &transport_diagnostics.override_source {
-            println!("  transport set  : {source}");
+            let _ = writeln!(out, "  transport set  : {source}");
         }
         if let Some(reason) = &transport_diagnostics.fallback_reason {
-            println!("  transport note : {reason}");
+            let _ = writeln!(out, "  transport note : {reason}");
         }
-        println!(
+        let _ = writeln!(
+            out,
             "  kitty probe    : {}",
             if transport_diagnostics.probe_attempted {
                 transport_diagnostics
@@ -2314,32 +2330,36 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
             }
         );
         if let Some(supported) = transport_diagnostics.probe_supports_kitty {
-            println!("  probe support  : {supported}");
+            let _ = writeln!(out, "  probe support  : {supported}");
         }
         if let Some(elapsed) = transport_diagnostics.probe_elapsed_ms {
-            println!("  probe elapsed  : {elapsed} ms");
+            let _ = writeln!(out, "  probe elapsed  : {elapsed} ms");
         }
         if let Some(error) = &transport_diagnostics.probe_error {
-            println!("  probe note     : {error}");
+            let _ = writeln!(out, "  probe note     : {error}");
         }
-        println!("  display hidpi  : {}", display_tuning.hidpi_enabled);
-        println!(
+        let _ = writeln!(out, "  display hidpi  : {}", display_tuning.hidpi_enabled);
+        let _ = writeln!(
+            out,
             "  display cell   : {}x{} px",
             display_tuning.cell_width_px, display_tuning.cell_height_px
         );
-        println!(
+        let _ = writeln!(
+            out,
             "  tile gap       : {} px ({} cols / {} rows)",
             display_tuning.tile_gap_px, display_tuning.tile_gap_cols, display_tuning.tile_gap_rows
         );
-        println!(
+        let _ = writeln!(
+            out,
             "  header/footer  : {} px -> {} rows / {} px -> {} rows",
             display_tuning.header_gap_px,
             display_tuning.header_gap_rows,
             display_tuning.footer_gap_px,
             display_tuning.footer_gap_rows
         );
-        println!("  displays       : {display_count}");
-        println!(
+        let _ = writeln!(out, "  displays       : {display_count}");
+        let _ = writeln!(
+            out,
             "  log            : {} ({}{})",
             log_path,
             if log_present { "present" } else { "missing" },
@@ -2349,16 +2369,17 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
                 String::new()
             }
         );
-        print!(
-            "{}",
-            doctor_daily_driver_text(&transport_diagnostics, log_present)
-        );
+        out.push_str(&doctor_daily_driver_text(
+            &transport_diagnostics,
+            log_present,
+        ));
         if cfg!(target_os = "macos") {
-            println!();
-            println!("Hint: SCK + CGEventPost both require Screen Recording + Accessibility");
-            println!("      permissions on the terminal hosting kittwm (System Settings >");
-            println!("      Privacy & Security).");
+            out.push('\n');
+            out.push_str("Hint: SCK + CGEventPost both require Screen Recording + Accessibility\n");
+            out.push_str("      permissions on the terminal hosting kittwm (System Settings >\n");
+            out.push_str("      Privacy & Security).\n");
         }
+        write_stdout_or_ignore_broken_pipe(out.as_bytes())?;
     }
     Ok(())
 }
