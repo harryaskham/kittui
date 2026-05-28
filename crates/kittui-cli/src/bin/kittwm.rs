@@ -6278,9 +6278,10 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
     let duplicates = keymap_duplicate_count(km);
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-keymap-backdrop:bindings={}:prefix={prefix_label}:duplicates={duplicates}",
-                km.bindings.len()
+            label: Some(keymap_scene_backdrop_label(
+                km.bindings.len(),
+                &prefix_label,
+                duplicates,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -6335,6 +6336,22 @@ fn keymap_scene(km: &kittui_cli::keymap::Keymap) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn keymap_scene_backdrop_label(bindings: usize, prefix_label: &str, duplicates: usize) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-keymap-backdrop:bindings=:prefix=:duplicates="
+            .len()
+            .saturating_add(prefix_label.len())
+            .saturating_add(40),
+    );
+    label.push_str("kittwm-keymap-backdrop:bindings=");
+    let _ = write!(label, "{bindings}");
+    label.push_str(":prefix=");
+    label.push_str(prefix_label);
+    label.push_str(":duplicates=");
+    let _ = write!(label, "{duplicates}");
+    label
 }
 
 fn keymap_scene_row_label(idx: usize, chord_label: &str, action_label: &str) -> String {
@@ -9448,6 +9465,14 @@ mod tests {
             labels.iter().any(|label| label
                 .contains("kittwm-config-row:20:prefix=prefix-value-that-is-pathologic…")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn keymap_scene_backdrop_label_builds_directly() {
+        assert_eq!(
+            keymap_scene_backdrop_label(12, "C-a", 1),
+            "kittwm-keymap-backdrop:bindings=12:prefix=C-a:duplicates=1"
         );
     }
 
