@@ -81,9 +81,8 @@ impl LaunchArgs {
                     );
                 }
                 "--" => {
-                    let rest = iter.collect::<Vec<_>>();
-                    if !rest.is_empty() {
-                        query = Some(shell_words(&rest));
+                    if iter.peek().is_some() {
+                        query = Some(shell_words_from_iter(iter.by_ref()));
                     }
                     break;
                 }
@@ -91,9 +90,9 @@ impl LaunchArgs {
                     return Err(format!("unknown option {other}\n\n{}", help_text()));
                 }
                 other => {
-                    let mut rest = vec![other.to_string()];
-                    rest.extend(iter);
-                    query = Some(shell_words(&rest));
+                    query = Some(shell_words_from_iter(
+                        std::iter::once(other.to_string()).chain(iter),
+                    ));
                     break;
                 }
             }
@@ -157,19 +156,40 @@ fn ascii_starts_with_ignore_case(value: &str, prefix: &str) -> bool {
             .all(|(a, b)| a.to_ascii_lowercase() == *b)
 }
 
+#[cfg(test)]
 fn shell_words(args: &[String]) -> String {
     let mut out = String::with_capacity(
         args.iter()
             .map(|arg| arg.len().saturating_add(2))
             .sum::<usize>(),
     );
-    for (idx, arg) in args.iter().enumerate() {
+    push_shell_words(&mut out, args.iter());
+    out
+}
+
+fn shell_words_from_iter<I>(args: I) -> String
+where
+    I: IntoIterator<Item = String>,
+{
+    let iter = args.into_iter();
+    let (lower, upper) = iter.size_hint();
+    let estimated_args = upper.unwrap_or(lower).max(lower);
+    let mut out = String::with_capacity(estimated_args.saturating_mul(8));
+    push_shell_words(&mut out, iter);
+    out
+}
+
+fn push_shell_words<I, S>(out: &mut String, args: I)
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    for (idx, arg) in args.into_iter().enumerate() {
         if idx > 0 {
             out.push(' ');
         }
-        push_shell_word(&mut out, arg);
+        push_shell_word(out, arg.as_ref());
     }
-    out
 }
 
 fn push_shell_word(out: &mut String, arg: &str) {
@@ -535,6 +555,9 @@ mod tests {
         assert_eq!(args.backend, Backend::Terminal);
         assert_eq!(args.title.as_deref(), Some("logs"));
         assert_eq!(args.query, "tail -f '/tmp/app log.txt'");
+
+        let bare = LaunchArgs::parse_from(["echo", "it's", "ok"]).unwrap();
+        assert_eq!(bare.query, "echo 'it'\\''s' ok");
     }
 
     #[test]
