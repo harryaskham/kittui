@@ -470,7 +470,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 let remaining = &chunk[offset..n];
                 if let Some((event, consumed)) = kittui_input::parse(remaining) {
                     if native_route_mouse_event(
-                        event.clone(),
+                        &event,
                         &mut panes,
                         &mut focused,
                         cols,
@@ -3333,7 +3333,7 @@ fn native_paste_payload(bytes: &[u8], bracketed_paste: bool) -> Vec<u8> {
 }
 
 fn native_route_mouse_event(
-    event: InputEvent,
+    event: &InputEvent,
     panes: &mut [NativePane],
     focused: &mut usize,
     cols: u16,
@@ -6393,7 +6393,7 @@ mod native_pane_tests {
         // Top-bar row is reserved chrome outside any pane; clicking it should
         // be consumed by the WM but must not change pane focus.
         assert!(native_route_mouse_event(
-            InputEvent::MousePress {
+            &InputEvent::MousePress {
                 col: 1,
                 row: 1,
                 button: MouseButton::Left,
@@ -6414,7 +6414,7 @@ mod native_pane_tests {
         // Pane title chrome should focus the pane and force a redraw so focus
         // visuals cannot lag behind input routing.
         assert!(native_route_mouse_event(
-            InputEvent::MousePress {
+            &InputEvent::MousePress {
                 col: 42,
                 row: 2,
                 button: MouseButton::Left,
@@ -6435,7 +6435,7 @@ mod native_pane_tests {
         // App-area clicks keep focus aligned with the pane that receives input.
         clear = false;
         assert!(native_route_mouse_event(
-            InputEvent::MousePress {
+            &InputEvent::MousePress {
                 col: 2,
                 row: 3,
                 button: MouseButton::Left,
