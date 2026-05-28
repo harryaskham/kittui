@@ -3310,10 +3310,12 @@ mod tests {
                 .starts_with("PASTE_BYTES_B64_QUEUED")
         );
         let manifest = serde_json::json!({
-            "layout": "rows",
+            "layout": "grid",
             "panes": [
                 {"title": "shell", "command": "bash", "weight": 2, "focused": false},
-                {"title": "logs", "command": "tail -f app.log", "weight": 1, "focused": true}
+                {"title": "logs", "command": "tail -f app.log", "weight": 1, "focused": true},
+                {"title": "top", "command": "kittwm-top", "weight": 1, "focused": false},
+                {"title": "browser", "command": "kittwm-browser https://example.com", "weight": 1, "focused": false}
             ]
         });
         assert!(
@@ -3453,7 +3455,7 @@ mod tests {
                     bytes: b"paste\n".to_vec(),
                 },
                 NativePaneCommand::RestoreSession(NativeSessionRestore {
-                    layout: Some("rows".to_string()),
+                    layout: Some("grid".to_string()),
                     focus_index: Some(1),
                     panes: vec![
                         NativeSessionRestorePane {
@@ -3467,6 +3469,18 @@ mod tests {
                             command: "tail -f app.log".to_string(),
                             weight: 1,
                             focused: true,
+                        },
+                        NativeSessionRestorePane {
+                            title: Some("top".to_string()),
+                            command: "kittwm-top".to_string(),
+                            weight: 1,
+                            focused: false,
+                        },
+                        NativeSessionRestorePane {
+                            title: Some("browser".to_string()),
+                            command: "kittwm-browser https://example.com".to_string(),
+                            weight: 1,
+                            focused: false,
                         },
                     ],
                 })
