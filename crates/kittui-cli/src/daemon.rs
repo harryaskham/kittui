@@ -1933,10 +1933,12 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
 }
 
 fn native_pane_cursor_label(pane: &NativePaneStatus) -> String {
-    match (pane.cursor_col, pane.cursor_row) {
-        (Some(col), Some(row)) => format!("{col},{row}"),
-        _ => "-".to_string(),
-    }
+    let (Some(col), Some(row)) = (pane.cursor_col, pane.cursor_row) else {
+        return "-".to_string();
+    };
+    let mut out = String::with_capacity(8);
+    let _ = write!(out, "{col},{row}");
+    out
 }
 
 fn native_pane_bracketed_paste_label(pane: &NativePaneStatus) -> &'static str {
@@ -3361,6 +3363,15 @@ mod tests {
             scrollback_snapshot: Some("secret scrollback is not serialized".to_string()),
             app_rows: None,
         }
+    }
+
+    #[test]
+    fn native_pane_cursor_label_builds_position_directly() {
+        let mut pane = native_status("native-1", true, 1);
+        assert_eq!(native_pane_cursor_label(&pane), "-");
+        pane.cursor_col = Some(12);
+        pane.cursor_row = Some(34);
+        assert_eq!(native_pane_cursor_label(&pane), "12,34");
     }
 
     #[test]
