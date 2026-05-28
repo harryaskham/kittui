@@ -3446,10 +3446,11 @@ fn restore_session_cmd(path_arg: &str) -> Result<()> {
 fn restore_session_request(input: &str) -> Result<String> {
     let value: serde_json::Value = serde_json::from_str(input)
         .map_err(|e| anyhow!("--restore-session expects valid SESSION_JSON: {e}"))?;
-    Ok(format!(
-        "RESTORE_SESSION_JSON {}",
-        serde_json::to_string(&value)?
-    ))
+    let compact = serde_json::to_string(&value)?;
+    let mut out = String::with_capacity("RESTORE_SESSION_JSON ".len() + compact.len());
+    out.push_str("RESTORE_SESSION_JSON ");
+    out.push_str(&compact);
+    Ok(out)
 }
 
 fn semantic_publish_cmd(window: &str, json_arg: &str) -> Result<()> {
@@ -10285,6 +10286,7 @@ END
         assert!(request.starts_with("RESTORE_SESSION_JSON {"), "{request}");
         assert!(!request.contains('\n'), "{request}");
         assert!(request.contains(r#""command":"htop""#), "{request}");
+        assert_eq!(request.capacity(), request.len());
     }
 
     #[test]
