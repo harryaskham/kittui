@@ -131,36 +131,82 @@ fn render_process_snapshot(snapshot: &KittwmProcessSnapshot) -> String {
 }
 
 fn render_process_row(process: &KittwmProcessInfo) -> String {
-    format!(
-        " {}  {:<10} {:<7} {:<7} {:>6} {:>8} {:<5} {:<10} {}",
+    let window = clip(&process.window, 10);
+    let name = clip(
+        process
+            .process_name
+            .as_deref()
+            .unwrap_or(process.title.as_str()),
+        10,
+    );
+    let mut out = String::with_capacity(
+        64usize
+            .saturating_add(window.len())
+            .saturating_add(name.len())
+            .saturating_add(process.command.as_deref().unwrap_or("-").len()),
+    );
+    let _ = write!(
+        out,
+        " {}  {:<10} ",
         if process.focused { '*' } else { '-' },
-        clip(&process.window, 10),
-        process
-            .pid
-            .map(|pid| pid.to_string())
-            .unwrap_or_else(|| "-".to_string()),
-        process
-            .ppid
-            .map(|pid| pid.to_string())
-            .unwrap_or_else(|| "-".to_string()),
-        process
-            .cpu_percent
-            .map(|cpu| format!("{cpu:.1}"))
-            .unwrap_or_else(|| "-".to_string()),
-        process
-            .rss_kib
-            .map(|rss| rss.to_string())
-            .unwrap_or_else(|| "-".to_string()),
+        window
+    );
+    push_top_optional_u32(&mut out, process.pid, 7, false);
+    out.push(' ');
+    push_top_optional_u32(&mut out, process.ppid, 7, false);
+    out.push(' ');
+    push_top_optional_f32(&mut out, process.cpu_percent, 6, true);
+    out.push(' ');
+    push_top_optional_u64(&mut out, process.rss_kib, 8, true);
+    let _ = write!(
+        out,
+        " {:<5} {:<10} {}",
         process.state.as_deref().unwrap_or("-"),
-        clip(
-            process
-                .process_name
-                .as_deref()
-                .unwrap_or(process.title.as_str()),
-            10,
-        ),
+        name,
         process.command.as_deref().unwrap_or("-"),
-    )
+    );
+    out
+}
+
+fn push_top_optional_u32(out: &mut String, value: Option<u32>, width: usize, right: bool) {
+    if let Some(value) = value {
+        push_top_padded(out, &value.to_string(), width, right);
+    } else {
+        push_top_padded(out, "-", width, right);
+    }
+}
+
+fn push_top_optional_u64(out: &mut String, value: Option<u64>, width: usize, right: bool) {
+    if let Some(value) = value {
+        push_top_padded(out, &value.to_string(), width, right);
+    } else {
+        push_top_padded(out, "-", width, right);
+    }
+}
+
+fn push_top_optional_f32(out: &mut String, value: Option<f32>, width: usize, right: bool) {
+    if let Some(value) = value {
+        let mut number = String::with_capacity(8);
+        let _ = write!(number, "{value:.1}");
+        push_top_padded(out, &number, width, right);
+    } else {
+        push_top_padded(out, "-", width, right);
+    }
+}
+
+fn push_top_padded(out: &mut String, value: &str, width: usize, right: bool) {
+    let len = value.chars().count();
+    if right && len < width {
+        for _ in 0..(width - len) {
+            out.push(' ');
+        }
+    }
+    out.push_str(value);
+    if !right && len < width {
+        for _ in 0..(width - len) {
+            out.push(' ');
+        }
+    }
 }
 
 fn clip(value: &str, max: usize) -> String {
@@ -208,6 +254,13 @@ mod tests {
                 process_name: Some("zsh".to_string()),
             }],
         };
+        let row = render_process_row(&snapshot.processes[0]);
+        assert_eq!(
+            row,
+            " *  native-1   42      1          1.5     2048 S     zsh        zsh -l"
+        );
+        assert!(row.capacity() >= row.len());
+
         let rendered = render_process_snapshot(&snapshot);
         assert!(rendered.contains("kittwm-top"), "{rendered}");
         assert!(
