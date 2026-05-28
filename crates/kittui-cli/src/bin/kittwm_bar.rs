@@ -171,21 +171,31 @@ fn unknown_argument_error(argument: &str) -> String {
     out
 }
 
+fn prefixed_error(prefix: &str, err: impl std::fmt::Display) -> String {
+    let err = err.to_string();
+    let mut out = String::with_capacity(prefix.len().saturating_add(2).saturating_add(err.len()));
+    out.push_str(prefix);
+    out.push_str(": ");
+    out.push_str(&err);
+    out
+}
+
 fn apply_reservation_options(opts: &BarOptions) -> Result<(), String> {
     if !opts.reserve && !opts.release {
         return Ok(());
     }
-    let client = Kittwm::connect_from_env().map_err(|err| format!("connect to kittwm: {err}"))?;
+    let client =
+        Kittwm::connect_from_env().map_err(|err| prefixed_error("connect to kittwm", err))?;
     if opts.release {
         client
             .clear_chrome_reservation()
-            .map_err(|err| format!("clear chrome reservation: {err}"))?;
+            .map_err(|err| prefixed_error("clear chrome reservation", err))?;
     } else {
         let owner = reservation_owner_from_env();
         let request = ChromeReservationRequest::top_bar(1).owner(owner);
         client
             .reserve_chrome(&request)
-            .map_err(|err| format!("reserve chrome: {err}"))?;
+            .map_err(|err| prefixed_error("reserve chrome", err))?;
     }
     Ok(())
 }
@@ -498,6 +508,13 @@ mod tests {
     fn unknown_argument_error_builds_directly() {
         let err = parse_options(["--wat".to_string()]).unwrap_err();
         assert_eq!(err, "unknown argument \"--wat\"");
+        assert_eq!(err.capacity(), err.len());
+    }
+
+    #[test]
+    fn prefixed_error_builds_directly() {
+        let err = prefixed_error("connect to kittwm", "socket missing");
+        assert_eq!(err, "connect to kittwm: socket missing");
         assert_eq!(err.capacity(), err.len());
     }
 
