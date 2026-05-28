@@ -53,12 +53,12 @@ impl KeySpec {
                 key: "-".to_string(),
             });
         }
-        let mut parts: Vec<&str> = token.split('-').collect();
-        let key = parts.pop().unwrap_or("");
-        if key.is_empty() {
-            return Err(anyhow!("missing key in {token:?}"));
-        }
-        for m in parts {
+        let (modifiers, key) = match token.rsplit_once('-') {
+            Some((_, "")) => return Err(anyhow!("missing key in {token:?}")),
+            Some((modifiers, key)) => (Some(modifiers), key),
+            None => (None, token),
+        };
+        for m in modifiers.into_iter().flat_map(|mods| mods.split('-')) {
             match m.to_ascii_lowercase().as_str() {
                 "c" | "ctrl" | "control" => mods.ctrl = true,
                 "m" | "meta" | "alt" => mods.alt = true,
@@ -447,6 +447,12 @@ mod tests {
         let km = Keymap::parse("bind C-a x custom.do-thing\n").unwrap();
         assert_eq!(km.bindings[0].chord_string(), "C-a x");
         assert_eq!(km.bindings[0].action.to_string(), "custom.do-thing");
+        assert_eq!(
+            KeySpec::parse("C-M-S-Enter").unwrap().to_string(),
+            "C-M-S-enter"
+        );
+        assert_eq!(KeySpec::parse("-").unwrap().to_string(), "-");
+        assert!(KeySpec::parse("C-").is_err());
     }
 
     #[test]
