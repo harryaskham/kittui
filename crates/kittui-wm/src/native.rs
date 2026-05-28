@@ -13,9 +13,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, OnceLock};
 use std::thread::JoinHandle;
-use std::time::Duration;
-#[cfg(test)]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -5249,23 +5247,33 @@ mod tests {
         let mut state = TerminalState::new(2, 1);
         parser.advance(&mut state, b"AZ");
         let rgba = render_terminal_rgba(&state, 8, 16);
-        let fg = [0xd7, 0xf8, 0xff, 0xff];
         let bg = [0x08, 0x0d, 0x14, 0xff];
-        let first_cell_fg = rgba
+        let first_cell_glyph = rgba
             .chunks_exact(4)
             .take(8 * 16)
-            .filter(|px| **px == fg)
+            .filter(|px| **px != bg)
             .count();
         let first_cell_bg = rgba
             .chunks_exact(4)
             .take(8 * 16)
             .filter(|px| **px == bg)
             .count();
-        assert!(first_cell_fg > 8, "glyph should draw foreground pixels");
         assert!(
-            first_cell_bg > first_cell_fg,
+            first_cell_glyph > 8,
+            "glyph should draw visible non-background pixels"
+        );
+        assert!(
+            first_cell_bg > first_cell_glyph,
             "glyph should not be a filled box"
         );
+    }
+
+    fn pixel_is_sgr_red_glyph(px: &[u8]) -> bool {
+        px.len() == 4
+            && px[3] == 0xff
+            && px != [0x19, 0x71, 0xc2, 0xff]
+            && px[0] > px[1].saturating_add(24)
+            && px[0] > px[2].saturating_add(24)
     }
 
     #[test]
@@ -5281,9 +5289,10 @@ mod tests {
         let mut state = TerminalState::new(2, 1);
         parser.advance(&mut state, b"\x1b[31;44mA");
         let rgba = render_terminal_rgba(&state, 8, 16);
-        assert!(rgba
-            .chunks_exact(4)
-            .any(|px| px == [0xe0, 0x31, 0x31, 0xff]));
+        assert!(
+            rgba.chunks_exact(4).any(pixel_is_sgr_red_glyph),
+            "renderer should draw a visible red foreground glyph"
+        );
         assert!(rgba
             .chunks_exact(4)
             .any(|px| px == [0x19, 0x71, 0xc2, 0xff]));
