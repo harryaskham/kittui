@@ -1293,21 +1293,18 @@ fn push_native_event(
 }
 
 fn native_status_event(state: &NativeSpawnQueueState, seq: u64) -> serde_json::Value {
-    let focus = state
-        .panes
-        .iter()
-        .find(|pane| pane.focused)
-        .map(|pane| pane.window.clone());
+    let focused = state.panes.iter().find(|pane| pane.focused);
+    let focus_label = focused.map(|pane| pane.window.as_str()).unwrap_or("-");
     serde_json::json!({
         "schema_version": NATIVE_EVENT_SCHEMA_VERSION,
         "seq": seq,
         "at_ms": now_unix_ms(),
         "kind": "status",
-        "window": focus,
+        "window": focused.map(|pane| pane.window.as_str()),
         "detail": {
             "pending": state.pending.len(),
             "panes": state.panes.len(),
-            "focus": state.panes.iter().find(|pane| pane.focused).map(|pane| pane.window.as_str()).unwrap_or("-"),
+            "focus": focus_label,
             "layout": state.layout.as_deref().unwrap_or("-"),
             "panes_detail": state.panes.iter().map(native_pane_status_value).collect::<Vec<_>>(),
         },
@@ -3615,7 +3612,10 @@ mod tests {
             .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
             .collect::<Vec<_>>();
         assert!(
-            events.iter().any(|event| event["kind"] == "status"),
+            events.iter().any(|event| event["kind"] == "status"
+                && event["window"].as_str().is_some_and(
+                    |window| window == event["detail"]["focus"].as_str().unwrap_or("")
+                )),
             "{stream}"
         );
         assert!(
