@@ -13,7 +13,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, OnceLock};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
@@ -3640,13 +3642,24 @@ impl HeadlessBrowserApp {
             .stderr(Stdio::piped())
             .spawn()
             .context("spawn headless Chrome")?;
-        let port = read_devtools_port(&mut child)?;
-        let target = create_target(port, url)?;
-        let ws_url = target
-            .get("webSocketDebuggerUrl")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("/json/new response missing webSocketDebuggerUrl"))?;
-        let (mut socket, _) = connect(ws_url).context("connect DevTools websocket")?;
+        let launch_result = (|| -> Result<_> {
+            let port = read_devtools_port(&mut child)?;
+            let target = create_target(port, url)?;
+            let ws_url = target
+                .get("webSocketDebuggerUrl")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("/json/new response missing webSocketDebuggerUrl"))?;
+            connect(ws_url).context("connect DevTools websocket")
+        })();
+        let (mut socket, _) = match launch_result {
+            Ok(value) => value,
+            Err(err) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = std::fs::remove_dir_all(&user_data_dir);
+                return Err(err);
+            }
+        };
         cdp_send_raw(&mut socket, 1, "Page.enable", json!({}))?;
         cdp_send_raw(
             &mut socket,
@@ -4520,23 +4533,57 @@ fn read_devtools_port(child: &mut Child) -> Result<u16> {
         .stderr
         .take()
         .ok_or_else(|| anyhow!("Chrome stderr unavailable"))?;
-    let started = Instant::now();
-    let mut buf = Vec::new();
-    while started.elapsed() < Duration::from_secs(10) {
-        let mut byte = [0u8; 1];
-        match stderr.read(&mut byte) {
-            Ok(0) => break,
-            Ok(_) => {
-                buf.push(byte[0]);
-                let text = String::from_utf8_lossy(&buf);
-                if let Some(port) = parse_devtools_port(&text) {
-                    return Ok(port);
+    let timeout = read_devtools_port_timeout();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        loop {
+            let mut byte = [0u8; 1];
+            match stderr.read(&mut byte) {
+                Ok(0) => {
+                    let _ = tx.send(Err(anyhow!(
+                        "Chrome exited before printing DevTools listening port"
+                    )));
+                    return;
+                }
+                Ok(_) => {
+                    buf.push(byte[0]);
+                    let text = String::from_utf8_lossy(&buf);
+                    if let Some(port) = parse_devtools_port(&text) {
+                        let _ = tx.send(Ok(port));
+                        return;
+                    }
+                }
+                Err(err) => {
+                    let _ = tx.send(Err(err.into()));
+                    return;
                 }
             }
-            Err(e) => return Err(e.into()),
+        }
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(anyhow!(
+                "Chrome did not print DevTools listening port within {} ms",
+                timeout.as_millis()
+            ))
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err(anyhow!("Chrome DevTools port reader exited unexpectedly"))
         }
     }
-    Err(anyhow!("Chrome did not print DevTools listening port"))
+}
+
+fn read_devtools_port_timeout() -> Duration {
+    std::env::var("KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+        .unwrap_or_else(|| Duration::from_secs(10))
 }
 
 fn parse_devtools_port(text: &str) -> Option<u16> {
@@ -6383,6 +6430,29 @@ mod tests {
             ),
             Some(54321)
         );
+    }
+
+    #[test]
+    fn read_devtools_port_timeout_is_bounded_and_kills_child() {
+        std::env::set_var("KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS", "50");
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("sleep 2")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        let err = read_devtools_port(&mut child).unwrap_err();
+        let elapsed = started.elapsed();
+        assert!(elapsed < Duration::from_secs(1), "elapsed={elapsed:?}");
+        assert!(
+            err.to_string().contains("within 50 ms"),
+            "unexpected error: {err}"
+        );
+        assert!(child.try_wait().unwrap().is_some());
+        std::env::remove_var("KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS");
     }
 
     #[test]
