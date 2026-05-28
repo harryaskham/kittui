@@ -561,10 +561,10 @@ fn terminal_scene_placement_options() -> kittui_kitty::PlacementOptions {
 }
 
 fn run(args: TerminalArgs) -> Result<String, String> {
-    let wm = Kittwm::connect_from_env().map_err(|err| format!("connect to kittwm: {err}"))?;
+    let wm = Kittwm::connect_from_env().map_err(|err| sdk_error("connect to kittwm", &err))?;
     if args.status != StatusMode::None {
-        let status = wm.status().map_err(|err| format!("read status: {err}"))?;
-        let panes = wm.panes().map_err(|err| format!("read panes: {err}"))?;
+        let status = wm.status().map_err(|err| sdk_error("read status", &err))?;
+        let panes = wm.panes().map_err(|err| sdk_error("read panes", &err))?;
         let model = terminal_status_model(status, panes);
         return match args.status {
             StatusMode::Text => Ok(render_status_text(&model)),
@@ -577,7 +577,7 @@ fn run(args: TerminalArgs) -> Result<String, String> {
     if let Some(request) = args.events {
         let events = wm
             .events_ms(request.ms)
-            .map_err(|err| format!("read events: {err}"))?;
+            .map_err(|err| sdk_error("read events", &err))?;
         let model = terminal_events_model(
             request.ms,
             events
@@ -597,7 +597,7 @@ fn run(args: TerminalArgs) -> Result<String, String> {
             title: args.title,
             command: args.command,
         })
-        .map_err(|err| format!("replace current terminal: {err}"))
+        .map_err(|err| sdk_error("replace current terminal", &err))
     } else {
         let mut spec = SurfaceSpec::terminal(args.command);
         if let Some(title) = args.title {
@@ -605,8 +605,16 @@ fn run(args: TerminalArgs) -> Result<String, String> {
         }
         wm.spawn_surface(&spec)
             .map(|spawn| spawn.reply)
-            .map_err(|err| format!("spawn terminal surface: {err}"))
+            .map_err(|err| sdk_error("spawn terminal surface", &err))
     }
+}
+
+fn sdk_error(prefix: &str, err: &impl std::fmt::Display) -> String {
+    let mut out = String::with_capacity(prefix.len().saturating_add(2).saturating_add(64));
+    out.push_str(prefix);
+    out.push_str(": ");
+    let _ = write!(out, "{err}");
+    out
 }
 
 fn scene_json_line(scene: &Scene) -> Result<String, serde_json::Error> {
@@ -683,6 +691,13 @@ mod tests {
         assert!(err.starts_with("unknown option --wat"), "{err}");
         assert!(err.contains("kittwm-terminal"), "{err}");
         assert_eq!(err.capacity(), err.len());
+    }
+
+    #[test]
+    fn sdk_error_builds_diagnostics_directly() {
+        let err = sdk_error("connect to kittwm", &"socket missing");
+        assert_eq!(err, "connect to kittwm: socket missing");
+        assert!(err.capacity() >= err.len());
     }
 
     #[test]
