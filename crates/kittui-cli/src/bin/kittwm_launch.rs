@@ -368,12 +368,26 @@ fn run(args: LaunchArgs) -> Result<String, String> {
 
 fn render_launch_plan(plan: &LaunchPlan, output: PlanOutput) -> Result<String, String> {
     match output {
-        PlanOutput::Text => Ok(format!("{}\n{}\n", plan.status, plan.command)),
+        PlanOutput::Text => Ok(render_launch_plan_text(plan)),
         PlanOutput::SceneJson => serde_json::to_string(&launch_plan_scene(plan))
             .map(|json| format!("{json}\n"))
             .map_err(|err| format!("encode launch plan scene: {err}")),
         PlanOutput::Kitty => render_launch_plan_kitty(plan),
     }
+}
+
+fn render_launch_plan_text(plan: &LaunchPlan) -> String {
+    let mut out = String::with_capacity(
+        plan.status
+            .len()
+            .saturating_add(plan.command.len())
+            .saturating_add(2),
+    );
+    out.push_str(&plan.status);
+    out.push('\n');
+    out.push_str(&plan.command);
+    out.push('\n');
+    out
 }
 
 fn launch_plan_scene(plan: &LaunchPlan) -> Scene {
@@ -647,6 +661,20 @@ mod tests {
         let out = run(args).unwrap();
         assert!(out.contains("backend=browser"));
         assert!(out.contains("SPAWN_PTY kittwm-browser https://example.com"));
+    }
+
+    #[test]
+    fn launch_plan_text_builds_directly() {
+        let args =
+            LaunchArgs::parse_from(["--dry-run", "--browser", "https://example.com"]).unwrap();
+        let plan = build_launch_plan(&args);
+        let text = render_launch_plan_text(&plan);
+        assert!(text.starts_with("kittwm-launch: backend=browser"), "{text}");
+        assert!(
+            text.ends_with("SPAWN_PTY kittwm-browser https://example.com\n"),
+            "{text}"
+        );
+        assert_eq!(text.lines().count(), 2);
     }
 
     #[test]
