@@ -3018,9 +3018,26 @@ fn serve_cmd(_cli: Cli) -> Result<()> {
 fn normalize_daemon_command(cmd: &str) -> String {
     let trimmed = cmd.trim();
     let Some((verb, rest)) = trimmed.split_once(char::is_whitespace) else {
-        return trimmed.to_ascii_uppercase();
+        return ascii_uppercase_string(trimmed);
     };
-    format!("{} {}", verb.to_ascii_uppercase(), rest.trim_start())
+    let rest = rest.trim_start();
+    let mut out = String::with_capacity(verb.len() + 1 + rest.len());
+    push_ascii_uppercase(&mut out, verb);
+    out.push(' ');
+    out.push_str(rest);
+    out
+}
+
+fn ascii_uppercase_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    push_ascii_uppercase(&mut out, value);
+    out
+}
+
+fn push_ascii_uppercase(out: &mut String, value: &str) {
+    for ch in value.chars() {
+        out.push(ch.to_ascii_uppercase());
+    }
 }
 
 fn protocol_token(token: &str, label: &str) -> Result<String> {
@@ -9928,11 +9945,12 @@ END
 
     #[test]
     fn normalize_daemon_command_uppercases_only_verb() {
-        assert_eq!(normalize_daemon_command("status"), "STATUS");
-        assert_eq!(
-            normalize_daemon_command("spawn printf MixedCase"),
-            "SPAWN printf MixedCase"
-        );
+        let status = normalize_daemon_command("status");
+        assert_eq!(status, "STATUS");
+        assert_eq!(status.capacity(), status.len());
+        let spawn = normalize_daemon_command("spawn printf MixedCase");
+        assert_eq!(spawn, "SPAWN printf MixedCase");
+        assert_eq!(spawn.capacity(), spawn.len());
         assert_eq!(
             normalize_daemon_command("apps_first Safari"),
             "APPS_FIRST Safari"
