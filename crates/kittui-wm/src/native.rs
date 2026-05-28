@@ -3658,6 +3658,7 @@ impl HeadlessBrowserApp {
                 return Err(err);
             }
         };
+        set_devtools_socket_timeouts(&mut socket, devtools_socket_timeout())?;
         cdp_send_raw(&mut socket, 1, "Page.enable", json!({}))?;
         cdp_send_raw(
             &mut socket,
@@ -4467,6 +4468,30 @@ impl NativeApp for HeadlessBrowserApp {
     fn capture(&mut self) -> Result<NativeFrame> {
         Ok(self.capture_surface()?.frame)
     }
+}
+
+fn set_devtools_socket_timeouts(
+    socket: &mut WebSocket<MaybeTlsStream<std::net::TcpStream>>,
+    timeout: Duration,
+) -> Result<()> {
+    match socket.get_mut() {
+        MaybeTlsStream::Plain(stream) => {
+            stream.set_read_timeout(Some(timeout))?;
+            stream.set_write_timeout(Some(timeout))?;
+        }
+        #[allow(unreachable_patterns)]
+        _ => {}
+    }
+    Ok(())
+}
+
+fn devtools_socket_timeout() -> Duration {
+    std::env::var("KITTWM_BROWSER_CDP_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+        .unwrap_or_else(|| Duration::from_secs(5))
 }
 
 fn wait_for_browser_document_ready(
@@ -5509,6 +5534,15 @@ mod tests {
         assert!(!state.mouse_modes.button_motion);
         assert!(state.mouse_modes.all_motion);
         assert!(!state.mouse_modes.sgr);
+    }
+
+    #[test]
+    fn devtools_socket_timeout_uses_positive_env_override() {
+        std::env::set_var("KITTWM_BROWSER_CDP_TIMEOUT_MS", "123");
+        assert_eq!(devtools_socket_timeout(), Duration::from_millis(123));
+        std::env::set_var("KITTWM_BROWSER_CDP_TIMEOUT_MS", "0");
+        assert_eq!(devtools_socket_timeout(), Duration::from_secs(5));
+        std::env::remove_var("KITTWM_BROWSER_CDP_TIMEOUT_MS");
     }
 
     #[test]
