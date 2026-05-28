@@ -240,11 +240,13 @@ fn raw_compositor_error_log_path(log_path: &str) -> String {
 }
 
 fn raw_compositor_error_key(message: &str, log_path: &str) -> String {
-    format!(
-        "{}\n{}",
-        raw_compositor_error_text(message),
-        raw_compositor_error_log_path(log_path)
-    )
+    let message = raw_compositor_error_text(message);
+    let log_path = raw_compositor_error_log_path(log_path);
+    let mut out = String::with_capacity(message.len() + 1 + log_path.len());
+    out.push_str(&message);
+    out.push('\n');
+    out.push_str(&log_path);
+    out
 }
 
 fn should_write_raw_compositor_error(last_key: Option<&str>, next_key: &str) -> bool {
@@ -5578,6 +5580,8 @@ mod native_pane_tests {
         let key = raw_compositor_error_key(&huge_message, &huge_log);
         assert!(key.len() < 512, "{}", key.len());
         assert!(!key.contains(&"x".repeat(512)), "{}", key.len());
+        assert_eq!(key, format!("{text}\n{log}"));
+        assert_eq!(key.capacity(), key.len());
     }
 
     #[test]
