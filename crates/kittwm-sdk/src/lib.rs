@@ -3240,7 +3240,7 @@ impl SurfaceHandle {
     pub fn read_text(&self) -> Result<TextSnapshot> {
         self.client.capabilities.ensure(Capability::ReadText)?;
         Ok(serde_json::from_str(&self.client.request_protocol(
-            format!("READ_TEXT_JSON {}", self.id),
+            surface_token_request("READ_TEXT_JSON", &self.id),
         )?)?)
     }
 
@@ -3248,7 +3248,7 @@ impl SurfaceHandle {
     pub fn read_scrollback(&self) -> Result<ScrollbackSnapshot> {
         self.client.capabilities.ensure(Capability::ReadText)?;
         Ok(serde_json::from_str(&self.client.request_protocol(
-            format!("READ_SCROLLBACK_JSON {}", self.id),
+            surface_token_request("READ_SCROLLBACK_JSON", &self.id),
         )?)?)
     }
 
@@ -5333,6 +5333,14 @@ mod tests {
         assert_eq!(
             surface_token_request("CLOSE_PANE", "focused"),
             "CLOSE_PANE focused"
+        );
+        assert_eq!(
+            surface_token_request("READ_TEXT_JSON", "native-2"),
+            "READ_TEXT_JSON native-2"
+        );
+        assert_eq!(
+            surface_token_request("READ_SCROLLBACK_JSON", "native-2"),
+            "READ_SCROLLBACK_JSON native-2"
         );
     }
 
