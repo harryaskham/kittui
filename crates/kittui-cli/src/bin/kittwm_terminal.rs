@@ -161,10 +161,17 @@ where
 {
     let value = iter
         .next()
-        .ok_or_else(|| format!("{flag} requires milliseconds"))?;
+        .ok_or_else(|| terminal_flag_error(flag, " requires milliseconds"))?;
     value
         .parse()
-        .map_err(|_| format!("{flag} expects an integer"))
+        .map_err(|_| terminal_flag_error(flag, " expects an integer"))
+}
+
+fn terminal_flag_error(flag: &str, message: &str) -> String {
+    let mut out = String::with_capacity(flag.len() + message.len());
+    out.push_str(flag);
+    out.push_str(message);
+    out
 }
 
 fn default_terminal_command() -> String {
@@ -676,6 +683,16 @@ mod tests {
         assert!(err.starts_with("unknown option --wat"), "{err}");
         assert!(err.contains("kittwm-terminal"), "{err}");
         assert_eq!(err.capacity(), err.len());
+    }
+
+    #[test]
+    fn events_ms_errors_include_flag_without_formatting() {
+        let missing = TerminalArgs::parse_from(["--events-ms"]).unwrap_err();
+        assert_eq!(missing, "--events-ms requires milliseconds");
+        assert_eq!(missing.capacity(), missing.len());
+        let invalid = TerminalArgs::parse_from(["--events-kitty", "soon"]).unwrap_err();
+        assert_eq!(invalid, "--events-kitty expects an integer");
+        assert_eq!(invalid.capacity(), invalid.len());
     }
 
     #[test]
