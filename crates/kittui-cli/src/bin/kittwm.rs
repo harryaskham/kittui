@@ -8726,6 +8726,16 @@ mod tests {
     }
 
     #[test]
+    fn session_backdrop_label_builds_directly() {
+        let label = session_backdrop_label("kittwm-native-session", "1", "rows", "native-2", 2);
+        assert_eq!(
+            label,
+            "kittwm-session-backdrop:kind=kittwm-native-session:schema=1:layout=rows:focus=native-2:panes=2"
+        );
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
     fn session_scene_labels_manifest_panes() {
         let session = serde_json::json!({
             "schema_version": 1,
