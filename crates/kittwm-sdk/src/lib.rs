@@ -3068,7 +3068,7 @@ impl Kittwm {
         self.capabilities.ensure(Capability::ReplaceWindow)?;
         let reply = self.create_window(spec)?;
         if let Some(handle) = self.current_window_from_env() {
-            let _ = self.request_protocol(format!("CLOSE_PANE {}", handle.id));
+            let _ = self.request_protocol(surface_token_request("CLOSE_PANE", &handle.id));
         }
         Ok(reply)
     }
@@ -5106,6 +5106,48 @@ mod tests {
             spawn_pty_request("kittwm-browser 'https://example.com/a%20b'"),
             "SPAWN_PTY kittwm-browser 'https://example.com/a%20b'"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replace_current_closes_env_window_with_direct_request() {
+        let path = PathBuf::from(format!(
+            "/tmp/kwreplace-{}-{}.sock",
+            std::process::id(),
+            now_test_nanos() % 1_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                seen.push(request.trim().to_string());
+                stream.write_all(b"OK\n").unwrap();
+            }
+            seen
+        });
+
+        env::set_var("KITTWM_WINDOW", "native-9");
+        let client = Kittwm::connect_path(&path);
+        assert_eq!(
+            client
+                .replace_current(&WindowSpec {
+                    title: None,
+                    command: "htop".to_string(),
+                })
+                .unwrap()
+                .trim(),
+            "OK"
+        );
+        env::remove_var("KITTWM_WINDOW");
+        let seen = server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(seen, ["SPAWN_PTY htop", "CLOSE_PANE native-9"]);
     }
 
     #[cfg(unix)]
