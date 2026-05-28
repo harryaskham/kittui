@@ -29,7 +29,7 @@ pub use kittui_xvfb::{XButton, XCapture, XError, XPointerEvent, XServer, XWindow
 mod imp {
     //! macOS-only Quartz implementation.
 
-    #![allow(unsafe_code)]
+    #![allow(dead_code, unsafe_code, unused_imports)]
 
     use core_foundation::array::{CFArray, CFArrayRef};
     use core_foundation::base::{CFType, TCFType};

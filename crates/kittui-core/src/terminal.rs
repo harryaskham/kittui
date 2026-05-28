@@ -47,9 +47,14 @@ pub enum GraphicsCompressionMode {
 
 impl GraphicsCompressionMode {
     fn from_env_value(value: Option<String>) -> Self {
-        match value.unwrap_or_default().to_ascii_lowercase().as_str() {
-            "z" | "zlib" | "deflate" => Self::Zlib,
+        match value
+            .unwrap_or_else(|| "zlib".to_string())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "" | "z" | "zlib" | "deflate" | "gzip" | "gz" => Self::Zlib,
             "auto" => Self::Auto,
+            "0" | "off" | "none" | "false" | "no" => Self::Off,
             _ => Self::Off,
         }
     }
@@ -576,6 +581,13 @@ mod tests {
                 assert!(info.supports_kitty);
             },
         );
+    }
+
+    #[test]
+    fn transport_diagnostics_default_to_zlib_compression() {
+        let info = TerminalInfo::default_kitty();
+        let diag = TransportDiagnostics::detect_with_env(&info, |_| None);
+        assert_eq!(diag.compression_mode, GraphicsCompressionMode::Zlib);
     }
 
     #[test]

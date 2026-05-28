@@ -1700,11 +1700,14 @@ fn pick_backend(forced: Option<Backend>) -> Backend {
     {
         return Backend::Quartz;
     }
-    #[cfg(all(not(all(target_os = "macos", feature = "quartz")), feature = "xvfb"))]
+    #[cfg(all(target_os = "linux", feature = "xvfb"))]
     {
         return Backend::Xvfb;
     }
-    #[cfg(not(any(all(target_os = "macos", feature = "quartz"), feature = "xvfb")))]
+    #[cfg(not(any(
+        all(target_os = "macos", feature = "quartz"),
+        all(target_os = "linux", feature = "xvfb")
+    )))]
     {
         Backend::Fake
     }
@@ -1992,14 +1995,14 @@ fn run_session(cli: Cli) -> Result<()> {
         Backend::Fake => run_with_fake(&runtime, cell),
         #[cfg(all(target_os = "macos", feature = "quartz"))]
         Backend::Quartz => run_with_quartz(&runtime, cell, cli.pick_window, cli.capture.as_deref()),
-        #[cfg(all(not(all(target_os = "macos", feature = "quartz")), feature = "xvfb"))]
+        #[cfg(all(target_os = "linux", feature = "xvfb"))]
         Backend::Xvfb => run_with_xvfb(&runtime, cell),
         #[cfg(not(all(target_os = "macos", feature = "quartz")))]
         Backend::Quartz => Err(anyhow!(
             "Quartz backend requires --features quartz on macOS"
         )),
-        #[cfg(not(feature = "xvfb"))]
-        Backend::Xvfb => Err(anyhow!("Xvfb backend requires --features xvfb on Linux")),
+        #[cfg(not(all(target_os = "linux", feature = "xvfb")))]
+        Backend::Xvfb => Err(anyhow!("Xvfb backend requires Linux with --features xvfb")),
     }
 }
 
@@ -2092,7 +2095,7 @@ fn run_with_quartz(
     kittui_cli::session::run_loop(runtime, &compositor, &layout)
 }
 
-#[cfg(all(not(all(target_os = "macos", feature = "quartz")), feature = "xvfb"))]
+#[cfg(all(target_os = "linux", feature = "xvfb"))]
 fn run_with_xvfb(runtime: &Runtime, cell: CellSize) -> Result<()> {
     let display: u32 = std::env::var("KITTUI_WM_DISPLAY")
         .ok()
@@ -2195,9 +2198,9 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
     let colorterm = std::env::var("COLORTERM").unwrap_or_default();
     let term_program = std::env::var("TERM_PROGRAM").unwrap_or_default();
 
-    let feat_sck = cfg!(feature = "sck");
-    let feat_quartz = cfg!(feature = "quartz");
-    let feat_xvfb = cfg!(feature = "xvfb");
+    let feat_sck = cfg!(all(target_os = "macos", feature = "sck"));
+    let feat_quartz = cfg!(all(target_os = "macos", feature = "quartz"));
+    let feat_xvfb = cfg!(all(target_os = "linux", feature = "xvfb"));
 
     let log_path =
         std::env::var("KITTUI_WM_LOG").unwrap_or_else(|_| "/tmp/kittui-wm.log".to_string());

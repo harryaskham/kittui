@@ -64,7 +64,12 @@ mcp-cli = { workspace = true }
 updatable-cli = { workspace = true }
 
 [features]
-default = []
+# Daily-driver kittwm builds include the native capture backends by default:
+# - macOS uses `sck` (which includes Quartz/CoreGraphics)
+# - Linux uses `xvfb`
+# The runtime still gates platform-specific code with `cfg(target_os = ...)`, so
+# doctor reports only the backend that is effective for the current OS.
+default = ["sck", "xvfb"]
 xvfb = ["kittui-xvfb/xvfb"]
 xquartz = ["kittui-xvfb/xquartz"]
 quartz = ["kittui-quartz/quartz"]

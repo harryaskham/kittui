@@ -61,14 +61,20 @@ pub fn zlib_min_bytes_from_env() -> usize {
 }
 
 /// Select kitty graphics compression from `KITTUI_KITTY_COMPRESSION`.
+///
+/// Raw RGB/RGBA frame uploads default to zlib compression (`o=z`) because
+/// kittwm's steady-state native frames are large enough that the terminal I/O
+/// reduction is worth the small CPU cost. Set `KITTUI_KITTY_COMPRESSION=none`
+/// to force uncompressed payloads, or `auto` to use the size threshold.
 pub fn compression_from_env() -> CompressionMode {
     match std::env::var("KITTUI_KITTY_COMPRESSION")
-        .unwrap_or_default()
+        .unwrap_or_else(|_| "zlib".to_string())
         .to_ascii_lowercase()
         .as_str()
     {
-        "z" | "zlib" | "deflate" => CompressionMode::Zlib,
+        "" | "z" | "zlib" | "deflate" | "gzip" | "gz" => CompressionMode::Zlib,
         "auto" => CompressionMode::Auto,
+        "0" | "off" | "none" | "false" | "no" => CompressionMode::None,
         _ => CompressionMode::None,
     }
 }
@@ -1543,7 +1549,9 @@ mod tests {
     }
 
     #[test]
-    fn upload_still_rgba_emits_f32_grammar_with_s_v_width_height() {
+    fn upload_still_rgba_emits_f32_grammar_with_s_v_width_height_when_uncompressed() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("KITTUI_KITTY_COMPRESSION", "none");
         // 2x2 RGBA, alternating red/green pixels.
         let rgba: Vec<u8> = vec![
             0xff, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0xff, 0x00,
@@ -1558,6 +1566,19 @@ mod tests {
         assert!(escapes.ends_with("\x1b\\"));
         // No PNG signature in the body — must be base64 of raw RGBA only.
         assert!(!escapes.contains("PNG"));
+        std::env::remove_var("KITTUI_KITTY_COMPRESSION");
+    }
+
+    #[test]
+    fn compression_defaults_to_zlib_and_accepts_gzip_alias() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("KITTUI_KITTY_COMPRESSION");
+        assert_eq!(compression_from_env(), CompressionMode::Zlib);
+        std::env::set_var("KITTUI_KITTY_COMPRESSION", "gzip");
+        assert_eq!(compression_from_env(), CompressionMode::Zlib);
+        std::env::set_var("KITTUI_KITTY_COMPRESSION", "none");
+        assert_eq!(compression_from_env(), CompressionMode::None);
+        std::env::remove_var("KITTUI_KITTY_COMPRESSION");
     }
 
     #[test]
