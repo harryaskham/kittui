@@ -2463,8 +2463,15 @@ fn native_terminal_command(config: &KittwmConfig) -> String {
                 .clone()
                 .ok_or(std::env::VarError::NotPresent)
         })
-        .or_else(|_| std::env::var("SHELL").map(|s| format!("{s} -l")))
+        .or_else(|_| std::env::var("SHELL").map(native_login_shell_command))
         .unwrap_or_else(|_| "/bin/sh -l".to_string())
+}
+
+fn native_login_shell_command(shell: String) -> String {
+    let mut out = String::with_capacity(shell.len() + " -l".len());
+    out.push_str(&shell);
+    out.push_str(" -l");
+    out
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -6400,7 +6407,10 @@ mod native_pane_tests {
         config.terminal.command = Some("config-shell".to_string());
         assert_eq!(native_terminal_command(&config), "config-shell");
         config.terminal.command = None;
-        assert_eq!(native_terminal_command(&config), "/bin/test-shell -l");
+        let login_shell = native_login_shell_command("/bin/test-shell".to_string());
+        assert_eq!(login_shell, "/bin/test-shell -l");
+        assert_eq!(login_shell.capacity(), login_shell.len());
+        assert_eq!(native_terminal_command(&config), login_shell);
         std::env::set_var("KITTWM_TERMINAL_BINARY", "kittui-ghostty --app");
         assert_eq!(native_terminal_command(&config), "kittui-ghostty --app");
         std::env::set_var("KITTWM_TERMINAL_CMD", "htop");
