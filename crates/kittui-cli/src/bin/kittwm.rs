@@ -1273,6 +1273,10 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 \
              --spawn-pty CMD                spawn a native PTY pane
 \
+             split [WINDOW] columns|rows|grid CMD [ARGS...]
+\
+                                            spawn next to target and set split axis
+\
              focus WINDOW                   focus window or focused token
 \
              close [WINDOW]                 close pane (default focused)
@@ -1304,9 +1308,11 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --rename-pane WINDOW TITLE     set display title
 
 \
-             Socket equivalents include SPAWN_PTY, FOCUS_PANE, CLOSE_PANE,
+             Socket equivalents include SPAWN_PTY, SPLIT_PANE, FOCUS_PANE,
 \
-             LAYOUT, MOVE_PANE, RESIZE_PANE, BALANCE_PANES, and RENAME_PANE.
+             CLOSE_PANE, LAYOUT, MOVE_PANE, RESIZE_PANE, BALANCE_PANES,
+\
+             and RENAME_PANE.
 "),
         "logs" | "log" => Ok("kittwm help log\n\
              ================\n\n\
@@ -10360,6 +10366,11 @@ END
     fn help_topic_panes_is_focused() {
         let text = help_topic_text("panes").unwrap();
         assert!(text.contains("--spawn-pty CMD"), "{text}");
+        assert!(
+            text.contains("split [WINDOW] columns|rows|grid CMD [ARGS...]"),
+            "{text}"
+        );
+        assert!(text.contains("SPLIT_PANE"), "{text}");
         assert!(text.contains("--balance-panes"), "{text}");
         assert!(!text.contains("--probe-kitty"), "{text}");
     }
