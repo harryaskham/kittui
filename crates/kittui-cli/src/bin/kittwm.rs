@@ -998,6 +998,8 @@ DAILY DRIVER BASICS
   Cheat sheet:     kittwm cheat
   Start:           kittwm        (or: kittwm start)
   New terminal:    press C-a Enter inside kittwm
+  Float/full:      press C-a t / C-a f inside kittwm
+  Toggle split:    press C-a e inside kittwm
   Launcher:        press C-a g inside kittwm
   Help overlay:    press C-a ? inside kittwm
   Exit:            press Ctrl-]

@@ -2285,7 +2285,7 @@ fn process_native_terminal_byte(
                 *clear = true;
                 dbg.log(&format!("native terminal help overlay: {}", *help_overlay));
             }
-            b'\r' | b'\n' | b't' | b'T' => {
+            b'\r' | b'\n' => {
                 native_launch_terminal_pane(
                     panes,
                     focused,
@@ -2298,6 +2298,32 @@ fn process_native_terminal_byte(
                     clear,
                     dbg,
                 )?;
+            }
+            b't' | b'T' => {
+                dbg.log(
+                    "native terminal float toggle requested (handled by keymap compositor mode)",
+                );
+            }
+            b'f' | b'F' => {
+                dbg.log("native terminal fullscreen toggle requested (handled by keymap compositor mode)");
+            }
+            b'e' | b'E' => {
+                *layout_axis = match *layout_axis {
+                    NativePaneLayoutAxis::Columns => NativePaneLayoutAxis::Rows,
+                    NativePaneLayoutAxis::Rows => NativePaneLayoutAxis::Columns,
+                };
+                resize_native_panes_for_layout_with_reservation(
+                    panes,
+                    cols,
+                    rows,
+                    *layout_axis,
+                    reservation,
+                )?;
+                *clear = true;
+                dbg.log(&format!(
+                    "native terminal toggle split: {}",
+                    layout_axis.label()
+                ));
             }
             b'%' | b'|' | b'v' | b'V' => {
                 *layout_axis = NativePaneLayoutAxis::Columns;

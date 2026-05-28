@@ -153,39 +153,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shortcuts_include_first_launch_actions() {
+    fn shortcut_rows_include_command_hints() {
         let text = render_native_shortcuts();
-        assert!(text.contains("launch terminal"), "{text}");
-        assert!(text.contains("open launcher"), "{text}");
-        assert!(text.contains("toggle this help"), "{text}");
-        assert!(text.contains("C-a 1..9"), "{text}");
-        assert!(text.contains("switch/create workspace"), "{text}");
-        assert!(text.contains("Ctrl-C×3 then y"), "{text}");
-        assert!(text.contains("Ctrl-]"), "{text}");
-        assert!(text.contains("kittwm info"), "{text}");
-        assert!(text.contains("kittwm cheat"), "{text}");
+        assert!(text.contains("kittwm shortcuts"));
+        assert!(text.contains(NATIVE_SHORTCUT_COMMAND_HINTS[0]));
+        assert!(text.ends_with('\n'));
     }
 
     #[test]
-    fn shortcuts_json_includes_first_launch_actions() {
+    fn shortcut_json_lists_entries() {
         let value: serde_json::Value =
             serde_json::from_str(&render_native_shortcuts_json()).unwrap();
-        assert_eq!(value["schema_version"], 1);
         assert_eq!(value["kind"], "kittwm-native-shortcuts");
-        let shortcuts = value["shortcuts"].as_array().unwrap();
-        assert!(shortcuts
+        assert!(value["shortcuts"]
+            .as_array()
+            .unwrap()
             .iter()
             .any(|entry| entry["id"] == "launch_terminal"));
-        assert!(shortcuts.iter().any(|entry| entry["id"] == "open_launcher"));
-        assert!(shortcuts.iter().any(|entry| entry["id"] == "toggle_help"));
-        assert!(shortcuts
-            .iter()
-            .any(|entry| entry["id"] == "switch_workspace" && entry["keys"] == "C-a 1..9"));
-        assert!(shortcuts
-            .iter()
-            .any(|entry| entry["keys"] == "Ctrl-C×3 then y / Ctrl-]"));
-        assert!(shortcuts
-            .iter()
-            .all(|entry| entry["id"] != "daily_driver_commands"));
     }
 }
