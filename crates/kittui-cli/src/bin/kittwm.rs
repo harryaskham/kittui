@@ -2275,32 +2275,31 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
     } else if json {
         let mut buf = String::new();
         buf.push_str("{\n");
-        buf.push_str(&format!("  \"version\": {:?},\n", version));
-        buf.push_str(&format!("  \"os\": {:?},\n", os));
-        buf.push_str(&format!("  \"arch\": {:?},\n", arch));
-        buf.push_str(&format!(
-            "  \"features\": {{\"sck\": {}, \"quartz\": {}, \"xvfb\": {}}},\n",
-            feat_sck, feat_quartz, feat_xvfb
-        ));
-        buf.push_str(&format!("  \"term\": {:?},\n", term));
-        buf.push_str(&format!("  \"colorterm\": {:?},\n", colorterm));
-        buf.push_str(&format!("  \"term_program\": {:?},\n", term_program));
-        buf.push_str(&format!(
-            "  \"kitty_graphics_likely\": {},\n",
-            kitty_graphics
-        ));
-        buf.push_str(&format!("  \"display_count\": {},\n", display_count));
-        buf.push_str(&format!(
-            "  \"transport_diagnostics\": {},\n",
+        let _ = writeln!(buf, "  \"version\": {version:?},");
+        let _ = writeln!(buf, "  \"os\": {os:?},");
+        let _ = writeln!(buf, "  \"arch\": {arch:?},");
+        let _ = writeln!(
+            buf,
+            "  \"features\": {{\"sck\": {feat_sck}, \"quartz\": {feat_quartz}, \"xvfb\": {feat_xvfb}}},"
+        );
+        let _ = writeln!(buf, "  \"term\": {term:?},");
+        let _ = writeln!(buf, "  \"colorterm\": {colorterm:?},");
+        let _ = writeln!(buf, "  \"term_program\": {term_program:?},");
+        let _ = writeln!(buf, "  \"kitty_graphics_likely\": {kitty_graphics},");
+        let _ = writeln!(buf, "  \"display_count\": {display_count},");
+        let _ = writeln!(
+            buf,
+            "  \"transport_diagnostics\": {},",
             serde_json::to_string(&transport_diagnostics)?
-        ));
-        buf.push_str(&format!(
-            "  \"display_tuning\": {},\n",
+        );
+        let _ = writeln!(
+            buf,
+            "  \"display_tuning\": {},",
             serde_json::to_string(&display_tuning)?
-        ));
-        buf.push_str(&format!("  \"log_path\": {:?},\n", log_path));
-        buf.push_str(&format!("  \"log_present\": {},\n", log_present));
-        buf.push_str(&format!("  \"log_size_bytes\": {}\n", log_size));
+        );
+        let _ = writeln!(buf, "  \"log_path\": {log_path:?},");
+        let _ = writeln!(buf, "  \"log_present\": {log_present},");
+        let _ = writeln!(buf, "  \"log_size_bytes\": {log_size}");
         buf.push_str("}\n");
         write_stdout_or_ignore_broken_pipe(buf.as_bytes())?;
     } else {
