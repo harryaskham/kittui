@@ -3053,11 +3053,16 @@ fn protocol_token(token: &str, label: &str) -> Result<String> {
 }
 
 fn protocol_payload_request(verb: &str, payload: &str) -> Result<String> {
+    let verb = verb.trim();
     let payload = payload.trim();
     if payload.is_empty() {
         return Err(anyhow!("{verb} requires a nonempty payload"));
     }
-    Ok(format!("{} {payload}", verb.trim().to_ascii_uppercase()))
+    let mut out = String::with_capacity(verb.len() + 1 + payload.len());
+    push_ascii_uppercase(&mut out, verb);
+    out.push(' ');
+    out.push_str(payload);
+    Ok(out)
 }
 
 fn protocol_token_request(verb: &str, token: &str) -> Result<String> {
@@ -9964,10 +9969,9 @@ END
 
     #[test]
     fn pane_control_requests_validate_and_preserve_payloads() {
-        assert_eq!(
-            protocol_payload_request("spawn_pty", "htop").unwrap(),
-            "SPAWN_PTY htop"
-        );
+        let spawn_request = protocol_payload_request("spawn_pty", "  htop  ").unwrap();
+        assert_eq!(spawn_request, "SPAWN_PTY htop");
+        assert_eq!(spawn_request.capacity(), spawn_request.len());
         assert_eq!(
             protocol_token_request("focus_pane", "native-2").unwrap(),
             "FOCUS_PANE native-2"
