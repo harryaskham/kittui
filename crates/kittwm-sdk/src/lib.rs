@@ -2943,14 +2943,16 @@ impl Kittwm {
     pub fn app_first(&self, query: impl AsRef<str>) -> Result<AppCandidate> {
         self.capabilities.ensure(Capability::ReadText)?;
         let query = validated_nonempty_trimmed(query.as_ref(), "APPS_FIRST query")?;
-        parse_app_first_reply(&self.request_protocol(format!("APPS_FIRST {query}"))?)
+        parse_app_first_reply(&self.request_protocol(app_lookup_request("APPS_FIRST", query))?)
     }
 
     /// Launch the first app-discovery candidate matching a query.
     pub fn app_launch_first(&self, query: impl AsRef<str>) -> Result<AppLaunch> {
         self.capabilities.ensure(Capability::CreateWindow)?;
         let query = validated_nonempty_trimmed(query.as_ref(), "APPS_LAUNCH_FIRST query")?;
-        parse_app_launch_reply(&self.request_protocol(format!("APPS_LAUNCH_FIRST {query}"))?)
+        parse_app_launch_reply(
+            &self.request_protocol(app_lookup_request("APPS_LAUNCH_FIRST", query))?,
+        )
     }
 
     /// Focus the next pane/window.
@@ -3510,6 +3512,14 @@ fn layout_request(mode: LayoutMode) -> String {
     let mut out = String::with_capacity("LAYOUT ".len() + label.len());
     out.push_str("LAYOUT ");
     out.push_str(label);
+    out
+}
+
+fn app_lookup_request(verb: &str, query: &str) -> String {
+    let mut out = String::with_capacity(verb.len() + 1 + query.len());
+    out.push_str(verb);
+    out.push(' ');
+    out.push_str(query);
     out
 }
 
@@ -4926,6 +4936,19 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(seen, "HELP_JSON");
         assert_eq!(catalog.commands[0].command, "PING");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn app_lookup_request_builds_directly() {
+        assert_eq!(
+            app_lookup_request("APPS_FIRST", "Visual Studio Code"),
+            "APPS_FIRST Visual Studio Code"
+        );
+        assert_eq!(
+            app_lookup_request("APPS_LAUNCH_FIRST", "Safari"),
+            "APPS_LAUNCH_FIRST Safari"
+        );
     }
 
     #[cfg(unix)]
