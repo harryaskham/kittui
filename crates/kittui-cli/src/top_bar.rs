@@ -210,10 +210,7 @@ impl BarModel {
                 },
             ));
             scene.layers.push(Layer::new(
-                format!(
-                    "{label_prefix}-workspace-chip:{display_label}:{}",
-                    if active { "active" } else { "inactive" }
-                ),
+                top_bar_workspace_chip_label(label_prefix, &display_label, active),
                 Node::Rect {
                     rect: PxRect::new(x, y, chip_w, chip_h),
                     fill: Paint::Solid {
@@ -281,6 +278,23 @@ impl BarModel {
         ));
         scene
     }
+}
+
+fn top_bar_workspace_chip_label(label_prefix: &str, display_label: &str, active: bool) -> String {
+    let state = if active { "active" } else { "inactive" };
+    let mut out = String::with_capacity(
+        label_prefix
+            .len()
+            .saturating_add("-workspace-chip::".len())
+            .saturating_add(display_label.len())
+            .saturating_add(state.len()),
+    );
+    out.push_str(label_prefix);
+    out.push_str("-workspace-chip:");
+    out.push_str(display_label);
+    out.push(':');
+    out.push_str(state);
+    out
 }
 
 fn top_bar_workspace_chip_shadow_label(label_prefix: &str, display_label: &str) -> String {
@@ -700,6 +714,18 @@ mod tests {
         assert_eq!(
             top_bar_workspace_chip_shadow_label("kittwm-bar", "dev"),
             "kittwm-bar-workspace-chip-shadow:dev"
+        );
+    }
+
+    #[test]
+    fn top_bar_workspace_chip_label_builds_directly() {
+        assert_eq!(
+            top_bar_workspace_chip_label("kittwm-bar", "dev", true),
+            "kittwm-bar-workspace-chip:dev:active"
+        );
+        assert_eq!(
+            top_bar_workspace_chip_label("kittwm-bar", "dev", false),
+            "kittwm-bar-workspace-chip:dev:inactive"
         );
     }
 
