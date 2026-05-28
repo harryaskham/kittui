@@ -976,6 +976,15 @@ impl ArchitectureContract {
                     rendering: "PTY NativeSurface -> fitted app frame -> kitty graphics".to_string(),
                 },
                 NativeSurfaceContract {
+                    name: "kittwm-top".to_string(),
+                    surface_kind: "terminal".to_string(),
+                    sdk_entry: "SurfaceSpec::top".to_string(),
+                    sdk_backed: true,
+                    kitty_graphics_native: true,
+                    kittui_entry: "Kittwm::processes -> terminal table renderer".to_string(),
+                    rendering: "SDK process snapshot -> hosted terminal text surface".to_string(),
+                },
+                NativeSurfaceContract {
                     name: "kittwm-browser".to_string(),
                     surface_kind: "browser".to_string(),
                     sdk_entry: "SurfaceSpec::browser".to_string(),
@@ -1099,6 +1108,9 @@ impl ArchitectureContract {
     /// return `None`.
     pub fn native_surface_for_spec(&self, spec: &SurfaceSpec) -> Option<&NativeSurfaceContract> {
         match &spec.kind {
+            SurfaceKind::Terminal if spec.command.trim() == "kittwm-top" => {
+                self.native_surface("kittwm-top")
+            }
             SurfaceKind::Terminal => self.native_surface_by_kind("terminal"),
             SurfaceKind::Browser => self.native_surface_by_kind("browser"),
             SurfaceKind::Other(_) => None,
@@ -3772,7 +3784,12 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             ready_names,
-            ["kittwm-terminal", "kittwm-browser", "kittwm-bar"]
+            [
+                "kittwm-terminal",
+                "kittwm-top",
+                "kittwm-browser",
+                "kittwm-bar"
+            ]
         );
         assert_eq!(
             contract.native_surface_by_kind("browser").unwrap().name,
@@ -3809,7 +3826,12 @@ mod tests {
                 .iter()
                 .map(|placement| placement.surface.as_str())
                 .collect::<Vec<_>>(),
-            ["kittwm-terminal", "kittwm-browser", "kittwm-bar"]
+            [
+                "kittwm-terminal",
+                "kittwm-top",
+                "kittwm-browser",
+                "kittwm-bar"
+            ]
         );
         assert_eq!(
             placement_contracts
@@ -3817,6 +3839,7 @@ mod tests {
                 .map(|placement| placement.role().unwrap())
                 .collect::<Vec<_>>(),
             [
+                SurfacePlacementRole::AppSurface,
                 SurfacePlacementRole::AppSurface,
                 SurfacePlacementRole::AppSurface,
                 SurfacePlacementRole::Decoration
@@ -3833,6 +3856,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 ("kittwm-terminal", 0),
+                ("kittwm-top", 0),
                 ("kittwm-browser", 0),
                 ("kittwm-bar", 20)
             ]
@@ -3847,7 +3871,7 @@ mod tests {
                 .iter()
                 .map(|placement| placement.surface.as_str())
                 .collect::<Vec<_>>(),
-            ["kittwm-terminal", "kittwm-browser"]
+            ["kittwm-terminal", "kittwm-top", "kittwm-browser"]
         );
         assert_eq!(
             contract
@@ -3855,7 +3879,7 @@ mod tests {
                 .iter()
                 .map(|placement| placement.surface.as_str())
                 .collect::<Vec<_>>(),
-            ["kittwm-terminal", "kittwm-browser"]
+            ["kittwm-terminal", "kittwm-top", "kittwm-browser"]
         );
         assert_eq!(
             contract
@@ -3870,10 +3894,10 @@ mod tests {
         assert_eq!(
             placement_coverage,
             SurfacePlacementCoverage {
-                total_surfaces: 3,
-                placement_contracts: 3,
-                ready_placement_contracts: 3,
-                app_surfaces: 2,
+                total_surfaces: 4,
+                placement_contracts: 4,
+                ready_placement_contracts: 4,
+                app_surfaces: 3,
                 decorations: 1,
                 overlays: 0,
                 all_native_surfaces_ready: true,
@@ -3882,7 +3906,7 @@ mod tests {
         );
         assert_eq!(
             placement_coverage.count_for_role(SurfacePlacementRole::AppSurface),
-            2
+            3
         );
         assert_eq!(
             placement_coverage.count_for_role(SurfacePlacementRole::Decoration),
@@ -3906,7 +3930,7 @@ mod tests {
                 ))
                 .collect::<Vec<_>>(),
             [
-                (SurfacePlacementRole::AppSurface, "app-surfaces", 2),
+                (SurfacePlacementRole::AppSurface, "app-surfaces", 3),
                 (SurfacePlacementRole::Decoration, "decorations", 1),
                 (SurfacePlacementRole::Overlay, "overlays", 0)
             ]
@@ -3922,6 +3946,13 @@ mod tests {
                 .unwrap()
                 .name,
             "kittwm-terminal"
+        );
+        assert_eq!(
+            contract
+                .native_surface_for_spec(&SurfaceSpec::top())
+                .unwrap()
+                .name,
+            "kittwm-top"
         );
         assert_eq!(
             contract
