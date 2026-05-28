@@ -5849,8 +5849,13 @@ fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
         let title_label = truncate(title, 48);
         let command_label = truncate(command, 48);
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-session-row:{idx}:window={window_label}:title={title_label}:command={command_label}:weight={weight}:focused={focused}"
+            label: Some(session_row_label(
+                idx,
+                &window_label,
+                &title_label,
+                &command_label,
+                &weight,
+                focused,
             )),
             root: Node::Rect {
                 rect: session_scene_row_rect(width, y),
@@ -5872,6 +5877,38 @@ fn session_scene_for_cols(session: &serde_json::Value, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn session_row_label(
+    idx: usize,
+    window_label: &str,
+    title_label: &str,
+    command_label: &str,
+    weight: &str,
+    focused: bool,
+) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-session-row::window=:title=:command=:weight=:focused="
+            .len()
+            .saturating_add(window_label.len())
+            .saturating_add(title_label.len())
+            .saturating_add(command_label.len())
+            .saturating_add(weight.len())
+            .saturating_add(25),
+    );
+    label.push_str("kittwm-session-row:");
+    let _ = write!(label, "{idx}");
+    label.push_str(":window=");
+    label.push_str(window_label);
+    label.push_str(":title=");
+    label.push_str(title_label);
+    label.push_str(":command=");
+    label.push_str(command_label);
+    label.push_str(":weight=");
+    label.push_str(weight);
+    label.push_str(":focused=");
+    let _ = write!(label, "{focused}");
+    label
 }
 
 fn session_backdrop_label(
@@ -8665,6 +8702,14 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "commands-kitty" && entry["category"] == "help" }));
+    }
+
+    #[test]
+    fn session_row_label_builds_directly() {
+        assert_eq!(
+            session_row_label(1, "native-2", "editor", "vim", "2", true),
+            "kittwm-session-row:1:window=native-2:title=editor:command=vim:weight=2:focused=true"
+        );
     }
 
     #[test]
