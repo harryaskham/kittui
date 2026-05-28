@@ -10614,10 +10614,9 @@ mod tests {
 
     #[test]
     fn info_backdrop_label_builds_directly() {
-        assert_eq!(
-            info_backdrop_label("dev", 2),
-            "kittwm-info-backdrop:workspace=dev:panes=2"
-        );
+        let label = info_backdrop_label("dev", 2);
+        assert_eq!(label, "kittwm-info-backdrop:workspace=dev:panes=2");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
