@@ -6861,7 +6861,7 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
             },
         },
         Layer {
-            label: Some(format!("kittwm-launcher-heading:selected={selected}")),
+            label: Some(launcher_heading_label(&selected)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                 fill: Paint::Solid {
@@ -6907,6 +6907,17 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
         layers,
         animation: None,
     }
+}
+
+fn launcher_heading_label(selected: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-launcher-heading:selected="
+            .len()
+            .saturating_add(selected.len()),
+    );
+    label.push_str("kittwm-launcher-heading:selected=");
+    label.push_str(selected);
+    label
 }
 
 fn launcher_backdrop_label(query_label: &str, selected: usize, count: usize) -> String {
@@ -8310,6 +8321,14 @@ mod tests {
         let huge_title = format!("{}Terminal{}", "x".repeat(10_000), "y".repeat(10_000));
         assert!(ascii_casefold_contains(&huge_title, "TERMINAL"));
         assert!(!ascii_casefold_contains(&huge_title, "browser"));
+    }
+
+    #[test]
+    fn launcher_heading_label_builds_directly() {
+        assert_eq!(
+            launcher_heading_label("path:Terminal"),
+            "kittwm-launcher-heading:selected=path:Terminal"
+        );
     }
 
     #[test]
