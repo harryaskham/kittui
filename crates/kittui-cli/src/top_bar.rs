@@ -3,6 +3,7 @@
 //! This module intentionally lives in `kittui-cli`: it is higher-level WM/app
 //! chrome, not a kittui-core primitive.
 
+use std::borrow::Cow;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -412,20 +413,22 @@ fn workspace_chip_label_cols(label: &str) -> u16 {
         .min(u16::MAX as usize) as u16
 }
 
-fn top_bar_display_label(label: &str) -> String {
-    let mut chars = label.chars();
-    let mut out = String::with_capacity(TOP_BAR_LABEL_MAX_CHARS.min(label.len()));
+fn top_bar_display_label(label: &str) -> Cow<'_, str> {
+    let mut boundary = label.len();
+    let mut chars = label.char_indices();
     for _ in 0..TOP_BAR_LABEL_MAX_CHARS {
-        let Some(ch) = chars.next() else {
-            return out;
+        let Some((idx, _)) = chars.next() else {
+            return Cow::Borrowed(label);
         };
-        out.push(ch);
+        boundary = idx;
     }
-    if chars.next().is_some() {
-        out.pop();
-        out.push('…');
+    if chars.next().is_none() {
+        return Cow::Borrowed(label);
     }
-    out
+    let mut out = String::with_capacity(TOP_BAR_LABEL_MAX_CHARS);
+    out.push_str(&label[..boundary]);
+    out.push('…');
+    Cow::Owned(out)
 }
 
 fn top_bar_clock_chip_x(total_width: f32, chip_end_x: f32, clock_width: f32) -> Option<f32> {
@@ -611,10 +614,10 @@ mod tests {
         let long = "workspace-".repeat(10_000);
         let short = top_bar_display_label("dev");
         assert_eq!(short, "dev");
-        assert!(short.capacity() >= "dev".len());
+        assert!(matches!(short, Cow::Borrowed("dev")));
         let display = top_bar_display_label(&long);
         assert_eq!(display.chars().count(), TOP_BAR_LABEL_MAX_CHARS);
-        assert!(display.capacity() >= TOP_BAR_LABEL_MAX_CHARS);
+        assert!(matches!(display, Cow::Owned(_)));
         assert!(display.ends_with('…'));
         let model = BarModel::new(long, 1, "native-1", true, UNIX_EPOCH);
         let rendered = model.render();
