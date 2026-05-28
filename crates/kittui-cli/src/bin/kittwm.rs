@@ -6341,11 +6341,19 @@ fn macos_apps(limit: usize) -> Vec<String> {
 }
 
 fn json_string_array(items: &[String]) -> String {
-    items
+    let capacity = items
         .iter()
-        .map(|s| format!("{:?}", s))
-        .collect::<Vec<_>>()
-        .join(", ")
+        .map(|item| item.len().saturating_add(4))
+        .sum::<usize>()
+        .saturating_sub((items.is_empty() as usize).saturating_mul(2));
+    let mut out = String::with_capacity(capacity);
+    for item in items {
+        if !out.is_empty() {
+            out.push_str(", ");
+        }
+        let _ = write!(out, "{item:?}");
+    }
+    out
 }
 
 fn filter_candidates(items: Vec<String>, query: Option<&str>, limit: usize) -> Vec<String> {
@@ -8060,6 +8068,15 @@ mod tests {
         assert!(labels
             .iter()
             .any(|label| label.contains("kittwm-launcher-row:2:macos:macOS Application Name That Is Pathologically L…:selected=true")), "{labels:?}");
+    }
+
+    #[test]
+    fn json_string_array_builds_without_intermediate_rows() {
+        assert_eq!(json_string_array(&[]), "");
+        assert_eq!(
+            json_string_array(&["alpha".to_string(), "quote \" item".to_string()]),
+            "\"alpha\", \"quote \\\" item\""
+        );
     }
 
     #[test]
