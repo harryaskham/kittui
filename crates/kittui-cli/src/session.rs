@@ -5385,11 +5385,15 @@ fn high_contrast_text_for(bg: Rgba) -> Rgba {
 }
 
 fn ansi_fg(color: Rgba) -> String {
-    format!("\x1b[38;2;{};{};{}m", color.0, color.1, color.2)
+    let mut out = String::with_capacity(20);
+    let _ = write!(out, "\x1b[38;2;{};{};{}m", color.0, color.1, color.2);
+    out
 }
 
 fn ansi_bg(color: Rgba) -> String {
-    format!("\x1b[48;2;{};{};{}m", color.0, color.1, color.2)
+    let mut out = String::with_capacity(20);
+    let _ = write!(out, "\x1b[48;2;{};{};{}m", color.0, color.1, color.2);
+    out
 }
 
 fn native_shell_view_affordance_chrome_key(view: &NativeShellView, cols: u16, rows: u16) -> u64 {
@@ -5868,6 +5872,16 @@ mod native_pane_tests {
             "00:00 UTC"
         );
         assert_eq!(native_top_bar_time_from_text("UTC"), "00:00 UTC");
+    }
+
+    #[test]
+    fn graphical_top_bar_overlay_ansi_helpers_build_directly() {
+        let fg = ansi_fg(Rgba(1, 2, 3, 255));
+        assert_eq!(fg, "\x1b[38;2;1;2;3m");
+        assert!(fg.capacity() >= 20);
+        let bg = ansi_bg(Rgba(4, 5, 6, 255));
+        assert_eq!(bg, "\x1b[48;2;4;5;6m");
+        assert!(bg.capacity() >= 20);
     }
 
     #[test]
