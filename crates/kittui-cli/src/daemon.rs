@@ -4017,6 +4017,15 @@ mod tests {
     }
 
     #[test]
+    fn daemon_json_string_array_escapes_items_without_joining_rows() {
+        assert_eq!(json_string_array(&[]), "");
+        assert_eq!(
+            json_string_array(&["alpha".to_string(), "quote \" item".to_string()]),
+            r#""alpha", "quote \" item""#
+        );
+    }
+
+    #[test]
     fn native_spawn_queue_serves_app_discovery_commands() {
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
         let apps_json = native_spawn_queue_reply("APPS_JSON", &pending);
@@ -4763,11 +4772,19 @@ fn macos_apps(limit: usize) -> Vec<String> {
 }
 
 fn json_string_array(items: &[String]) -> String {
-    items
+    let capacity = items
         .iter()
-        .map(|s| format!("{:?}", s))
-        .collect::<Vec<_>>()
-        .join(", ")
+        .map(|item| item.len().saturating_add(4))
+        .sum::<usize>()
+        .saturating_sub((items.is_empty() as usize).saturating_mul(2));
+    let mut out = String::with_capacity(capacity);
+    for item in items {
+        if !out.is_empty() {
+            out.push_str(", ");
+        }
+        let _ = write!(out, "{item:?}");
+    }
+    out
 }
 
 #[derive(Debug, Clone)]
