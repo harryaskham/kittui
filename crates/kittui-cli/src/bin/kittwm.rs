@@ -5115,7 +5115,7 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
             },
         },
         Layer {
-            label: Some(format!("kittwm-events-heading:{summary}")),
+            label: Some(events_heading_label(&summary)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                 fill: Paint::Solid {
@@ -5152,6 +5152,14 @@ fn events_scene_for_cols(ms: u64, kinds: &[String], cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn events_heading_label(summary: &str) -> String {
+    let mut label =
+        String::with_capacity("kittwm-events-heading:".len().saturating_add(summary.len()));
+    label.push_str("kittwm-events-heading:");
+    label.push_str(summary);
+    label
 }
 
 fn events_summary_label(kinds: &[String]) -> String {
@@ -10124,6 +10132,14 @@ mod tests {
             "{row}"
         );
         assert!(row.len() < 130, "{row}");
+    }
+
+    #[test]
+    fn events_heading_label_builds_directly() {
+        assert_eq!(
+            events_heading_label("status,pane_opened"),
+            "kittwm-events-heading:status,pane_opened"
+        );
     }
 
     #[test]
