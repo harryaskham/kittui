@@ -360,10 +360,23 @@ fn run(args: LaunchArgs) -> Result<String, String> {
         }
     };
     if args.status {
-        Ok(format!("{}\n{}", plan.status, reply))
+        Ok(render_launch_status_reply(&plan, &reply))
     } else {
         Ok(reply)
     }
+}
+
+fn render_launch_status_reply(plan: &LaunchPlan, reply: &str) -> String {
+    let mut out = String::with_capacity(
+        plan.status
+            .len()
+            .saturating_add(reply.len())
+            .saturating_add(1),
+    );
+    out.push_str(&plan.status);
+    out.push('\n');
+    out.push_str(reply);
+    out
 }
 
 fn render_launch_plan(plan: &LaunchPlan, output: PlanOutput) -> Result<String, String> {
@@ -680,6 +693,19 @@ mod tests {
             "{text}"
         );
         assert_eq!(text.lines().count(), 2);
+    }
+
+    #[test]
+    fn launch_status_reply_builds_directly() {
+        let args = LaunchArgs::parse_from(["--browser", "https://example.com"]).unwrap();
+        let plan = build_launch_plan(&args);
+        let reply = render_launch_status_reply(&plan, "SPAWNED window=native-2\n");
+        assert!(
+            reply.starts_with("kittwm-launch: backend=browser"),
+            "{reply}"
+        );
+        assert!(reply.ends_with("SPAWNED window=native-2\n"), "{reply}");
+        assert_eq!(reply.lines().count(), 2);
     }
 
     #[test]
