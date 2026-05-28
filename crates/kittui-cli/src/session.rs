@@ -3085,9 +3085,9 @@ fn native_tilable_rows_with_reservation(
 fn native_weighted_spans(total: u16, weights: &[u16], min_span: u16) -> Vec<u16> {
     let count = weights.len().max(1).min(u16::MAX as usize);
     let weights = if weights.is_empty() {
-        vec![1]
+        NATIVE_DEFAULT_LAYOUT_WEIGHTS.as_slice()
     } else {
-        weights.to_vec()
+        weights
     };
     let effective_min = if u32::from(total) >= u32::from(min_span.max(1)) * count as u32 {
         min_span.max(1)
@@ -3122,6 +3122,8 @@ fn native_weighted_spans(total: u16, weights: &[u16], min_span: u16) -> Vec<u16>
     spans
 }
 
+const NATIVE_DEFAULT_LAYOUT_WEIGHTS: [u16; 1] = [1];
+
 fn native_pane_layouts_weighted(
     cols: u16,
     rows: u16,
@@ -3130,9 +3132,9 @@ fn native_pane_layouts_weighted(
 ) -> Vec<NativePaneLayout> {
     let count = weights.len().max(1).min(u16::MAX as usize);
     let weights = if weights.is_empty() {
-        vec![1]
+        NATIVE_DEFAULT_LAYOUT_WEIGHTS.as_slice()
     } else {
-        weights.to_vec()
+        weights
     };
     match axis {
         NativePaneLayoutAxis::Columns => {
