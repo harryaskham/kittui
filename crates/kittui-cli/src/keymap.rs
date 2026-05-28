@@ -98,6 +98,43 @@ impl fmt::Display for KeySpec {
     }
 }
 
+fn key_spec_label_len(spec: &KeySpec) -> usize {
+    spec.key.len()
+        + if spec.mods.ctrl { 2 } else { 0 }
+        + if spec.mods.alt { 2 } else { 0 }
+        + if spec.mods.shift { 2 } else { 0 }
+}
+
+fn push_key_spec_label(out: &mut String, spec: &KeySpec) {
+    if spec.mods.ctrl {
+        out.push_str("C-");
+    }
+    if spec.mods.alt {
+        out.push_str("M-");
+    }
+    if spec.mods.shift {
+        out.push_str("S-");
+    }
+    out.push_str(&spec.key);
+}
+
+/// Render a chord as user-facing key tokens without allocating per-key labels.
+pub fn chord_string(chord: &[KeySpec]) -> String {
+    let capacity = chord
+        .iter()
+        .map(key_spec_label_len)
+        .sum::<usize>()
+        .saturating_add(chord.len().saturating_sub(1));
+    let mut out = String::with_capacity(capacity);
+    for spec in chord {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        push_key_spec_label(&mut out, spec);
+    }
+    out
+}
+
 /// WM action vocabulary exposed by the config language.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Action {
@@ -250,11 +287,7 @@ pub struct Binding {
 impl Binding {
     /// Render chord as user-facing key tokens.
     pub fn chord_string(&self) -> String {
-        self.chord
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(" ")
+        chord_string(&self.chord)
     }
 }
 
@@ -414,5 +447,16 @@ mod tests {
         let km = Keymap::parse("bind C-a x custom.do-thing\n").unwrap();
         assert_eq!(km.bindings[0].chord_string(), "C-a x");
         assert_eq!(km.bindings[0].action.to_string(), "custom.do-thing");
+    }
+
+    #[test]
+    fn chord_string_builds_directly_with_exact_capacity() {
+        let chord = vec![
+            KeySpec::parse("C-a").unwrap(),
+            KeySpec::parse("S-Enter").unwrap(),
+        ];
+        let rendered = chord_string(&chord);
+        assert_eq!(rendered, "C-a S-enter");
+        assert_eq!(rendered.capacity(), rendered.len());
     }
 }

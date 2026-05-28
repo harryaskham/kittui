@@ -9816,11 +9816,7 @@ pub fn run_loop_with<S: XServer>(
                             last_keymap_action = Some(action_name.clone());
                             dbg.log(&format!(
                                 "keymap action: {} -> {action_name}",
-                                chord
-                                    .iter()
-                                    .map(ToString::to_string)
-                                    .collect::<Vec<_>>()
-                                    .join(" ")
+                                crate::keymap::chord_string(&chord)
                             ));
                             match action {
                                 Action::PickerOpen => {
