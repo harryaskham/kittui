@@ -3487,11 +3487,25 @@ fn native_capture_failure_log_line(
     layout: NativePaneLayout,
     err: &dyn std::fmt::Display,
 ) -> String {
+    use std::fmt::Write as _;
+
     let err = bounded_ellipsis(&err.to_string(), 160);
-    format!(
-        "native pane capture failed: window={window} app={}x{} layout={}x{}+{},{} err={err}",
+    let mut out = String::with_capacity(
+        "native pane capture failed: window= app=x layout=x+, err=".len()
+            + window.len()
+            + err.len()
+            + 32,
+    );
+    out.push_str("native pane capture failed: window=");
+    out.push_str(window);
+    out.push_str(" app=");
+    let _ = write!(
+        out,
+        "{}x{} layout={}x{}+{},{} err=",
         layout.app_cols, layout.app_rows, layout.cols, layout.rows, layout.x, layout.y
-    )
+    );
+    out.push_str(&err);
+    out
 }
 
 fn native_send_pane_bytes_logged(
@@ -8972,6 +8986,7 @@ mod native_pane_tests {
         assert!(line.contains("app=38x10"), "{line}");
         assert!(line.contains("layout=40x12+2,3"), "{line}");
         assert!(line.contains("err=boom"), "{line}");
+        assert!(line.capacity() >= line.len());
         assert!(!line.contains(&"boom".repeat(80)), "{line}");
     }
 
