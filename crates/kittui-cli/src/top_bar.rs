@@ -267,10 +267,7 @@ impl BarModel {
             ));
         }
         scene.layers.push(Layer::new(
-            format!(
-                "{label_prefix}-text:{}",
-                self.render_i3bar(cols as usize).trim()
-            ),
+            top_bar_text_label(label_prefix, self.render_i3bar(cols as usize).trim()),
             Node::Group {
                 opacity: 1.0,
                 children: Vec::new(),
@@ -278,6 +275,19 @@ impl BarModel {
         ));
         scene
     }
+}
+
+fn top_bar_text_label(label_prefix: &str, text: &str) -> String {
+    let mut out = String::with_capacity(
+        label_prefix
+            .len()
+            .saturating_add("-text:".len())
+            .saturating_add(text.len()),
+    );
+    out.push_str(label_prefix);
+    out.push_str("-text:");
+    out.push_str(text);
+    out
 }
 
 fn top_bar_clock_chip_label(label_prefix: &str, clock: &str) -> String {
@@ -765,6 +775,14 @@ mod tests {
         assert_eq!(
             top_bar_clock_chip_foreground_label("kittwm-bar", "09:05"),
             "kittwm-bar-clock-chip-foreground:09:05"
+        );
+    }
+
+    #[test]
+    fn top_bar_text_label_builds_directly() {
+        assert_eq!(
+            top_bar_text_label("kittwm-bar", "|[dev]| 09:05"),
+            "kittwm-bar-text:|[dev]| 09:05"
         );
     }
 
