@@ -73,7 +73,8 @@ Usage:\n  kittwm-top [--json] [--socket PATH|--display DISPLAY]\n\n\
 Shows panes/processes for the current kittwm session, or the default :0\n\
 session when no KITTWM_* environment is present. Inside kittwm it runs as a\n\
 normal hosted first-party terminal surface; outside kittwm it prints to the\n\
-current terminal.\n"
+current terminal.\n\n\
+Options:\n  --json             Print process snapshot JSON\n  --socket PATH      Connect to a specific kittwm socket\n  --display DISPLAY  Resolve DISPLAY to its kittwm socket path\n  -h, --help         Show this help text\n"
 }
 
 fn main() -> ExitCode {
@@ -251,6 +252,16 @@ mod tests {
             err.contains("kittwm-top — SDK-backed process viewer"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn help_text_lists_operator_options() {
+        let help = help_text();
+        assert!(help.contains("Options:"), "{help}");
+        assert!(help.contains("--json"), "{help}");
+        assert!(help.contains("--socket PATH"), "{help}");
+        assert!(help.contains("--display DISPLAY"), "{help}");
+        assert!(help.contains("-h, --help"), "{help}");
     }
 
     #[test]
