@@ -1168,27 +1168,27 @@ fn publish_native_pane_events(state: &mut NativeSpawnQueueState, panes: Vec<Nati
     let old_panes = std::mem::replace(&mut state.panes, panes);
     let old_by_window = old_panes
         .iter()
-        .map(|pane| (pane.window.clone(), pane.clone()))
+        .map(|pane| (pane.window.as_str(), pane))
         .collect::<std::collections::BTreeMap<_, _>>();
     let new_by_window = state
         .panes
         .iter()
-        .map(|pane| (pane.window.clone(), pane.clone()))
+        .map(|pane| (pane.window.as_str(), pane))
         .collect::<std::collections::BTreeMap<_, _>>();
 
     let mut events = Vec::new();
-    for (window, pane) in &new_by_window {
+    for (&window, pane) in &new_by_window {
         match old_by_window.get(window) {
             None => events.push((
                 "pane_opened",
-                Some(window.clone()),
+                Some(window.to_string()),
                 serde_json::json!({ "pane": native_pane_status_value(pane) }),
             )),
             Some(old) if old != pane => {
                 if native_pane_geometry(old) != native_pane_geometry(pane) {
                     events.push((
                         "pane_resized",
-                        Some(window.clone()),
+                        Some(window.to_string()),
                         serde_json::json!({
                             "old": native_pane_geometry_value(old),
                             "new": native_pane_geometry_value(pane),
@@ -1197,18 +1197,18 @@ fn publish_native_pane_events(state: &mut NativeSpawnQueueState, panes: Vec<Nati
                 }
                 events.push((
                     "pane_changed",
-                    Some(window.clone()),
+                    Some(window.to_string()),
                     serde_json::json!({ "pane": native_pane_status_value(pane) }),
                 ));
             }
             _ => {}
         }
     }
-    for window in old_by_window.keys() {
+    for &window in old_by_window.keys() {
         if !new_by_window.contains_key(window) {
             events.push((
                 "pane_closed",
-                Some(window.clone()),
+                Some(window.to_string()),
                 serde_json::json!({ "window": window }),
             ));
         }
