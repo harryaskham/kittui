@@ -431,7 +431,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let idle_frame_target = native_idle_frame_target(frame_target);
     let mut stdin = io::stdin();
     let mut prefix = false;
-    let mut clear = true;
+    let mut clear = native_initial_frame_requires_explicit_clear();
     let mut help_overlay = false;
     let mut ctrl_c_exit_guard = NativeCtrlCExitGuard::default();
     let mut quit_confirm_overlay = QuitConfirmOverlay::default();
@@ -3131,6 +3131,10 @@ fn ansi_fg_bg(fg: Rgba, bg: Rgba) -> String {
         "\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m",
         fg.0, fg.1, fg.2, bg.0, bg.1, bg.2
     )
+}
+
+fn native_initial_frame_requires_explicit_clear() -> bool {
+    !raw_mode_enter_sequence_clears_screen()
 }
 
 fn should_write_pure_terminal_frame(
@@ -5955,10 +5959,11 @@ mod native_pane_tests {
         let enter = std::str::from_utf8(raw_mode_enter_sequence()).unwrap();
         let restore = std::str::from_utf8(raw_mode_restore_sequence()).unwrap();
         for enabled in [
-            "?1049h", "?25l", "?1000h", "?1002h", "?1003h", "?1004h", "?1006h",
+            "?1049h", "?25l", "[2J", "[H", "?1000h", "?1002h", "?1003h", "?1004h", "?1006h",
         ] {
             assert!(enter.contains(enabled), "missing {enabled}: {enter:?}");
         }
+        assert!(enter.find("[2J").unwrap() < enter.find("?1000h").unwrap());
         for disabled in [
             "?1006l", "?1004l", "?1003l", "?1002l", "?1000l", "?25h", "?1049l",
         ] {
@@ -5969,6 +5974,12 @@ mod native_pane_tests {
         }
         assert!(restore.find("?25h").unwrap() < restore.find("?1049l").unwrap());
         assert!(restore.find("?1006l").unwrap() < restore.find("?1000l").unwrap());
+    }
+
+    #[test]
+    fn native_initial_frame_skips_explicit_clear_when_raw_enter_already_clears() {
+        assert!(raw_mode_enter_sequence_clears_screen());
+        assert!(!native_initial_frame_requires_explicit_clear());
     }
 
     #[cfg(unix)]
@@ -9843,8 +9854,12 @@ fn clock() -> String {
 struct RawMode;
 
 fn raw_mode_enter_sequence() -> &'static [u8] {
-    // Alt screen + hide cursor, then SGR mouse + motion + focus reporting.
-    b"\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1004h\x1b[?1006h"
+    // Alt screen + hide cursor + clear/home, then SGR mouse + motion + focus reporting.
+    b"\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1004h\x1b[?1006h"
+}
+
+fn raw_mode_enter_sequence_clears_screen() -> bool {
+    true
 }
 
 fn raw_mode_restore_sequence() -> &'static [u8] {
