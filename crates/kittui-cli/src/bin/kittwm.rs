@@ -3326,7 +3326,9 @@ fn parse_events_ms_value(ms: &str) -> Result<u64> {
 fn events_request(ms: &str) -> Result<String> {
     let parsed = parse_events_ms_value(ms)
         .map_err(|_| anyhow!("--events-ms expects integer milliseconds in 1..=60000"))?;
-    Ok(format!("EVENTS {parsed}"))
+    let mut out = String::with_capacity("EVENTS 60000".len());
+    let _ = write!(out, "EVENTS {parsed}");
+    Ok(out)
 }
 
 fn wait_needle(needle: &str, verb: &str) -> Result<String> {
@@ -3343,6 +3345,7 @@ fn wait_request(verb: &str, window: &str, needle: &str) -> Result<String> {
 }
 
 fn wait_ms_request(verb: &str, ms: &str, window: &str, needle: &str) -> Result<String> {
+    let verb = verb.trim();
     let parsed = ms
         .trim()
         .parse::<u64>()
@@ -3350,8 +3353,18 @@ fn wait_ms_request(verb: &str, ms: &str, window: &str, needle: &str) -> Result<S
     if parsed == 0 || parsed > 60_000 {
         return Err(anyhow!("{verb} must be in 1..=60000"));
     }
+    let window = protocol_token(window, "automation window")?;
     let needle = wait_needle(needle, verb)?;
-    automation_request(verb, window, &format!("{parsed} {needle}"))
+    let mut out = String::with_capacity(
+        verb.len()
+            .saturating_add(2)
+            .saturating_add(window.len())
+            .saturating_add("60000".len())
+            .saturating_add(needle.len()),
+    );
+    push_ascii_uppercase(&mut out, verb);
+    let _ = write!(out, " {window} {parsed} {needle}");
+    Ok(out)
 }
 
 fn automation_cmd(request: &str) -> Result<()> {
@@ -10142,10 +10155,9 @@ END
             automation_request("READ_SCROLLBACK_JSON", "native-2", "").unwrap(),
             "READ_SCROLLBACK_JSON native-2"
         );
-        assert_eq!(
-            wait_ms_request("WAIT_TEXT_MS", "2500", "focused", "Ready Now").unwrap(),
-            "WAIT_TEXT_MS focused 2500 Ready Now"
-        );
+        let wait_text_ms = wait_ms_request("WAIT_TEXT_MS", "2500", "focused", "Ready Now").unwrap();
+        assert_eq!(wait_text_ms, "WAIT_TEXT_MS focused 2500 Ready Now");
+        assert!(wait_text_ms.capacity() >= wait_text_ms.len());
         assert_eq!(
             automation_request("WAIT_TEXT_JSON", "focused", "Ready Now").unwrap(),
             "WAIT_TEXT_JSON focused Ready Now"
@@ -10235,7 +10247,9 @@ END
         assert!(semantic_action_request("focused", "bad component", "set", "{}").is_err());
         assert!(semantic_action_request("focused", "field", "set", "not-json").is_err());
         assert!(semantic_publish_request("focused", "not-json").is_err());
-        assert_eq!(events_request("2500").unwrap(), "EVENTS 2500");
+        let events = events_request("2500").unwrap();
+        assert_eq!(events, "EVENTS 2500");
+        assert!(events.capacity() >= events.len());
         assert!(events_request("0").is_err());
         assert!(events_request("60001").is_err());
         assert!(wait_ms_request("WAIT_TEXT_MS", "0", "focused", "ready").is_err());
