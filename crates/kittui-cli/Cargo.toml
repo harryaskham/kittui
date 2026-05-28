@@ -63,13 +63,14 @@ libc = "0.2"
 mcp-cli = { workspace = true }
 updatable-cli = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+kittui-xvfb = { path = "../kittui-xvfb", version = "0.1.0", features = ["xvfb"] }
+
 [features]
-# Daily-driver kittwm builds include the native capture backends by default:
-# - macOS uses `sck` (which includes Quartz/CoreGraphics)
-# - Linux uses `xvfb`
-# The runtime still gates platform-specific code with `cfg(target_os = ...)`, so
-# doctor reports only the backend that is effective for the current OS.
-default = ["sck", "xvfb"]
+# Daily-driver kittwm builds include the native capture backend for the current
+# OS by default: macOS uses `sck`/Quartz, while Linux receives `kittui-xvfb/xvfb`
+# through the target-specific dependency above instead of a global feature.
+default = ["sck"]
 xvfb = ["kittui-xvfb/xvfb"]
 xquartz = ["kittui-xvfb/xquartz"]
 quartz = ["kittui-quartz/quartz"]
