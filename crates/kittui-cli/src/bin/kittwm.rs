@@ -6816,8 +6816,8 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
     println!("│ query: {:<qwidth$}│", query, qwidth = width - 8);
     println!("├{}┤", "─".repeat(width));
     for (idx, cand) in candidates.iter().enumerate() {
-        let marker = if idx == selected_idx { "▶" } else { " " };
-        let text = format!("{marker} {:>2}. [{:<5}] {}", idx + 1, cand.kind, cand.name);
+        let selected = idx == selected_idx;
+        let text = launcher_preview_row_text(idx + 1, cand, selected);
         println!("│{:<width$}│", truncate(&text, width), width = width);
     }
     println!("├{}┤", "─".repeat(width));
@@ -6906,6 +6906,23 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
         layers,
         animation: None,
     }
+}
+
+fn launcher_preview_row_text(index: usize, candidate: &AppCandidate, selected: bool) -> String {
+    let mut text = String::with_capacity(
+        " 00. [] "
+            .len()
+            .saturating_add(candidate.kind.len().max(5))
+            .saturating_add(candidate.name.len()),
+    );
+    text.push_str(if selected { "▶" } else { " " });
+    text.push(' ');
+    let _ = write!(text, "{index:>2}");
+    text.push_str(". [");
+    let _ = write!(text, "{:<5}", candidate.kind);
+    text.push_str("] ");
+    text.push_str(&candidate.name);
+    text
 }
 
 fn launcher_selected_label(candidate: Option<&AppCandidate>) -> String {
@@ -8276,6 +8293,22 @@ mod tests {
         let huge_title = format!("{}Terminal{}", "x".repeat(10_000), "y".repeat(10_000));
         assert!(ascii_casefold_contains(&huge_title, "TERMINAL"));
         assert!(!ascii_casefold_contains(&huge_title, "browser"));
+    }
+
+    #[test]
+    fn launcher_preview_row_text_builds_directly() {
+        let candidate = AppCandidate {
+            kind: "path",
+            name: "Terminal".to_string(),
+        };
+        assert_eq!(
+            launcher_preview_row_text(2, &candidate, true),
+            "▶  2. [path ] Terminal"
+        );
+        assert_eq!(
+            launcher_preview_row_text(12, &candidate, false),
+            "  12. [path ] Terminal"
+        );
     }
 
     #[test]
