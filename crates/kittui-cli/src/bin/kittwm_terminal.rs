@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt::Write as FmtWrite;
 use std::process::ExitCode;
 
 use kittui::{
@@ -244,10 +245,19 @@ fn terminal_status_model(status: Status, panes: PanesStatus) -> TerminalStatusMo
 }
 
 fn render_status_text(model: &TerminalStatusModel) -> String {
-    format!(
+    let mut out = String::with_capacity(
+        "status panes= focus= layout= details=\n".len()
+            + 20
+            + model.focus.len()
+            + model.layout.len()
+            + 20,
+    );
+    let _ = write!(
+        out,
         "status panes={} focus={} layout={} details={}\n",
         model.panes, model.focus, model.layout, model.details
-    )
+    );
+    out
 }
 
 fn terminal_status_scene(model: &TerminalStatusModel) -> Scene {
@@ -751,10 +761,12 @@ mod tests {
                 }],
             },
         );
+        let text = render_status_text(&model);
         assert_eq!(
-            render_status_text(&model),
+            text,
             "status panes=2 focus=native-2 layout=rows details=1\n"
         );
+        assert!(text.capacity() >= text.len());
         let scene = terminal_status_scene(&model);
         let labels = scene
             .layers
