@@ -1,35 +1,36 @@
-# Session summary — bd-512e10 direct kittwm architecture JSON newline
+# Session summary — bd-97f7cd direct SDK display socket path
 
 ## Bead
 
-- `bd-512e10` — `kittwm architecture JSON: append newline directly`
+- `bd-97f7cd` — `kittwm SDK display socket path: build token directly`
 
 ## Change
 
-- `architecture_contract_json_text` in `crates/kittui-cli/src/bin/kittwm.rs` now serializes the architecture contract JSON and appends the trailing newline directly.
-- Removed the surrounding `format!("{}\n", ...)` wrapper.
-- Extended architecture contract coverage to assert one trailing newline before parsing the JSON.
+- `display_to_socket_path` in `crates/kittwm-sdk/src/lib.rs` now builds the `kittwm-<token>.sock` filename directly.
+- Removed the sanitized-token `.replace('/', "_")` allocation and the subsequent `format!("kittwm-{token}.sock")` allocation.
+- Preserved absolute socket paths, DISPLAY suffix stripping, and slash sanitization for DISPLAY-like tokens.
 
 ## Validation
 
 Passed:
 
-- `nix develop . -c cargo test -p kittui-cli --bin kittwm architecture_contract_names_clean_wm_boundaries -- --nocapture`
-- `nix develop . -c cargo check -p kittui-cli --bin kittwm`
+- `cargo test -p kittwm-sdk display_tokens_map_to_socket_paths -- --nocapture`
+- `cargo test -p kittwm-sdk connect_from_env_prefers_socket_over_display -- --nocapture`
+- `CARGO_BUILD_JOBS=1 cargo check -p kittwm-sdk`
 - `git diff --check`
 
 ## Evidence assessment
 
 Claim:
-- `architecture_contract_json_text` no longer uses a wrapper `format!` for the trailing newline and preserves valid architecture contract JSON output.
+- SDK DISPLAY-like socket path mapping avoids the intermediate `.replace` and `format!` allocations while preserving path output.
 
 Artifacts:
-- `file-e2a0bc0302ed-1780004733813` — verdict: VALIDATION_ONLY
-  - What it shows: targeted tests/checks passed, including architecture contract JSON parse coverage and exactly-one-newline assertion.
+- `file-a3383a7956ab-1780004972737` — verdict: VALIDATION_ONLY
+  - What it shows: targeted SDK display/socket path tests and checks passed.
   - Where to look: the text artifact lists the validation commands and outcomes.
-  - Why it supports the claim: this bead changes an internal CLI JSON string construction path; exact output-shape tests and code diff are the relevant proof.
+  - Why it supports the claim: this bead changes an internal SDK string construction path; exact path assertions and code diff are the relevant proof.
   - Broken/ambiguous output noticed: none.
-  - If VALIDATION_ONLY, why visual proof is not applicable: no kittwm UI/UX surface behavior changed; a screenshot would only show command output and would not prove allocation behavior.
+  - If VALIDATION_ONLY, why visual proof is not applicable: no kittwm UI/UX surface behavior changed; a screenshot would only show test output and would not prove allocation behavior.
 
 Closure decision:
-- PASS: validation-only evidence is appropriate for this internal CLI JSON builder cleanup.
+- PASS: validation-only evidence is appropriate for this internal SDK display/socket path cleanup.

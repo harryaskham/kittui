@@ -3505,9 +3505,18 @@ pub fn display_to_socket_path(display: &str) -> PathBuf {
         .trim_start_matches(':')
         .split('.')
         .next()
-        .unwrap_or(display)
-        .replace('/', "_");
-    env::temp_dir().join(format!("kittwm-{token}.sock"))
+        .unwrap_or(display);
+    let mut filename = String::with_capacity("kittwm-".len() + token.len() + ".sock".len());
+    filename.push_str("kittwm-");
+    for ch in token.chars() {
+        if ch == '/' {
+            filename.push('_');
+        } else {
+            filename.push(ch);
+        }
+    }
+    filename.push_str(".sock");
+    env::temp_dir().join(filename)
 }
 
 fn layout_request(mode: LayoutMode) -> String {
@@ -3866,6 +3875,10 @@ mod tests {
         assert_eq!(
             display_to_socket_path("/tmp/custom.sock"),
             PathBuf::from("/tmp/custom.sock")
+        );
+        assert_eq!(
+            display_to_socket_path(":team/dev.0"),
+            env::temp_dir().join("kittwm-team_dev.sock")
         );
     }
 
