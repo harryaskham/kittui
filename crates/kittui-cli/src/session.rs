@@ -3534,10 +3534,25 @@ fn native_socket_input_failure_log_line(
     bytes: usize,
     err: &dyn std::fmt::Display,
 ) -> String {
+    use std::fmt::Write as _;
+
     let err = bounded_ellipsis(&err.to_string(), 160);
-    format!(
-        "native pane socket input failed: window={window} operation={operation} bytes={bytes} err={err}"
-    )
+    let mut out = String::with_capacity(
+        "native pane socket input failed: window= operation= bytes= err=".len()
+            + window.len()
+            + operation.len()
+            + err.len()
+            + 20,
+    );
+    out.push_str("native pane socket input failed: window=");
+    out.push_str(window);
+    out.push_str(" operation=");
+    out.push_str(operation);
+    out.push_str(" bytes=");
+    let _ = write!(out, "{bytes}");
+    out.push_str(" err=");
+    out.push_str(&err);
+    out
 }
 
 fn native_resize_failure_log_line(
@@ -8981,6 +8996,7 @@ mod native_pane_tests {
         );
         assert!(line.contains("bytes=42"), "{line}");
         assert!(line.contains("err=non-utf8 browser input"), "{line}");
+        assert!(line.capacity() >= line.len());
         assert!(line.chars().count() < 260, "{line}");
     }
 
