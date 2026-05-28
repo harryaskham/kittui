@@ -4510,13 +4510,20 @@ fn set_devtools_socket_timeouts(
     Ok(())
 }
 
-fn devtools_socket_timeout() -> Duration {
-    std::env::var("KITTWM_BROWSER_CDP_TIMEOUT_MS")
+const MAX_BROWSER_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn browser_timeout_from_env(var: &str, default: Duration) -> Duration {
+    std::env::var(var)
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|value| *value > 0)
         .map(Duration::from_millis)
-        .unwrap_or_else(|| Duration::from_secs(5))
+        .map(|timeout| timeout.min(MAX_BROWSER_TIMEOUT))
+        .unwrap_or(default)
+}
+
+fn devtools_socket_timeout() -> Duration {
+    browser_timeout_from_env("KITTWM_BROWSER_CDP_TIMEOUT_MS", Duration::from_secs(5))
 }
 
 fn wait_for_browser_document_ready(
@@ -4660,12 +4667,10 @@ where
 }
 
 fn read_devtools_port_timeout() -> Duration {
-    std::env::var("KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .map(Duration::from_millis)
-        .unwrap_or_else(|| Duration::from_secs(10))
+    browser_timeout_from_env(
+        "KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS",
+        Duration::from_secs(10),
+    )
 }
 
 fn parse_devtools_port(text: &str) -> Option<u16> {
@@ -5600,12 +5605,18 @@ mod tests {
     }
 
     #[test]
-    fn devtools_socket_timeout_uses_positive_env_override() {
+    fn browser_timeout_env_uses_positive_override_and_caps_huge_values() {
         std::env::set_var("KITTWM_BROWSER_CDP_TIMEOUT_MS", "123");
         assert_eq!(devtools_socket_timeout(), Duration::from_millis(123));
         std::env::set_var("KITTWM_BROWSER_CDP_TIMEOUT_MS", "0");
         assert_eq!(devtools_socket_timeout(), Duration::from_secs(5));
+        std::env::set_var("KITTWM_BROWSER_CDP_TIMEOUT_MS", "999999999");
+        assert_eq!(devtools_socket_timeout(), MAX_BROWSER_TIMEOUT);
         std::env::remove_var("KITTWM_BROWSER_CDP_TIMEOUT_MS");
+
+        std::env::set_var("KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS", "999999999");
+        assert_eq!(read_devtools_port_timeout(), MAX_BROWSER_TIMEOUT);
+        std::env::remove_var("KITTWM_BROWSER_DEVTOOLS_TIMEOUT_MS");
     }
 
     #[test]
