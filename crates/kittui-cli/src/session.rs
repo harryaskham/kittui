@@ -3657,7 +3657,14 @@ fn balance_native_pane_weights(panes: &mut [NativePane]) {
 fn native_spawn_failure_log_line(command: &str, err: &dyn std::fmt::Display) -> String {
     let command = bounded_ellipsis(command, 120);
     let err = bounded_ellipsis(&err.to_string(), 160);
-    format!("native pane spawn failed: command={command} err={err}")
+    let mut out = String::with_capacity(
+        "native pane spawn failed: command= err=".len() + command.len() + err.len(),
+    );
+    out.push_str("native pane spawn failed: command=");
+    out.push_str(&command);
+    out.push_str(" err=");
+    out.push_str(&err);
+    out
 }
 
 fn native_terminate_failure_log_line(window: &str, err: &dyn std::fmt::Display) -> String {
@@ -8961,6 +8968,7 @@ mod native_pane_tests {
         );
         assert!(line.contains("command=very-long-command"), "{line}");
         assert!(line.contains("err=spawn failed"), "{line}");
+        assert!(line.capacity() >= line.len());
         assert!(line.chars().count() < 320, "{line}");
     }
 
