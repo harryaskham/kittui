@@ -4255,12 +4255,18 @@ fn completions_text(shell: &str) -> Result<String> {
 }
 
 fn fish_completions_text() -> String {
+    const PREFIX: &str = "complete -c kittwm -f -a '";
+    const SUFFIX: &str = "'\n";
     let words = completion_words();
-    let mut out = String::with_capacity(words.len().saturating_mul(32));
+    let capacity = words
+        .iter()
+        .map(|word| PREFIX.len() + word.len() + SUFFIX.len())
+        .sum();
+    let mut out = String::with_capacity(capacity);
     for word in words {
-        out.push_str("complete -c kittwm -f -a '");
+        out.push_str(PREFIX);
         out.push_str(&word);
-        out.push_str("'\n");
+        out.push_str(SUFFIX);
     }
     out
 }
@@ -7383,6 +7389,8 @@ mod tests {
         let fish = completions_text("fish").unwrap();
         assert!(fish.contains("complete -c kittwm"), "{fish}");
         assert!(fish.contains("cheat"), "{fish}");
+        assert_eq!(fish, fish_completions_text());
+        assert_eq!(fish.capacity(), fish.len());
         assert!(completions_text("powershell").is_err());
     }
 
