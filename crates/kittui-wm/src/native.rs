@@ -3626,6 +3626,26 @@ impl HeadlessBrowserApp {
         })
     }
 
+    /// Return the hosted browser process id.
+    pub fn process_id(&self) -> Option<u32> {
+        Some(self.child.id())
+    }
+
+    /// Report whether the hosted browser process has exited.
+    pub fn exited(&mut self) -> Result<Option<u32>> {
+        Ok(self
+            .child
+            .try_wait()?
+            .map(|status| status.code().unwrap_or(0) as u32))
+    }
+
+    /// Terminate the hosted browser process.
+    pub fn terminate(&mut self) -> Result<()> {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        Ok(())
+    }
+
     /// Extract a best-effort DOM/ARIA semantic snapshot from the page.
     ///
     /// This augments, but does not replace, the screenshot path: opaque content

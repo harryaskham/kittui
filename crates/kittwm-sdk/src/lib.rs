@@ -424,9 +424,9 @@ pub struct Kittwm {
 pub enum SurfaceKind {
     /// PTY-backed terminal surface.
     Terminal,
-    /// Browser-backed surface. Today this uses the first-party `kittwm-browser`
-    /// app over the PTY spawn transport; a dedicated browser surface protocol is
-    /// future work.
+    /// Browser-backed surface. Today this asks kittwm to spawn the first-party
+    /// `kittwm-browser` command; live kittwm recognizes that command and hosts a
+    /// direct browser capture surface instead of a terminal PTY.
     Browser,
     /// External/unknown surface kind.
     Other(String),
@@ -664,10 +664,10 @@ impl SurfaceSpec {
         }
     }
 
-    /// Return the concrete PTY command used by the current v0 native socket
-    /// transport for this typed surface. This preserves the SDK's browser
-    /// surface vocabulary while allowing CLIs to preview/dry-run the exact
-    /// command that `spawn_surface` will send today.
+    /// Return the concrete command used by the current v0 native socket
+    /// transport for this typed surface. Browser specs still use a
+    /// `kittwm-browser` command string, and live kittwm recognizes that command
+    /// as a direct browser capture surface rather than a terminal PTY.
     pub fn native_pty_command(&self) -> Result<String> {
         match &self.kind {
             SurfaceKind::Terminal => {
@@ -2864,8 +2864,9 @@ impl Kittwm {
     }
 
     /// Ask kittwm to spawn a typed surface. The v0 transport supports terminal
-    /// surfaces via `SPAWN_PTY`; browser surfaces currently dogfood that same
-    /// transport by launching the first-party `kittwm-browser` app.
+    /// surfaces via `SPAWN_PTY`; browser surfaces use the same command path, but
+    /// live kittwm recognizes `kittwm-browser` as a direct browser capture
+    /// surface.
     pub fn spawn_surface(&self, spec: &SurfaceSpec) -> Result<SurfaceSpawn> {
         self.capabilities.ensure(Capability::CreateWindow)?;
         let command = spec.native_pty_command()?;

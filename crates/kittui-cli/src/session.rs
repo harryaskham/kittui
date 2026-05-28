@@ -34,8 +34,8 @@ use kittui_input::{InputEvent, Key, MouseButton};
 use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
 use kittui_wm::native::{
-    GhosttyTerminalApp, MouseReportingModes, NativeFrame, NativeSurface, PtyTerminalApp,
-    SurfaceFrame, SurfaceMetadata,
+    GhosttyTerminalApp, HeadlessBrowserApp, MouseReportingModes, NativeFrame, NativeSurface,
+    PtyTerminalApp, SurfaceFrame, SurfaceMetadata,
 };
 use kittui_xvfb::XServer;
 use kittwm_sdk::{ArchitectureContract, KittwmConfig, LibghosttyConfig, SurfacePlacementRole};
@@ -1292,6 +1292,7 @@ struct NativePane {
 enum NativeTerminalApp {
     Pty(PtyTerminalApp),
     Ghostty(GhosttyTerminalApp),
+    Browser(HeadlessBrowserApp),
 }
 
 impl NativeTerminalApp {
@@ -1299,6 +1300,7 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => NativeSurface::metadata(app).title,
             Self::Ghostty(app) => NativeSurface::metadata(app).title,
+            Self::Browser(app) => NativeSurface::metadata(app).title,
         }
     }
 
@@ -1306,19 +1308,20 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.text_snapshot(),
             Self::Ghostty(app) => app.text_snapshot(),
+            Self::Browser(app) => NativeSurface::metadata(app).title,
         }
     }
 
     fn scrollback_snapshot(&self) -> String {
         match self {
             Self::Pty(app) => app.scrollback_snapshot(),
-            Self::Ghostty(_) => String::new(),
+            Self::Ghostty(_) | Self::Browser(_) => String::new(),
         }
     }
 
     fn refresh_text_snapshot(&mut self) -> Result<bool> {
         match self {
-            Self::Pty(_) => Ok(false),
+            Self::Pty(_) | Self::Browser(_) => Ok(false),
             Self::Ghostty(app) => app.refresh_text_snapshot(),
         }
     }
@@ -1326,21 +1329,21 @@ impl NativeTerminalApp {
     fn take_host_sequences(&self) -> Vec<u8> {
         match self {
             Self::Pty(app) => app.take_host_sequences(),
-            Self::Ghostty(_) => Vec::new(),
+            Self::Ghostty(_) | Self::Browser(_) => Vec::new(),
         }
     }
 
     fn take_surface_events(&self) -> Vec<kittui_wm::native::SurfaceEvent> {
         match self {
             Self::Pty(app) => app.take_surface_events(),
-            Self::Ghostty(_) => Vec::new(),
+            Self::Ghostty(_) | Self::Browser(_) => Vec::new(),
         }
     }
 
     fn cursor_position(&self) -> (u16, u16) {
         match self {
             Self::Pty(app) => app.cursor_position(),
-            Self::Ghostty(_) => (0, 0),
+            Self::Ghostty(_) | Self::Browser(_) => (0, 0),
         }
     }
 
@@ -1348,13 +1351,14 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.cursor_visible(),
             Self::Ghostty(_) => true,
+            Self::Browser(_) => false,
         }
     }
 
     fn focus_reporting_enabled(&self) -> bool {
         match self {
             Self::Pty(app) => app.focus_reporting_enabled(),
-            Self::Ghostty(_) => false,
+            Self::Ghostty(_) | Self::Browser(_) => false,
         }
     }
 
@@ -1362,6 +1366,7 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.bracketed_paste_enabled(),
             Self::Ghostty(app) => app.bracketed_paste_enabled(),
+            Self::Browser(_) => false,
         }
     }
 
@@ -1369,6 +1374,7 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.application_cursor_keys_enabled(),
             Self::Ghostty(app) => app.application_cursor_keys_enabled(),
+            Self::Browser(_) => false,
         }
     }
 
@@ -1376,6 +1382,7 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.mouse_reporting_modes(),
             Self::Ghostty(app) => app.mouse_reporting_modes(),
+            Self::Browser(_) => MouseReportingModes::default(),
         }
     }
 
@@ -1383,6 +1390,7 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.process_id(),
             Self::Ghostty(app) => app.process_id(),
+            Self::Browser(app) => app.process_id(),
         }
     }
 
@@ -1390,6 +1398,7 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.exited(),
             Self::Ghostty(app) => app.exited(),
+            Self::Browser(app) => app.exited(),
         }
     }
 
@@ -1397,6 +1406,7 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.terminate(),
             Self::Ghostty(app) => app.terminate(),
+            Self::Browser(app) => app.terminate(),
         }
     }
 
@@ -1404,6 +1414,7 @@ impl NativeTerminalApp {
         match self {
             Self::Pty(app) => app.send_bytes(bytes),
             Self::Ghostty(app) => app.send_bytes(bytes),
+            Self::Browser(app) => NativeSurface::send_surface_bytes(app, bytes),
         }
     }
 }
@@ -1413,6 +1424,7 @@ impl NativeSurface for NativeTerminalApp {
         match self {
             Self::Pty(app) => app.metadata(),
             Self::Ghostty(app) => app.metadata(),
+            Self::Browser(app) => app.metadata(),
         }
     }
 
@@ -1420,6 +1432,7 @@ impl NativeSurface for NativeTerminalApp {
         match self {
             Self::Pty(app) => app.resize_surface(cols, rows),
             Self::Ghostty(app) => app.resize_surface(cols, rows),
+            Self::Browser(app) => app.resize_surface(cols, rows),
         }
     }
 
@@ -1427,6 +1440,7 @@ impl NativeSurface for NativeTerminalApp {
         match self {
             Self::Pty(app) => app.send_surface_text(text),
             Self::Ghostty(app) => app.send_surface_text(text),
+            Self::Browser(app) => app.send_surface_text(text),
         }
     }
 
@@ -1434,6 +1448,7 @@ impl NativeSurface for NativeTerminalApp {
         match self {
             Self::Pty(app) => app.send_surface_bytes(bytes),
             Self::Ghostty(app) => app.send_surface_bytes(bytes),
+            Self::Browser(app) => app.send_surface_bytes(bytes),
         }
     }
 
@@ -1441,6 +1456,7 @@ impl NativeSurface for NativeTerminalApp {
         match self {
             Self::Pty(app) => app.send_surface_focus(focused),
             Self::Ghostty(app) => app.send_surface_focus(focused),
+            Self::Browser(app) => app.send_surface_focus(focused),
         }
     }
 
@@ -1448,6 +1464,7 @@ impl NativeSurface for NativeTerminalApp {
         match self {
             Self::Pty(app) => app.capture_surface(),
             Self::Ghostty(app) => app.capture_surface(),
+            Self::Browser(app) => app.capture_surface(),
         }
     }
 }
@@ -2021,6 +2038,44 @@ fn libghostty_preview_options(config: &LibghosttyConfig) -> PreviewOptions {
     options
 }
 
+fn kittwm_browser_target_from_command(cmd: &str) -> Option<String> {
+    let rest = cmd.trim().strip_prefix("kittwm-browser")?;
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let target = first_shell_word(rest.trim())?;
+    (!target.trim().is_empty()).then_some(target)
+}
+
+fn first_shell_word(input: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut chars = input.chars().peekable();
+    let mut quote: Option<char> = None;
+    let mut consumed = false;
+    while let Some(ch) = chars.next() {
+        consumed = true;
+        match quote {
+            Some(q) if ch == q => quote = None,
+            Some('\'') => out.push(ch),
+            Some('"') if ch == '\\' => {
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                }
+            }
+            Some(_) => out.push(ch),
+            None if ch == '\'' || ch == '"' => quote = Some(ch),
+            None if ch.is_whitespace() => break,
+            None if ch == '\\' => {
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                }
+            }
+            None => out.push(ch),
+        }
+    }
+    (consumed && quote.is_none()).then_some(out)
+}
+
 fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Result<NativePane> {
     let config = KittwmConfig::load_default().unwrap_or_default();
     let window = format!("native-{id}");
@@ -2044,23 +2099,29 @@ fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Re
             ("KITTWM_INNER_KITTY_GRAPHICS".to_string(), "1".to_string()),
         ]);
     }
-    let app = match native_terminal_backend(&config) {
-        NativeTerminalBackend::Pty => NativeTerminalApp::Pty(PtyTerminalApp::spawn_with_env(
-            cmd,
-            cols.max(1),
-            rows.max(1),
-            envs,
-        )?),
-        NativeTerminalBackend::Ghostty => {
-            NativeTerminalApp::Ghostty(GhosttyTerminalApp::spawn_with_env_and_preview(
-                cmd,
-                cols.max(1),
-                rows.max(1),
-                envs,
-                libghostty_preview_options(&config.libghostty),
+    let app =
+        if let Some(target) = kittwm_browser_target_from_command(cmd) {
+            NativeTerminalApp::Browser(HeadlessBrowserApp::launch(
+                &target,
+                u32::from(cols.max(1)) * 8,
+                u32::from(rows.max(1)) * 16,
             )?)
-        }
-    };
+        } else {
+            match native_terminal_backend(&config) {
+                NativeTerminalBackend::Pty => NativeTerminalApp::Pty(
+                    PtyTerminalApp::spawn_with_env(cmd, cols.max(1), rows.max(1), envs)?,
+                ),
+                NativeTerminalBackend::Ghostty => {
+                    NativeTerminalApp::Ghostty(GhosttyTerminalApp::spawn_with_env_and_preview(
+                        cmd,
+                        cols.max(1),
+                        rows.max(1),
+                        envs,
+                        libghostty_preview_options(&config.libghostty),
+                    )?)
+                }
+            }
+        };
     let pid = app.process_id();
     Ok(NativePane {
         window,
@@ -4973,6 +5034,27 @@ mod native_pane_tests {
         assert_eq!(overlay_inner_width_for_sources(64, None, Some(20)), 17);
         assert_eq!(overlay_inner_width_for_sources(64, Some(30), Some(20)), 27);
         assert_eq!(overlay_inner_width_for_sources(64, Some(0), Some(20)), 17);
+    }
+
+    #[test]
+    fn kittwm_browser_command_targets_native_browser_surface() {
+        assert_eq!(
+            kittwm_browser_target_from_command("kittwm-browser https://example.com"),
+            Some("https://example.com".to_string())
+        );
+        assert_eq!(
+            kittwm_browser_target_from_command("kittwm-browser 'https://example.com/a b'"),
+            Some("https://example.com/a b".to_string())
+        );
+        assert_eq!(
+            kittwm_browser_target_from_command("kittwm-browser 'https://example.com/it'\\''s'"),
+            Some("https://example.com/it's".to_string())
+        );
+        assert_eq!(kittwm_browser_target_from_command("kittwm-browser"), None);
+        assert_eq!(
+            kittwm_browser_target_from_command("kittwm-browserish https://example.com"),
+            None
+        );
     }
 
     #[test]
