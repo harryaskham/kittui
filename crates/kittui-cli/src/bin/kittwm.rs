@@ -6038,8 +6038,12 @@ fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
     );
     println!("bindings: {}", km.bindings.len());
     println!("duplicate_chords: {}", duplicates.len());
-    for (chord, actions) in duplicates {
-        println!("  {chord}: {}", actions.join(", "));
+    {
+        let stdout = std::io::stdout();
+        let mut out = stdout.lock();
+        for (chord, actions) in duplicates {
+            write_duplicate_action_labels(&mut out, chord, actions)?;
+        }
     }
     println!("custom_actions: {}", custom.len());
     for action in custom {
@@ -6052,6 +6056,21 @@ fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
         println!("status: duplicate chords found");
         std::process::exit(2);
     }
+}
+
+fn write_duplicate_action_labels(
+    mut out: impl std::io::Write,
+    chord: &str,
+    actions: &[String],
+) -> std::io::Result<()> {
+    write!(out, "  {chord}: ")?;
+    for (idx, action) in actions.iter().enumerate() {
+        if idx > 0 {
+            out.write_all(b", ")?;
+        }
+        out.write_all(action.as_bytes())?;
+    }
+    out.write_all(b"\n")
 }
 
 fn apps_cmd(cli: &Cli) -> Result<()> {
@@ -7389,6 +7408,21 @@ mod tests {
         assert!(err.contains("unknown kittwm help topic"), "{err}");
         assert!(err.contains("kittwm help panes"), "{err}");
         assert!(err.contains("kittwm help topics"), "{err}");
+    }
+
+    #[test]
+    fn keymap_duplicate_action_writer_streams_comma_separated_labels() {
+        let mut out = Vec::new();
+        write_duplicate_action_labels(
+            &mut out,
+            "C-a t",
+            &["float.toggle".to_string(), "terminal.launch".to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "  C-a t: float.toggle, terminal.launch\n"
+        );
     }
 
     #[test]
