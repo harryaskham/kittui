@@ -3675,7 +3675,7 @@ fn parse_app_launch_reply(reply: &str) -> Result<AppLaunch> {
         .strip_prefix("APPS_LAUNCH_FIRST ")
         .ok_or_else(|| Error::Daemon(line.to_string()))?;
     let mut pid = None;
-    let mut rest = Vec::new();
+    let mut candidate_fields = String::with_capacity(fields.len());
     for field in fields.split_whitespace() {
         if let Some(value) = field.strip_prefix("pid=") {
             pid =
@@ -3683,12 +3683,15 @@ fn parse_app_launch_reply(reply: &str) -> Result<AppLaunch> {
                     Error::Daemon(format!("invalid APPS_LAUNCH_FIRST pid: {value}"))
                 })?);
         } else {
-            rest.push(field);
+            if !candidate_fields.is_empty() {
+                candidate_fields.push(' ');
+            }
+            candidate_fields.push_str(field);
         }
     }
     Ok(AppLaunch {
         pid: pid.ok_or_else(|| Error::Daemon(format!("missing APPS_LAUNCH_FIRST pid: {line}")))?,
-        candidate: parse_app_candidate_fields(&rest.join(" "))?,
+        candidate: parse_app_candidate_fields(&candidate_fields)?,
     })
 }
 
@@ -4709,6 +4712,19 @@ mod tests {
                 candidate: AppCandidate {
                     kind: "macos_app".to_string(),
                     name: "Safari".to_string(),
+                }
+            }
+        );
+        assert_eq!(
+            parse_app_launch_reply(
+                "APPS_LAUNCH_FIRST kind=macos_app pid=2345 name=Visual Studio Code\n"
+            )
+            .unwrap(),
+            AppLaunch {
+                pid: 2345,
+                candidate: AppCandidate {
+                    kind: "macos_app".to_string(),
+                    name: "Visual Studio Code".to_string(),
                 }
             }
         );

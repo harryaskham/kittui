@@ -1,37 +1,36 @@
-# Session summary — bd-03d596 direct kittwm-launch browser unquote
+# Session summary — bd-7017ad direct SDK app launch reply parsing
 
 ## Bead
 
-- `bd-03d596` — `kittwm-launch browser target unquote: build directly`
+- `bd-7017ad` — `kittwm SDK app launch reply: avoid rest Vec join`
 
 ## Change
 
-- `browser_target_from_query` in `crates/kittui-cli/src/bin/kittwm_launch.rs` now strips surrounding shell-word quotes and writes unescaped single quotes directly into a preallocated `String`.
-- Removed the quoted path's `.replace("'\\''", "'")` intermediate allocation.
-- Preserved unquoted query behavior and launch-plan output for browser surfaces.
-- Extended coverage for multiple escaped single quotes and `capacity == len`.
+- `parse_app_launch_reply` in `crates/kittwm-sdk/src/lib.rs` now writes non-`pid=` APPS_LAUNCH_FIRST fields directly into one `String`.
+- Removed the temporary `Vec` plus `.join(" ")` used before parsing app candidate fields.
+- Preserved APPS_LAUNCH_FIRST parsing with `pid=` in different field positions and candidate names containing spaces.
 
 ## Validation
 
 Passed:
 
-- `nix develop . -c cargo test -p kittui-cli --bin kittwm-launch browser_target_strips_shell_word_quotes_before_sdk_surface_quote -- --nocapture`
-- `nix develop . -c cargo test -p kittui-cli --bin kittwm-launch builds_launch_plans_for_terminal_browser_and_app -- --nocapture`
-- `nix develop . -c cargo check -p kittui-cli --bin kittwm-launch`
+- `cargo test -p kittwm-sdk app_catalog_and_candidate_shapes_decode -- --nocapture`
+- `cargo test -p kittwm-sdk app_discovery_helpers_send_expected_socket_commands -- --nocapture`
+- `CARGO_BUILD_JOBS=1 cargo check -p kittwm-sdk`
 - `git diff --check`
 
 ## Evidence assessment
 
 Claim:
-- `kittwm-launch` no longer uses `.replace("'\\''", "'")` to unquote browser targets and preserves shell single-quote escape handling.
+- SDK APPS_LAUNCH_FIRST parsing avoids the temporary non-pid field `Vec`/`.join(" ")` allocation while preserving exact app launch reply parsing.
 
 Artifacts:
-- `file-c0bb40377653-1780003989843` — verdict: VALIDATION_ONLY
-  - What it shows: targeted kittwm-launch tests/checks passed, including exact unquoted output and unchanged plan command output.
+- `file-543deb35553a-1780004440207` — verdict: VALIDATION_ONLY
+  - What it shows: targeted SDK app discovery parser tests and checks passed.
   - Where to look: the text artifact lists the validation commands and outcomes.
-  - Why it supports the claim: this bead changes an internal CLI string construction path; exact output tests and code diff are the relevant proof.
+  - Why it supports the claim: this bead changes an internal SDK reply parser allocation path; exact parser assertions and code diff are the relevant proof.
   - Broken/ambiguous output noticed: none.
   - If VALIDATION_ONLY, why visual proof is not applicable: no kittwm UI/UX surface behavior changed; a screenshot would only show test output and would not prove allocation behavior.
 
 Closure decision:
-- PASS: validation-only evidence is appropriate for this internal kittwm-launch unquote cleanup.
+- PASS: validation-only evidence is appropriate for this internal SDK reply parser cleanup.
