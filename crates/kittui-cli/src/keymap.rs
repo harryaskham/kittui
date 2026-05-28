@@ -17,6 +17,7 @@
 
 use anyhow::{anyhow, Result};
 use std::fmt;
+use std::fmt::Write as FmtWrite;
 use std::path::Path;
 
 /// Modifier flags for a key spec.
@@ -354,12 +355,15 @@ impl Keymap {
         out.push_str("kittwm keymap\n");
         out.push_str("============\n");
         match &self.prefix {
-            Some(p) => out.push_str(&format!("prefix: {p}\n")),
+            Some(p) => {
+                out.push_str("prefix: ");
+                let _ = writeln!(out, "{p}");
+            }
             None => out.push_str("prefix: <none>\n"),
         }
         out.push_str("\nbindings:\n");
         for b in &self.bindings {
-            out.push_str(&format!("  {:<12} -> {}\n", b.chord_string(), b.action));
+            let _ = writeln!(out, "  {:<12} -> {}", b.chord_string(), b.action);
         }
         out
     }
@@ -440,6 +444,15 @@ mod tests {
         assert!(rendered.contains("reload.config"));
         assert!(rendered.contains("C-a C-h"));
         assert!(rendered.contains("focus.left"));
+    }
+
+    #[test]
+    fn render_table_writes_rows_directly() {
+        let km = Keymap::parse("prefix C-a\nbind c workspace.new\n").unwrap();
+        assert_eq!(
+            km.render_table(),
+            "kittwm keymap\n============\nprefix: C-a\n\nbindings:\n  C-a c        -> workspace.new\n"
+        );
     }
 
     #[test]
