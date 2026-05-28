@@ -5103,18 +5103,21 @@ fn format_info_output(
                 } else {
                     " "
                 };
-                let bounds = match (
+                out.push_str("  ");
+                out.push_str(focused);
+                out.push(' ');
+                out.push_str(window);
+                out.push_str("  ");
+                out.push_str(title);
+                if let (Some(x), Some(y), Some(cols), Some(rows)) = (
                     pane.get("x").and_then(serde_json::Value::as_u64),
                     pane.get("y").and_then(serde_json::Value::as_u64),
                     pane.get("cols").and_then(serde_json::Value::as_u64),
                     pane.get("rows").and_then(serde_json::Value::as_u64),
                 ) {
-                    (Some(x), Some(y), Some(cols), Some(rows)) => {
-                        format!(" {x},{y} {cols}x{rows}")
-                    }
-                    _ => String::new(),
-                };
-                out.push_str(&format!("  {focused} {window}  {title}{bounds}\n"));
+                    let _ = write!(out, " {x},{y} {cols}x{rows}");
+                }
+                out.push('\n');
             }
         }
     }
