@@ -658,13 +658,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             panes.insert(to, pane);
                         }
                         if let Some(old_focused_window) = old_focused_window.as_deref() {
-                            if let Some(old_focus_idx) = native_window_index_after_reorder(
-                                &panes
-                                    .iter()
-                                    .map(|pane| pane.window.as_str())
-                                    .collect::<Vec<_>>(),
-                                old_focused_window,
-                            ) {
+                            if let Some(old_focus_idx) =
+                                native_window_index_after_reorder(&panes, old_focused_window)
+                            {
                                 focused = old_focus_idx;
                             }
                         }
@@ -2867,13 +2863,9 @@ fn native_move_focused(
         let pane = panes.remove(from);
         panes.insert(to, pane);
         if let Some(old_focused_window) = old_focused_window.as_deref() {
-            if let Some(old_focus_idx) = native_window_index_after_reorder(
-                &panes
-                    .iter()
-                    .map(|pane| pane.window.as_str())
-                    .collect::<Vec<_>>(),
-                old_focused_window,
-            ) {
+            if let Some(old_focus_idx) =
+                native_window_index_after_reorder(panes, old_focused_window)
+            {
                 *focused = old_focus_idx;
             }
         }
@@ -3315,8 +3307,8 @@ fn native_move_target_index(from: usize, len: usize, direction: &str) -> usize {
     }
 }
 
-fn native_window_index_after_reorder(windows: &[&str], window: &str) -> Option<usize> {
-    windows.iter().position(|candidate| *candidate == window)
+fn native_window_index_after_reorder(panes: &[NativePane], window: &str) -> Option<usize> {
+    panes.iter().position(|pane| pane.window == window)
 }
 
 fn native_pane_display_title(pane: &NativePane) -> String {
@@ -9334,15 +9326,23 @@ mod native_pane_tests {
 
     #[test]
     fn native_move_preserves_focus_on_moved_pane() {
-        let mut order = vec!["a", "b", "c"];
+        let mut order = vec![
+            dummy_native_pane("a", "a", 1),
+            dummy_native_pane("b", "b", 1),
+            dummy_native_pane("c", "c", 1),
+        ];
         let mut focused = 1usize;
-        let old_focused = order[focused];
+        let old_focused = order[focused].window.clone();
         let to = native_move_target_index(focused, order.len(), "right");
         let pane = order.remove(focused);
         order.insert(to, pane);
-        focused = native_window_index_after_reorder(&order, old_focused).unwrap();
-        assert_eq!(order, vec!["a", "c", "b"]);
-        assert_eq!(order[focused], "b");
+        focused = native_window_index_after_reorder(&order, &old_focused).unwrap();
+        let names = order
+            .iter()
+            .map(|pane| pane.window.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["a", "c", "b"]);
+        assert_eq!(order[focused].window, "b");
         assert_eq!(native_window_index_after_reorder(&order, "b"), Some(2));
         assert_eq!(native_window_index_after_reorder(&order, "missing"), None);
     }
