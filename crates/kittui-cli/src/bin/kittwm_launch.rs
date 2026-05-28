@@ -87,7 +87,7 @@ impl LaunchArgs {
                     break;
                 }
                 other if other.starts_with('-') => {
-                    return Err(format!("unknown option {other}\n\n{}", help_text()));
+                    return Err(unknown_option_error(other));
                 }
                 other => {
                     query = Some(shell_words_from_iter(
@@ -117,6 +117,21 @@ impl LaunchArgs {
             other => other,
         }
     }
+}
+
+fn unknown_option_error(option: &str) -> String {
+    let help = help_text();
+    let mut out = String::with_capacity(
+        "unknown option \n\n"
+            .len()
+            .saturating_add(option.len())
+            .saturating_add(help.len()),
+    );
+    out.push_str("unknown option ");
+    out.push_str(option);
+    out.push_str("\n\n");
+    out.push_str(&help);
+    out
 }
 
 fn parse_backend(value: &str) -> Result<Backend, String> {
@@ -659,6 +674,14 @@ mod tests {
     fn parses_backend_aliases() {
         let args = LaunchArgs::parse_from(["--backend", "term", "htop"]).unwrap();
         assert_eq!(args.backend, Backend::Terminal);
+    }
+
+    #[test]
+    fn unknown_option_error_builds_directly() {
+        let err = LaunchArgs::parse_from(["--bogus", "firefox"]).unwrap_err();
+        assert!(err.starts_with("unknown option --bogus\n\n"), "{err}");
+        assert!(err.contains("Usage:\n  kittwm-launch"), "{err}");
+        assert_eq!(unknown_option_error("--bogus"), err);
     }
 
     #[test]
