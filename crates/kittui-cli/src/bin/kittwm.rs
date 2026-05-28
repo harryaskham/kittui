@@ -6384,11 +6384,13 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
     let resolved_label = truncate(resolved, 48);
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-apps-backdrop:path_count={}:macos_count={}:limit={}:filter={filter_label}:default={default_label}:resolved={resolved_label}",
+            label: Some(apps_scene_backdrop_label(
                 summary.path_commands.len(),
                 summary.macos_apps.len(),
-                summary.limit
+                summary.limit,
+                &filter_label,
+                &default_label,
+                &resolved_label,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -6460,6 +6462,37 @@ fn apps_scene(summary: &AppsSummary) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn apps_scene_backdrop_label(
+    path_count: usize,
+    macos_count: usize,
+    limit: usize,
+    filter_label: &str,
+    default_label: &str,
+    resolved_label: &str,
+) -> String {
+    let mut out = String::with_capacity(
+        "kittwm-apps-backdrop:path_count=:macos_count=:limit=:filter=:default=:resolved="
+            .len()
+            .saturating_add(filter_label.len())
+            .saturating_add(default_label.len())
+            .saturating_add(resolved_label.len())
+            .saturating_add(60),
+    );
+    out.push_str("kittwm-apps-backdrop:path_count=");
+    let _ = write!(out, "{path_count}");
+    out.push_str(":macos_count=");
+    let _ = write!(out, "{macos_count}");
+    out.push_str(":limit=");
+    let _ = write!(out, "{limit}");
+    out.push_str(":filter=");
+    out.push_str(filter_label);
+    out.push_str(":default=");
+    out.push_str(default_label);
+    out.push_str(":resolved=");
+    out.push_str(resolved_label);
+    out
 }
 
 fn apps_scene_row_label(kind: &str, label: &str) -> String {
@@ -8571,6 +8604,14 @@ mod tests {
             ..Cli::default()
         };
         assert!(apps_cmd(&cli).is_ok());
+    }
+
+    #[test]
+    fn apps_scene_backdrop_label_builds_directly() {
+        assert_eq!(
+            apps_scene_backdrop_label(2, 1, 10, "term", "zsh", "/bin/zsh"),
+            "kittwm-apps-backdrop:path_count=2:macos_count=1:limit=10:filter=term:default=zsh:resolved=/bin/zsh"
+        );
     }
 
     #[test]
