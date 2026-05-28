@@ -1669,6 +1669,8 @@ fn native_mouse_event_known(event: &str) -> bool {
     )
 }
 
+const NATIVE_SEND_KEY_SUPPORTED_HELP: &str = "enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|delete|del|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|home|end|pageup|page-up|pagedown|page-down|f5..f12|ctrl-a..ctrl-z";
+
 fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
     let Some((window, key)) = rest.trim().split_once(' ') else {
         return "ERR SEND_KEY requires window and key\n".to_string();
@@ -1679,7 +1681,9 @@ fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str
         return "ERR SEND_KEY requires window and single key name\n".to_string();
     }
     let Some(bytes) = native_key_bytes(key) else {
-        return "ERR SEND_KEY unsupported key; expected enter|tab|escape|backspace|delete|left|right|up|down|home|end|pageup|pagedown|ctrl-a..ctrl-z\n".to_string();
+        return format!(
+            "ERR SEND_KEY unsupported key; expected {NATIVE_SEND_KEY_SUPPORTED_HELP}\n"
+        );
     };
     match pending.lock() {
         Ok(mut state) => {
@@ -3117,6 +3121,19 @@ mod tests {
             "{reply}"
         );
         assert!(drain_native_spawn_pending(&pending).is_empty());
+    }
+
+    #[test]
+    fn native_send_key_unsupported_help_lists_current_aliases() {
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let reply = native_spawn_queue_reply("SEND_KEY focused nope", &pending);
+        assert!(reply.starts_with("ERR SEND_KEY unsupported key; expected "));
+        assert!(reply.contains("shift-tab"));
+        assert!(reply.contains("backtab"));
+        assert!(reply.contains("arrow-left"));
+        assert!(reply.contains("page-up"));
+        assert!(reply.contains("f5..f12"));
+        assert!(reply.contains("ctrl-a..ctrl-z"));
     }
 
     #[test]
