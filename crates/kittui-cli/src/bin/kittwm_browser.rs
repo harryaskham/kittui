@@ -126,6 +126,7 @@ fn help_text() -> String {
     "kittwm-browser — first-party kittwm-native browser app\n\n\
 Usage:\n  kittwm-browser [OPTIONS] [URL]\n\n\
 Options:\n  --semantic-snapshot, --print-semantic  load URL, print DOM/ARIA semantic snapshot JSON, and exit\n  --semantic-scene-json                  load URL, render semantic snapshot as kittui scene JSON, and exit\n  --semantic-kitty, --semantic-graphics  load URL, render semantic snapshot as kitty graphics, and exit\n  --capabilities, --native-capabilities  print SDK/kittui native capability summary and exit\n  --capabilities-json                    print SDK/kittui native capability JSON and exit\n  --pretty, --pretty-json                pretty-print semantic snapshot JSON\n  --compact, --compact-json              compact semantic snapshot JSON (default)\n  -h, --help                             show this help\n\n\
+Examples:\n  kittwm-browser https://example.com\n  kittwm-browser --semantic-snapshot https://example.com\n  kittwm-browser --semantic-kitty https://example.com\n  kittwm-browser --capabilities-json\n\n\
 Default mode renders the browser surface in the terminal and publishes semantic snapshots to kittwm when KITTWM_SOCKET is set.\n"
         .to_string()
 }
@@ -1259,6 +1260,28 @@ mod tests {
         assert!(help.contains("--semantic-kitty"), "{help}");
         assert!(help.contains("--capabilities"), "{help}");
         assert!(help.contains("--capabilities-json"), "{help}");
+    }
+
+    #[test]
+    fn help_text_lists_copyable_examples() {
+        let help = help_text();
+        assert!(help.contains("Examples:"), "{help}");
+        assert!(
+            help.contains("kittwm-browser https://example.com"),
+            "{help}"
+        );
+        assert!(
+            help.contains("kittwm-browser --semantic-snapshot https://example.com"),
+            "{help}"
+        );
+        assert!(
+            help.contains("kittwm-browser --semantic-kitty https://example.com"),
+            "{help}"
+        );
+        assert!(
+            help.contains("kittwm-browser --capabilities-json"),
+            "{help}"
+        );
     }
 
     #[test]
