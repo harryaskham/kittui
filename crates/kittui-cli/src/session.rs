@@ -5515,10 +5515,14 @@ fn clip_and_pad(text: &str, width: usize) -> String {
 }
 
 fn native_pane_title_key_from_text(text: &str, layout: NativePaneLayout, focused: bool) -> String {
-    format!(
-        "{},{},{}x{}:{}:{}",
-        layout.x, layout.y, layout.cols, layout.rows, focused, text
-    )
+    let mut out = String::with_capacity(text.len().saturating_add(32));
+    let _ = write!(
+        out,
+        "{},{},{}x{}:{}:",
+        layout.x, layout.y, layout.cols, layout.rows, focused
+    );
+    out.push_str(text);
+    out
 }
 
 fn native_help_overlay_ansi_width(cols: u16) -> Option<usize> {
@@ -8742,7 +8746,7 @@ mod native_pane_tests {
     }
 
     #[test]
-    fn native_shell_view_builds_presentation_agnostic_chrome() {
+    fn native_pane_title_key_builds_directly() {
         let layout = NativePaneLayout {
             x: 0,
             y: 0,
@@ -8754,7 +8758,12 @@ mod native_pane_tests {
             app_rows: 5,
         };
         let key = native_pane_title_key_from_text("* native-1 sh", layout, true);
-        assert!(key.contains("0,0,12x7:true:* native-1 sh"));
+        assert_eq!(key, "0,0,12x7:true:* native-1 sh");
+        assert!(key.capacity() >= "* native-1 sh".len() + 32);
+    }
+
+    #[test]
+    fn native_shell_view_builds_presentation_agnostic_chrome() {
         let view = native_shell_view(
             80,
             10,
