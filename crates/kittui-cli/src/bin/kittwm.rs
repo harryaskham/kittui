@@ -6882,10 +6882,11 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
         let selected = idx == selected_idx;
         let name_label = truncate(&candidate.name, 48);
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-launcher-row:{}:{}:{name_label}:selected={selected}",
+            label: Some(launcher_row_label(
                 idx + 1,
-                candidate.kind
+                candidate.kind,
+                &name_label,
+                selected,
             )),
             root: Node::Rect {
                 rect: launcher_scene_row_rect(width, y),
@@ -6907,6 +6908,25 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
         layers,
         animation: None,
     }
+}
+
+fn launcher_row_label(index: usize, kind: &str, name_label: &str, selected: bool) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-launcher-row:::selected="
+            .len()
+            .saturating_add(kind.len())
+            .saturating_add(name_label.len())
+            .saturating_add(24),
+    );
+    label.push_str("kittwm-launcher-row:");
+    let _ = write!(label, "{index}");
+    label.push(':');
+    label.push_str(kind);
+    label.push(':');
+    label.push_str(name_label);
+    label.push_str(":selected=");
+    label.push_str(if selected { "true" } else { "false" });
+    label
 }
 
 fn launcher_heading_label(selected: &str) -> String {
@@ -8321,6 +8341,18 @@ mod tests {
         let huge_title = format!("{}Terminal{}", "x".repeat(10_000), "y".repeat(10_000));
         assert!(ascii_casefold_contains(&huge_title, "TERMINAL"));
         assert!(!ascii_casefold_contains(&huge_title, "browser"));
+    }
+
+    #[test]
+    fn launcher_row_label_builds_directly() {
+        assert_eq!(
+            launcher_row_label(2, "macos", "Terminal", true),
+            "kittwm-launcher-row:2:macos:Terminal:selected=true"
+        );
+        assert_eq!(
+            launcher_row_label(1, "path", "xterm", false),
+            "kittwm-launcher-row:1:path:xterm:selected=false"
+        );
     }
 
     #[test]
