@@ -447,11 +447,17 @@ fn top_bar_bounded_chip_width(
 
 /// Workspace label from environment, defaulting to `1`.
 pub fn workspace_label() -> String {
-    std::env::var("KITTWM_WORKSPACE")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "1".to_string())
+    match std::env::var("KITTWM_WORKSPACE") {
+        Ok(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                "1".to_string()
+            } else {
+                trimmed.to_string()
+            }
+        }
+        Err(_) => "1".to_string(),
+    }
 }
 
 /// UTC HH:MM label from a system time.
@@ -562,8 +568,10 @@ mod tests {
     fn workspace_label_trims_env_and_defaults_blank_values() {
         std::env::set_var("KITTWM_WORKSPACE", " dev ");
         assert_eq!(workspace_label(), "dev");
-        std::env::set_var("KITTWM_WORKSPACE", "   ");
-        assert_eq!(workspace_label(), "1");
+        std::env::set_var("KITTWM_WORKSPACE", "\t\n  ");
+        let blank = workspace_label();
+        assert_eq!(blank, "1");
+        assert_eq!(blank.capacity(), 1);
         std::env::remove_var("KITTWM_WORKSPACE");
         assert_eq!(workspace_label(), "1");
     }
