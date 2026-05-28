@@ -1974,7 +1974,16 @@ fn native_pane_bool_label(value: Option<bool>) -> &'static str {
 }
 
 fn native_pane_layout_label(pane: &NativePaneStatus) -> String {
-    match (
+    let (
+        Some(x),
+        Some(y),
+        Some(cols),
+        Some(rows),
+        Some(app_x),
+        Some(app_y),
+        Some(app_cols),
+        Some(app_rows),
+    ) = (
         pane.x,
         pane.y,
         pane.cols,
@@ -1983,21 +1992,16 @@ fn native_pane_layout_label(pane: &NativePaneStatus) -> String {
         pane.app_y,
         pane.app_cols,
         pane.app_rows,
-    ) {
-        (
-            Some(x),
-            Some(y),
-            Some(cols),
-            Some(rows),
-            Some(app_x),
-            Some(app_y),
-            Some(app_cols),
-            Some(app_rows),
-        ) => {
-            format!("{x},{y} {cols}x{rows} app={app_x},{app_y} {app_cols}x{app_rows}")
-        }
-        _ => "-".to_string(),
-    }
+    )
+    else {
+        return "-".to_string();
+    };
+    let mut out = String::with_capacity(32);
+    let _ = write!(
+        out,
+        "{x},{y} {cols}x{rows} app={app_x},{app_y} {app_cols}x{app_rows}"
+    );
+    out
 }
 
 fn native_spawn_wait_text_ms_reply(
@@ -3360,6 +3364,21 @@ mod tests {
             scrollback_snapshot: Some("secret scrollback is not serialized".to_string()),
             app_rows: None,
         }
+    }
+
+    #[test]
+    fn native_pane_layout_label_builds_bounds_directly() {
+        let mut pane = native_status("native-1", true, 1);
+        assert_eq!(native_pane_layout_label(&pane), "-");
+        pane.x = Some(1);
+        pane.y = Some(2);
+        pane.cols = Some(80);
+        pane.rows = Some(24);
+        pane.app_x = Some(2);
+        pane.app_y = Some(3);
+        pane.app_cols = Some(78);
+        pane.app_rows = Some(22);
+        assert_eq!(native_pane_layout_label(&pane), "1,2 80x24 app=2,3 78x22");
     }
 
     #[test]
