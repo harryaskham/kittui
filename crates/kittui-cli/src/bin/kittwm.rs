@@ -6710,10 +6710,7 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
-    let selected = candidates
-        .get(selected_idx)
-        .map(|candidate| format!("{}:{}", candidate.kind, truncate(&candidate.name, 48)))
-        .unwrap_or_else(|| "none:<none>".to_string());
+    let selected = launcher_selected_label(candidates.get(selected_idx));
     let query_label = truncate(query, 48);
     let mut layers = vec![
         Layer {
@@ -6783,6 +6780,24 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
         layers,
         animation: None,
     }
+}
+
+fn launcher_selected_label(candidate: Option<&AppCandidate>) -> String {
+    let Some(candidate) = candidate else {
+        return "none:<none>".to_string();
+    };
+    let name = truncate(&candidate.name, 48);
+    let mut out = String::with_capacity(
+        candidate
+            .kind
+            .len()
+            .saturating_add(name.len())
+            .saturating_add(1),
+    );
+    out.push_str(candidate.kind);
+    out.push(':');
+    out.push_str(&name);
+    out
 }
 
 fn launcher_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
@@ -8035,6 +8050,21 @@ mod tests {
         let huge_title = format!("{}Terminal{}", "x".repeat(10_000), "y".repeat(10_000));
         assert!(ascii_casefold_contains(&huge_title, "TERMINAL"));
         assert!(!ascii_casefold_contains(&huge_title, "browser"));
+    }
+
+    #[test]
+    fn launcher_selected_label_builds_directly_and_bounds_name() {
+        let candidate = AppCandidate {
+            kind: "path",
+            name: "path-command-name-that-is-pathologically-long-and-noisy".to_string(),
+        };
+        let label = launcher_selected_label(Some(&candidate));
+        assert!(
+            label.starts_with("path:path-command-name-that-is-pathologically-long"),
+            "{label}"
+        );
+        assert!(label.ends_with('…'), "{label}");
+        assert_eq!(launcher_selected_label(None), "none:<none>");
     }
 
     #[test]
