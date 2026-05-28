@@ -3376,9 +3376,12 @@ impl SurfaceHandle {
         let component = validated_protocol_token(component.as_ref(), "semantic component")?;
         let action = validated_protocol_token(action.as_ref(), "semantic action")?;
         let payload = serde_json::to_string(&payload)?;
-        self.client.request_protocol(format!(
-            "SEMANTIC_ACTION {} {component} {action} {payload}",
-            self.id
+        self.client.request_protocol(surface_action_request(
+            "SEMANTIC_ACTION",
+            &self.id,
+            component,
+            action,
+            &payload,
         ))
     }
 
@@ -3611,6 +3614,28 @@ fn surface_mouse_request(id: &str, event: MouseEvent, col: u16, row: u16) -> Str
     out.push_str(&col_text);
     out.push(' ');
     out.push_str(&row_text);
+    out
+}
+
+fn surface_action_request(
+    verb: &str,
+    id: &str,
+    component: &str,
+    action: &str,
+    payload: &str,
+) -> String {
+    let mut out = String::with_capacity(
+        verb.len() + 1 + id.len() + 1 + component.len() + 1 + action.len() + 1 + payload.len(),
+    );
+    out.push_str(verb);
+    out.push(' ');
+    out.push_str(id);
+    out.push(' ');
+    out.push_str(component);
+    out.push(' ');
+    out.push_str(action);
+    out.push(' ');
+    out.push_str(payload);
     out
 }
 
@@ -5520,6 +5545,20 @@ mod tests {
         assert_eq!(
             surface_mouse_request("native-2", MouseEvent::ReleaseRight, 12, 34),
             "SEND_MOUSE native-2 release-right 12 34"
+        );
+    }
+
+    #[test]
+    fn surface_action_request_builds_directly() {
+        assert_eq!(
+            surface_action_request(
+                "SEMANTIC_ACTION",
+                "native-1",
+                "field",
+                "set",
+                "{\"value\":\"x\"}"
+            ),
+            "SEMANTIC_ACTION native-1 field set {\"value\":\"x\"}"
         );
     }
 
