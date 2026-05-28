@@ -3076,13 +3076,26 @@ fn protocol_token_request(verb: &str, token: &str) -> Result<String> {
 }
 
 fn automation_request(verb: &str, window: &str, payload: &str) -> Result<String> {
+    let verb = verb.trim();
     let window = protocol_token(window, "automation window")?;
-    let verb = verb.trim().to_ascii_uppercase();
-    if payload.is_empty() {
-        Ok(format!("{verb} {window}"))
-    } else {
-        Ok(format!("{verb} {window} {payload}"))
+    let mut out = String::with_capacity(
+        verb.len()
+            .saturating_add(1)
+            .saturating_add(window.len())
+            .saturating_add(if payload.is_empty() {
+                0
+            } else {
+                1 + payload.len()
+            }),
+    );
+    push_ascii_uppercase(&mut out, verb);
+    out.push(' ');
+    out.push_str(&window);
+    if !payload.is_empty() {
+        out.push(' ');
+        out.push_str(payload);
     }
+    Ok(out)
 }
 
 fn text_payload_request(verb: &str, window: &str, text: &str, label: &str) -> Result<String> {
@@ -10044,10 +10057,9 @@ END
             "SEND_TEXT focused    "
         );
         assert!(text_payload_request("send_text", "focused", "", "type").is_err());
-        assert_eq!(
-            automation_request("read_text", "native-2", "").unwrap(),
-            "READ_TEXT native-2"
-        );
+        let read_request = automation_request("read_text", "native-2", "").unwrap();
+        assert_eq!(read_request, "READ_TEXT native-2");
+        assert_eq!(read_request.capacity(), read_request.len());
         assert_eq!(
             automation_request("READ_TEXT_JSON", "focused", "").unwrap(),
             "READ_TEXT_JSON focused"
