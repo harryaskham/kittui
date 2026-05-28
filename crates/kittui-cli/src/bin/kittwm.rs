@@ -3565,6 +3565,13 @@ fn automation_cmd(request: &str) -> Result<()> {
     Ok(())
 }
 
+fn save_session_json_file_text(pretty: &str) -> String {
+    let mut out = String::with_capacity(pretty.len() + 1);
+    out.push_str(pretty);
+    out.push('\n');
+    out
+}
+
 fn save_session_cmd(path_arg: &str) -> Result<()> {
     use kittui_cli::daemon::{client_request, default_socket_path};
     let path = default_socket_path();
@@ -3576,7 +3583,7 @@ fn save_session_cmd(path_arg: &str) -> Result<()> {
     if path_arg == "-" {
         println!("{pretty}");
     } else {
-        std::fs::write(path_arg, format!("{pretty}\n"))?;
+        std::fs::write(path_arg, save_session_json_file_text(&pretty))?;
     }
     Ok(())
 }
@@ -11839,6 +11846,13 @@ END
         assert!(send_mouse_request("focused", "drag", "7", "9").is_err());
         assert!(send_key_request("focused", "page down").is_err());
         assert!(automation_request("SEND_KEY", "bad window", "ctrl-c").is_err());
+    }
+
+    #[test]
+    fn save_session_json_file_text_appends_newline_directly() {
+        let text = save_session_json_file_text("{\n  \"layout\": \"rows\"\n}");
+        assert_eq!(text, "{\n  \"layout\": \"rows\"\n}\n");
+        assert_eq!(text.capacity(), text.len());
     }
 
     #[test]
