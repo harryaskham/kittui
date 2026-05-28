@@ -1809,23 +1809,26 @@ fn retired_native_image_ids(previous: &HashSet<u32>, current: &HashSet<u32>) -> 
 const NATIVE_PANE_STATUS_COMMAND_MAX_CHARS: usize = 64;
 
 fn native_pane_status_chip_text(pane: &NativePane) -> String {
-    let pid = pane
-        .pid
-        .map(|pid| format!("pid:{pid}"))
-        .unwrap_or_else(|| "pid:-".to_string());
-    let dirty = pane
-        .dirty_frame
-        .as_ref()
-        .map(|metrics| {
-            if metrics.skipped_upload {
-                "frame:clean".to_string()
-            } else {
-                format!("frame:{}", metrics.changed_tiles)
-            }
-        })
-        .unwrap_or_else(|| "frame:new".to_string());
     let command = bounded_ellipsis(&pane.command, NATIVE_PANE_STATUS_COMMAND_MAX_CHARS);
-    format!("{command} · {pid} · {dirty}")
+    let mut out = String::with_capacity(command.len().saturating_add(32));
+    out.push_str(&command);
+    out.push_str(" · pid:");
+    if let Some(pid) = pane.pid {
+        out.push_str(&pid.to_string());
+    } else {
+        out.push('-');
+    }
+    out.push_str(" · frame:");
+    if let Some(metrics) = pane.dirty_frame.as_ref() {
+        if metrics.skipped_upload {
+            out.push_str("clean");
+        } else {
+            out.push_str(&metrics.changed_tiles.to_string());
+        }
+    } else {
+        out.push_str("new");
+    }
+    out
 }
 
 fn bounded_ellipsis(text: &str, max_chars: usize) -> String {
@@ -7104,6 +7107,20 @@ mod native_pane_tests {
         let short = bounded_ellipsis("shell", NATIVE_PANE_STATUS_COMMAND_MAX_CHARS);
         assert_eq!(short, "shell");
         assert!(short.capacity() >= "shell".len());
+
+        let mut pane = dummy_native_pane("native-1", &long, 1);
+        pane.pid = Some(1234);
+        pane.dirty_frame = Some(NativeDirtyFrameMetrics {
+            changed_tiles: 7,
+            total_tiles: 9,
+            changed_fraction: 7.0 / 9.0,
+            skipped_upload: false,
+        });
+        let chip = native_pane_status_chip_text(&pane);
+        assert!(chip.starts_with(&bounded), "{chip}");
+        assert!(chip.ends_with(" · pid:1234 · frame:7"), "{chip}");
+        assert!(!chip.contains(&"cmd-".repeat(128)), "{chip}");
+        assert!(chip.capacity() >= bounded.len() + 32);
     }
 
     #[test]
