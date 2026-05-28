@@ -534,9 +534,18 @@ fn render_launch_plan(plan: &LaunchPlan, output: PlanOutput) -> Result<String, S
     }
 }
 
+fn launch_prefixed_error(prefix: &str, err: impl std::fmt::Display) -> String {
+    let err = err.to_string();
+    let mut out = String::with_capacity(prefix.len().saturating_add(2).saturating_add(err.len()));
+    out.push_str(prefix);
+    out.push_str(": ");
+    out.push_str(&err);
+    out
+}
+
 fn render_launch_plan_scene_json(plan: &LaunchPlan) -> Result<String, String> {
     let mut json = serde_json::to_string(&launch_plan_scene(plan))
-        .map_err(|err| format!("encode launch plan scene: {err}"))?;
+        .map_err(|err| launch_prefixed_error("encode launch plan scene", err))?;
     json.push('\n');
     Ok(json)
 }
@@ -992,6 +1001,13 @@ mod tests {
             launch_plan_command_label("SPAWN_PTY kittwm-browser https://example.com"),
             "kittwm-launch-plan-command:SPAWN_PTY kittwm-browser https://example.com"
         );
+    }
+
+    #[test]
+    fn launch_prefixed_error_builds_directly() {
+        let err = launch_prefixed_error("encode launch plan scene", "boom");
+        assert_eq!(err, "encode launch plan scene: boom");
+        assert_eq!(err.capacity(), err.len());
     }
 
     #[test]
