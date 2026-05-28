@@ -5647,8 +5647,12 @@ fn panes_scene_for_cols(panes: &serde_json::Value, cols: u16) -> Scene {
         let window_label = truncate(window, 32);
         let title_label = truncate(title, 48);
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-pane-row:{window_label}:focused={focused}:title={title_label}:app={app_cols}x{app_rows}"
+            label: Some(panes_scene_row_label(
+                &window_label,
+                focused,
+                &title_label,
+                app_cols,
+                app_rows,
             )),
             root: Node::Rect {
                 rect: info_indicator_rect(width, y),
@@ -5686,6 +5690,35 @@ fn panes_backdrop_label(pane_count: u64, focus_label: &str, layout_label: &str) 
     label.push_str(focus_label);
     label.push_str(":layout=");
     label.push_str(layout_label);
+    label
+}
+
+fn panes_scene_row_label(
+    window_label: &str,
+    focused: bool,
+    title_label: &str,
+    app_cols: u64,
+    app_rows: u64,
+) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-pane-row::focused=:title=:app=x"
+            .len()
+            .saturating_add(window_label.len())
+            .saturating_add(5)
+            .saturating_add(title_label.len())
+            .saturating_add(20)
+            .saturating_add(20),
+    );
+    label.push_str("kittwm-pane-row:");
+    label.push_str(window_label);
+    label.push_str(":focused=");
+    let _ = write!(label, "{focused}");
+    label.push_str(":title=");
+    label.push_str(title_label);
+    label.push_str(":app=");
+    let _ = write!(label, "{app_cols}");
+    label.push('x');
+    let _ = write!(label, "{app_rows}");
     label
 }
 
@@ -11003,6 +11036,16 @@ END
                 assert!(rect.origin.0 + rect.width <= max_width, "{layer:?}");
             }
         }
+    }
+
+    #[test]
+    fn panes_scene_row_label_builds_directly() {
+        let label = panes_scene_row_label("native-2", true, "editor", 80, 12);
+        assert_eq!(
+            label,
+            "kittwm-pane-row:native-2:focused=true:title=editor:app=80x12"
+        );
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
