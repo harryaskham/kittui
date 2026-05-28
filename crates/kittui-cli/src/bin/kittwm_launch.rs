@@ -265,6 +265,28 @@ fn browser_target_from_query(query: &str) -> String {
         .unwrap_or_else(|| query.to_string())
 }
 
+fn launch_plan_command(surface: &Option<SurfaceSpec>, query: &str) -> String {
+    match surface {
+        Some(spec) => {
+            let native = spec
+                .native_pty_command()
+                .expect("terminal/browser surface specs are supported");
+            let mut command =
+                String::with_capacity("SPAWN_PTY ".len().saturating_add(native.len()));
+            command.push_str("SPAWN_PTY ");
+            command.push_str(&native);
+            command
+        }
+        None => {
+            let mut command =
+                String::with_capacity("APPS_LAUNCH_FIRST ".len().saturating_add(query.len()));
+            command.push_str("APPS_LAUNCH_FIRST ");
+            command.push_str(query);
+            command
+        }
+    }
+}
+
 fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
     let backend = args.effective_backend();
     let mode = if args.replace {
@@ -273,14 +295,7 @@ fn build_launch_plan(args: &LaunchArgs) -> LaunchPlan {
         "new-window"
     };
     let surface = surface_spec_for_backend(backend, args);
-    let command = match &surface {
-        Some(spec) => format!(
-            "SPAWN_PTY {}",
-            spec.native_pty_command()
-                .expect("terminal/browser surface specs are supported")
-        ),
-        None => format!("APPS_LAUNCH_FIRST {}", args.query),
-    };
+    let command = launch_plan_command(&surface, &args.query);
     let title = bounded_label(args.title.as_deref().unwrap_or("-"), 48);
     let query = bounded_label(&args.query, 96);
     let status = format!(
@@ -646,6 +661,20 @@ mod tests {
         assert_eq!(
             browser_target_from_query("'https://example.com/it'\\''s'"),
             "https://example.com/it's"
+        );
+    }
+
+    #[test]
+    fn launch_plan_command_builds_directly() {
+        let terminal = LaunchArgs::parse_from(["--terminal", "--", "echo", "hi there"]).unwrap();
+        let terminal_surface = surface_spec_for_backend(Backend::Terminal, &terminal);
+        assert_eq!(
+            launch_plan_command(&terminal_surface, &terminal.query),
+            "SPAWN_PTY echo 'hi there'"
+        );
+        assert_eq!(
+            launch_plan_command(&None, "firefox"),
+            "APPS_LAUNCH_FIRST firefox"
         );
     }
 
