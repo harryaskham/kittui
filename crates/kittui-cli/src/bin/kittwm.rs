@@ -4710,9 +4710,7 @@ fn daily_help_scene(kind: &str, text: &str) -> Scene {
         let trimmed = line.trim();
         let row_label = truncate(trimmed, 80);
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-daily-help-row:{kind_label}:{idx}:{row_label}"
-            )),
+            label: Some(daily_help_row_label(&kind_label, idx, &row_label)),
             root: Node::Rect {
                 rect: daily_help_scene_row_rect(width, y),
                 fill: Paint::Solid {
@@ -5022,6 +5020,19 @@ fn info_scene_rows(pane_count: u64) -> u16 {
 
 fn daily_help_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
+}
+
+fn daily_help_row_label(kind_label: &str, idx: usize, row_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-daily-help-row::".len() + kind_label.len() + 20 + row_label.len(),
+    );
+    label.push_str("kittwm-daily-help-row:");
+    label.push_str(kind_label);
+    label.push(':');
+    let _ = write!(label, "{idx}");
+    label.push(':');
+    label.push_str(row_label);
+    label
 }
 
 fn daily_help_heading_label(kind_label: &str, heading_label: &str) -> String {
@@ -7871,6 +7882,16 @@ mod tests {
         assert_eq!(native_surfaces_scene_rows(0), 8);
         assert_eq!(native_surfaces_scene_rows(12), 17);
         assert_eq!(native_surfaces_scene_rows(usize::MAX), 22);
+    }
+
+    #[test]
+    fn daily_help_row_label_builds_directly() {
+        let label = daily_help_row_label("examples", 2, "kittwm spawn htop");
+        assert_eq!(label, "kittwm-daily-help-row:examples:2:kittwm spawn htop");
+        assert_eq!(
+            label.capacity(),
+            "kittwm-daily-help-row::".len() + "examples".len() + 20 + "kittwm spawn htop".len()
+        );
     }
 
     #[test]
