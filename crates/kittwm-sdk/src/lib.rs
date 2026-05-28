@@ -3005,7 +3005,7 @@ impl Kittwm {
     pub fn events_ms(&self, ms: u64) -> Result<Vec<KittwmEvent>> {
         self.capabilities.ensure(Capability::SubscribeEvents)?;
         let ms = ms.clamp(1, 60_000);
-        let reply = self.request_protocol(format!("EVENTS {ms}"))?;
+        let reply = self.request_protocol(events_request(ms))?;
         reply
             .lines()
             .filter(|line| {
@@ -3528,6 +3528,13 @@ fn json_payload_request(verb: &str, payload: &str) -> String {
     out.push_str(verb);
     out.push(' ');
     out.push_str(payload);
+    out
+}
+
+fn events_request(ms: u64) -> String {
+    let mut out = String::with_capacity("EVENTS ".len() + 5);
+    out.push_str("EVENTS ");
+    out.push_str(&ms.to_string());
     out
 }
 
@@ -5196,6 +5203,13 @@ mod tests {
             client.app_launch_first("vim"),
             Err(Error::CapabilityDenied(Capability::CreateWindow))
         ));
+    }
+
+    #[test]
+    fn events_request_builds_directly() {
+        assert_eq!(events_request(1), "EVENTS 1");
+        assert_eq!(events_request(250), "EVENTS 250");
+        assert_eq!(events_request(60_000), "EVENTS 60000");
     }
 
     #[cfg(unix)]
