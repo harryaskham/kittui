@@ -369,11 +369,16 @@ fn run(args: LaunchArgs) -> Result<String, String> {
 fn render_launch_plan(plan: &LaunchPlan, output: PlanOutput) -> Result<String, String> {
     match output {
         PlanOutput::Text => Ok(render_launch_plan_text(plan)),
-        PlanOutput::SceneJson => serde_json::to_string(&launch_plan_scene(plan))
-            .map(|json| format!("{json}\n"))
-            .map_err(|err| format!("encode launch plan scene: {err}")),
+        PlanOutput::SceneJson => render_launch_plan_scene_json(plan),
         PlanOutput::Kitty => render_launch_plan_kitty(plan),
     }
+}
+
+fn render_launch_plan_scene_json(plan: &LaunchPlan) -> Result<String, String> {
+    let mut json = serde_json::to_string(&launch_plan_scene(plan))
+        .map_err(|err| format!("encode launch plan scene: {err}"))?;
+    json.push('\n');
+    Ok(json)
 }
 
 fn render_launch_plan_text(plan: &LaunchPlan) -> String {
@@ -675,6 +680,18 @@ mod tests {
             "{text}"
         );
         assert_eq!(text.lines().count(), 2);
+    }
+
+    #[test]
+    fn launch_plan_scene_json_appends_newline_directly() {
+        let args =
+            LaunchArgs::parse_from(["--plan-scene-json", "--browser", "https://example.com"])
+                .unwrap();
+        let plan = build_launch_plan(&args);
+        let json = render_launch_plan_scene_json(&plan).unwrap();
+        assert!(json.ends_with('\n'), "{json}");
+        assert!(json.contains("kittwm-launch-plan-command"), "{json}");
+        serde_json::from_str::<serde_json::Value>(json.trim_end()).unwrap();
     }
 
     #[test]
