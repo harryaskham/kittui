@@ -1916,12 +1916,26 @@ const NATIVE_TOP_BAR_ROWS: u16 = 1;
 const NATIVE_PANE_TITLE_ROWS: u16 = 1;
 const NATIVE_PANE_BORDER_COLS: u16 = 1;
 const NATIVE_PANE_BOTTOM_BORDER_ROWS: u16 = 1;
-const NATIVE_BASE_CELL_WIDTH_PX: u32 = 8;
-const NATIVE_BASE_CELL_HEIGHT_PX: u32 = 16;
-const NATIVE_HIDPI_SCALE: u32 = 2;
-const NATIVE_MAX_CELL_WIDTH_PX: u32 = 64;
-const NATIVE_MAX_CELL_HEIGHT_PX: u32 = 128;
-const NATIVE_MAX_GAP_CELLS: u16 = 20;
+pub const NATIVE_BASE_CELL_WIDTH_PX: u32 = 8;
+pub const NATIVE_BASE_CELL_HEIGHT_PX: u32 = 16;
+pub const NATIVE_HIDPI_SCALE: u32 = 2;
+pub const NATIVE_MAX_CELL_WIDTH_PX: u32 = 64;
+pub const NATIVE_MAX_CELL_HEIGHT_PX: u32 = 128;
+pub const NATIVE_MAX_GAP_CELLS: u16 = 20;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeDisplayTuning {
+    pub hidpi_enabled: bool,
+    pub cell_width_px: u32,
+    pub cell_height_px: u32,
+    pub tile_gap_px: u32,
+    pub header_gap_px: u32,
+    pub footer_gap_px: u32,
+    pub tile_gap_cols: u16,
+    pub tile_gap_rows: u16,
+    pub header_gap_rows: u16,
+    pub footer_gap_rows: u16,
+}
 fn native_z_index(role: SurfacePlacementRole) -> i32 {
     ArchitectureContract::current()
         .z_index_for_role(role)
@@ -1942,6 +1956,26 @@ fn native_cell_size() -> CellSize {
         native_cell_width_px() as u16,
         native_cell_height_px() as u16,
     )
+}
+
+pub fn native_display_tuning() -> NativeDisplayTuning {
+    let cell_width_px = native_cell_width_px();
+    let cell_height_px = native_cell_height_px();
+    let tile_gap_px = native_pixel_gap_px_from_env("KITTWM_TILE_GAP_PX");
+    let header_gap_px = native_pixel_gap_px_from_env("KITTWM_HEADER_GAP_PX");
+    let footer_gap_px = native_pixel_gap_px_from_env("KITTWM_FOOTER_GAP_PX");
+    NativeDisplayTuning {
+        hidpi_enabled: native_hidpi_enabled(),
+        cell_width_px,
+        cell_height_px,
+        tile_gap_px,
+        header_gap_px,
+        footer_gap_px,
+        tile_gap_cols: native_pixel_gap_cells_from_px(tile_gap_px, cell_width_px),
+        tile_gap_rows: native_pixel_gap_cells_from_px(tile_gap_px, cell_height_px),
+        header_gap_rows: native_pixel_gap_cells_from_px(header_gap_px, cell_height_px),
+        footer_gap_rows: native_pixel_gap_cells_from_px(footer_gap_px, cell_height_px),
+    }
 }
 
 fn native_cell_width_px() -> u32 {
@@ -1985,13 +2019,18 @@ fn native_hidpi_enabled() -> bool {
     )
 }
 
-fn native_pixel_gap_cells(px_key: &str, cell_px: u32) -> u16 {
-    let Some(px) = std::env::var(px_key)
+fn native_pixel_gap_px_from_env(px_key: &str) -> u32 {
+    std::env::var(px_key)
         .ok()
         .and_then(|value| value.parse::<u32>().ok())
-    else {
-        return 0;
-    };
+        .unwrap_or(0)
+}
+
+fn native_pixel_gap_cells(px_key: &str, cell_px: u32) -> u16 {
+    native_pixel_gap_cells_from_px(native_pixel_gap_px_from_env(px_key), cell_px)
+}
+
+fn native_pixel_gap_cells_from_px(px: u32, cell_px: u32) -> u16 {
     if px == 0 {
         return 0;
     }
