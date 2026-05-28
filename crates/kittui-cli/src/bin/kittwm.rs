@@ -2382,17 +2382,7 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
             display_tuning.footer_gap_rows
         );
         let _ = writeln!(out, "  displays       : {display_count}");
-        let _ = writeln!(
-            out,
-            "  log            : {} ({}{})",
-            log_path,
-            if log_present { "present" } else { "missing" },
-            if log_present {
-                format!(", {log_size} bytes")
-            } else {
-                String::new()
-            }
-        );
+        append_doctor_log_row(&mut out, &log_path, log_present, log_size);
         out.push_str(&doctor_daily_driver_text(
             &transport_diagnostics,
             log_present,
@@ -2406,6 +2396,16 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
         write_stdout_or_ignore_broken_pipe(out.as_bytes())?;
     }
     Ok(())
+}
+
+fn append_doctor_log_row(out: &mut String, log_path: &str, log_present: bool, log_size: u64) {
+    out.push_str("  log            : ");
+    out.push_str(log_path);
+    if log_present {
+        let _ = writeln!(out, " (present, {log_size} bytes)");
+    } else {
+        out.push_str(" (missing)\n");
+    }
 }
 
 fn doctor_scene(
@@ -9147,6 +9147,17 @@ mod tests {
             header_gap_rows: 2,
             footer_gap_rows: 1,
         }
+    }
+
+    #[test]
+    fn doctor_log_row_builds_present_and_missing_variants_directly() {
+        let mut out = String::new();
+        append_doctor_log_row(&mut out, "/tmp/kittui-wm.log", true, 86);
+        append_doctor_log_row(&mut out, "/tmp/missing.log", false, 0);
+        assert_eq!(
+            out,
+            "  log            : /tmp/kittui-wm.log (present, 86 bytes)\n  log            : /tmp/missing.log (missing)\n"
+        );
     }
 
     #[test]
