@@ -6600,9 +6600,17 @@ fn resolve_replace_action(args: &[String], in_window: bool) -> Result<ReplaceAct
         Ok(ReplaceAction::Exec { argv })
     } else {
         Ok(ReplaceAction::Spawn {
-            request: format!("SPAWN {}", argv_to_shell_words(&argv)),
+            request: replace_spawn_request(&argv),
         })
     }
+}
+
+fn replace_spawn_request(argv: &[String]) -> String {
+    let shell_words = argv_to_shell_words(argv);
+    let mut request = String::with_capacity("SPAWN ".len().saturating_add(shell_words.len()));
+    request.push_str("SPAWN ");
+    request.push_str(&shell_words);
+    request
 }
 
 fn resolve_replace_argv(args: &[String]) -> Vec<String> {
@@ -10073,6 +10081,14 @@ END
             ReplaceAction::Spawn {
                 request: "SPAWN kittwm-browser 'https://example.com/a b'".to_string()
             }
+        );
+    }
+
+    #[test]
+    fn replace_spawn_request_builds_directly() {
+        assert_eq!(
+            replace_spawn_request(&args(&["printf", "Bob's pane"])),
+            "SPAWN printf 'Bob'\\''s pane'"
         );
     }
 
