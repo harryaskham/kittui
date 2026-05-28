@@ -3143,7 +3143,7 @@ impl SurfaceHandle {
         self.client.capabilities.ensure(Capability::ControlWindow)?;
         let title = validated_pane_title(title.as_ref())?;
         self.client
-            .request_protocol(format!("RENAME_PANE {} {title}", self.id))
+            .request_protocol(surface_payload_request("RENAME_PANE", &self.id, title))
     }
 
     /// Resize this surface/window by a relative pane-weight delta.
@@ -3155,16 +3155,16 @@ impl SurfaceHandle {
             delta.to_string()
         };
         self.client
-            .request_protocol(format!("RESIZE_PANE {} {label}", self.id))
+            .request_protocol(surface_payload_request("RESIZE_PANE", &self.id, &label))
     }
 
     /// Move this pane within the current layout.
     pub fn move_pane(&self, direction: MoveDirection) -> Result<String> {
         self.client.capabilities.ensure(Capability::ControlWindow)?;
-        self.client.request_protocol(format!(
-            "MOVE_PANE {} {}",
-            self.id,
-            direction.protocol_label()
+        self.client.request_protocol(surface_payload_request(
+            "MOVE_PANE",
+            &self.id,
+            direction.protocol_label(),
         ))
     }
 
@@ -3543,6 +3543,16 @@ fn surface_token_request(verb: &str, id: &str) -> String {
     out.push_str(verb);
     out.push(' ');
     out.push_str(id);
+    out
+}
+
+fn surface_payload_request(verb: &str, id: &str, payload: &str) -> String {
+    let mut out = String::with_capacity(verb.len() + 1 + id.len() + 1 + payload.len());
+    out.push_str(verb);
+    out.push(' ');
+    out.push_str(id);
+    out.push(' ');
+    out.push_str(payload);
     out
 }
 
@@ -5301,6 +5311,22 @@ mod tests {
         assert_eq!(
             surface_token_request("CLOSE_PANE", "focused"),
             "CLOSE_PANE focused"
+        );
+    }
+
+    #[test]
+    fn surface_payload_request_builds_directly() {
+        assert_eq!(
+            surface_payload_request("RENAME_PANE", "native-2", "Editor Pane"),
+            "RENAME_PANE native-2 Editor Pane"
+        );
+        assert_eq!(
+            surface_payload_request("RESIZE_PANE", "native-2", "+3"),
+            "RESIZE_PANE native-2 +3"
+        );
+        assert_eq!(
+            surface_payload_request("MOVE_PANE", "native-2", "down"),
+            "MOVE_PANE native-2 down"
         );
     }
 
