@@ -35,7 +35,7 @@ use kittui_wm::compositor::{Compositor, Layout};
 use kittui_wm::dirty::{DirtyFrameDiff, DirtyGrid};
 use kittui_wm::native::{
     GhosttyTerminalApp, HeadlessBrowserApp, MouseReportingModes, NativeFrame, NativeSurface,
-    PtyTerminalApp, SurfaceFrame, SurfaceMetadata,
+    PtyTerminalApp, SurfaceFrame, SurfaceMetadata, SurfacePointerButton, SurfacePointerEvent,
 };
 use kittui_xvfb::XServer;
 use kittwm_sdk::{ArchitectureContract, KittwmConfig, LibghosttyConfig, SurfacePlacementRole};
@@ -1386,6 +1386,10 @@ impl NativeTerminalApp {
         }
     }
 
+    fn supports_direct_pointer(&self) -> bool {
+        matches!(self, Self::Browser(_))
+    }
+
     fn process_id(&self) -> Option<u32> {
         match self {
             Self::Pty(app) => app.process_id(),
@@ -1465,6 +1469,14 @@ impl NativeSurface for NativeTerminalApp {
             Self::Pty(app) => app.capture_surface(),
             Self::Ghostty(app) => app.capture_surface(),
             Self::Browser(app) => app.capture_surface(),
+        }
+    }
+
+    fn send_surface_pointer(&mut self, event: SurfacePointerEvent) -> Result<()> {
+        match self {
+            Self::Pty(app) => app.send_surface_pointer(event),
+            Self::Ghostty(app) => app.send_surface_pointer(event),
+            Self::Browser(app) => app.send_surface_pointer(event),
         }
     }
 }
@@ -2964,6 +2976,12 @@ fn native_route_mouse_event(
         native_set_focus(panes, focused, idx)?;
         *clear = true;
     }
+    if panes[idx].app.supports_direct_pointer() {
+        for event in native_surface_pointer_events(event_name, local_col, local_row) {
+            NativeSurface::send_surface_pointer(&mut panes[idx].app, event)?;
+        }
+        return Ok(true);
+    }
     let modes = panes[idx].app.mouse_reporting_modes();
     if let Some(payload) = native_mouse_event_payload(event_name, local_col, local_row, modes) {
         panes[idx].app.send_bytes(&payload)?;
@@ -3038,6 +3056,44 @@ fn native_pane_at_host_cell(
             None
         }
     })
+}
+
+fn native_surface_pointer_events(event: &str, col: u16, row: u16) -> Vec<SurfacePointerEvent> {
+    let x_px = i32::from(col.saturating_sub(1)) * 8;
+    let y_px = i32::from(row.saturating_sub(1)) * 16;
+    let mut events = vec![SurfacePointerEvent::Move { x_px, y_px }];
+    match event {
+        "press-left" => events.push(SurfacePointerEvent::Press {
+            button: SurfacePointerButton::Left,
+        }),
+        "press-middle" => events.push(SurfacePointerEvent::Press {
+            button: SurfacePointerButton::Middle,
+        }),
+        "press-right" => events.push(SurfacePointerEvent::Press {
+            button: SurfacePointerButton::Right,
+        }),
+        "release-left" => events.push(SurfacePointerEvent::Release {
+            button: SurfacePointerButton::Left,
+        }),
+        "release-middle" => events.push(SurfacePointerEvent::Release {
+            button: SurfacePointerButton::Middle,
+        }),
+        "release-right" => events.push(SurfacePointerEvent::Release {
+            button: SurfacePointerButton::Right,
+        }),
+        "release" => events.push(SurfacePointerEvent::Release {
+            button: SurfacePointerButton::Left,
+        }),
+        "scroll-up" => events.push(SurfacePointerEvent::Press {
+            button: SurfacePointerButton::ScrollUp,
+        }),
+        "scroll-down" => events.push(SurfacePointerEvent::Press {
+            button: SurfacePointerButton::ScrollDown,
+        }),
+        "move" | "move-left" | "move-middle" | "move-right" => {}
+        _ => events.clear(),
+    }
+    events
 }
 
 fn native_mouse_event_payload(
@@ -6136,6 +6192,42 @@ mod native_pane_tests {
             .unwrap(),
             b"\x1b[<64;7;9M".to_vec()
         );
+    }
+
+    #[test]
+    fn native_surface_pointer_events_map_cells_to_pixels_and_buttons() {
+        assert_eq!(
+            native_surface_pointer_events("press-left", 3, 4),
+            vec![
+                SurfacePointerEvent::Move { x_px: 16, y_px: 48 },
+                SurfacePointerEvent::Press {
+                    button: SurfacePointerButton::Left,
+                },
+            ]
+        );
+        assert_eq!(
+            native_surface_pointer_events("release-right", 1, 1),
+            vec![
+                SurfacePointerEvent::Move { x_px: 0, y_px: 0 },
+                SurfacePointerEvent::Release {
+                    button: SurfacePointerButton::Right,
+                },
+            ]
+        );
+        assert_eq!(
+            native_surface_pointer_events("scroll-down", 2, 2),
+            vec![
+                SurfacePointerEvent::Move { x_px: 8, y_px: 16 },
+                SurfacePointerEvent::Press {
+                    button: SurfacePointerButton::ScrollDown,
+                },
+            ]
+        );
+        assert_eq!(
+            native_surface_pointer_events("move", 1, 1),
+            vec![SurfacePointerEvent::Move { x_px: 0, y_px: 0 }]
+        );
+        assert!(native_surface_pointer_events("unknown", 1, 1).is_empty());
     }
 
     #[test]

@@ -1015,6 +1015,7 @@ pub struct GhosttyTerminalApp {
     preview_options: PreviewOptions,
     cols: u16,
     rows: u16,
+    mouse_modes: MouseReportingModes,
     last_text_snapshot: String,
     last_png_frame: Option<NativeFrame>,
 }
@@ -1219,6 +1220,31 @@ fn should_invalidate_ghostty_png_cache_after_text_refresh(had_output: bool) -> b
     had_output
 }
 
+fn update_ghostty_mouse_modes_from_bytes(modes: &mut MouseReportingModes, bytes: &[u8]) {
+    let text = String::from_utf8_lossy(bytes);
+    for part in text.split("\x1b[?").skip(1) {
+        let Some((params, enabled)) = part
+            .split_once('h')
+            .map(|(params, _)| (params, true))
+            .or_else(|| part.split_once('l').map(|(params, _)| (params, false)))
+        else {
+            continue;
+        };
+        for mode in params
+            .split(';')
+            .filter_map(|value| value.parse::<u16>().ok())
+        {
+            match mode {
+                1000 => modes.basic = enabled,
+                1002 => modes.button_motion = enabled,
+                1003 => modes.all_motion = enabled,
+                1006 => modes.sgr = enabled,
+                _ => {}
+            }
+        }
+    }
+}
+
 impl GhosttyTerminalApp {
     /// Spawn a shell command in a PTY rendered by libghostty-vt.
     pub fn spawn(command: &str, cols: u16, rows: u16) -> Result<Self> {
@@ -1303,6 +1329,7 @@ impl GhosttyTerminalApp {
             preview_options,
             cols,
             rows,
+            mouse_modes: MouseReportingModes::default(),
             last_text_snapshot: String::new(),
             last_png_frame: None,
         })
@@ -1311,6 +1338,7 @@ impl GhosttyTerminalApp {
     fn drain_output(&mut self) -> bool {
         let mut drained = false;
         while let Ok(bytes) = self.output.try_recv() {
+            update_ghostty_mouse_modes_from_bytes(&mut self.mouse_modes, &bytes);
             self.terminal.write(bytes);
             drained = true;
         }
@@ -1348,7 +1376,7 @@ impl GhosttyTerminalApp {
 
     /// Mouse reporting modes requested by the terminal application.
     pub fn mouse_reporting_modes(&self) -> MouseReportingModes {
-        MouseReportingModes::default()
+        self.mouse_modes
     }
 
     /// Return the PTY child process id when the backend exposes one.
@@ -3577,6 +3605,8 @@ pub struct HeadlessBrowserApp {
     title: String,
     width: u32,
     height: u32,
+    mouse_x: i32,
+    mouse_y: i32,
 }
 
 impl HeadlessBrowserApp {
@@ -3623,6 +3653,8 @@ impl HeadlessBrowserApp {
             title: url.to_string(),
             width,
             height,
+            mouse_x: 0,
+            mouse_y: 0,
         })
     }
 
@@ -3937,13 +3969,44 @@ impl HeadlessBrowserApp {
 
     /// Dispatch a mouse click at CSS-pixel coordinates.
     pub fn click(&mut self, x: i32, y: i32) -> Result<()> {
+        self.dispatch_browser_mouse_move(x, y)?;
+        self.dispatch_browser_mouse_button("mousePressed", SurfacePointerButton::Left)?;
+        self.dispatch_browser_mouse_button("mouseReleased", SurfacePointerButton::Left)?;
+        Ok(())
+    }
+
+    fn dispatch_browser_mouse_move(&mut self, x: i32, y: i32) -> Result<()> {
+        self.mouse_x = x;
+        self.mouse_y = y;
         self.cdp(
             "Input.dispatchMouseEvent",
-            json!({"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1}),
+            json!({"type": "mouseMoved", "x": x, "y": y, "button": "none"}),
         )?;
+        Ok(())
+    }
+
+    fn dispatch_browser_mouse_button(
+        &mut self,
+        event_type: &str,
+        button: SurfacePointerButton,
+    ) -> Result<()> {
+        let (button, click_count) = match button {
+            SurfacePointerButton::Left => ("left", 1),
+            SurfacePointerButton::Middle => ("middle", 1),
+            SurfacePointerButton::Right => ("right", 1),
+            SurfacePointerButton::ScrollUp | SurfacePointerButton::ScrollDown => ("none", 0),
+        };
         self.cdp(
             "Input.dispatchMouseEvent",
-            json!({"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1}),
+            json!({"type": event_type, "x": self.mouse_x, "y": self.mouse_y, "button": button, "clickCount": click_count}),
+        )?;
+        Ok(())
+    }
+
+    fn dispatch_browser_mouse_wheel(&mut self, delta_y: i32) -> Result<()> {
+        self.cdp(
+            "Input.dispatchMouseEvent",
+            json!({"type": "mouseWheel", "x": self.mouse_x, "y": self.mouse_y, "deltaX": 0, "deltaY": delta_y}),
         )?;
         Ok(())
     }
@@ -4313,6 +4376,22 @@ impl NativeSurface for HeadlessBrowserApp {
             )?;
         }
         Ok(())
+    }
+
+    fn send_surface_pointer(&mut self, event: SurfacePointerEvent) -> Result<()> {
+        match event {
+            SurfacePointerEvent::Move { x_px, y_px } => {
+                self.dispatch_browser_mouse_move(x_px, y_px)
+            }
+            SurfacePointerEvent::Press { button } => match button {
+                SurfacePointerButton::ScrollUp => self.dispatch_browser_mouse_wheel(-120),
+                SurfacePointerButton::ScrollDown => self.dispatch_browser_mouse_wheel(120),
+                _ => self.dispatch_browser_mouse_button("mousePressed", button),
+            },
+            SurfacePointerEvent::Release { button } => {
+                self.dispatch_browser_mouse_button("mouseReleased", button)
+            }
+        }
     }
 
     fn capture_surface(&mut self) -> Result<SurfaceFrame> {
@@ -5315,6 +5394,26 @@ mod tests {
         assert!(!state.mouse_modes.button_motion);
         assert!(state.mouse_modes.all_motion);
         assert!(!state.mouse_modes.sgr);
+    }
+
+    #[test]
+    fn ghostty_mouse_mode_tracker_matches_terminal_private_modes() {
+        let mut modes = MouseReportingModes::default();
+        update_ghostty_mouse_modes_from_bytes(&mut modes, b"prefix\x1b[?1000;1002;1003;1006h");
+        assert_eq!(
+            modes,
+            MouseReportingModes {
+                basic: true,
+                button_motion: true,
+                all_motion: true,
+                sgr: true,
+            }
+        );
+        update_ghostty_mouse_modes_from_bytes(&mut modes, b"\x1b[?1002;1006l suffix");
+        assert!(modes.basic);
+        assert!(!modes.button_motion);
+        assert!(modes.all_motion);
+        assert!(!modes.sgr);
     }
 
     #[test]
