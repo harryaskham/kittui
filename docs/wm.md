@@ -6,6 +6,30 @@ kittui-wm is a terminal-native window manager. Native backends now expose common
 
 The WM can also host kittwm-native apps (for example `kittwm-browser`, backed by headless Chrome screenshots + DevTools input) and X/Quartz capture backends. The long-term model is DISPLAY-like: native apps are ordinary binaries that inherit a kittwm socket/window context, can `kittwm replace ...` their current container, or can ask the socket to spawn a new app when not already inside a window.
 
+## Same-machine SSH latency proof
+
+The soft target for same-machine SSH interaction is **<200 ms** from an already-established SSH session to the next kittwm frame/control payload. Measure this without including SSH handshake time; cold one-shot `ssh localhost ...` timings are useful for startup diagnostics but are not the interactive-session RTT.
+
+A reproducible loopback check is:
+
+```sh
+ssh -o BatchMode=yes localhost sh <<'EOF'
+cd /path/to/kittui
+for i in 1 2 3 4 5 6 7; do
+  target/debug/kittwm showcase-composition-json >/tmp/kittwm-ssh-frame.json
+  wc -c /tmp/kittwm-ssh-frame.json
+ done
+EOF
+```
+
+For `bd-84c3f5` on `ms-mac` (2026-05-28), a persistent `ssh localhost sh` session repeatedly running `target/debug/kittwm showcase-composition-json` measured:
+
+- payload: **1634 bytes** per frame/composition JSON sample;
+- warm median command-to-complete RTT: **7.1 ms**;
+- warm p95 RTT: **25.1 ms**;
+- median effective payload rate: **224 KiB/s**.
+
+The first command on a fresh persistent shell was **214 ms**, so automation should either warm the session or record first-sample startup separately. Since warm RTT is well below 200 ms, no follow-up perf bead was filed from this proof.
 
 ## Quick start
 
