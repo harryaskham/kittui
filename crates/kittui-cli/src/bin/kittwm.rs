@@ -9917,10 +9917,9 @@ mod tests {
 
     #[test]
     fn architecture_scene_heading_label_builds_directly() {
-        assert_eq!(
-            architecture_scene_heading_label("kittwm-v2"),
-            "kittwm-architecture-heading:kittwm-v2"
-        );
+        let label = architecture_scene_heading_label("kittwm-v2");
+        assert_eq!(label, "kittwm-architecture-heading:kittwm-v2");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
