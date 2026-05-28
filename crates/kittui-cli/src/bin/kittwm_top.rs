@@ -6,6 +6,7 @@
 //! `kittwm spawn kittwm-top` and it renders in the hosted terminal surface
 //! without any WM hardcoding.
 
+use std::fmt::Write as FmtWrite;
 use std::process::ExitCode;
 
 use anyhow::{anyhow, Result};
@@ -112,8 +113,10 @@ fn connect_for_args(args: &TopArgs) -> Kittwm {
 fn render_process_snapshot(snapshot: &KittwmProcessSnapshot) -> String {
     let mut out = String::new();
     out.push_str("kittwm-top — session processes\n");
-    out.push_str(&format!("socket: {}\n", snapshot.socket.display()));
-    out.push_str(&format!("panes: {}\n\n", snapshot.processes.len()));
+    let _ = writeln!(out, "socket: {}", snapshot.socket.display());
+    out.push_str("panes: ");
+    let _ = write!(out, "{}", snapshot.processes.len());
+    out.push_str("\n\n");
     out.push_str("FOC WINDOW     PID     PPID    CPU%   RSS(KiB) STATE NAME/TITLE COMMAND\n");
     out.push_str("─── ────────── ─────── ─────── ────── ──────── ───── ────────── ───────\n");
     if snapshot.processes.is_empty() {
@@ -207,6 +210,11 @@ mod tests {
         };
         let rendered = render_process_snapshot(&snapshot);
         assert!(rendered.contains("kittwm-top"), "{rendered}");
+        assert!(
+            rendered.contains("socket: /tmp/kittui-wm-0.sock"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("panes: 1"), "{rendered}");
         assert!(rendered.contains("native-1"), "{rendered}");
         assert!(rendered.contains("zsh -l"), "{rendered}");
         assert!(rendered.contains("*"), "{rendered}");
