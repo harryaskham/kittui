@@ -98,7 +98,7 @@ impl LaunchArgs {
                 }
             }
         }
-        let query = query.ok_or_else(|| format!("missing launch query\n\n{}", help_text()))?;
+        let query = query.ok_or_else(missing_query_error)?;
         Ok(Self {
             replace,
             backend,
@@ -118,6 +118,15 @@ impl LaunchArgs {
             other => other,
         }
     }
+}
+
+fn missing_query_error() -> String {
+    let help = help_text();
+    let mut out =
+        String::with_capacity("missing launch query\n\n".len().saturating_add(help.len()));
+    out.push_str("missing launch query\n\n");
+    out.push_str(&help);
+    out
 }
 
 fn unknown_option_error(option: &str) -> String {
@@ -718,6 +727,14 @@ mod tests {
         assert!(err.starts_with("unknown option --bogus\n\n"), "{err}");
         assert!(err.contains("Usage:\n  kittwm-launch"), "{err}");
         assert_eq!(unknown_option_error("--bogus"), err);
+    }
+
+    #[test]
+    fn missing_query_error_builds_directly() {
+        let err = LaunchArgs::parse_from(["--dry-run"]).unwrap_err();
+        assert!(err.starts_with("missing launch query\n\n"), "{err}");
+        assert!(err.contains("Usage:\n  kittwm-launch"), "{err}");
+        assert_eq!(missing_query_error(), err);
     }
 
     #[test]
