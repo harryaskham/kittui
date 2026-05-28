@@ -4391,6 +4391,10 @@ fn browser_actions_for_role(role: &str) -> Vec<ComponentAction> {
     }
 }
 
+fn browser_viewport_pixels(cols: u16, rows: u16) -> (u32, u32) {
+    (u32::from(cols) * 8, u32::from(rows) * 16)
+}
+
 fn browser_surface_metadata(pid: u32, title: String, width: u32, height: u32) -> SurfaceMetadata {
     SurfaceMetadata {
         id: SurfaceId::new(format!("browser:{pid}")),
@@ -4407,12 +4411,13 @@ impl NativeSurface for HeadlessBrowserApp {
     }
 
     fn resize_surface(&mut self, cols: u16, rows: u16) -> Result<()> {
-        self.width = u32::from(cols) * 8;
-        self.height = u32::from(rows) * 16;
+        let (width, height) = browser_viewport_pixels(cols, rows);
         self.cdp(
             "Emulation.setDeviceMetricsOverride",
-            json!({"width": self.width, "height": self.height, "deviceScaleFactor": 1, "mobile": false}),
+            json!({"width": width, "height": height, "deviceScaleFactor": 1, "mobile": false}),
         )?;
+        self.width = width;
+        self.height = height;
         Ok(())
     }
 
@@ -7001,6 +7006,16 @@ mod tests {
         .unwrap();
         assert_eq!(snapshot.root.label.as_deref(), Some("Opaque Canvas"));
         assert!(snapshot.root.children.is_empty());
+    }
+
+    #[test]
+    fn browser_viewport_pixels_match_kittwm_cell_contract() {
+        assert_eq!(browser_viewport_pixels(1, 1), (8, 16));
+        assert_eq!(browser_viewport_pixels(80, 24), (640, 384));
+        assert_eq!(
+            browser_viewport_pixels(u16::MAX, u16::MAX),
+            (u32::from(u16::MAX) * 8, u32::from(u16::MAX) * 16)
+        );
     }
 
     #[test]
