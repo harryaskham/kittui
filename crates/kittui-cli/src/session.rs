@@ -3918,9 +3918,38 @@ fn native_mouse_event_payload(
         _ => return None,
     };
     if modes.sgr {
-        return Some(format!("\x1b[<{bits};{col};{row}{suffix}").into_bytes());
+        return Some(native_sgr_mouse_payload(bits, col, row, suffix));
     }
     native_legacy_mouse_payload(bits, col, row)
+}
+
+fn push_u16_decimal(out: &mut Vec<u8>, mut value: u16) {
+    if value == 0 {
+        out.push(b'0');
+        return;
+    }
+    let mut digits = [0u8; 5];
+    let mut len = 0usize;
+    while value > 0 {
+        digits[len] = b'0' + (value % 10) as u8;
+        value /= 10;
+        len += 1;
+    }
+    for digit in digits[..len].iter().rev() {
+        out.push(*digit);
+    }
+}
+
+fn native_sgr_mouse_payload(bits: u16, col: u16, row: u16, suffix: char) -> Vec<u8> {
+    let mut out = Vec::with_capacity("\x1b[<;;".len() + 5 + 5 + 5 + 1);
+    out.extend_from_slice(b"\x1b[<");
+    push_u16_decimal(&mut out, bits);
+    out.push(b';');
+    push_u16_decimal(&mut out, col);
+    out.push(b';');
+    push_u16_decimal(&mut out, row);
+    out.push(suffix as u8);
+    out
 }
 
 fn native_legacy_mouse_payload(bits: u16, col: u16, row: u16) -> Option<Vec<u8>> {
@@ -6945,9 +6974,12 @@ mod native_pane_tests {
             all_motion: true,
             sgr: true,
         };
+        let press_left = native_mouse_event_payload("press-left", 7, 9, modes).unwrap();
+        assert_eq!(press_left, b"\x1b[<0;7;9M".to_vec());
+        assert!(press_left.capacity() >= press_left.len());
         assert_eq!(
-            native_mouse_event_payload("press-left", 7, 9, modes).unwrap(),
-            b"\x1b[<0;7;9M".to_vec()
+            native_sgr_mouse_payload(223, 65535, 65535, 'M'),
+            b"\x1b[<223;65535;65535M".to_vec()
         );
         assert_eq!(
             native_mouse_event_payload("release-left", 7, 9, modes).unwrap(),
