@@ -860,7 +860,7 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
         (
             "SEND_KEY <window|focused> <key>",
             "control",
-            "send a named key sequence to a native pane",
+            "send a named key sequence to a native pane; keys: enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|delete|del|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|home|end|pageup|page-up|pagedown|page-down|f5..f12|ctrl-a..ctrl-z",
         ),
         (
             "SEND_MOUSE <window|focused> <event> <col> <row>",
@@ -3802,6 +3802,8 @@ mod tests {
         assert!(help.contains("SEND_TEXT <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_LINE <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_KEY <window|focused> <key>"), "{help}");
+        assert!(help.contains("shift-tab|backtab"), "{help}");
+        assert!(help.contains("f5..f12"), "{help}");
         assert!(
             help.contains("SEND_MOUSE <window|focused> <event> <col> <row>"),
             "{help}"
@@ -3867,6 +3869,16 @@ mod tests {
             .iter()
             .any(|entry| {
                 entry["command"] == "SHORTCUTS_JSON" && entry["category"] == "inspect"
+            }));
+        assert!(help_json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["command"] == "SEND_KEY <window|focused> <key>"
+                    && entry["description"].as_str().is_some_and(|description| {
+                        description.contains("shift-tab|backtab") && description.contains("f5..f12")
+                    })
             }));
     }
 
