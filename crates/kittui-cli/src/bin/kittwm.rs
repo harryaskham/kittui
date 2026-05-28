@@ -6612,9 +6612,10 @@ fn shortcuts_scene_for_cols(cols: u16) -> Scene {
     for (idx, entry) in entries.iter().take(12).enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         layers.push(Layer {
-            label: Some(format!(
-                "kittwm-shortcut-row:{}:{}:{}",
-                entry.id, entry.keys, entry.description
+            label: Some(shortcuts_scene_row_label(
+                entry.id,
+                entry.keys,
+                entry.description,
             )),
             root: Node::Rect {
                 rect: shortcuts_scene_row_rect(width, y),
@@ -6632,6 +6633,19 @@ fn shortcuts_scene_for_cols(cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn shortcuts_scene_row_label(id: &str, keys: &str, description: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-shortcut-row:::".len() + id.len() + keys.len() + description.len(),
+    );
+    label.push_str("kittwm-shortcut-row:");
+    label.push_str(id);
+    label.push(':');
+    label.push_str(keys);
+    label.push(':');
+    label.push_str(description);
+    label
 }
 
 fn shortcuts_scene_backdrop_label(entry_count: usize) -> String {
@@ -10199,6 +10213,16 @@ mod tests {
                 .any(|label| label.contains("kittwm-command-row:lifecycle:start")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn shortcuts_scene_row_label_builds_directly() {
+        let label = shortcuts_scene_row_label("launch_terminal", "C-a Enter", "launch terminal");
+        assert_eq!(
+            label,
+            "kittwm-shortcut-row:launch_terminal:C-a Enter:launch terminal"
+        );
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
