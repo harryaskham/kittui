@@ -124,6 +124,9 @@ Current semantic implementation status:
 
 ## Examples and artifacts
 
+- [`kittwm-evidence.md`](kittwm-evidence.md) — close-time evidence quality gate
+  for kittwm beads. It requires explicit artifact verdicts and treats broken
+  screenshots as regression evidence, not proof.
 - [`examples/`](examples/) — docs/examples assets and proof inputs.
 - `crates/kittui-cli/examples/kittwm_semantic_app.rs` — synthetic semantic SDK
   app that prints, queries, and publishes a settings/form component tree.
