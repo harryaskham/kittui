@@ -3654,10 +3654,12 @@ impl HeadlessBrowserApp {
             "Emulation.setDeviceMetricsOverride",
             json!({"width": width, "height": height, "deviceScaleFactor": 1, "mobile": false}),
         )?;
+        let mut next_id = 3;
+        let _ = wait_for_browser_document_ready(&mut socket, &mut next_id, Duration::from_secs(2));
         Ok(Self {
             child,
             socket,
-            next_id: 3,
+            next_id,
             title: url.to_string(),
             width,
             height,
@@ -4454,6 +4456,40 @@ impl NativeApp for HeadlessBrowserApp {
     fn capture(&mut self) -> Result<NativeFrame> {
         Ok(self.capture_surface()?.frame)
     }
+}
+
+fn wait_for_browser_document_ready(
+    socket: &mut WebSocket<MaybeTlsStream<std::net::TcpStream>>,
+    next_id: &mut u64,
+    timeout: Duration,
+) -> Result<bool> {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        let id = *next_id;
+        *next_id = (*next_id).saturating_add(1);
+        let value = cdp_send_raw(
+            socket,
+            id,
+            "Runtime.evaluate",
+            json!({"expression": "document.readyState", "returnByValue": true}),
+        )?;
+        if browser_ready_state_is_renderable(browser_ready_state_from_cdp_result(&value)) {
+            return Ok(true);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Ok(false)
+}
+
+fn browser_ready_state_from_cdp_result(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("result")
+        .and_then(|result| result.get("value"))
+        .and_then(|value| value.as_str())
+}
+
+fn browser_ready_state_is_renderable(state: Option<&str>) -> bool {
+    matches!(state, Some("interactive" | "complete"))
 }
 
 fn cdp_send_raw(
@@ -5409,6 +5445,27 @@ mod tests {
         assert!(!state.mouse_modes.button_motion);
         assert!(state.mouse_modes.all_motion);
         assert!(!state.mouse_modes.sgr);
+    }
+
+    #[test]
+    fn browser_ready_state_renderability_matches_first_capture_needs() {
+        let loading = json!({"result": {"type": "string", "value": "loading"}});
+        let interactive = json!({"result": {"type": "string", "value": "interactive"}});
+        let complete = json!({"result": {"type": "string", "value": "complete"}});
+        assert_eq!(
+            browser_ready_state_from_cdp_result(&loading),
+            Some("loading")
+        );
+        assert!(!browser_ready_state_is_renderable(
+            browser_ready_state_from_cdp_result(&loading)
+        ));
+        assert!(browser_ready_state_is_renderable(
+            browser_ready_state_from_cdp_result(&interactive)
+        ));
+        assert!(browser_ready_state_is_renderable(
+            browser_ready_state_from_cdp_result(&complete)
+        ));
+        assert!(!browser_ready_state_is_renderable(None));
     }
 
     #[test]
