@@ -81,7 +81,7 @@ impl BrowserArgs {
                     break;
                 }
                 other if other.starts_with('-') => {
-                    return Err(format!("unknown option {other}\n\n{}", help_text()));
+                    return Err(browser_arg_error_with_help("unknown option ", other));
                 }
                 other => {
                     if url.replace(other.to_string()).is_some() {
@@ -104,6 +104,22 @@ impl BrowserArgs {
             help,
         })
     }
+}
+
+fn browser_arg_error_with_help(prefix: &str, value: &str) -> String {
+    let help = help_text();
+    let mut out = String::with_capacity(
+        prefix
+            .len()
+            .saturating_add(value.len())
+            .saturating_add(2)
+            .saturating_add(help.len()),
+    );
+    out.push_str(prefix);
+    out.push_str(value);
+    out.push_str("\n\n");
+    out.push_str(&help);
+    out
 }
 
 fn help_text() -> String {
@@ -1645,6 +1661,8 @@ mod tests {
         let err = BrowserArgs::parse_from(["--bogus"]).unwrap_err();
         assert!(err.contains("unknown option --bogus"));
         assert!(err.contains("--semantic-snapshot"));
+        let direct = browser_arg_error_with_help("unknown option ", "--bogus");
+        assert_eq!(err, direct);
     }
 
     #[test]
