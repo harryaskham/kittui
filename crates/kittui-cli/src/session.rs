@@ -612,7 +612,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             if closing_focused {
                                 let _ = native_send_focus_event(&mut panes[idx], false);
                             }
-                            panes[idx].app.terminate()?;
+                            native_terminate_pane_logged(&mut panes[idx], &dbg);
                             panes.remove(idx);
                             if panes.is_empty() {
                                 focused = 0;
@@ -2811,7 +2811,7 @@ fn process_native_terminal_byte(
             b'x' | b'X' => {
                 if !panes.is_empty() {
                     let _ = native_send_focus_event(&mut panes[*focused], false);
-                    panes[*focused].app.terminate()?;
+                    native_terminate_pane_logged(&mut panes[*focused], dbg);
                     panes.remove(*focused);
                     if panes.is_empty() {
                         *focused = 0;
@@ -3499,6 +3499,21 @@ fn native_adjust_weight(weight: u16, delta: i16) -> u16 {
 fn balance_native_pane_weights(panes: &mut [NativePane]) {
     for pane in panes {
         pane.weight = 1;
+    }
+}
+
+fn native_terminate_failure_log_line(window: &str, err: &dyn std::fmt::Display) -> String {
+    let err = bounded_ellipsis(&err.to_string(), 160);
+    format!("native pane terminate failed: window={window} err={err}")
+}
+
+fn native_terminate_pane_logged(pane: &mut NativePane, dbg: &Debugger) -> bool {
+    match pane.app.terminate() {
+        Ok(()) => true,
+        Err(err) => {
+            dbg.log(&native_terminate_failure_log_line(&pane.window, &err));
+            false
+        }
     }
 }
 
@@ -8752,6 +8767,14 @@ mod native_pane_tests {
         native_capture_failure_recovered(&mut failed);
         assert!(!failed);
         assert!(should_log_native_capture_failure(&mut failed));
+    }
+
+    #[test]
+    fn native_terminate_failure_log_includes_window_and_bounded_error() {
+        let line = native_terminate_failure_log_line("native-2", &"terminate failed ".repeat(20));
+        assert!(line.contains("window=native-2"), "{line}");
+        assert!(line.contains("err=terminate failed"), "{line}");
+        assert!(line.chars().count() < 220, "{line}");
     }
 
     #[test]
