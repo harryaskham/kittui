@@ -1056,10 +1056,15 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             let layout = layouts[idx];
             let frame_start = Instant::now();
             let surface_frame = match NativeSurface::capture_surface(&mut pane.app) {
-                Ok(surface_frame) => surface_frame,
+                Ok(surface_frame) => {
+                    native_capture_failure_recovered(&mut pane.capture_failed);
+                    surface_frame
+                }
                 Err(err) => {
                     pane.dirty_frame = None;
-                    dbg.log(&native_capture_failure_log_line(&pane.window, layout, &err));
+                    if should_log_native_capture_failure(&mut pane.capture_failed) {
+                        dbg.log(&native_capture_failure_log_line(&pane.window, layout, &err));
+                    }
                     continue;
                 }
             };
@@ -1340,6 +1345,7 @@ struct NativePane {
     weight: u16,
     app: NativeTerminalApp,
     dirty_frame: Option<NativeDirtyFrameMetrics>,
+    capture_failed: bool,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -2460,6 +2466,7 @@ fn spawn_native_pane(id: u32, cmd: &str, sock: &str, cols: u16, rows: u16) -> Re
         weight: 1,
         app,
         dirty_frame: None,
+        capture_failed: false,
     })
 }
 
@@ -3201,6 +3208,16 @@ fn native_app_frame_footprint(layout: NativePaneLayout) -> CellRect {
 
 fn native_status_outer_rows(layout: NativePaneLayout) -> u16 {
     layout.rows
+}
+
+fn should_log_native_capture_failure(capture_failed: &mut bool) -> bool {
+    let should_log = !*capture_failed;
+    *capture_failed = true;
+    should_log
+}
+
+fn native_capture_failure_recovered(capture_failed: &mut bool) {
+    *capture_failed = false;
 }
 
 fn native_capture_failure_log_line(
@@ -6315,6 +6332,7 @@ mod native_pane_tests {
                 changed_fraction: 0.5,
                 skipped_upload: true,
             }),
+            capture_failed: false,
         }];
         let layouts = vec![NativePaneLayout {
             x: 0,
@@ -6424,6 +6442,7 @@ mod native_pane_tests {
             weight,
             app: dummy_native_pane_app(),
             dirty_frame: None,
+            capture_failed: false,
         }
     }
 
@@ -8468,6 +8487,17 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_capture_failure_logging_only_fires_on_first_failure_until_recovery() {
+        let mut failed = false;
+        assert!(should_log_native_capture_failure(&mut failed));
+        assert!(failed);
+        assert!(!should_log_native_capture_failure(&mut failed));
+        native_capture_failure_recovered(&mut failed);
+        assert!(!failed);
+        assert!(should_log_native_capture_failure(&mut failed));
+    }
+
+    #[test]
     fn native_capture_failure_log_includes_window_canvas_and_bounded_error() {
         let layout = NativePaneLayout {
             x: 2,
@@ -9322,6 +9352,7 @@ mod native_pane_tests {
                 weight: 4,
                 app: dummy_native_pane_app(),
                 dirty_frame: None,
+                capture_failed: false,
             },
             NativePane {
                 window: "native-2".to_string(),
@@ -9332,6 +9363,7 @@ mod native_pane_tests {
                 weight: 2,
                 app: dummy_native_pane_app(),
                 dirty_frame: None,
+                capture_failed: false,
             },
         ];
         balance_native_pane_weights(&mut panes);
@@ -9464,6 +9496,7 @@ mod native_pane_tests {
                 weight: 1,
                 app: dummy_native_pane_app(),
                 dirty_frame: None,
+                capture_failed: false,
             },
             NativePane {
                 window: "native-2".to_string(),
@@ -9474,6 +9507,7 @@ mod native_pane_tests {
                 weight: 1,
                 app: dummy_native_pane_app(),
                 dirty_frame: None,
+                capture_failed: false,
             },
         ];
         assert_eq!(native_pane_index(&panes, "native-2"), Some(1));
@@ -9496,6 +9530,7 @@ mod native_pane_tests {
                 weight: 1,
                 app: dummy_native_pane_app(),
                 dirty_frame: None,
+                capture_failed: false,
             },
             NativePane {
                 window: "native-7".to_string(),
@@ -9506,6 +9541,7 @@ mod native_pane_tests {
                 weight: 1,
                 app: dummy_native_pane_app(),
                 dirty_frame: None,
+                capture_failed: false,
             },
         ];
         assert_eq!(next_native_pane_id(&panes), 8);
@@ -9527,6 +9563,7 @@ mod native_pane_tests {
                 weight: 1,
                 app: dummy_native_pane_app(),
                 dirty_frame: None,
+                capture_failed: false,
             },
             NativePane {
                 window: "native-2".to_string(),
@@ -9537,6 +9574,7 @@ mod native_pane_tests {
                 weight: 3,
                 app: dummy_native_pane_app(),
                 dirty_frame: None,
+                capture_failed: false,
             },
         ];
         let layouts = native_pane_layouts_weighted(80, 24, &[1, 3], NativePaneLayoutAxis::Columns);
