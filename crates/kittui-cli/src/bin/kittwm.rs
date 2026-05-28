@@ -5577,8 +5577,10 @@ fn panes_scene_for_cols(panes: &serde_json::Value, cols: u16) -> Scene {
     let height = rows as f32 * cell.height_px as f32;
     let mut layers = vec![
         Layer {
-            label: Some(format!(
-                "kittwm-panes-backdrop:panes={pane_count}:focus={focus_label}:layout={layout_label}"
+            label: Some(panes_backdrop_label(
+                pane_count,
+                &focus_label,
+                &layout_label,
             )),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, height),
@@ -5659,6 +5661,23 @@ fn panes_scene_for_cols(panes: &serde_json::Value, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn panes_backdrop_label(pane_count: u64, focus_label: &str, layout_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-panes-backdrop:panes=:focus=:layout="
+            .len()
+            .saturating_add(focus_label.len())
+            .saturating_add(layout_label.len())
+            .saturating_add(20),
+    );
+    label.push_str("kittwm-panes-backdrop:panes=");
+    let _ = write!(label, "{pane_count}");
+    label.push_str(":focus=");
+    label.push_str(focus_label);
+    label.push_str(":layout=");
+    label.push_str(layout_label);
+    label
 }
 
 fn panes_scene_rows(detail_count: usize) -> u16 {
@@ -10921,6 +10940,14 @@ END
             "{row}"
         );
         assert!(row.len() < 80, "{row}");
+    }
+
+    #[test]
+    fn panes_backdrop_label_builds_directly() {
+        assert_eq!(
+            panes_backdrop_label(2, "native-2", "rows"),
+            "kittwm-panes-backdrop:panes=2:focus=native-2:layout=rows"
+        );
     }
 
     #[test]
