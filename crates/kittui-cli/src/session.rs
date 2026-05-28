@@ -3587,12 +3587,6 @@ fn render_native_shell_view_affordance_scenes(
     // Empty workspaces intentionally render only the top bar by default.
     for (idx, pane) in view.panes.iter().enumerate() {
         scenes.push(NativeShellChromeScene {
-            id: format!("pane-{idx}-title"),
-            x: pane.x,
-            y: pane.y,
-            scene: native_pane_title_status_scene(idx, pane, cell_size),
-        });
-        scenes.push(NativeShellChromeScene {
             id: format!("pane-{idx}-border"),
             x: pane.x,
             y: pane.y,
@@ -3667,6 +3661,7 @@ fn config_color_rgba(value: &str, opacity: f32, fallback: Rgba) -> Rgba {
     Rgba(rgba[0], rgba[1], rgba[2], rgba[3])
 }
 
+#[cfg(test)]
 fn native_pane_title_status_scene(
     idx: usize,
     pane: &NativePaneChrome,
@@ -4295,6 +4290,8 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
         rgba_with_alpha(colors.fill, 110)
     };
     let title_rect = PxRect::new(0.0, 0.0, rect.width, cell_size.height_px.max(1) as f32);
+    let cell_w = cell_size.width_px.max(1) as f32;
+    let chip_h = (cell_size.height_px.max(1) as f32 - 4.0).max(6.0);
     let mut layers = Vec::new();
     if pane.focused {
         layers.push(Layer::new(
@@ -4309,6 +4306,24 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
             },
         ));
     }
+    layers.push(Layer::new(
+        format!("pane-{idx}-title-strip:{}", pane.text),
+        Node::Rect {
+            rect: title_rect,
+            fill: Paint::Solid { color: title_fill },
+            stroke: Some(Stroke::inside(
+                1.0,
+                Paint::Solid {
+                    color: if pane.focused {
+                        colors.border
+                    } else {
+                        rgba_with_alpha(colors.border, 145)
+                    },
+                },
+            )),
+            corners: Corners::default(),
+        },
+    ));
     layers.push(Layer::new(
         format!("pane-{idx}-title-gutter"),
         Node::Rect {
@@ -4339,6 +4354,22 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
                 color: Rgba::rgba(0, 0, 0, 0),
             },
             stroke: Some(Stroke::inside(2.0, Paint::Solid { color: border })),
+            corners: Corners::uniform(5.0),
+        },
+    ));
+    layers.push(Layer::new(
+        format!("pane-{idx}-status-chip:{}", pane.status),
+        Node::Rect {
+            rect: native_pane_status_chip_rect(cols, rect.width, cell_w, chip_h),
+            fill: Paint::Solid {
+                color: rgba_with_alpha(colors.border, if pane.focused { 70 } else { 42 }),
+            },
+            stroke: Some(Stroke::inside(
+                1.0,
+                Paint::Solid {
+                    color: rgba_with_alpha(colors.border, if pane.focused { 220 } else { 120 }),
+                },
+            )),
             corners: Corners::uniform(5.0),
         },
     ));
@@ -6576,7 +6607,7 @@ mod native_pane_tests {
         };
         let scenes =
             render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 18, 24);
-        assert_eq!(scenes.len(), 6);
+        assert_eq!(scenes.len(), 4);
         assert_eq!(scenes[0].id, "top-bar");
         assert_eq!((scenes[0].x, scenes[0].y), (0, 0));
         assert!(scenes[0]
@@ -6584,16 +6615,15 @@ mod native_pane_tests {
             .layers
             .iter()
             .any(|layer| layer.label.as_deref() == Some("kittwm-live-top-bar:active:1")));
-        assert_eq!(scenes[1].id, "pane-0-title");
-        assert_eq!(scenes[2].id, "pane-0-border");
-        assert_eq!((scenes[3].x, scenes[3].y), (8, 1));
-        assert_eq!(scenes[5].id, "footer");
-        assert!(scenes[5].scene.layers.iter().any(|layer| layer
+        assert_eq!(scenes[1].id, "pane-0-border");
+        assert_eq!((scenes[2].x, scenes[2].y), (8, 1));
+        assert_eq!(scenes[3].id, "footer");
+        assert!(scenes[3].scene.layers.iter().any(|layer| layer
             .label
             .as_deref()
             .unwrap_or_default()
             .starts_with("status-bar-backdrop:footer")));
-        assert!(scenes[5]
+        assert!(scenes[3]
             .scene
             .layers
             .iter()
@@ -6609,7 +6639,7 @@ mod native_pane_tests {
             .as_deref()
             .unwrap_or_default()
             .starts_with("pane-0-status-chip:shell · pid:101")));
-        let focused_border_labels = scenes[2]
+        let focused_border_labels = scenes[1]
             .scene
             .layers
             .iter()
@@ -6631,7 +6661,7 @@ mod native_pane_tests {
             focused_border_labels.contains(&"pane-0-focus-ring"),
             "{focused_border_labels:?}"
         );
-        let unfocused_border_labels = scenes[4]
+        let unfocused_border_labels = scenes[2]
             .scene
             .layers
             .iter()
@@ -6644,7 +6674,7 @@ mod native_pane_tests {
             "{unfocused_border_labels:?}"
         );
         let colors = native_glass_chrome_colors();
-        let title_gutter = scenes[2]
+        let title_gutter = scenes[1]
             .scene
             .layers
             .iter()
@@ -7028,20 +7058,18 @@ mod native_pane_tests {
         };
         let scenes =
             render_native_shell_view_affordance_scenes(&view, CellSize::new(8, 16), 80, 24);
-        let title = scenes
-            .iter()
-            .find(|scene| scene.id == "pane-0-title")
-            .unwrap();
         let border = scenes
             .iter()
             .find(|scene| scene.id == "pane-0-border")
             .unwrap();
-        assert_eq!((title.x, title.y), (4, 3));
         assert_eq!((border.x, border.y), (4, 3));
-        assert_eq!(title.scene.footprint.cols, view.panes[0].cols);
-        assert_eq!(title.scene.footprint.rows, 1);
         assert_eq!(border.scene.footprint.cols, view.panes[0].cols);
         assert_eq!(border.scene.footprint.rows, view.panes[0].rows);
+        assert!(border.scene.layers.iter().any(|layer| layer
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("pane-0-title-strip:* native-7 editor")));
         assert_eq!(view.panes[0].app_y, view.panes[0].y + 1);
         assert_eq!(view.panes[0].app_cols, view.panes[0].cols);
     }
@@ -7172,8 +7200,8 @@ mod native_pane_tests {
         assert_eq!(metrics["cols"], 96);
         assert_eq!(metrics["rows"], 24);
         assert_eq!(metrics["help_overlay"], true);
-        assert_eq!(metrics["scene_count"], 7);
-        assert!(metrics["layer_count"].as_u64().unwrap() >= 40, "{metrics}");
+        assert_eq!(metrics["scene_count"], 4);
+        assert!(metrics["layer_count"].as_u64().unwrap() >= 20, "{metrics}");
         assert!(metrics["total_pixels"].as_u64().unwrap() > 0, "{metrics}");
         assert_eq!(metrics["cell_width_px"], NATIVE_CELL_WIDTH_PX);
         assert_eq!(metrics["cell_height_px"], NATIVE_CELL_HEIGHT_PX);
@@ -7246,15 +7274,7 @@ mod native_pane_tests {
             .iter()
             .filter_map(|scene| scene["id"].as_str())
             .collect::<Vec<_>>();
-        for id in [
-            "top-bar",
-            "pane-0-title",
-            "pane-0-border",
-            "pane-1-title",
-            "pane-1-border",
-            "footer",
-            "help-overlay",
-        ] {
+        for id in ["top-bar", "pane-0-border", "pane-1-border", "footer"] {
             assert!(ids.contains(&id), "missing {id}: {ids:?}");
         }
         assert!(scenes
