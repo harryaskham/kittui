@@ -293,11 +293,23 @@ fn surface_spec_for_backend(backend: Backend, args: &LaunchArgs) -> Option<Surfa
 }
 
 fn browser_target_from_query(query: &str) -> String {
-    query
+    let Some(inner) = query
         .strip_prefix('\'')
         .and_then(|inner| inner.strip_suffix('\''))
-        .map(|inner| inner.replace("'\\''", "'"))
-        .unwrap_or_else(|| query.to_string())
+    else {
+        return query.to_string();
+    };
+    let escaped_quote_count = inner.match_indices("'\\''").count();
+    let mut out = String::with_capacity(inner.len().saturating_sub(escaped_quote_count * 3));
+    let mut chunks = inner.split("'\\''");
+    if let Some(first) = chunks.next() {
+        out.push_str(first);
+    }
+    for chunk in chunks {
+        out.push('\'');
+        out.push_str(chunk);
+    }
+    out
 }
 
 fn launch_plan_command(surface: &Option<SurfaceSpec>, query: &str) -> String {
@@ -856,10 +868,9 @@ mod tests {
             browser_target_from_query("'https://example.com/a%20b'"),
             "https://example.com/a%20b"
         );
-        assert_eq!(
-            browser_target_from_query("'https://example.com/it'\\''s'"),
-            "https://example.com/it's"
-        );
+        let quoted = browser_target_from_query("'https://example.com/it'\\''s'and'\\''more'");
+        assert_eq!(quoted, "https://example.com/it's'and'more");
+        assert_eq!(quoted.capacity(), quoted.len());
     }
 
     #[test]
