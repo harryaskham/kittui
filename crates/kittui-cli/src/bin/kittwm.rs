@@ -1188,9 +1188,7 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
             },
         },
         Layer {
-            label: Some(format!(
-                "kittwm-help-topic-heading:{topic_label}:{heading_label}"
-            )),
+            label: Some(help_topic_heading_label(&topic_label, &heading_label)),
             root: Node::Rect {
                 rect: KittuiPxRect::new(0.0, 0.0, width, cell.height_px as f32 * 1.4),
                 fill: Paint::Solid {
@@ -1234,6 +1232,17 @@ fn help_topic_scene_for_cols(topic: &str, text: &str, cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn help_topic_heading_label(topic_label: &str, heading_label: &str) -> String {
+    let mut label = String::with_capacity(
+        "kittwm-help-topic-heading::".len() + topic_label.len() + heading_label.len(),
+    );
+    label.push_str("kittwm-help-topic-heading:");
+    label.push_str(topic_label);
+    label.push(':');
+    label.push_str(heading_label);
+    label
 }
 
 fn help_topic_backdrop_label(topic_label: &str, line_count: usize, command_count: usize) -> String {
@@ -8423,6 +8432,16 @@ mod tests {
                 .iter()
                 .any(|label| label.contains("kittwm-chrome-row:7:gap_rows=2")),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn help_topic_heading_label_builds_directly() {
+        let label = help_topic_heading_label("panes", "kittwm help panes");
+        assert_eq!(label, "kittwm-help-topic-heading:panes:kittwm help panes");
+        assert_eq!(
+            label.capacity(),
+            "kittwm-help-topic-heading::".len() + "panes".len() + "kittwm help panes".len()
         );
     }
 
