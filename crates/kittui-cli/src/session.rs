@@ -440,6 +440,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut last_top_bar = String::new();
     let mut last_footer = String::new();
     let mut last_terminal_render = String::new();
+    let mut last_affordance_chrome_view_key = None::<u64>;
     let pure_terminal_renderer = native_should_use_pure_terminal_renderer();
     let affordance_scene_chrome = native_should_use_affordance_scene_chrome();
     let mut dirty_frames = NativeDirtyFramePolicy::from_env();
@@ -1001,6 +1002,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             last_top_bar.clear();
             last_footer.clear();
             affordance_chrome_keys.clear();
+            last_affordance_chrome_view_key = None;
             clear = false;
         }
         for (idx, pane) in panes.iter_mut().enumerate() {
@@ -1225,14 +1227,18 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             }
         }
         if affordance_scene_chrome {
-            write_native_shell_affordance_chrome(
-                &mut frame_out,
-                runtime,
-                &shell_view,
-                cols,
-                rows,
-                &mut affordance_chrome_keys,
-            )?;
+            let chrome_view_key = native_shell_view_affordance_chrome_key(&shell_view, cols, rows);
+            if redraw_static || last_affordance_chrome_view_key != Some(chrome_view_key) {
+                write_native_shell_affordance_chrome(
+                    &mut frame_out,
+                    runtime,
+                    &shell_view,
+                    cols,
+                    rows,
+                    &mut affordance_chrome_keys,
+                )?;
+                last_affordance_chrome_view_key = Some(chrome_view_key);
+            }
             if redraw_static || shell_view.top_bar.text != last_top_bar {
                 write_native_graphical_top_bar_text_overlay(&mut frame_out, &shell_view, cols)?;
                 last_top_bar = shell_view.top_bar.text.clone();
@@ -4476,6 +4482,33 @@ fn ansi_bg(color: Rgba) -> String {
     format!("\x1b[48;2;{};{};{}m", color.0, color.1, color.2)
 }
 
+fn native_shell_view_affordance_chrome_key(view: &NativeShellView, cols: u16, rows: u16) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    cols.hash(&mut hasher);
+    rows.hash(&mut hasher);
+    view.top_bar.row.hash(&mut hasher);
+    view.top_bar.text.hash(&mut hasher);
+    view.footer.row.hash(&mut hasher);
+    view.footer.text.hash(&mut hasher);
+    view.help_overlay.hash(&mut hasher);
+    view.panes.len().hash(&mut hasher);
+    for pane in &view.panes {
+        pane.x.hash(&mut hasher);
+        pane.y.hash(&mut hasher);
+        pane.cols.hash(&mut hasher);
+        pane.rows.hash(&mut hasher);
+        pane.focused.hash(&mut hasher);
+        pane.text.hash(&mut hasher);
+        pane.cache_key.hash(&mut hasher);
+        pane.status.hash(&mut hasher);
+        pane.app_x.hash(&mut hasher);
+        pane.app_y.hash(&mut hasher);
+        pane.app_cols.hash(&mut hasher);
+        pane.app_rows.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 fn write_native_shell_affordance_chrome<W: Write>(
     out: &mut W,
     runtime: &Runtime,
@@ -6572,6 +6605,59 @@ mod native_pane_tests {
         let key = native_shell_chrome_scene_key(&huge_label_scene);
         assert!(key.len() < 128, "{key}");
         assert!(!key.contains(&"label-".repeat(8)), "{key}");
+    }
+
+    #[test]
+    fn native_shell_view_affordance_chrome_key_skips_unchanged_view() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
+            },
+            panes: vec![NativePaneChrome {
+                x: 0,
+                y: 1,
+                focused: true,
+                text: "* native-1 shell".to_string(),
+                cache_key: "title-key".to_string(),
+                status: "shell · pid:101 · frame:clean".to_string(),
+                app_x: 1,
+                app_y: 2,
+                app_cols: 18,
+                app_rows: 5,
+                cols: 20,
+                rows: 7,
+                text_snapshot: "ignored by chrome key".to_string(),
+            }],
+            footer: NativeFooterChrome {
+                row: 4,
+                text: "footer".to_string(),
+            },
+            help_overlay: false,
+        };
+        let baseline = native_shell_view_affordance_chrome_key(&view, 80, 24);
+        assert_eq!(
+            baseline,
+            native_shell_view_affordance_chrome_key(&view, 80, 24)
+        );
+
+        let mut changed_text_snapshot = view.clone();
+        changed_text_snapshot.panes[0].text_snapshot = "app output changed".to_string();
+        assert_eq!(
+            baseline,
+            native_shell_view_affordance_chrome_key(&changed_text_snapshot, 80, 24)
+        );
+
+        let mut changed_status = view.clone();
+        changed_status.panes[0].status = "shell · pid:101 · frame:4".to_string();
+        assert_ne!(
+            baseline,
+            native_shell_view_affordance_chrome_key(&changed_status, 80, 24)
+        );
+        assert_ne!(
+            baseline,
+            native_shell_view_affordance_chrome_key(&view, 81, 24)
+        );
     }
 
     #[test]
