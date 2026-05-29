@@ -8057,7 +8057,27 @@ fn remote_apps_script() -> &'static str {
         first) set -- "$@" --first ;;
         launch-first) set -- "$@" --launch-first ;;
     esac
-    exec kittwm "$@"
+    kittwm_err=$(mktemp "${TMPDIR:-/tmp}/kittwm-remote-apps.XXXXXX" 2>/dev/null || printf '')
+    if [ -n "$kittwm_err" ]; then
+        kittwm_out=$(kittwm "$@" 2>"$kittwm_err")
+        kittwm_status=$?
+        if [ $kittwm_status -eq 0 ]; then
+            rm -f "$kittwm_err"
+            printf '%s\n' "$kittwm_out"
+            exit 0
+        fi
+        cat "$kittwm_err" >&2
+        rm -f "$kittwm_err"
+    else
+        kittwm_out=$(kittwm "$@" 2>&1)
+        kittwm_status=$?
+        if [ $kittwm_status -eq 0 ]; then
+            printf '%s\n' "$kittwm_out"
+            exit 0
+        fi
+        printf '%s\n' "$kittwm_out" >&2
+    fi
+    printf 'WARN remote kittwm apps failed; falling back to shell app discovery on %s\n' "$(hostname 2>/dev/null || printf unknown)" >&2
 fi
 json_escape() {
     awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
@@ -11090,6 +11110,11 @@ mod tests {
         );
         let script = remote_apps_script();
         assert!(script.contains("command -v kittwm"), "{script}");
+        assert!(script.contains("kittwm_status"), "{script}");
+        assert!(
+            script.contains("WARN remote kittwm apps failed; falling back"),
+            "{script}"
+        );
         assert!(
             script.contains("kittwm_remote_list_path_commands"),
             "{script}"
