@@ -309,10 +309,7 @@ fn parse_args() -> Result<Cli> {
                 break;
             }
             "completions" => {
-                out.completions = Some(
-                    args.next()
-                        .ok_or_else(|| anyhow!("kittwm completions SHELL"))?,
-                );
+                out.completions = Some(args.next().ok_or_else(missing_completion_shell_error)?);
                 if let Some(extra) = args.next() {
                     return Err(anyhow!(
                         "kittwm completions accepts one shell, got {extra:?}"
@@ -4800,6 +4797,12 @@ fn completion_words() -> &'static [&'static str] {
     })
 }
 
+fn missing_completion_shell_error() -> anyhow::Error {
+    anyhow!(
+        "kittwm completions requires a shell: bash, zsh, or fish\ntry: kittwm completions bash\nhelp: kittwm help completions"
+    )
+}
+
 fn completions_text(shell: &str) -> Result<String> {
     match shell {
         "bash" => Ok(bash_completions_text()),
@@ -8922,6 +8925,15 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "  C-a t: float.toggle, terminal.launch\n"
         );
+    }
+
+    #[test]
+    fn completions_missing_shell_error_is_actionable() {
+        let err = missing_completion_shell_error().to_string();
+        assert!(err.contains("requires a shell"), "{err}");
+        assert!(err.contains("bash, zsh, or fish"), "{err}");
+        assert!(err.contains("try: kittwm completions bash"), "{err}");
+        assert!(err.contains("help: kittwm help completions"), "{err}");
     }
 
     #[test]
