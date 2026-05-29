@@ -6480,6 +6480,16 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn run_loop_entry_log_line_builds_directly() {
+        let line = run_loop_entry_log_line(60, false, true);
+        assert_eq!(
+            line,
+            "run_loop: enter fps=60 launch_on_f12=false launcher_overlay=true"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11167,6 +11177,20 @@ impl Default for RunOptions {
     }
 }
 
+fn run_loop_entry_log_line(fps: u32, launch_on_f12: bool, launcher_overlay: bool) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("run_loop: enter fps= launch_on_f12= launcher_overlay=".len() + 32);
+    out.push_str("run_loop: enter fps=");
+    let _ = write!(out, "{fps}");
+    out.push_str(" launch_on_f12=");
+    out.push_str(if launch_on_f12 { "true" } else { "false" });
+    out.push_str(" launcher_overlay=");
+    out.push_str(if launcher_overlay { "true" } else { "false" });
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11175,9 +11199,10 @@ pub fn run_loop_with<S: XServer>(
 ) -> Result<()> {
     let mut layout = layout.clone();
     let dbg = Debugger::open();
-    dbg.log(&format!(
-        "run_loop: enter fps={} launch_on_f12={} launcher_overlay={}",
-        opts.fps, opts.launch_on_f12, opts.launcher_overlay
+    dbg.log(&run_loop_entry_log_line(
+        opts.fps,
+        opts.launch_on_f12,
+        opts.launcher_overlay,
     ));
     let _raw_guard = RawMode::enter()?;
     dbg.log("raw mode + alt screen entered");
