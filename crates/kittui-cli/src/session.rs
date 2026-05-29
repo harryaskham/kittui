@@ -14140,10 +14140,19 @@ fn raw_frame_chrome_key(
     footprint: CellRect,
 ) -> String {
     let visible = raw_frame_chrome_text(title, focused, mode, fullscreen, footprint.cols);
-    format!(
-        "visible={visible};x={};y={};cols={};rows={}",
-        footprint.x, footprint.y, footprint.cols, footprint.rows
-    )
+    let mut key =
+        String::with_capacity(visible.len() + "visible=;x=;y=;cols=;rows=".len() + 20 * 4);
+    key.push_str("visible=");
+    key.push_str(&visible);
+    key.push_str(";x=");
+    let _ = write!(key, "{}", footprint.x);
+    key.push_str(";y=");
+    let _ = write!(key, "{}", footprint.y);
+    key.push_str(";cols=");
+    let _ = write!(key, "{}", footprint.cols);
+    key.push_str(";rows=");
+    let _ = write!(key, "{}", footprint.rows);
+    key
 }
 
 /// Append-only log for the kittui-wm session. Stderr is invisible inside
