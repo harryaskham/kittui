@@ -8393,7 +8393,7 @@ kittwm_remote_list_linux_desktop_apps() {
             name=$(awk -F= '$1 == "Name" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             exec_line=$(awk -F= '$1 == "Exec" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             [ -n "$name" ] || name="$id"
-            [ -n "$id" ] && printf 'desktop\t%s\t%s\t%s\n' "$id" "$name" "$exec_line"
+            [ -n "$id" ] && printf 'desktop\t%s\t%s\t%s\t%s\n' "$id" "$name" "$exec_line" "$desktop"
         done
     done
 }
@@ -8450,6 +8450,7 @@ case "$mode" in
         name=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
         label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
         exec_line=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $4}')
+        desktop_file=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $5}')
         launch_pid=""
         if [ "$kind" = "macos" ]; then
             open -a "$name" >/dev/null 2>&1 &
@@ -8462,12 +8463,19 @@ case "$mode" in
                     launch_pid=""
                 fi
             fi
+            if [ -z "$launch_pid" ] && [ -n "$desktop_file" ] && command -v gio >/dev/null 2>&1; then
+                gio launch "$desktop_file" >/dev/null 2>&1 &
+                launch_pid=$!
+                if ! wait "$launch_pid"; then
+                    launch_pid=""
+                fi
+            fi
             if [ -z "$launch_pid" ] && [ -n "$exec_line" ]; then
                 desktop_exec=$(printf '%s\n' "$exec_line" | sed -E 's/[[:space:]]+%[fFuUdDnNickvm]//g; s/%[fFuUdDnNickvm]//g')
                 sh -lc "$desktop_exec" >/dev/null 2>&1 &
                 launch_pid=$!
             elif [ -z "$launch_pid" ]; then
-                echo "ERR gtk-launch failed and no Linux desktop Exec fallback is available"; exit 1
+                echo "ERR gtk-launch/gio failed and no Linux desktop Exec fallback is available"; exit 1
             fi
         else
             "$name" >/dev/null 2>&1 &
@@ -11599,6 +11607,7 @@ mod tests {
         );
         assert!(script.contains("open -a"), "{script}");
         assert!(script.contains("gtk-launch"), "{script}");
+        assert!(script.contains("gio launch"), "{script}");
         assert!(script.contains("$1 == \"Name\""), "{script}");
         assert!(script.contains("$1 == \"Exec\""), "{script}");
         assert!(script.contains("$1 == \"Hidden\""), "{script}");
@@ -11607,8 +11616,9 @@ mod tests {
         assert!(script.contains("$1 == \"NotShowIn\""), "{script}");
         assert!(script.contains("$1 == \"TryExec\""), "{script}");
         assert!(script.contains("XDG_CURRENT_DESKTOP"), "{script}");
+        assert!(script.contains("desktop_file="), "{script}");
         assert!(script.contains("desktop_exec="), "{script}");
-        assert!(script.contains("gtk-launch failed"), "{script}");
+        assert!(script.contains("gtk-launch/gio failed"), "{script}");
         assert!(script.contains("index(tolower($0), q)"), "{script}");
         assert!(
             script.contains("shell-path-macos-linux-desktop"),
