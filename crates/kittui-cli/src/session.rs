@@ -14163,7 +14163,12 @@ impl WorkspaceState {
     }
 
     fn label(&self) -> String {
-        format!("{}/{}", self.current + 1, self.count)
+        let current = self.current + 1;
+        let mut label = String::with_capacity(40);
+        let _ = write!(label, "{current}");
+        label.push('/');
+        let _ = write!(label, "{}", self.count);
+        label
     }
 
     fn active_label(&self) -> String {
