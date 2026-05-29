@@ -2889,7 +2889,7 @@ fn process_native_terminal_byte(
                         )?;
                     }
                     *clear = true;
-                    dbg.log(&format!("native terminal close: panes={}", panes.len()));
+                    dbg.log(&native_close_panes_log_line(panes.len()));
                 }
             }
             b'+' | b'=' => {
@@ -4111,6 +4111,15 @@ fn focus_after_remove(current: usize, removed: usize, len_before: usize) -> usiz
     } else {
         current.min(len_after - 1)
     }
+}
+
+fn native_close_panes_log_line(panes: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("native terminal close: panes=".len() + 20);
+    out.push_str("native terminal close: panes=");
+    let _ = write!(out, "{panes}");
+    out
 }
 
 fn native_reaped_pane_log_line(window: &str) -> String {
@@ -10047,6 +10056,13 @@ mod native_pane_tests {
         assert_eq!(prev_native_focus(0, 3), 2);
         assert_eq!(prev_native_focus(2, 3), 1);
         assert_eq!(prev_native_focus(0, 0), 0);
+    }
+
+    #[test]
+    fn native_close_panes_log_line_builds_directly() {
+        let line = native_close_panes_log_line(12);
+        assert_eq!(line, "native terminal close: panes=12");
+        assert!(line.capacity() >= "native terminal close: panes=".len() + 20);
     }
 
     #[test]
