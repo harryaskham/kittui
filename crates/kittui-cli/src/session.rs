@@ -6668,6 +6668,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn keymap_action_unimplemented_log_line_builds_directly() {
+        let line = keymap_action_unimplemented_log_line(&"picker.open");
+        assert_eq!(line, "keymap action not implemented yet: picker.open");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn loaded_keymap_log_line_builds_directly() {
         let line = loaded_keymap_log_line("/tmp/kittwm.toml");
         assert_eq!(line, "loaded keymap from /tmp/kittwm.toml");
@@ -11542,6 +11549,15 @@ fn layout_action_log_line(message: &str) -> String {
     out
 }
 
+fn keymap_action_unimplemented_log_line(action: &dyn std::fmt::Display) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("keymap action not implemented yet: ".len() + 32);
+    out.push_str("keymap action not implemented yet: ");
+    let _ = write!(out, "{action}");
+    out
+}
+
 fn loaded_keymap_log_line(path: &str) -> String {
     let mut out = String::with_capacity("loaded keymap from ".len() + path.len());
     out.push_str("loaded keymap from ");
@@ -11912,7 +11928,7 @@ pub fn run_loop_with<S: XServer>(
                                     break;
                                 }
                                 other => {
-                                    dbg.log(&format!("keymap action not implemented yet: {other}"));
+                                    dbg.log(&keymap_action_unimplemented_log_line(&other));
                                 }
                             }
                             continue;
