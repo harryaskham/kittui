@@ -7560,6 +7560,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_error_test_expected_key_builds_directly() {
+        let key = raw_compositor_error_test_expected_key("error", "/tmp/log");
+        assert_eq!(key, "error\n/tmp/log");
+        assert!(key.capacity() >= key.len());
+    }
+
+    #[test]
     fn raw_compositor_error_text_and_key_are_bounded() {
         let huge_message = "capture backend failed: ".to_string() + &"x".repeat(10_000);
         let huge_log = "/tmp/".to_string() + &"kittui-wm/".repeat(10_000);
@@ -7572,8 +7579,16 @@ mod native_pane_tests {
         let key = raw_compositor_error_key(&huge_message, &huge_log);
         assert!(key.len() < 512, "{}", key.len());
         assert!(!key.contains(&"x".repeat(512)), "{}", key.len());
-        assert_eq!(key, format!("{text}\n{log}"));
+        assert_eq!(key, raw_compositor_error_test_expected_key(&text, &log));
         assert_eq!(key.capacity(), key.len());
+    }
+
+    fn raw_compositor_error_test_expected_key(text: &str, log: &str) -> String {
+        let mut key = String::with_capacity(text.len() + 1 + log.len());
+        key.push_str(text);
+        key.push('\n');
+        key.push_str(log);
+        key
     }
 
     #[test]
