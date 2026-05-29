@@ -140,6 +140,23 @@ fn tab_pair_arg(first: &str, second: &str) -> String {
     arg
 }
 
+fn i16_decimal_len(value: i16) -> usize {
+    if value < 0 {
+        1 + u32_decimal_len(value.unsigned_abs() as u32)
+    } else {
+        u32_decimal_len(value as u32)
+    }
+}
+
+fn tab_i16_pair_arg(first: &str, second: i16, third: i16) -> String {
+    let mut arg = String::with_capacity(
+        first.len() + 1 + i16_decimal_len(second) + 1 + i16_decimal_len(third),
+    );
+    arg.push_str(first);
+    write!(arg, "\t{second}\t{third}").expect("write to string");
+    arg
+}
+
 impl PaneRegistry {
     fn track_spawn(&mut self, pid: u32, argv: &str) -> TrackedPane {
         self.next_id = self.next_id.saturating_add(1).max(1);
@@ -749,7 +766,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         }
         return queue_native_pane_command(
             pending,
-            &format!("{window}\t{dx}\t{dy}"),
+            &tab_i16_pair_arg(window, dx, dy),
             "NUDGE_PANE requires window and dx/dy",
             |arg| {
                 let mut parts = arg.split('\t');
@@ -3501,6 +3518,19 @@ mod tests {
     fn tab_pair_arg_builds_move_queue_arg_directly() {
         let arg = tab_pair_arg("focused", "last");
         assert_eq!(arg, "focused\tlast");
+        assert_eq!(arg.capacity(), arg.len());
+    }
+
+    #[test]
+    fn tab_i16_pair_arg_builds_nudge_queue_arg_directly() {
+        assert_eq!(i16_decimal_len(0), 1);
+        assert_eq!(i16_decimal_len(9), 1);
+        assert_eq!(i16_decimal_len(10), 2);
+        assert_eq!(i16_decimal_len(-1), 2);
+        assert_eq!(i16_decimal_len(i16::MIN), 6);
+
+        let arg = tab_i16_pair_arg("focused", 3, -2);
+        assert_eq!(arg, "focused\t3\t-2");
         assert_eq!(arg.capacity(), arg.len());
     }
 
