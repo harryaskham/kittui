@@ -9000,6 +9000,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn clock_timestamp_line_builds_directly() {
+        assert_eq!(clock_timestamp_line(7, 3), "7.003");
+        assert_eq!(clock_timestamp_line(123, 456), "123.456");
+        assert!(clock_timestamp_line(123, 456).capacity() >= "123.456".len());
+    }
+
+    #[test]
     fn native_ctrl_c_action_forwards_until_confirmation_threshold() {
         let start = Instant::now();
         let mut guard = NativeCtrlCExitGuard::default();
@@ -14312,7 +14319,17 @@ fn clock() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    format!("{}.{:03}", now.as_secs(), now.subsec_millis())
+    clock_timestamp_line(now.as_secs(), now.subsec_millis())
+}
+
+fn clock_timestamp_line(secs: u64, millis: u32) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(24);
+    let _ = write!(out, "{secs}");
+    out.push('.');
+    let _ = write!(out, "{millis:03}");
+    out
 }
 
 // --- raw mode + SGR mouse reporting guard ----------------------------------
