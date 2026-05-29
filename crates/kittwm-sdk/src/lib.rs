@@ -2311,6 +2311,11 @@ impl NativePaneDetail {
         Some((self.floating_dx?, self.floating_dy?))
     }
 
+    /// Whether this pane has a non-zero floating offset.
+    pub fn has_floating_offset(&self) -> bool {
+        matches!(self.floating_offset(), Some((dx, dy)) if dx != 0 || dy != 0)
+    }
+
     /// Whether the pane title row is reported as a window-manager drag handle.
     pub fn is_title_draggable(&self) -> bool {
         self.title_draggable.unwrap_or(false)
@@ -2621,6 +2626,13 @@ impl PanesStatus {
             .iter()
             .filter(|pane| pane.is_title_draggable())
     }
+
+    /// Panes with non-zero floating offsets.
+    pub fn moved_floating_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.has_floating_offset())
+    }
 }
 
 fn add_signed_host_cell_delta(value: u16, delta: i32) -> u16 {
@@ -2740,6 +2752,13 @@ impl Status {
         self.panes_detail
             .iter()
             .filter(|pane| pane.is_title_draggable())
+    }
+
+    /// Panes with non-zero floating offsets.
+    pub fn moved_floating_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.has_floating_offset())
     }
 }
 
@@ -4777,12 +4796,20 @@ mod tests {
         assert_eq!(panes.focused_pane().unwrap().window, "native-1");
         assert_eq!(panes.topmost_pane().unwrap().window, "native-1");
         assert_eq!(panes.title_draggable_panes().count(), 1);
+        assert_eq!(
+            panes
+                .moved_floating_panes()
+                .map(|pane| pane.window.as_str())
+                .collect::<Vec<_>>(),
+            vec!["native-1"]
+        );
         let pane = &panes.panes_detail[0];
         assert_eq!(pane.cursor_col, Some(4));
         assert_eq!(pane.mouse_sgr, Some(true));
         assert_eq!(pane.stack_index(), Some(3));
         assert!(pane.is_stack_top());
         assert_eq!(pane.floating_offset(), Some((4, -2)));
+        assert!(pane.has_floating_offset());
         assert!(pane.is_title_draggable());
         assert_eq!(pane.title_drag_cell(), Some((6, 2)));
         assert_eq!(pane.title_drag_cells_by(5, 2), Some(((6, 2), (11, 4))));
@@ -4812,6 +4839,7 @@ mod tests {
         assert_eq!(pane.bounds(), None);
         assert_eq!(pane.app_bounds(), None);
         assert_eq!(pane.floating_offset(), None);
+        assert!(!pane.has_floating_offset());
         assert_eq!(pane.title_drag_cell(), None);
     }
 
@@ -4908,8 +4936,8 @@ mod tests {
               "focus": "native-2",
               "layout": "floating",
               "panes_detail": [
-                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true},
-                {"window":"native-2","title":"editor","focused":false,"weight":1,"stack_index":1,"title_draggable":true}
+                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"floating_dx":0,"floating_dy":0},
+                {"window":"native-2","title":"editor","focused":false,"weight":1,"stack_index":1,"title_draggable":true,"floating_dx":7,"floating_dy":-1}
               ]
             }"#,
         )
@@ -4922,6 +4950,13 @@ mod tests {
                 .map(|pane| pane.window.as_str())
                 .collect::<Vec<_>>(),
             vec!["native-1", "native-2"]
+        );
+        assert_eq!(
+            status
+                .moved_floating_panes()
+                .map(|pane| pane.window.as_str())
+                .collect::<Vec<_>>(),
+            vec!["native-2"]
         );
     }
 
