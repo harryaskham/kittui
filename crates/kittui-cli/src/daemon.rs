@@ -3971,8 +3971,10 @@ mod tests {
 
     #[test]
     fn native_spawn_queue_streams_status_and_change_events() {
-        let p =
-            tmp_sock().with_file_name(format!("kittwm-native-events-{}.sock", std::process::id()));
+        let p = tmp_sock().with_file_name(test_socket_filename(
+            "kittwm-native-events",
+            std::process::id(),
+        ));
         let _ = std::fs::remove_file(&p);
         let queue = NativeSpawnQueue::bind(p).unwrap();
         queue.update_layout("columns");
