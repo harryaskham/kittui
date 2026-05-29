@@ -1289,6 +1289,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              session  save/restore session manifests\n\
              events   bounded event streams and typed SDK event helpers\n\
              apps     app discovery and launch helpers\n\
+             ssh      pooled SSH workflows for remote apps, displays, and terminals\n\
              log      debug log path and tailing workflows\n\
              completions shell completion setup\n\n\
              Daily guides:\n\
@@ -1382,6 +1383,24 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm log tail -f           follow the log, like tail -f\n\
              KITTUI_WM_LOG=/tmp/demo.log kittwm\n\
                                            start with a per-session log file\n"),
+        "ssh" | "remote" | "remotes" => Ok("kittwm help ssh\n\
+             ===============\n\n\
+             If the remote has kittwm installed, run kittwm there and it uses\n\
+             that host's desktop, displays, terminal size, and graphics context.\n\
+             When the remote does not have kittwm, use local kittwm helpers that\n\
+             auto-detect remote capabilities and forward over pooled SSH.\n\n\
+             kittwm apps --remote HOST\n\
+                                           list remote app candidates; delegates to remote kittwm if present\n\
+             kittwm apps --remote HOST --filter firefox --launch-first\n\
+                                           launch first remote app match through pooled SSH\n\
+             kittwm --list-windows --remote HOST\n\
+                                           list remote windows/displays when supported\n\
+             kittwm-terminal --remote HOST --title HOST\n\
+                                           open a local kittwm pane running a remote login shell\n\
+             kittwm-terminal --remote HOST -- htop\n\
+                                           open a local pane running a remote command\n\n\
+             SSH pooling uses ControlMaster=auto and ControlPersist=10m, so\n\
+             repeated remote app/list/terminal commands reuse the same connection.\n"),
         "completions" | "completion" => Ok("kittwm help completions\n\
              ========================\n\n\
              kittwm completions bash      print Bash completion script\n\
@@ -1489,6 +1508,7 @@ fn known_help_topics() -> &'static [&'static str] {
         "session",
         "events",
         "apps",
+        "ssh",
         "log",
         "completions",
     ]
@@ -1539,6 +1559,8 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "balance",
         "rename",
         "apps",
+        "ssh",
+        "remote",
         "apps-scene-json",
         "apps-kitty",
         "apps-graphics",
@@ -4159,6 +4181,31 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "apps",
             category: "apps",
             description: "list launch candidates",
+        },
+        LocalCommandEntry {
+            command: "apps --remote HOST",
+            category: "remote",
+            description: "list remote app candidates via pooled SSH",
+        },
+        LocalCommandEntry {
+            command: "apps --remote HOST --filter QUERY --launch-first",
+            category: "remote",
+            description: "launch first remote app match via pooled SSH",
+        },
+        LocalCommandEntry {
+            command: "--list-windows --remote HOST",
+            category: "remote",
+            description: "list remote windows when supported",
+        },
+        LocalCommandEntry {
+            command: "--list-displays --remote HOST",
+            category: "remote",
+            description: "list remote displays when supported",
+        },
+        LocalCommandEntry {
+            command: "kittwm-terminal --remote HOST",
+            category: "remote",
+            description: "open a local pane running a pooled SSH terminal",
         },
         LocalCommandEntry {
             command: "apps-scene-json",
@@ -9330,6 +9377,27 @@ mod tests {
     }
 
     #[test]
+    fn help_topics_lists_ssh_topic() {
+        let text = help_topic_text("topics").unwrap();
+        assert!(text.contains("ssh      pooled SSH workflows"), "{text}");
+        assert!(known_help_topics().contains(&"ssh"));
+        assert!(known_kittwm_commands().contains(&"ssh"));
+        assert!(known_kittwm_commands().contains(&"remote"));
+    }
+
+    #[test]
+    fn help_topic_ssh_lists_remote_workflow() {
+        let text = help_topic_text("ssh").unwrap();
+        assert!(
+            text.contains("If the remote has kittwm installed"),
+            "{text}"
+        );
+        assert!(text.contains("kittwm apps --remote HOST"), "{text}");
+        assert!(text.contains("kittwm-terminal --remote HOST"), "{text}");
+        assert!(text.contains("ControlMaster=auto"), "{text}");
+    }
+
+    #[test]
     fn help_topics_mentions_daily_guides() {
         let text = help_topic_text("topics").unwrap();
         assert!(text.contains("Daily guides:"), "{text}");
@@ -9494,6 +9562,12 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "apps-kitty" && entry["category"] == "apps" }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "apps --remote HOST" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "kittwm-terminal --remote HOST" && entry["category"] == "remote"
+        }));
         assert!(json["commands"]
             .as_array()
             .unwrap()
