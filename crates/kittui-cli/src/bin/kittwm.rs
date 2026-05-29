@@ -1084,7 +1084,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|graphical|wayland|kittwm|desktop|list|apps|app|launch|open|run|windows|displays|terminal|term|shell|ssh]
+  remote HOST [help|doctor|status|check|x11|graphical|wayland|kittwm|desktop|list|apps|app|launch|open|run|windows|displays|monitors|screens|terminal|term|shell|ssh]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1481,6 +1481,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            singular alias for remote HOST list apps\n\
              kittwm remote HOST list windows firefox\n\
                                            list remote windows matching a query\n\
+             kittwm remote HOST monitors retina\n\
+                                           alias for remote display listing\n\
              kittwm remote HOST apps firefox\n\
                                            list remote app matches using a positional query\n\
              kittwm remote HOST app firefox\n\
@@ -1596,6 +1598,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST list windows QUERY list remote windows matching a query\n\
              remote HOST list displays QUERY\n\
                                             list remote displays matching a query\n\
+             remote HOST list monitors QUERY\n\
+                                            alias for remote HOST list displays\n\
              remote HOST apps QUERY         list remote app matches with a positional query\n\
              remote HOST app QUERY          singular alias for remote HOST apps\n\
              remote HOST launch QUERY       shortest alias for remote app launch\n\
@@ -1855,7 +1859,9 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             Ok(())
         }
         "windows" | "window" => parse_remote_listing_alias(out, RemoteListingKind::Windows, rest),
-        "displays" | "display" => parse_remote_listing_alias(out, RemoteListingKind::Displays, rest),
+        "displays" | "display" | "monitors" | "monitor" | "screens" | "screen" => {
+            parse_remote_listing_alias(out, RemoteListingKind::Displays, rest)
+        }
         "terminal" | "term" | "shell" | "ssh" => {
             out.remote_terminal_args = Some(remote_terminal_alias_args(
                 out.remote_host.as_deref().unwrap_or("HOST"),
@@ -1986,7 +1992,9 @@ fn parse_remote_list_alias(out: &mut Cli, args: &[String]) -> Result<()> {
             parse_remote_apps_flags(out, &args[1..])
         }
         "windows" | "window" => parse_remote_listing_alias(out, RemoteListingKind::Windows, &args[1..]),
-        "displays" | "display" => parse_remote_listing_alias(out, RemoteListingKind::Displays, &args[1..]),
+        "displays" | "display" | "monitors" | "monitor" | "screens" | "screen" => {
+            parse_remote_listing_alias(out, RemoteListingKind::Displays, &args[1..])
+        }
         "terminals" | "terminal" | "terms" | "term" => Err(anyhow!(
             "remote terminal listing is not supported yet\ntry: kittwm remote HOST terminal\nhelp: kittwm help ssh"
         )),
@@ -4935,6 +4943,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "list remote displays through pooled SSH",
         },
         LocalCommandEntry {
+            command: "remote HOST list monitors",
+            category: "remote",
+            description: "alias for remote display listing",
+        },
+        LocalCommandEntry {
+            command: "remote HOST monitors QUERY",
+            category: "remote",
+            description: "alias for remote display listing",
+        },
+        LocalCommandEntry {
             command: "remote HOST apps QUERY",
             category: "remote",
             description: "list remote app matches with a positional query",
@@ -5769,6 +5787,10 @@ fn completion_words() -> &'static [&'static str] {
             "desktop",
             "windows",
             "displays",
+            "monitors",
+            "monitor",
+            "screens",
+            "screen",
             "terminal",
             "term",
             "shell",
@@ -10711,6 +10733,8 @@ mod tests {
         assert!(bash.contains("run"), "{bash}");
         assert!(bash.contains("app"), "{bash}");
         assert!(bash.contains("term"), "{bash}");
+        assert!(bash.contains("monitors"), "{bash}");
+        assert!(bash.contains("screens"), "{bash}");
 
         let zsh = completions_text("zsh").unwrap();
         assert!(zsh.contains("#compdef kittwm"), "{zsh}");
@@ -10726,6 +10750,8 @@ mod tests {
         assert!(zsh.contains("run"), "{zsh}");
         assert!(zsh.contains("app"), "{zsh}");
         assert!(zsh.contains("term"), "{zsh}");
+        assert!(zsh.contains("monitors"), "{zsh}");
+        assert!(zsh.contains("screens"), "{zsh}");
 
         let fish = completions_text("fish").unwrap();
         assert!(fish.contains("complete -c kittwm"), "{fish}");
@@ -10742,6 +10768,8 @@ mod tests {
         assert!(fish.contains("run"), "{fish}");
         assert!(fish.contains("app"), "{fish}");
         assert!(fish.contains("term"), "{fish}");
+        assert!(fish.contains("monitors"), "{fish}");
+        assert!(fish.contains("screens"), "{fish}");
         assert_eq!(fish, fish_completions_text());
         assert_eq!(fish.capacity(), fish.len());
         assert!(std::ptr::eq(completion_words(), completion_words()));
@@ -10847,6 +10875,12 @@ mod tests {
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list windows" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST list monitors" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST monitors QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST apps QUERY" && entry["category"] == "remote"
@@ -11740,6 +11774,22 @@ mod tests {
         parse_remote_alias_action(&mut displays, "displays", &args(&["retina"])).unwrap();
         assert!(displays.list_displays);
         assert_eq!(displays.remote_listing_filter.as_deref(), Some("retina"));
+
+        let mut monitors = Cli::default();
+        monitors.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut monitors, "monitors", &args(&["retina"])).unwrap();
+        assert!(monitors.list_displays);
+        assert_eq!(monitors.remote_listing_filter.as_deref(), Some("retina"));
+
+        let mut list_screens = Cli::default();
+        list_screens.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut list_screens, "list", &args(&["screens", "retina"]))
+            .unwrap();
+        assert!(list_screens.list_displays);
+        assert_eq!(
+            list_screens.remote_listing_filter.as_deref(),
+            Some("retina")
+        );
 
         let mut terminal = Cli::default();
         terminal.remote_host = Some("buildbox".to_string());
