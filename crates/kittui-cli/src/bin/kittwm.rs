@@ -8584,7 +8584,7 @@ case "$mode" in
         printf 'macOS applications (first %s):\n' "$limit"
         kittwm_remote_candidates | awk -F '\t' '$1 == "macos" { print "  "$2 }' | head -n "$limit"
         printf 'Linux desktop entries (first %s):\n' "$limit"
-        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { label=($3 != "" ? $3 : $2); print "  "label" ("$2")" }' | head -n "$limit"
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { label=($3 != "" ? $3 : $2); detail=""; if ($6 != "") detail=$6; if ($8 != "") detail=(detail != "" ? detail"; "$8 : $8); print "  "label" ("$2")"(detail != "" ? " — "detail : "") }' | head -n "$limit"
         ;;
 esac
 "#
@@ -11837,6 +11837,8 @@ mod tests {
         assert!(script.contains("\"linux_desktop_ids\":"), "{script}");
         assert!(script.contains("\"linux_desktop_files\":"), "{script}");
         assert!(script.contains("\"linux_desktop_apps\":"), "{script}");
+        assert!(script.contains("detail=\"\""), "{script}");
+        assert!(script.contains("detail\"; \""), "{script}");
     }
 
     #[test]
