@@ -9842,6 +9842,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_command_palette_title_builds_directly() {
+        let title = graphical_command_palette_title("split");
+        assert_eq!(title, "kittwm command palette query=split");
+        assert!(title.capacity() >= title.len());
+    }
+
+    #[test]
     fn graphical_launcher_overlay_title_builds_directly() {
         let title = graphical_launcher_overlay_title("term");
         assert_eq!(title, "kittwm launcher query=term");
@@ -15016,6 +15023,14 @@ fn launcher_overlay_scene_for_candidates(
 }
 
 #[cfg(test)]
+fn graphical_command_palette_title(query: &str) -> String {
+    let mut title = String::with_capacity("kittwm command palette query=".len() + query.len());
+    title.push_str("kittwm command palette query=");
+    title.push_str(query);
+    title
+}
+
+#[cfg(test)]
 fn command_palette_scene(query: &str, selected: usize, cell_size: CellSize) -> Scene {
     let actions = [
         "terminal: spawn a new shell",
@@ -15033,13 +15048,8 @@ fn command_palette_scene(query: &str, selected: usize, cell_size: CellSize) -> S
         .filter(|action| query_lower.is_empty() || action.contains(query_lower.as_str()))
         .map(|action| (*action).to_string())
         .collect::<Vec<_>>();
-    graphical_overlay_panel_scene(
-        "command-palette",
-        &format!("kittwm command palette query={query}"),
-        &rows,
-        selected,
-        cell_size,
-    )
+    let title = graphical_command_palette_title(query);
+    graphical_overlay_panel_scene("command-palette", &title, &rows, selected, cell_size)
 }
 
 #[cfg(test)]
