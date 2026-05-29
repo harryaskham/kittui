@@ -9310,14 +9310,6 @@ mod tests {
     }
 
     #[test]
-    fn chrome_backdrop_label_builds_directly() {
-        assert_eq!(
-            chrome_backdrop_label("dev", "bar", 2, 1, 4, 3, 1, 2, "19"),
-            "kittwm-chrome-backdrop:workspace=dev:owner=bar:top=2:bottom=1:left=4:right=3:gap_cols=1:gap_rows=2:tilable_rows=19"
-        );
-    }
-
-    #[test]
     fn chrome_scene_row_rects_fit_narrow_widths() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("KITTWM_INFO_COLS", "8");
@@ -9402,6 +9394,16 @@ mod tests {
                 .contains("kittwm-chrome-row:1:owner=owner-name-that-is-pathological…")),
             "{labels:?}"
         );
+    }
+
+    #[test]
+    fn chrome_backdrop_label_builds_directly() {
+        let label = chrome_backdrop_label("dev", "bar", 2, 1, 4, 3, 1, 2, "19");
+        assert_eq!(
+            label,
+            "kittwm-chrome-backdrop:workspace=dev:owner=bar:top=2:bottom=1:left=4:right=3:gap_cols=1:gap_rows=2:tilable_rows=19"
+        );
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
