@@ -5285,6 +5285,13 @@ fn native_footer_status_backdrop_label(status_label: &str) -> String {
     label
 }
 
+fn native_footer_status_chip_label(label: &str) -> String {
+    let mut out = String::with_capacity("status-chip-".len() + label.len());
+    out.push_str("status-chip-");
+    out.push_str(label);
+    out
+}
+
 fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str) -> Scene {
     let colors = native_glass_chrome_colors();
     let cols = cols.max(1);
@@ -5323,7 +5330,7 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
             continue;
         }
         layers.push(Layer::new(
-            format!("status-chip-{label}"),
+            native_footer_status_chip_label(label),
             Node::Rect {
                 rect: PxRect::new(x, 2.0, width, chip_h),
                 fill: Paint::Solid {
@@ -9147,6 +9154,13 @@ mod native_pane_tests {
     fn native_footer_status_backdrop_label_builds_directly() {
         let label = native_footer_status_backdrop_label("footer");
         assert_eq!(label, "status-bar-backdrop:footer");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
+    fn native_footer_status_chip_label_builds_directly() {
+        let label = native_footer_status_chip_label("help");
+        assert_eq!(label, "status-chip-help");
         assert!(label.capacity() >= label.len());
     }
 
