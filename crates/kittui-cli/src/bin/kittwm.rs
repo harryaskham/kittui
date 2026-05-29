@@ -8417,9 +8417,11 @@ kittwm_remote_list_linux_desktop_apps() {
             [ -n "$try_exec" ] && ! command -v "$try_exec" >/dev/null 2>&1 && continue
             id=$(basename "$desktop" .desktop)
             name=$(awk -F= '$1 == "Name" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
+            generic_name=$(awk -F= '$1 == "GenericName" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
+            keywords=$(awk -F= '$1 == "Keywords" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             exec_line=$(awk -F= '$1 == "Exec" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             [ -n "$name" ] || name="$id"
-            [ -n "$id" ] && printf 'desktop\t%s\t%s\t%s\t%s\n' "$id" "$name" "$exec_line" "$desktop"
+            [ -n "$id" ] && printf 'desktop\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$exec_line" "$desktop" "$generic_name" "$keywords"
         done
     done
 }
@@ -11638,6 +11640,8 @@ mod tests {
         assert!(script.contains("gtk-launch"), "{script}");
         assert!(script.contains("gio launch"), "{script}");
         assert!(script.contains("$1 == \"Name\""), "{script}");
+        assert!(script.contains("$1 == \"GenericName\""), "{script}");
+        assert!(script.contains("$1 == \"Keywords\""), "{script}");
         assert!(script.contains("$1 == \"Exec\""), "{script}");
         assert!(script.contains("$1 == \"Hidden\""), "{script}");
         assert!(script.contains("$1 == \"NoDisplay\""), "{script}");
