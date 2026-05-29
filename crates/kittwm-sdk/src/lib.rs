@@ -5592,6 +5592,8 @@ mod tests {
         assert!(browser.starts_with("/tmp/kwb-1357-"), "{browser}");
         let session = test_socket_path("kwsession", 9753);
         assert!(session.starts_with("/tmp/kwsession-9753-"), "{session}");
+        let events = test_socket_path("kwe", 8642);
+        assert!(events.starts_with("/tmp/kwe-8642-"), "{events}");
         assert!(path.ends_with(".sock"), "{path}");
         assert!(path.capacity() >= path.len());
     }
@@ -6013,11 +6015,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn events_ms_parses_json_lines_until_end() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwe-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwe", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
