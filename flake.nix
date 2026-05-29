@@ -32,6 +32,7 @@
           strictDeps = true;
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ pkgs.libghostty-vt ] ++ lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
+          ghosttyRuntimeLibraryPath = lib.makeLibraryPath [ pkgs.libghostty-vt ];
         };
 
         # Platform-native default features so the installed package always
@@ -82,6 +83,25 @@
               "kittui-cli"
             ]
             ++ cargoFeatureFlags;
+            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
+            # Remote shells can carry LD_LIBRARY_PATH entries from older profiles
+            # or host installs. Prefer this package's libghostty-vt closure so
+            # kittwm cannot bind against a stale library that lacks newer VT
+            # symbols such as ghostty_render_state_row_cells_new.
+            postFixup = lib.optionalString pkgs.stdenv.isLinux ''
+              for program in \
+                "$out/bin/kittui" \
+                "$out/bin/kittwm" \
+                "$out/bin/kittwm-browser" \
+                "$out/bin/kittwm-launch" \
+                "$out/bin/kittwm-terminal" \
+                "$out/bin/kittwm-top"; do
+                if [ -x "$program" ]; then
+                  wrapProgram "$program" \
+                    --prefix LD_LIBRARY_PATH : "${commonArgs.ghosttyRuntimeLibraryPath}"
+                fi
+              done
+            '';
             # `nix run .#kittwm` should build the runnable package, not run the
             # full interactive/native test matrix. Keep tests available under
             # `checks.workspace-check`; the app package must remain suitable for
