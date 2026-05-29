@@ -420,6 +420,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let mut focused = 0usize;
     let mut layout_axis = NativePaneLayoutAxis::Columns;
     let mut layout_mode = NativePaneLayoutMode::Tiled;
+    let mut floating_offsets = HashMap::<String, NativeFloatingPaneOffset>::new();
+    let mut floating_drag = None::<NativeFloatingDrag>;
     resize_native_panes_for_display_mode(
         &mut panes,
         focused,
@@ -429,7 +431,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         layout_mode,
         &last_chrome_reservation,
     )?;
-    let initial_layouts = native_layouts_for_panes_display_mode(
+    let initial_layouts = native_layouts_for_panes_display_mode_with_offsets(
         cols,
         rows,
         &panes,
@@ -437,6 +439,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         layout_axis,
         layout_mode,
         &last_chrome_reservation,
+        &floating_offsets,
     );
     let mut last_resized_layouts = initial_layouts.clone();
     let mut last_published_pane_statuses = native_pane_statuses(&panes, focused, &initial_layouts);
@@ -494,6 +497,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         layout_axis,
                         layout_mode,
                         &last_chrome_reservation,
+                        &mut floating_offsets,
+                        &mut floating_drag,
                         &mut clear,
                     )? {
                         offset += consumed;
@@ -981,7 +986,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         if (new_cols, new_rows) != (cols, rows) {
             cols = new_cols;
             rows = new_rows;
-            let layouts = native_layouts_for_panes_display_mode(
+            let layouts = native_layouts_for_panes_display_mode_with_offsets(
                 cols,
                 rows,
                 &panes,
@@ -989,6 +994,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 layout_axis,
                 layout_mode,
                 &last_chrome_reservation,
+                &floating_offsets,
             );
             let resize_failures =
                 resize_native_panes_logged(&mut panes, layouts.clone(), Some(&dbg))?;
@@ -1024,7 +1030,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             ));
             last_chrome_reservation = chrome_reservation.clone();
         }
-        let layouts = native_layouts_for_panes_display_mode(
+        let layouts = native_layouts_for_panes_display_mode_with_offsets(
             cols,
             rows,
             &panes,
@@ -1032,6 +1038,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             layout_axis,
             layout_mode,
             &last_chrome_reservation,
+            &floating_offsets,
         );
         if layouts != last_resized_layouts {
             let resize_failures =
@@ -1851,6 +1858,19 @@ impl NativePaneLayoutMode {
             Self::Fullscreen => "fullscreen",
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct NativeFloatingPaneOffset {
+    dx: i16,
+    dy: i16,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct NativeFloatingDrag {
+    window: String,
+    last_col: u16,
+    last_row: u16,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3186,6 +3206,80 @@ fn native_layouts_for_panes_display_mode(
     }
 }
 
+fn native_layouts_for_panes_display_mode_with_offsets(
+    cols: u16,
+    rows: u16,
+    panes: &[NativePane],
+    focused: usize,
+    axis: NativePaneLayoutAxis,
+    mode: NativePaneLayoutMode,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
+    floating_offsets: &HashMap<String, NativeFloatingPaneOffset>,
+) -> Vec<NativePaneLayout> {
+    let mut layouts =
+        native_layouts_for_panes_display_mode(cols, rows, panes, focused, axis, mode, reservation);
+    if matches!(mode, NativePaneLayoutMode::Floating) {
+        apply_native_floating_offsets(
+            &mut layouts,
+            panes,
+            cols,
+            rows,
+            reservation,
+            floating_offsets,
+        );
+    }
+    layouts
+}
+
+fn apply_native_floating_offsets(
+    layouts: &mut [NativePaneLayout],
+    panes: &[NativePane],
+    cols: u16,
+    rows: u16,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
+    floating_offsets: &HashMap<String, NativeFloatingPaneOffset>,
+) {
+    for (layout, pane) in layouts.iter_mut().zip(panes.iter()) {
+        if let Some(offset) = floating_offsets.get(&pane.window) {
+            *layout = native_offset_floating_layout(*layout, cols, rows, reservation, *offset);
+        }
+    }
+}
+
+fn native_offset_floating_layout(
+    mut layout: NativePaneLayout,
+    cols: u16,
+    rows: u16,
+    reservation: &crate::daemon::NativeChromeReservationConfig,
+    offset: NativeFloatingPaneOffset,
+) -> NativePaneLayout {
+    if layout.cols == 0 || layout.rows == 0 {
+        return layout;
+    }
+    let reservation = native_chrome_reservation_with_pixel_gaps(reservation);
+    let min_x = i32::from(reservation.left_cols.min(cols.saturating_sub(1)));
+    let min_y = i32::from(reservation.top_bar_rows.min(rows.saturating_sub(1)));
+    let max_x = i32::from(
+        cols.saturating_sub(layout.cols)
+            .max(reservation.left_cols.min(cols.saturating_sub(1))),
+    );
+    let max_y = i32::from(
+        rows.saturating_sub(layout.rows)
+            .max(reservation.top_bar_rows.min(rows.saturating_sub(1))),
+    );
+    let next_x = (i32::from(layout.x) + i32::from(offset.dx)).clamp(min_x, max_x) as u16;
+    let next_y = (i32::from(layout.y) + i32::from(offset.dy)).clamp(min_y, max_y) as u16;
+    let dx = next_x.saturating_sub(layout.x);
+    let neg_dx = layout.x.saturating_sub(next_x);
+    let dy = next_y.saturating_sub(layout.y);
+    let neg_dy = layout.y.saturating_sub(next_y);
+    layout.x = next_x;
+    layout.y = next_y;
+    layout.app_x = layout.app_x.saturating_add(dx).saturating_sub(neg_dx);
+    layout.app_y = layout.app_y.saturating_add(dy).saturating_sub(neg_dy);
+    layout
+}
+
 fn native_fullscreen_layouts_for_panes(
     cols: u16,
     rows: u16,
@@ -3776,14 +3870,28 @@ fn native_route_mouse_event(
     axis: NativePaneLayoutAxis,
     mode: NativePaneLayoutMode,
     reservation: &crate::daemon::NativeChromeReservationConfig,
+    floating_offsets: &mut HashMap<String, NativeFloatingPaneOffset>,
+    floating_drag: &mut Option<NativeFloatingDrag>,
     clear: &mut bool,
 ) -> Result<bool> {
     let Some((event_name, col, row, should_focus)) = native_mouse_event_name_and_position(&event)
     else {
         return Ok(false);
     };
-    let layouts =
-        native_layouts_for_panes_display_mode(cols, rows, panes, *focused, axis, mode, reservation);
+    if native_update_floating_drag(event_name, col, row, floating_offsets, floating_drag) {
+        *clear = true;
+        return Ok(true);
+    }
+    let layouts = native_layouts_for_panes_display_mode_with_offsets(
+        cols,
+        rows,
+        panes,
+        *focused,
+        axis,
+        mode,
+        reservation,
+        floating_offsets,
+    );
     let topmost_first = matches!(mode, NativePaneLayoutMode::Floating);
     let Some((idx, local_col, local_row)) =
         native_pane_at_host_cell_ordered(&layouts, col, row, topmost_first)
@@ -3792,7 +3900,16 @@ fn native_route_mouse_event(
             if let Some(idx) =
                 native_pane_chrome_at_host_cell_ordered(&layouts, col, row, topmost_first)
             {
-                native_focus_or_raise_for_mouse(panes, focused, idx, mode)?;
+                let target = native_focus_or_raise_for_mouse(panes, focused, idx, mode)?;
+                if matches!(mode, NativePaneLayoutMode::Floating) && event_name == "press-left" {
+                    if let Some(pane) = panes.get(target) {
+                        *floating_drag = Some(NativeFloatingDrag {
+                            window: pane.window.clone(),
+                            last_col: col,
+                            last_row: row,
+                        });
+                    }
+                }
                 *clear = true;
             }
         }
@@ -3814,6 +3931,39 @@ fn native_route_mouse_event(
         panes[target_idx].app.send_bytes(&payload)?;
     }
     Ok(true)
+}
+
+fn native_update_floating_drag(
+    event_name: &str,
+    col: u16,
+    row: u16,
+    floating_offsets: &mut HashMap<String, NativeFloatingPaneOffset>,
+    floating_drag: &mut Option<NativeFloatingDrag>,
+) -> bool {
+    match event_name {
+        "move-left" => {
+            let Some(drag) = floating_drag.as_mut() else {
+                return false;
+            };
+            let delta_col = col as i32 - drag.last_col as i32;
+            let delta_row = row as i32 - drag.last_row as i32;
+            drag.last_col = col;
+            drag.last_row = row;
+            if delta_col == 0 && delta_row == 0 {
+                return true;
+            }
+            let offset = floating_offsets.entry(drag.window.clone()).or_default();
+            offset.dx = native_saturating_i16_add_i32(offset.dx, delta_col);
+            offset.dy = native_saturating_i16_add_i32(offset.dy, delta_row);
+            true
+        }
+        "release-left" | "release" => floating_drag.take().is_some(),
+        _ => false,
+    }
+}
+
+fn native_saturating_i16_add_i32(value: i16, delta: i32) -> i16 {
+    (i32::from(value) + delta).clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16
 }
 
 fn native_mouse_event_name_and_position(
@@ -7872,6 +8022,8 @@ mod native_pane_tests {
             NativePaneLayoutAxis::Columns,
             NativePaneLayoutMode::Tiled,
             &reservation,
+            &mut HashMap::new(),
+            &mut None,
             &mut clear,
         )
         .unwrap());
@@ -7894,6 +8046,8 @@ mod native_pane_tests {
             NativePaneLayoutAxis::Columns,
             NativePaneLayoutMode::Tiled,
             &reservation,
+            &mut HashMap::new(),
+            &mut None,
             &mut clear,
         )
         .unwrap());
@@ -7916,6 +8070,8 @@ mod native_pane_tests {
             NativePaneLayoutAxis::Columns,
             NativePaneLayoutMode::Tiled,
             &reservation,
+            &mut HashMap::new(),
+            &mut None,
             &mut clear,
         )
         .unwrap());
@@ -7947,6 +8103,8 @@ mod native_pane_tests {
             NativePaneLayoutAxis::Columns,
             NativePaneLayoutMode::Fullscreen,
             &reservation,
+            &mut HashMap::new(),
+            &mut None,
             &mut clear,
         )
         .unwrap());
@@ -7997,6 +8155,8 @@ mod native_pane_tests {
             NativePaneLayoutAxis::Columns,
             NativePaneLayoutMode::Floating,
             &reservation,
+            &mut HashMap::new(),
+            &mut None,
             &mut clear,
         )
         .unwrap());
@@ -8046,12 +8206,110 @@ mod native_pane_tests {
             NativePaneLayoutAxis::Columns,
             NativePaneLayoutMode::Floating,
             &reservation,
+            &mut HashMap::new(),
+            &mut None,
             &mut clear,
         )
         .unwrap());
         assert_eq!(focused, 1);
         assert_eq!(panes[1].command, "bottom");
         assert!(clear);
+    }
+
+    #[test]
+    fn native_route_mouse_drags_floating_pane_from_title_chrome() {
+        let mut panes = vec![dummy_native_pane("native-1", "float", 1)];
+        let mut focused = 0usize;
+        let mut clear = false;
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        let mut offsets = HashMap::new();
+        let mut drag = None;
+        let before = native_layouts_for_panes_display_mode_with_offsets(
+            80,
+            24,
+            &panes,
+            focused,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+            &offsets,
+        );
+        let title_col = before[0].x + 1;
+        let title_row = before[0].y + 1;
+
+        assert!(native_route_mouse_event(
+            &InputEvent::MousePress {
+                col: title_col,
+                row: title_row,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+            &mut offsets,
+            &mut drag,
+            &mut clear,
+        )
+        .unwrap());
+        assert!(drag.is_some());
+
+        assert!(native_route_mouse_event(
+            &InputEvent::MouseMove {
+                col: title_col + 5,
+                row: title_row + 2,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+            &mut offsets,
+            &mut drag,
+            &mut clear,
+        )
+        .unwrap());
+        let after = native_layouts_for_panes_display_mode_with_offsets(
+            80,
+            24,
+            &panes,
+            focused,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+            &offsets,
+        );
+        assert_eq!(after[0].x, before[0].x + 5);
+        assert_eq!(after[0].y, before[0].y + 2);
+
+        assert!(native_route_mouse_event(
+            &InputEvent::MouseRelease {
+                col: title_col + 5,
+                row: title_row + 2,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+            &mut offsets,
+            &mut drag,
+            &mut clear,
+        )
+        .unwrap());
+        assert!(drag.is_none());
     }
 
     #[test]
