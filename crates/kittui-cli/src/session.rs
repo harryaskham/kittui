@@ -4669,6 +4669,7 @@ fn native_pane_statuses(
                 native_status_title_drag_cell(layout, mode).unwrap_or((None, None));
             let (cursor_col, cursor_row) = pane.app.cursor_position();
             let mouse = pane.app.mouse_reporting_modes();
+            let title_draggable = native_status_title_draggable(mode);
             crate::daemon::NativePaneStatus {
                 window: pane.window.clone(),
                 title: native_pane_display_title(pane),
@@ -4679,7 +4680,7 @@ fn native_pane_statuses(
                 floating_dx: Some(offset.dx),
                 floating_dy: Some(offset.dy),
                 floating_moved: Some(offset != NativeFloatingPaneOffset::default()),
-                title_draggable: Some(matches!(mode, NativePaneLayoutMode::Floating)),
+                title_draggable: Some(title_draggable),
                 title_drag_col,
                 title_drag_row,
                 pid: pane.pid,
@@ -4716,18 +4717,29 @@ fn native_pane_statuses(
         .collect()
 }
 
+fn native_status_title_draggable(mode: NativePaneLayoutMode) -> bool {
+    matches!(
+        mode,
+        NativePaneLayoutMode::Tiled | NativePaneLayoutMode::Floating
+    )
+}
+
 fn native_status_title_drag_cell(
     layout: Option<NativePaneLayout>,
     mode: NativePaneLayoutMode,
 ) -> Option<(Option<u16>, Option<u16>)> {
-    if !matches!(mode, NativePaneLayoutMode::Floating) {
+    if !native_status_title_draggable(mode) {
         return Some((None, None));
     }
     let layout = layout?;
     if layout.cols == 0 || layout.rows == 0 {
         return Some((None, None));
     }
-    let local_col = layout.cols.saturating_sub(1).min(3);
+    let local_col = if matches!(mode, NativePaneLayoutMode::Floating) {
+        layout.cols.saturating_sub(1).min(3)
+    } else {
+        0
+    };
     Some((
         Some(layout.x.saturating_add(local_col).saturating_add(1)),
         Some(layout.y.saturating_add(1)),
@@ -10349,6 +10361,39 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_status_title_drag_cell_reports_tiled_and_floating_modes() {
+        let layout = NativePaneLayout {
+            x: 10,
+            y: 4,
+            cols: 20,
+            rows: 6,
+            app_x: 10,
+            app_y: 5,
+            app_cols: 20,
+            app_rows: 5,
+        };
+        assert!(native_status_title_draggable(NativePaneLayoutMode::Tiled));
+        assert!(native_status_title_draggable(
+            NativePaneLayoutMode::Floating
+        ));
+        assert!(!native_status_title_draggable(
+            NativePaneLayoutMode::Fullscreen
+        ));
+        assert_eq!(
+            native_status_title_drag_cell(Some(layout), NativePaneLayoutMode::Tiled),
+            Some((Some(11), Some(5)))
+        );
+        assert_eq!(
+            native_status_title_drag_cell(Some(layout), NativePaneLayoutMode::Floating),
+            Some((Some(14), Some(5)))
+        );
+        assert_eq!(
+            native_status_title_drag_cell(Some(layout), NativePaneLayoutMode::Fullscreen),
+            Some((None, None))
+        );
+    }
+
+    #[test]
     fn native_pane_status_chip_command_text_is_bounded() {
         let long = "cmd-".repeat(10_000);
         let bounded = bounded_ellipsis(&long, NATIVE_PANE_STATUS_COMMAND_MAX_CHARS);
@@ -13634,6 +13679,17 @@ mod native_pane_tests {
             },
         ];
         let layouts = native_pane_layouts_weighted(80, 24, &[1, 3], NativePaneLayoutAxis::Columns);
+        let tiled_statuses = native_pane_statuses(
+            &panes,
+            1,
+            &layouts,
+            &HashMap::new(),
+            NativePaneLayoutMode::Tiled,
+        );
+        assert_eq!(tiled_statuses[1].title_draggable, Some(true));
+        assert_eq!(tiled_statuses[1].title_drag_col, Some(layouts[1].x + 1));
+        assert_eq!(tiled_statuses[1].title_drag_row, Some(layouts[1].y + 1));
+
         let statuses = native_pane_statuses(
             &panes,
             1,
@@ -13651,6 +13707,8 @@ mod native_pane_tests {
         assert_eq!(statuses[1].stack_top, Some(true));
         assert_eq!(statuses[1].title_draggable, Some(true));
         assert_eq!(statuses[0].title_draggable, Some(true));
+        assert_eq!(statuses[1].title_drag_col, Some(layouts[1].x + 4));
+        assert_eq!(statuses[1].title_drag_row, Some(layouts[1].y + 1));
         assert_eq!(statuses[1].pid, Some(202));
         assert_eq!(statuses[1].command.as_deref(), Some("editor-cmd"));
         let layout = layouts[1];
