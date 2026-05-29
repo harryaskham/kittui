@@ -730,9 +730,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             &last_chrome_reservation,
                         )?;
                         clear = true;
-                        dbg.log(&format!(
-                            "native terminal socket resize: {window} delta={delta} weight={}",
-                            panes[idx].weight
+                        dbg.log(&native_socket_resize_log_line(
+                            &window,
+                            delta,
+                            panes[idx].weight,
                         ));
                     }
                 }
@@ -4193,6 +4194,21 @@ fn native_socket_move_log_line(window: &str, direction: &str, to: usize) -> Stri
     out.push_str(direction);
     out.push_str(" -> ");
     let _ = write!(out, "{to}");
+    out
+}
+
+fn native_socket_resize_log_line(window: &str, delta: i16, weight: u16) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal socket resize:  delta= weight=".len() + window.len() + 12,
+    );
+    out.push_str("native terminal socket resize: ");
+    out.push_str(window);
+    out.push_str(" delta=");
+    let _ = write!(out, "{delta}");
+    out.push_str(" weight=");
+    let _ = write!(out, "{weight}");
     out
 }
 
@@ -10245,6 +10261,16 @@ mod native_pane_tests {
     fn native_socket_move_log_line_builds_directly() {
         let line = native_socket_move_log_line("native-2", "right", 3);
         assert_eq!(line, "native terminal socket move: native-2 right -> 3");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_socket_resize_log_line_builds_directly() {
+        let line = native_socket_resize_log_line("native-2", -3, 7);
+        assert_eq!(
+            line,
+            "native terminal socket resize: native-2 delta=-3 weight=7"
+        );
         assert!(line.capacity() >= line.len());
     }
 
