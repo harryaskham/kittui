@@ -832,10 +832,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             text.push('\n');
                         }
                         match panes[idx].app.send_bytes(text.as_bytes()) {
-                            Ok(()) => dbg.log(&format!(
-                                "native terminal socket send text: {window} bytes={}",
-                                text.len()
-                            )),
+                            Ok(()) => {
+                                dbg.log(&native_socket_send_text_log_line(&window, text.len()))
+                            }
                             Err(err) => dbg.log(&native_socket_input_failure_log_line(
                                 &window,
                                 "send-text",
@@ -4221,6 +4220,19 @@ fn native_socket_restore_session_log_line(panes: usize, focused: usize) -> Strin
     let _ = write!(out, "{panes}");
     out.push_str(" focus=");
     let _ = write!(out, "{focused}");
+    out
+}
+
+fn native_socket_send_text_log_line(window: &str, bytes: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal socket send text:  bytes=".len() + window.len() + 20,
+    );
+    out.push_str("native terminal socket send text: ");
+    out.push_str(window);
+    out.push_str(" bytes=");
+    let _ = write!(out, "{bytes}");
     out
 }
 
@@ -10296,6 +10308,13 @@ mod native_pane_tests {
         assert!(
             line.capacity() >= "native terminal socket restore session: panes= focus=".len() + 40
         );
+    }
+
+    #[test]
+    fn native_socket_send_text_log_line_builds_directly() {
+        let line = native_socket_send_text_log_line("native-1", 42);
+        assert_eq!(line, "native terminal socket send text: native-1 bytes=42");
+        assert!(line.capacity() >= line.len());
     }
 
     #[test]
