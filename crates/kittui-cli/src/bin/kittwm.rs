@@ -2748,9 +2748,12 @@ else
     printf 'remote kittwm  : not found\n'
     printf 'suggestion     : use local kittwm pooled-SSH forwarding commands\n'
 fi
-printf 'local commands : kittwm apps --remote %s\n' "$host"
-printf '               : kittwm-terminal --remote %s\n' "$host"
-printf '               : kittwm --list-windows --remote %s\n' "$host"
+printf 'local commands : kittwm remote %s list\n' "$host"
+printf '               : kittwm remote %s list apps firefox\n' "$host"
+printf '               : kittwm remote %s launch firefox\n' "$host"
+printf '               : kittwm remote %s list windows\n' "$host"
+printf '               : kittwm remote %s list displays\n' "$host"
+printf '               : kittwm remote %s terminal -- htop\n' "$host"
 "#
 }
 
@@ -10765,8 +10768,15 @@ mod tests {
         let script = remote_doctor_script();
         assert!(script.contains("command -v kittwm"), "{script}");
         assert!(script.contains("kittwm doctor --json"), "{script}");
-        assert!(script.contains("kittwm apps --remote"), "{script}");
-        assert!(script.contains("kittwm-terminal --remote"), "{script}");
+        assert!(script.contains("kittwm remote %s list"), "{script}");
+        assert!(
+            script.contains("kittwm remote %s launch firefox"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm remote %s terminal -- htop"),
+            "{script}"
+        );
         let args = pooled_ssh_args(
             "host.example",
             &[("KITTWM_REMOTE_DOCTOR_JSON".to_string(), "1".to_string())],
