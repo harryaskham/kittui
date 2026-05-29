@@ -10752,6 +10752,22 @@ mod tests {
         assert!(label.capacity() >= label.len());
     }
 
+    fn synthetic_native_window_id(idx: usize) -> String {
+        use std::fmt::Write as _;
+
+        let mut id = String::with_capacity("native-".len() + 20);
+        id.push_str("native-");
+        let _ = write!(id, "{idx}");
+        id
+    }
+
+    #[test]
+    fn synthetic_native_window_id_builds_directly() {
+        let id = synthetic_native_window_id(42);
+        assert_eq!(id, "native-42");
+        assert!(id.capacity() >= id.len());
+    }
+
     #[test]
     fn session_scene_rows_saturate_large_manifest_counts() {
         assert_eq!(session_scene_rows(0), 8);
@@ -10762,7 +10778,7 @@ mod tests {
             .map(|idx| {
                 serde_json::json!({
                     "index": idx,
-                    "window": format!("native-{idx}"),
+                    "window": synthetic_native_window_id(idx),
                     "title": "shell",
                     "command": "bash",
                     "weight": 1,
@@ -13667,7 +13683,7 @@ END
         let details = (0..128)
             .map(|idx| {
                 serde_json::json!({
-                    "window": format!("native-{idx}"),
+                    "window": synthetic_native_window_id(idx),
                     "title": "shell",
                     "focused": false,
                     "app_cols": 80,
