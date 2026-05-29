@@ -8523,6 +8523,34 @@ case "$mode" in
             first=0
             printf '%s' "$app" | json_escape
         done
+        printf '],"linux_desktop_generic_names":['
+        first=1
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print $6 }' | head -n "$limit" | while IFS= read -r generic; do
+            [ $first -eq 1 ] || printf ','
+            first=0
+            printf '%s' "$generic" | json_escape
+        done
+        printf '],"linux_desktop_keywords":['
+        first=1
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print $7 }' | head -n "$limit" | while IFS= read -r keywords; do
+            [ $first -eq 1 ] || printf ','
+            first=0
+            printf '%s' "$keywords" | json_escape
+        done
+        printf '],"linux_desktop_categories":['
+        first=1
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print $8 }' | head -n "$limit" | while IFS= read -r categories; do
+            [ $first -eq 1 ] || printf ','
+            first=0
+            printf '%s' "$categories" | json_escape
+        done
+        printf '],"linux_desktop_comments":['
+        first=1
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print $12 }' | head -n "$limit" | while IFS= read -r comment; do
+            [ $first -eq 1 ] || printf ','
+            first=0
+            printf '%s' "$comment" | json_escape
+        done
         printf ']}'
         ;;
     first)
@@ -11837,6 +11865,13 @@ mod tests {
         assert!(script.contains("\"linux_desktop_ids\":"), "{script}");
         assert!(script.contains("\"linux_desktop_files\":"), "{script}");
         assert!(script.contains("\"linux_desktop_apps\":"), "{script}");
+        assert!(
+            script.contains("\"linux_desktop_generic_names\":"),
+            "{script}"
+        );
+        assert!(script.contains("\"linux_desktop_keywords\":"), "{script}");
+        assert!(script.contains("\"linux_desktop_categories\":"), "{script}");
+        assert!(script.contains("\"linux_desktop_comments\":"), "{script}");
         assert!(script.contains("detail=\"\""), "{script}");
         assert!(script.contains("detail\"; \""), "{script}");
     }
