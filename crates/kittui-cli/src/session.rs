@@ -14683,7 +14683,12 @@ impl ToggleState {
     }
 
     fn label(&self) -> String {
-        format!("full={} float={}", self.fullscreen, self.floating)
+        let mut label = String::with_capacity("full=false float=false".len());
+        label.push_str("full=");
+        label.push_str(if self.fullscreen { "true" } else { "false" });
+        label.push_str(" float=");
+        label.push_str(if self.floating { "true" } else { "false" });
+        label
     }
 }
 
