@@ -14045,10 +14045,14 @@ const LAUNCHER_OVERLAY_KEY_QUERY_MAX_CHARS: usize = 96;
 
 fn launcher_overlay_key(overlay: &LauncherOverlay) -> String {
     let query = bounded_ellipsis(&overlay.query, LAUNCHER_OVERLAY_KEY_QUERY_MAX_CHARS);
-    format!(
-        "active={};query={query};selected={}",
-        overlay.active, overlay.selected
-    )
+    let mut key = String::with_capacity("active=;query=;selected=".len() + 5 + query.len() + 20);
+    key.push_str("active=");
+    key.push_str(if overlay.active { "true" } else { "false" });
+    key.push_str(";query=");
+    key.push_str(&query);
+    key.push_str(";selected=");
+    let _ = write!(key, "{}", overlay.selected);
+    key
 }
 
 fn launcher_candidate_row_text(
