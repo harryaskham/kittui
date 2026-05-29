@@ -1992,6 +1992,7 @@ fn native_shell_view(
     help_overlay: bool,
     include_text_snapshots: bool,
 ) -> NativeShellView {
+    let focused_footer_label = panes.get(focused).map(native_status_pane_focus_label);
     let pane_chrome = panes
         .iter()
         .enumerate()
@@ -2037,7 +2038,7 @@ fn native_shell_view(
             text: native_status_line_text(
                 panes.len(),
                 layout_label,
-                panes.get(focused).map(|pane| pane.window.as_str()),
+                focused_footer_label.as_deref(),
                 log_path,
             ),
         },
@@ -2127,6 +2128,7 @@ fn terminal_visible_width(x: u16, desired: u16, cols: u16) -> Option<usize> {
 }
 
 const NATIVE_STATUS_LOG_PATH_MAX_CHARS: usize = 96;
+const NATIVE_STATUS_FOCUS_MAX_CHARS: usize = 48;
 const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
 const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
 const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
@@ -2185,8 +2187,18 @@ fn native_status_focused_window_label(focused_window: Option<&str>) -> String {
         .map(str::trim)
         .filter(|window| !window.is_empty());
     trimmed
-        .map(|window| bounded_ellipsis(window, 32))
+        .map(|window| bounded_ellipsis(window, NATIVE_STATUS_FOCUS_MAX_CHARS))
         .unwrap_or_else(|| "-".to_string())
+}
+
+fn native_status_pane_focus_label(pane: &NativePane) -> String {
+    let title = native_pane_display_title(pane);
+    let title = title.trim();
+    if title.is_empty() || title == pane.window {
+        native_status_focused_window_label(Some(&pane.window))
+    } else {
+        native_status_focused_window_label(Some(&format!("{}({title})", pane.window)))
+    }
 }
 
 fn native_footer_visible_text(text: &str, cols: u16) -> String {
@@ -7467,6 +7479,15 @@ mod native_pane_tests {
         let count_visible = native_footer_visible_text(&footer, 25);
         assert!(count_visible.contains("panes:1"), "{count_visible:?}");
         assert_eq!(native_footer_visible_text("short", 8), "short   ");
+
+        let mut pane = dummy_native_pane("native-1", "sh", 1);
+        pane.display_title = Some("editor".to_string());
+        assert_eq!(native_status_pane_focus_label(&pane), "native-1(editor)");
+        pane.display_title = Some("title-".repeat(20));
+        let bounded = native_status_pane_focus_label(&pane);
+        assert_eq!(bounded.chars().count(), NATIVE_STATUS_FOCUS_MAX_CHARS);
+        assert!(bounded.ends_with('…'), "{bounded}");
+        assert!(!bounded.contains(&"title-".repeat(8)), "{bounded}");
     }
 
     #[test]
