@@ -631,7 +631,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 )?;
                             }
                             clear = true;
-                            dbg.log(&format!("native terminal socket close: {window}"));
+                            dbg.log(&native_socket_close_log_line(&window));
                         }
                     }
                 }
@@ -4142,6 +4142,13 @@ fn native_socket_focus_next_log_line(window: &str) -> String {
 fn native_socket_focus_prev_log_line(window: &str) -> String {
     let mut out = String::with_capacity("native terminal socket focus prev: ".len() + window.len());
     out.push_str("native terminal socket focus prev: ");
+    out.push_str(window);
+    out
+}
+
+fn native_socket_close_log_line(window: &str) -> String {
+    let mut out = String::with_capacity("native terminal socket close: ".len() + window.len());
+    out.push_str("native terminal socket close: ");
     out.push_str(window);
     out
 }
@@ -10142,6 +10149,16 @@ mod native_pane_tests {
         assert_eq!(
             line.capacity(),
             "native terminal socket focus prev: ".len() + "native-1".len()
+        );
+    }
+
+    #[test]
+    fn native_socket_close_log_line_builds_directly() {
+        let line = native_socket_close_log_line("native-4");
+        assert_eq!(line, "native terminal socket close: native-4");
+        assert_eq!(
+            line.capacity(),
+            "native terminal socket close: ".len() + "native-4".len()
         );
     }
 
