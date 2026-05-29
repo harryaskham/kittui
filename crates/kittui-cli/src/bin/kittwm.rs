@@ -8584,9 +8584,11 @@ case "$mode" in
         exec_line=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $4}')
         desktop_file=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $5}')
         launch_pid=""
+        launch_method=""
         if [ "$kind" = "macos" ]; then
             open -a "$name" >/dev/null 2>&1 &
             launch_pid=$!
+            launch_method="open"
         elif [ "$kind" = "desktop" ]; then
             if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
                 echo "ERR no remote graphical display is available for Linux desktop launch; try: kittwm remote $host graphical (checks X11 forwarding and waypipe)"; exit 1
@@ -8594,14 +8596,18 @@ case "$mode" in
             if command -v gtk-launch >/dev/null 2>&1; then
                 gtk-launch "$name" >/dev/null 2>&1 &
                 launch_pid=$!
-                if ! wait "$launch_pid"; then
+                if wait "$launch_pid"; then
+                    launch_method="gtk-launch"
+                else
                     launch_pid=""
                 fi
             fi
             if [ -z "$launch_pid" ] && [ -n "$desktop_file" ] && command -v gio >/dev/null 2>&1; then
                 gio launch "$desktop_file" >/dev/null 2>&1 &
                 launch_pid=$!
-                if ! wait "$launch_pid"; then
+                if wait "$launch_pid"; then
+                    launch_method="gio"
+                else
                     launch_pid=""
                 fi
             fi
@@ -8609,14 +8615,16 @@ case "$mode" in
                 desktop_exec=$(printf '%s\n' "$exec_line" | sed -E 's/[[:space:]]+%[fFuUdDnNickvm]//g; s/%[fFuUdDnNickvm]//g')
                 sh -lc "$desktop_exec" >/dev/null 2>&1 &
                 launch_pid=$!
+                launch_method="desktop-exec"
             elif [ -z "$launch_pid" ]; then
                 echo "ERR gtk-launch/gio failed and no Linux desktop Exec fallback is available"; exit 1
             fi
         else
             "$name" >/dev/null 2>&1 &
             launch_pid=$!
+            launch_method="path"
         fi
-        printf 'kittwm remote apps: launched pid=%s kind=%s name=%s host=%s\n' "$launch_pid" "$kind" "$label" "$host"
+        printf 'kittwm remote apps: launched pid=%s kind=%s method=%s name=%s host=%s\n' "$launch_pid" "$kind" "$launch_method" "$label" "$host"
         ;;
     *)
         printf 'kittwm remote apps\n==================\nhost: %s\nmode: shell-path-macos-linux-desktop\n' "$host"
@@ -11868,6 +11876,13 @@ mod tests {
         assert!(script.contains("XDG_CURRENT_DESKTOP"), "{script}");
         assert!(script.contains("desktop_file="), "{script}");
         assert!(script.contains("desktop_exec="), "{script}");
+        assert!(script.contains("launch_method=\"gtk-launch\""), "{script}");
+        assert!(script.contains("launch_method=\"gio\""), "{script}");
+        assert!(
+            script.contains("launch_method=\"desktop-exec\""),
+            "{script}"
+        );
+        assert!(script.contains("method=%s"), "{script}");
         assert!(script.contains("gtk-launch/gio failed"), "{script}");
         assert!(script.contains("index(tolower($0), q)"), "{script}");
         assert!(
