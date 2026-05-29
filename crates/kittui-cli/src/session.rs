@@ -6668,6 +6668,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn loaded_keymap_log_line_builds_directly() {
+        let line = loaded_keymap_log_line("/tmp/kittwm.toml");
+        assert_eq!(line, "loaded keymap from /tmp/kittwm.toml");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11535,6 +11542,13 @@ fn layout_action_log_line(message: &str) -> String {
     out
 }
 
+fn loaded_keymap_log_line(path: &str) -> String {
+    let mut out = String::with_capacity("loaded keymap from ".len() + path.len());
+    out.push_str("loaded keymap from ");
+    out.push_str(path);
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -13796,7 +13810,7 @@ fn load_runtime_keymap(dbg: &Debugger) -> Keymap {
 fn load_runtime_keymap_result(dbg: &Debugger) -> Result<Keymap> {
     if let Ok(path) = std::env::var("KITTUI_WM_KEYMAP") {
         let km = Keymap::load(std::path::Path::new(&path))?;
-        dbg.log(&format!("loaded keymap from {path}"));
+        dbg.log(&loaded_keymap_log_line(&path));
         Ok(km)
     } else {
         dbg.log("loaded default keymap");
