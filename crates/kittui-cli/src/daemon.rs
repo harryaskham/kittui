@@ -4953,7 +4953,10 @@ mod tests {
 
     #[test]
     fn daemon_bind_removes_stale_socket_file() {
-        let p = std::env::temp_dir().join(format!("kittwm-test-stale-{}.sock", std::process::id()));
+        let p = std::env::temp_dir().join(test_socket_filename(
+            "kittwm-test-stale",
+            std::process::id(),
+        ));
         let _ = std::fs::remove_file(&p);
         std::fs::write(&p, b"not a socket").unwrap();
         let server = DaemonServer::bind(p.clone()).unwrap();
