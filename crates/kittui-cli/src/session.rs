@@ -6637,6 +6637,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn swap_action_log_line_builds_directly() {
+        let line = swap_action_log_line("swap.left -> left#1 window=native-1");
+        assert_eq!(line, "swap action: swap.left -> left#1 window=native-1");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11476,6 +11483,13 @@ fn focus_action_log_line(message: &str) -> String {
     out
 }
 
+fn swap_action_log_line(message: &str) -> String {
+    let mut out = String::with_capacity("swap action: ".len() + message.len());
+    out.push_str("swap action: ");
+    out.push_str(message);
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11773,7 +11787,7 @@ pub fn run_loop_with<S: XServer>(
                                         Err(e) => format!("{msg} error={e}"),
                                     };
                                     last_keymap_action = Some(msg.clone());
-                                    dbg.log(&format!("swap action: {msg}"));
+                                    dbg.log(&swap_action_log_line(&msg));
                                 }
                                 Action::FloatToggle => {
                                     let msg = toggle_state.apply(&action);
