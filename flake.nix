@@ -24,13 +24,11 @@
         commonArgs = {
           version = workspaceVersion;
           src = lib.cleanSource ./.;
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-            outputHashes = {
-              "mcp-cli-0.0.1" = "sha256-aEWGvQh5YklD8l8bylHGIakhYovabHmPHtbGPjXM/1w=";
-              "updatable-cli-0.1.0" = "sha256-kwsURSIbPW4o1S+YGGPwxWG8td4uZz8UYx6RIYMr5Ek=";
-            };
-          };
+          # Use Cargo's vendoring fetcher instead of Nix's per-crate
+          # `crates.io/api/v1/.../download` fetchers. The API endpoint can
+          # return 403 under Nix curl on some fleet hosts; Cargo fetches from
+          # static.crates.io and keeps `nix run .#kittwm` reproducible.
+          cargoHash = "sha256-cuAVEWr8Y4LT0WwtiPBZv9/pLjKks8zgvD4Tb6BnOWs=";
           strictDeps = true;
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ pkgs.libghostty-vt ] ++ lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
@@ -84,6 +82,11 @@
               "kittui-cli"
             ]
             ++ cargoFeatureFlags;
+            # `nix run .#kittwm` should build the runnable package, not run the
+            # full interactive/native test matrix. Keep tests available under
+            # `checks.workspace-check`; the app package must remain suitable for
+            # fleet upgrades where sandboxed PTY/native-graphics tests are flaky.
+            doCheck = false;
             meta = {
               description = "CLI for rendering kitty graphics from kittui scenes";
               homepage = "https://github.com/harryaskham/kittui";
