@@ -9782,6 +9782,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_overlay_panel_heading_label_builds_directly() {
+        let label = graphical_overlay_panel_heading_label("launcher-overlay");
+        assert_eq!(label, "launcher-overlay-heading");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
     fn graphical_overlay_panel_backdrop_label_builds_directly() {
         let label = graphical_overlay_panel_backdrop_label("launcher-overlay", "kittwm launcher");
         assert_eq!(label, "launcher-overlay-backdrop:kittwm launcher");
@@ -14778,6 +14785,14 @@ fn graphical_overlay_panel_backdrop_label(id: &str, title: &str) -> String {
 }
 
 #[cfg(test)]
+fn graphical_overlay_panel_heading_label(id: &str) -> String {
+    let mut label = String::with_capacity(id.len() + "-heading".len());
+    label.push_str(id);
+    label.push_str("-heading");
+    label
+}
+
+#[cfg(test)]
 fn graphical_overlay_panel_row_label(id: &str, idx: usize, row: &str) -> String {
     let mut label = String::with_capacity(id.len() + "-row-:".len() + 20 + row.len());
     label.push_str(id);
@@ -14825,7 +14840,7 @@ fn graphical_overlay_panel_scene(
             },
         ),
         Layer::new(
-            format!("{id}-heading"),
+            graphical_overlay_panel_heading_label(id),
             Node::Rect {
                 rect: PxRect::new(0.0, 0.0, rect.width, row_h * 1.6),
                 fill: Paint::Solid {
