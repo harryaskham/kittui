@@ -986,9 +986,11 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 native_pane_statuses(&panes, focused, &layouts),
             );
             clear = true;
-            dbg.log(&format!(
-                "native terminal resized to {cols}x{rows} panes={} resize_failures={resize_failures}",
-                panes.len()
+            dbg.log(&native_terminal_resized_log_line(
+                cols,
+                rows,
+                panes.len(),
+                resize_failures,
             ));
         }
 
@@ -4363,6 +4365,27 @@ fn native_socket_send_mouse_ignored_log_line(
     out.push_str(event);
     out.push_str(" modes=");
     let _ = write!(out, "{modes:?}");
+    out
+}
+
+fn native_terminal_resized_log_line(
+    cols: u16,
+    rows: u16,
+    panes: usize,
+    resize_failures: usize,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("native terminal resized to x panes= resize_failures=".len() + 60);
+    out.push_str("native terminal resized to ");
+    let _ = write!(out, "{cols}");
+    out.push('x');
+    let _ = write!(out, "{rows}");
+    out.push_str(" panes=");
+    let _ = write!(out, "{panes}");
+    out.push_str(" resize_failures=");
+    let _ = write!(out, "{resize_failures}");
     out
 }
 
@@ -10509,6 +10532,16 @@ mod native_pane_tests {
         assert_eq!(
             line,
             "native terminal socket send mouse ignored: native-1 event=move-left modes=MouseReportingModes { basic: false, button_motion: false, all_motion: false, sgr: false }"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_terminal_resized_log_line_builds_directly() {
+        let line = native_terminal_resized_log_line(120, 40, 3, 1);
+        assert_eq!(
+            line,
+            "native terminal resized to 120x40 panes=3 resize_failures=1"
         );
         assert!(line.capacity() >= line.len());
     }
