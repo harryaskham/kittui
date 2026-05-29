@@ -1084,7 +1084,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|graphical|wayland|kittwm|desktop|list|apps|app|launch|open|run|windows|displays|terminal|shell|ssh]
+  remote HOST [help|doctor|status|check|x11|graphical|wayland|kittwm|desktop|list|apps|app|launch|open|run|windows|displays|terminal|term|shell|ssh]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1497,6 +1497,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST ssh        alias for the same pooled SSH shell pane\n\
              kittwm remote HOST terminal htop\n\
                                            shortest alias for kittwm-terminal --remote HOST htop\n\
+             kittwm remote HOST term htop  short alias for remote HOST terminal htop\n\
              kittwm doctor --remote HOST\n\
                                            check remote kittwm availability and suggested path\n\
              kittwm-terminal --remote HOST --title HOST\n\
@@ -1602,6 +1603,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST run QUERY          natural alias for remote app launch\n\
              remote HOST apps QUERY --launch-first\n\
                                             explicit first remote match launch alias\n\
+             remote HOST terminal CMD       open remote command in a pooled SSH pane\n\
+             remote HOST term CMD           short alias for remote HOST terminal CMD\n\
              apps --remote HOST             list remote candidates via pooled SSH\n\
              apps --remote HOST --filter QUERY --launch-first\n\
                                             launch first remote match; uses remote kittwm when present\n\
@@ -4977,6 +4980,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "friendly alias for remote terminal pane",
         },
         LocalCommandEntry {
+            command: "remote HOST term CMD",
+            category: "remote",
+            description: "short alias for remote terminal pane",
+        },
+        LocalCommandEntry {
             command: "apps --remote HOST",
             category: "remote",
             description: "list remote app candidates via pooled SSH",
@@ -5762,6 +5770,7 @@ fn completion_words() -> &'static [&'static str] {
             "windows",
             "displays",
             "terminal",
+            "term",
             "shell",
             "ssh",
             "--status-json",
@@ -10701,6 +10710,7 @@ mod tests {
         assert!(bash.contains("open"), "{bash}");
         assert!(bash.contains("run"), "{bash}");
         assert!(bash.contains("app"), "{bash}");
+        assert!(bash.contains("term"), "{bash}");
 
         let zsh = completions_text("zsh").unwrap();
         assert!(zsh.contains("#compdef kittwm"), "{zsh}");
@@ -10715,6 +10725,7 @@ mod tests {
         assert!(zsh.contains("open"), "{zsh}");
         assert!(zsh.contains("run"), "{zsh}");
         assert!(zsh.contains("app"), "{zsh}");
+        assert!(zsh.contains("term"), "{zsh}");
 
         let fish = completions_text("fish").unwrap();
         assert!(fish.contains("complete -c kittwm"), "{fish}");
@@ -10730,6 +10741,7 @@ mod tests {
         assert!(fish.contains("open"), "{fish}");
         assert!(fish.contains("run"), "{fish}");
         assert!(fish.contains("app"), "{fish}");
+        assert!(fish.contains("term"), "{fish}");
         assert_eq!(fish, fish_completions_text());
         assert_eq!(fish.capacity(), fish.len());
         assert!(std::ptr::eq(completion_words(), completion_words()));
@@ -10859,6 +10871,9 @@ mod tests {
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST terminal CMD" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST term CMD" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "kittwm-terminal --remote HOST" && entry["category"] == "remote"
@@ -11741,6 +11756,11 @@ mod tests {
                 ][..]
             )
         );
+
+        let mut term = Cli::default();
+        term.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut term, "term", &args(&["htop"])).unwrap();
+        assert_eq!(term.remote_terminal_args, terminal.remote_terminal_args);
 
         let mut shell = Cli::default();
         shell.remote_host = Some("buildbox".to_string());
