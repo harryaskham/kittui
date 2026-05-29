@@ -1121,6 +1121,13 @@ EXAMPLES
   kittwm --save-session session.json
   kittwm --restore-session session.json
 
+FIRST-PARTY HELPERS
+  kittwm-launch --browser https://example.com
+  kittwm-terminal --events-ms 1000
+  kittwm-top --json
+  kittwm-bar --reserve --kitty
+  kittwm-browser --semantic-snapshot https://example.com
+
 For complete socket verbs: kittwm --help-json
 For interactive key chords: kittwm shortcuts
 "#
@@ -11592,6 +11599,23 @@ END
         assert!(text.contains("kittwm showcase-metrics-json"), "{text}");
         assert!(text.contains("kittwm showcase-composition-json"), "{text}");
         assert!(text.contains("kittwm tui-smoke-json"), "{text}");
+    }
+
+    #[test]
+    fn kittwm_help_mentions_first_party_helper_examples() {
+        let text = kittwm_help_text();
+        assert!(text.contains("FIRST-PARTY HELPERS"), "{text}");
+        assert!(
+            text.contains("kittwm-launch --browser https://example.com"),
+            "{text}"
+        );
+        assert!(text.contains("kittwm-terminal --events-ms 1000"), "{text}");
+        assert!(text.contains("kittwm-top --json"), "{text}");
+        assert!(text.contains("kittwm-bar --reserve --kitty"), "{text}");
+        assert!(
+            text.contains("kittwm-browser --semantic-snapshot https://example.com"),
+            "{text}"
+        );
     }
 
     #[test]
