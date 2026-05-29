@@ -1292,7 +1292,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              session  save/restore session manifests\n\
              events   bounded event streams and typed SDK event helpers\n\
              apps     app discovery and launch helpers\n\
-             log      debug log path and tailing workflows\n\n\
+             log      debug log path and tailing workflows\n\
+             completions shell completion setup\n\n\
              Daily guides:\n\
              kittwm quickstart    first-run daily-driver checklist\n\
              kittwm examples      copy-paste workflows\n\
@@ -1384,6 +1385,13 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm log tail -f           follow the log, like tail -f\n\
              KITTUI_WM_LOG=/tmp/demo.log kittwm\n\
                                            start with a per-session log file\n"),
+        "completions" | "completion" => Ok("kittwm help completions\n\
+             ========================\n\n\
+             kittwm completions bash      print Bash completion script\n\
+             kittwm completions zsh       print Zsh completion script\n\
+             kittwm completions fish      print Fish completion script\n\
+             kittwm completions bash >> ~/.bashrc\n\
+                                          install Bash completions for future shells\n"),
         "input" => Ok("kittwm help input\n\
              =================\n\n\
              type [WINDOW] TEXT             short alias for --send-text\n\
@@ -1467,7 +1475,16 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 
 fn known_help_topics() -> &'static [&'static str] {
     &[
-        "topics", "start", "panes", "input", "inspect", "session", "events", "apps", "log",
+        "topics",
+        "start",
+        "panes",
+        "input",
+        "inspect",
+        "session",
+        "events",
+        "apps",
+        "log",
+        "completions",
     ]
 }
 
@@ -8828,6 +8845,19 @@ mod tests {
         assert!(text.contains("kittwm quickstart"), "{text}");
         assert!(text.contains("kittwm examples"), "{text}");
         assert!(text.contains("kittwm cheat"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_completions_lists_shell_examples() {
+        let text = help_topic_text("completions").unwrap();
+        assert!(text.contains("kittwm completions bash"), "{text}");
+        assert!(text.contains("kittwm completions zsh"), "{text}");
+        assert!(text.contains("kittwm completions fish"), "{text}");
+        assert!(
+            text.contains("kittwm completions bash >> ~/.bashrc"),
+            "{text}"
+        );
+        assert!(known_help_topics().contains(&"completions"));
     }
 
     #[test]
