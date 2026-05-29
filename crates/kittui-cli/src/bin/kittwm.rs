@@ -8501,6 +8501,9 @@ case "$mode" in
             open -a "$name" >/dev/null 2>&1 &
             launch_pid=$!
         elif [ "$kind" = "desktop" ]; then
+            if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+                echo "ERR no remote graphical display is available for Linux desktop launch; try: kittwm remote $host x11"; exit 1
+            fi
             if command -v gtk-launch >/dev/null 2>&1; then
                 gtk-launch "$name" >/dev/null 2>&1 &
                 launch_pid=$!
@@ -11730,6 +11733,8 @@ mod tests {
         assert!(script.contains("open -a"), "{script}");
         assert!(script.contains("gtk-launch"), "{script}");
         assert!(script.contains("gio launch"), "{script}");
+        assert!(script.contains("no remote graphical display"), "{script}");
+        assert!(script.contains("kittwm remote $host x11"), "{script}");
         assert!(script.contains("$1 == \"Name\""), "{script}");
         assert!(
             script.contains("kittwm_remote_desktop_localized_values"),
