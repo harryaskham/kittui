@@ -74,7 +74,8 @@ Shows panes/processes for the current kittwm session, or the default :0\n\
 session when no KITTWM_* environment is present. Inside kittwm it runs as a\n\
 normal hosted first-party terminal surface; outside kittwm it prints to the\n\
 current terminal.\n\n\
-Options:\n  --json             Print process snapshot JSON\n  --socket PATH      Connect to a specific kittwm socket\n  --display DISPLAY  Resolve DISPLAY to its kittwm socket path\n  -h, --help         Show this help text\n"
+Options:\n  --json             Print process snapshot JSON\n  --socket PATH      Connect to a specific kittwm socket\n  --display DISPLAY  Resolve DISPLAY to its kittwm socket path\n  -h, --help         Show this help text\n\n\
+Examples:\n  kittwm-top\n  kittwm-top --json\n  kittwm-top --display :0\n  kittwm-top --socket /tmp/kittui-wm-0.sock\n"
 }
 
 fn main() -> ExitCode {
@@ -262,6 +263,19 @@ mod tests {
         assert!(help.contains("--socket PATH"), "{help}");
         assert!(help.contains("--display DISPLAY"), "{help}");
         assert!(help.contains("-h, --help"), "{help}");
+    }
+
+    #[test]
+    fn help_text_lists_copyable_examples() {
+        let help = help_text();
+        assert!(help.contains("Examples:"), "{help}");
+        assert!(help.contains("kittwm-top\n"), "{help}");
+        assert!(help.contains("kittwm-top --json"), "{help}");
+        assert!(help.contains("kittwm-top --display :0"), "{help}");
+        assert!(
+            help.contains("kittwm-top --socket /tmp/kittui-wm-0.sock"),
+            "{help}"
+        );
     }
 
     #[test]
