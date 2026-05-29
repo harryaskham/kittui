@@ -6654,6 +6654,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn layout_action_log_line_builds_directly() {
+        let line = layout_action_log_line("layout.balance -> axis=x balanced#1");
+        assert_eq!(line, "layout action: layout.balance -> axis=x balanced#1");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11507,6 +11514,13 @@ fn toggle_action_log_line(message: &str) -> String {
     out
 }
 
+fn layout_action_log_line(message: &str) -> String {
+    let mut out = String::with_capacity("layout action: ".len() + message.len());
+    out.push_str("layout action: ");
+    out.push_str(message);
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11847,7 +11861,7 @@ pub fn run_loop_with<S: XServer>(
                                         Err(e) => format!("{msg} error={e}"),
                                     };
                                     last_keymap_action = Some(msg.clone());
-                                    dbg.log(&format!("layout action: {msg}"));
+                                    dbg.log(&layout_action_log_line(&msg));
                                 }
                                 Action::ReloadConfig => {
                                     let loaded = load_runtime_keymap_result(&dbg);
