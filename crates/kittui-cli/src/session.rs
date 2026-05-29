@@ -7106,6 +7106,20 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn action_result_status_lines_build_directly() {
+        let window = action_window_status_line("focus.right -> right#1", 7);
+        assert_eq!(window, "focus.right -> right#1 window=7");
+        assert!(window.capacity() >= window.len());
+        let missing = action_no_window_status_line("focus.right -> right#1");
+        assert_eq!(missing, "focus.right -> right#1 window=-");
+        assert_eq!(missing.capacity(), missing.len());
+        let err = anyhow!("no focus");
+        let error = action_error_status_line("focus.right -> right#1", &err);
+        assert_eq!(error, "focus.right -> right#1 error=no focus");
+        assert!(error.capacity() >= error.len());
+    }
+
+    #[test]
     fn focus_action_log_line_builds_directly() {
         let line = focus_action_log_line("focus.right -> right#1 window=native-2");
         assert_eq!(line, "focus action: focus.right -> right#1 window=native-2");
@@ -12685,6 +12699,33 @@ fn workspace_action_log_line(message: &str) -> String {
     out
 }
 
+fn action_window_status_line(message: &str, window_id: u32) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(message.len() + " window=".len() + 10);
+    out.push_str(message);
+    out.push_str(" window=");
+    let _ = write!(out, "{window_id}");
+    out
+}
+
+fn action_no_window_status_line(message: &str) -> String {
+    let mut out = String::with_capacity(message.len() + " window=-".len());
+    out.push_str(message);
+    out.push_str(" window=-");
+    out
+}
+
+fn action_error_status_line(message: &str, err: &dyn std::fmt::Display) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(message.len() + " error=".len() + 80);
+    out.push_str(message);
+    out.push_str(" error=");
+    let _ = write!(out, "{err}");
+    out
+}
+
 fn focus_action_log_line(message: &str) -> String {
     let mut out = String::with_capacity("focus action: ".len() + message.len());
     out.push_str("focus action: ");
@@ -13170,9 +13211,9 @@ pub fn run_loop_with<S: XServer>(
                                         _ => compositor.focus_next(),
                                     };
                                     let msg = match focused {
-                                        Ok(Some(id)) => format!("{msg} window={}", id.0),
-                                        Ok(None) => format!("{msg} window=-"),
-                                        Err(e) => format!("{msg} error={e}"),
+                                        Ok(Some(id)) => action_window_status_line(&msg, id.0),
+                                        Ok(None) => action_no_window_status_line(&msg),
+                                        Err(e) => action_error_status_line(&msg, &e),
                                     };
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&focus_action_log_line(&msg));
