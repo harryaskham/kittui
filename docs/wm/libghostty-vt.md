@@ -89,3 +89,39 @@ A Ghostty-rendered PNG is not automatically proof. Review the image before closi
 The `--montage PATH` option works with `--timelapse-demo` and `--pty-timelapse-command` to stitch a representative set of emitted frames into one PNG directly from the Rust CLI. The montage includes frame/cursor labels so preview evidence remains readable outside the output directory. This keeps preview evidence generation self-contained.
 
 `--chunk-lines N` works with `--pty-timelapse-command` to replay up to N newline-terminated lines per frame. The default is 1 for fine-grained progress; larger values produce denser, shorter frame sequences.
+
+## Ghostty integration harness
+
+`scripts/kittwm-ghostty-harness.sh` is the first checked-in harness for repeatable
+Ghostty/kittwm integration evidence. It wraps the portable `kittui-ghostty` CLI
+for CI-friendly runs and exposes optional host-specific runners for manual
+Ghostty.app and Kittem validation:
+
+```bash
+# Portable PTY -> libghostty-vt -> PNG evidence.
+scripts/kittwm-ghostty-harness.sh --mode headless --out-dir /tmp/kittwm-harness -- \
+  printf 'hello from kittwm harness\\n'
+
+# kittwm-friendly proof path. Review proof.png before using it as visual proof.
+scripts/kittwm-ghostty-harness.sh --mode proof --out-dir /tmp/kittwm-proof -- \
+  cargo run -p kittui-cli --bin kittwm -- --help
+
+# Timelapse frame sequence for output that changes over time.
+scripts/kittwm-ghostty-harness.sh --mode timelapse --out-dir /tmp/kittwm-frames -- \
+  'printf "one\\ntwo\\nthree\\n"'
+```
+
+Every mode writes `harness-manifest.json` plus mode-specific logs/artifacts in
+`--out-dir`. The headless/proof/timelapse modes run in a PTY, capture the VT byte
+stream, and render through libghostty-vt, so they are deterministic enough for
+agent validation and do not require the macOS GUI app. The `app` mode is a
+best-effort macOS smoke runner that launches `Ghostty.app` and captures a desktop
+screenshot with `screencapture`; use it only when GUI permissions and a visible
+session are available. The `kittem` mode delegates to an installed `kittem`
+binary and captures stdout/stderr/status for terminal-emulator validation
+workflows.
+
+As with all kittwm evidence, generated screenshots must be reviewed before they
+are treated as visual proof. If the image only shows command/test logs, classify
+it as `VALIDATION_ONLY`; if it reveals blank, wrapped, stale, or otherwise broken
+output, keep the bead open or file a follow-up.
