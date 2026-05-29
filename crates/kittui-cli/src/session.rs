@@ -2774,10 +2774,7 @@ fn process_native_terminal_byte(
                     reservation,
                 )?;
                 *clear = true;
-                dbg.log(&format!(
-                    "native terminal split toggle: {}",
-                    layout_axis.label()
-                ));
+                dbg.log(&native_split_toggle_log_line(layout_axis.label()));
             }
             b'%' | b'|' | b'v' | b'V' => {
                 *layout_mode = NativePaneLayoutMode::Tiled;
@@ -4444,6 +4441,13 @@ fn native_layout_mode_log_line(label: &str) -> String {
     let mut out = String::with_capacity("native terminal layout mode: ".len() + label.len());
     out.push_str("native terminal layout mode: ");
     out.push_str(label);
+    out
+}
+
+fn native_split_toggle_log_line(axis_label: &str) -> String {
+    let mut out = String::with_capacity("native terminal split toggle: ".len() + axis_label.len());
+    out.push_str("native terminal split toggle: ");
+    out.push_str(axis_label);
     out
 }
 
@@ -10740,6 +10744,13 @@ mod native_pane_tests {
     fn native_layout_mode_log_line_builds_directly() {
         let line = native_layout_mode_log_line("float");
         assert_eq!(line, "native terminal layout mode: float");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
+    fn native_split_toggle_log_line_builds_directly() {
+        let line = native_split_toggle_log_line("rows");
+        assert_eq!(line, "native terminal split toggle: rows");
         assert_eq!(line.capacity(), line.len());
     }
 
