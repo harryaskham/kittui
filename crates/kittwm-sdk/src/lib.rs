@@ -2136,7 +2136,7 @@ pub struct DirtyFrameStatus {
 }
 
 /// Rich native pane detail returned by `PANES_JSON` / `STATUS_JSON`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct NativePaneDetail {
     /// Window id.
     pub window: String,
@@ -4796,40 +4796,31 @@ mod tests {
     }
 
     #[test]
+    fn native_pane_detail_default_is_fixture_friendly() {
+        let pane = NativePaneDetail::default();
+        assert_eq!(pane.window, "");
+        assert_eq!(pane.title, "");
+        assert!(!pane.focused);
+        assert_eq!(pane.weight, 0);
+        assert_eq!(pane.bounds(), None);
+        assert_eq!(pane.app_bounds(), None);
+        assert_eq!(pane.floating_offset(), None);
+        assert_eq!(pane.title_drag_cell(), None);
+    }
+
+    #[test]
     fn native_pane_title_drag_cell_requires_affordance_and_geometry() {
         let base = NativePaneDetail {
             window: "native-1".to_string(),
             title: "shell".to_string(),
             focused: true,
             weight: 1,
-            stack_index: Some(0),
-            stack_top: Some(true),
-            floating_dx: Some(0),
-            floating_dy: Some(0),
             title_draggable: Some(true),
-            title_drag_col: None,
-            title_drag_row: None,
-            pid: None,
-            command: None,
             x: Some(10),
             y: Some(4),
             cols: Some(20),
             rows: Some(6),
-            app_x: None,
-            app_y: None,
-            app_cols: None,
-            app_rows: None,
-            cursor_col: None,
-            cursor_row: None,
-            cursor_visible: None,
-            bracketed_paste: None,
-            application_cursor_keys: None,
-            mouse_reporting: None,
-            mouse_button_motion: None,
-            mouse_all_motion: None,
-            mouse_sgr: None,
-            dirty_frame: None,
-            transport: None,
+            ..NativePaneDetail::default()
         };
         assert_eq!(base.title_drag_cell(), Some((14, 5)));
         assert_eq!(base.title_drag_cells_by(7, -3), Some(((14, 5), (21, 2))));
@@ -6731,34 +6722,9 @@ mod tests {
             title: "shell".to_string(),
             focused: true,
             weight: 1,
-            stack_index: Some(0),
-            stack_top: Some(true),
-            floating_dx: Some(0),
-            floating_dy: Some(0),
-            title_draggable: Some(false),
-            title_drag_col: None,
-            title_drag_row: None,
             pid: Some(999999),
             command: Some("zsh".to_string()),
-            x: None,
-            y: None,
-            cols: None,
-            rows: None,
-            app_x: None,
-            app_y: None,
-            app_cols: None,
-            app_rows: None,
-            cursor_col: None,
-            cursor_row: None,
-            cursor_visible: None,
-            bracketed_paste: None,
-            application_cursor_keys: None,
-            mouse_reporting: None,
-            mouse_button_motion: None,
-            mouse_all_motion: None,
-            mouse_sgr: None,
-            dirty_frame: None,
-            transport: None,
+            ..NativePaneDetail::default()
         }];
         let snapshot = process_snapshot_from_panes(PathBuf::from("/tmp/kittwm.sock"), &panes);
         assert_eq!(snapshot.len(), 1);
