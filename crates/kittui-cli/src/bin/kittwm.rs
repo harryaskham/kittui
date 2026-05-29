@@ -3009,6 +3009,7 @@ else
     printf 'suggestion     : use local kittwm pooled-SSH forwarding commands\n'
 fi
 printf 'local commands : kittwm remote %s kittwm\n' "$host"
+printf '               : kittwm remote %s graphical\n' "$host"
 printf '               : kittwm remote %s list\n' "$host"
 printf '               : kittwm remote %s list apps firefox\n' "$host"
 printf '               : kittwm remote %s launch firefox\n' "$host"
@@ -11667,6 +11668,7 @@ mod tests {
         assert!(script.contains("waypipe_available"), "{script}");
         assert!(script.contains("waypipe_path"), "{script}");
         assert!(script.contains("kittwm remote %s kittwm"), "{script}");
+        assert!(script.contains("kittwm remote %s graphical"), "{script}");
         assert!(script.contains("kittwm remote %s list"), "{script}");
         assert!(
             script.contains("kittwm remote %s launch firefox"),
