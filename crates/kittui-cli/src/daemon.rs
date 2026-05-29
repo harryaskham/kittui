@@ -132,6 +132,14 @@ fn tracked_pane_layout(pane_id: u32) -> String {
     layout
 }
 
+fn tab_pair_arg(first: &str, second: &str) -> String {
+    let mut arg = String::with_capacity(first.len() + 1 + second.len());
+    arg.push_str(first);
+    arg.push('\t');
+    arg.push_str(second);
+    arg
+}
+
 impl PaneRegistry {
     fn track_spawn(&mut self, pid: u32, argv: &str) -> TrackedPane {
         self.next_id = self.next_id.saturating_add(1).max(1);
@@ -710,7 +718,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         }
         return queue_native_pane_command(
             pending,
-            &format!("{window}\t{direction}"),
+            &tab_pair_arg(window, &direction),
             "MOVE_PANE requires window and direction",
             |arg| {
                 let (window, direction) = arg.split_once('\t').unwrap_or((&arg, ""));
@@ -3487,6 +3495,13 @@ mod tests {
         assert!(reply.contains("page-up"));
         assert!(reply.contains("f5..f12"));
         assert!(reply.contains("ctrl-a..ctrl-z"));
+    }
+
+    #[test]
+    fn tab_pair_arg_builds_move_queue_arg_directly() {
+        let arg = tab_pair_arg("focused", "last");
+        assert_eq!(arg, "focused\tlast");
+        assert_eq!(arg.capacity(), arg.len());
     }
 
     #[test]
