@@ -6623,6 +6623,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn split_action_log_line_builds_directly() {
+        let line = split_action_log_line("split.vertical -> spawned#1");
+        assert_eq!(line, "split action: split.vertical -> spawned#1");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn workspace_action_log_line_builds_directly() {
         let line = workspace_action_log_line("workspace.next -> 2/3");
         assert_eq!(line, "workspace action: workspace.next -> 2/3");
@@ -11486,6 +11493,13 @@ fn config_action_log_line(message: &str) -> String {
     out
 }
 
+fn split_action_log_line(message: &str) -> String {
+    let mut out = String::with_capacity("split action: ".len() + message.len());
+    out.push_str("split action: ");
+    out.push_str(message);
+    out
+}
+
 fn workspace_action_log_line(message: &str) -> String {
     let mut out = String::with_capacity("workspace action: ".len() + message.len());
     out.push_str("workspace action: ");
@@ -11751,7 +11765,7 @@ pub fn run_loop_with<S: XServer>(
                                 Action::SplitVerticalLauncher | Action::SplitHorizontalLauncher => {
                                     let msg = split_state.apply(&action);
                                     last_keymap_action = Some(msg.clone());
-                                    dbg.log(&format!("split action: {msg}"));
+                                    dbg.log(&split_action_log_line(&msg));
                                     if opts.launcher_overlay {
                                         launcher_overlay.open_from_env();
                                         dbg.log(&format!(
