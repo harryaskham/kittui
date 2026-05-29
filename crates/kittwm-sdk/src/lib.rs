@@ -5527,6 +5527,8 @@ mod tests {
             shortcuts.starts_with("/tmp/kwshortcuts-3456-"),
             "{shortcuts}"
         );
+        let help = test_socket_path("kwhc", 7890);
+        assert!(help.starts_with("/tmp/kwhc-7890-"), "{help}");
         assert!(path.ends_with(".sock"), "{path}");
         assert!(path.capacity() >= path.len());
     }
@@ -5633,11 +5635,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn help_catalog_helper_sends_expected_socket_command() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwhc-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwhc", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
