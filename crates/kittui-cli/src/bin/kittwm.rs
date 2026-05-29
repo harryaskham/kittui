@@ -1084,7 +1084,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|kittwm|desktop|list|apps|app|launch|open|run|windows|win|displays|monitors|screens|terminal|term|shell|ssh]
+  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|list|apps|app|launch|open|run|windows|win|displays|monitors|screens|terminal|term|shell|ssh]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1474,6 +1474,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST graphical  alias for remote HOST x11\n\
              kittwm remote HOST wayland    alias for remote HOST graphical\n\
              kittwm remote HOST forwarding alias for remote HOST x11\n\
+             kittwm remote HOST forward    short alias for remote HOST forwarding\n\
              kittwm remote HOST            friendly alias for remote doctor\n\
              kittwm remote HOST kittwm     open remote kittwm in a pooled SSH pane\n\
              kittwm remote HOST desktop    alias for remote HOST kittwm\n\
@@ -1599,6 +1600,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST graphical         alias for remote HOST x11\n\
              remote HOST wayland           alias for remote HOST graphical\n\
              remote HOST forwarding        alias for remote HOST x11\n\
+             remote HOST forward           short alias for remote HOST forwarding\n\
              remote HOST kittwm            open remote kittwm in a pooled SSH pane\n\
              remote HOST desktop           alias for remote HOST kittwm\n\
              remote HOST list              list remote app candidates\n\
@@ -1849,7 +1851,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             out.doctor = true;
             parse_remote_doctor_flags(out, rest)
         }
-        "x11" | "gui" | "graphical" | "wayland" | "forwarding" => {
+        "x11" | "gui" | "graphical" | "wayland" | "forwarding" | "forward" => {
             out.doctor = true;
             out.remote_doctor_graphical = true;
             parse_remote_doctor_flags(out, rest)
@@ -1942,12 +1944,12 @@ fn parse_remote_doctor_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
     for flag in flags {
         match flag.as_str() {
             "--json" => out.json = true,
-            "--x11" | "--gui" | "--graphical" | "--wayland" | "--forwarding" => {
+            "--x11" | "--gui" | "--graphical" | "--wayland" | "--forwarding" | "--forward" => {
                 out.remote_doctor_graphical = true
             }
             other => {
                 return Err(anyhow!(
-                    "unknown remote doctor flag {other:?}\ntry: kittwm remote HOST doctor --json | --x11 | --wayland\nhelp: kittwm help ssh"
+                    "unknown remote doctor flag {other:?}\ntry: kittwm remote HOST doctor --json | --x11 | --wayland | --forward\nhelp: kittwm help ssh"
                 ))
             }
         }
@@ -4936,6 +4938,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "alias for remote HOST x11",
         },
         LocalCommandEntry {
+            command: "remote HOST forward",
+            category: "remote",
+            description: "short alias for remote HOST forwarding",
+        },
+        LocalCommandEntry {
             command: "remote HOST kittwm",
             category: "remote",
             description: "open remote kittwm in a pooled SSH terminal pane",
@@ -5814,6 +5821,7 @@ fn completion_words() -> &'static [&'static str] {
             "--gui",
             "--graphical",
             "--wayland",
+            "--forward",
             "help",
             "doctor",
             "status",
@@ -5823,6 +5831,7 @@ fn completion_words() -> &'static [&'static str] {
             "graphical",
             "wayland",
             "forwarding",
+            "forward",
             "list",
             "apps",
             "app",
@@ -10781,6 +10790,8 @@ mod tests {
         assert!(bash.contains("graphical"), "{bash}");
         assert!(bash.contains("wayland"), "{bash}");
         assert!(bash.contains("forwarding"), "{bash}");
+        assert!(bash.contains("forward"), "{bash}");
+        assert!(bash.contains("--forward"), "{bash}");
         assert!(bash.contains("open"), "{bash}");
         assert!(bash.contains("run"), "{bash}");
         assert!(bash.contains("app"), "{bash}");
@@ -10802,6 +10813,8 @@ mod tests {
         assert!(zsh.contains("gui"), "{zsh}");
         assert!(zsh.contains("wayland"), "{zsh}");
         assert!(zsh.contains("forwarding"), "{zsh}");
+        assert!(zsh.contains("forward"), "{zsh}");
+        assert!(zsh.contains("--forward"), "{zsh}");
         assert!(zsh.contains("open"), "{zsh}");
         assert!(zsh.contains("run"), "{zsh}");
         assert!(zsh.contains("app"), "{zsh}");
@@ -10824,6 +10837,8 @@ mod tests {
         assert!(fish.contains("gui"), "{fish}");
         assert!(fish.contains("wayland"), "{fish}");
         assert!(fish.contains("forwarding"), "{fish}");
+        assert!(fish.contains("forward"), "{fish}");
+        assert!(fish.contains("--forward"), "{fish}");
         assert!(fish.contains("open"), "{fish}");
         assert!(fish.contains("run"), "{fish}");
         assert!(fish.contains("app"), "{fish}");
@@ -10930,6 +10945,9 @@ mod tests {
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST gui" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST forward" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list" && entry["category"] == "remote"
@@ -11812,6 +11830,18 @@ mod tests {
         parse_remote_alias_action(&mut forwarding_alias, "forwarding", &[]).unwrap();
         assert!(forwarding_alias.doctor);
         assert!(forwarding_alias.remote_doctor_graphical);
+
+        let mut forward_alias = Cli::default();
+        forward_alias.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut forward_alias, "forward", &[]).unwrap();
+        assert!(forward_alias.doctor);
+        assert!(forward_alias.remote_doctor_graphical);
+
+        let mut forward_status = Cli::default();
+        forward_status.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut forward_status, "status", &args(&["--forward"])).unwrap();
+        assert!(forward_status.doctor);
+        assert!(forward_status.remote_doctor_graphical);
 
         let mut gui_alias = Cli::default();
         gui_alias.remote_host = Some("buildbox".to_string());
