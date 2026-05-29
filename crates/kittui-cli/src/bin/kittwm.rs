@@ -8220,12 +8220,27 @@ kittwm_remote_list_macos_apps() {
         done
     done
 }
+kittwm_remote_desktop_field_matches() {
+    field_values=$1
+    current_values="${XDG_CURRENT_DESKTOP:-};${DESKTOP_SESSION:-}"
+    [ -n "$field_values" ] || return 1
+    awk -v field="$field_values" -v current="$current_values" 'BEGIN {
+        n=split(tolower(field), f, ";");
+        m=split(tolower(current), c, /[;:]/);
+        for (i=1; i<=n; i++) for (j=1; j<=m; j++) if (f[i] != "" && c[j] != "" && f[i] == c[j]) exit 0;
+        exit 1;
+    }'
+}
 kittwm_remote_list_linux_desktop_apps() {
     for root in /usr/share/applications /usr/local/share/applications "$HOME/.local/share/applications"; do
         [ -d "$root" ] || continue
         find "$root" -name '*.desktop' -type f 2>/dev/null | while IFS= read -r desktop; do
             hidden=$(awk -F= '$1 == "Hidden" || $1 == "NoDisplay" { v=tolower($2); if (v == "true" || v == "1") { print "1"; exit } }' "$desktop" 2>/dev/null)
             [ "$hidden" = "1" ] && continue
+            only_show_in=$(awk -F= '$1 == "OnlyShowIn" { print $2; exit }' "$desktop" 2>/dev/null)
+            not_show_in=$(awk -F= '$1 == "NotShowIn" { print $2; exit }' "$desktop" 2>/dev/null)
+            [ -n "$only_show_in" ] && ! kittwm_remote_desktop_field_matches "$only_show_in" && continue
+            [ -n "$not_show_in" ] && kittwm_remote_desktop_field_matches "$not_show_in" && continue
             id=$(basename "$desktop" .desktop)
             name=$(awk -F= '$1 == "Name" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             exec_line=$(awk -F= '$1 == "Exec" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
@@ -11352,6 +11367,9 @@ mod tests {
         assert!(script.contains("$1 == \"Exec\""), "{script}");
         assert!(script.contains("$1 == \"Hidden\""), "{script}");
         assert!(script.contains("$1 == \"NoDisplay\""), "{script}");
+        assert!(script.contains("$1 == \"OnlyShowIn\""), "{script}");
+        assert!(script.contains("$1 == \"NotShowIn\""), "{script}");
+        assert!(script.contains("XDG_CURRENT_DESKTOP"), "{script}");
         assert!(script.contains("desktop_exec="), "{script}");
         assert!(script.contains("gtk-launch failed"), "{script}");
         assert!(script.contains("index(tolower($0), q)"), "{script}");
