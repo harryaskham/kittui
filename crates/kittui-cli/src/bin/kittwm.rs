@@ -1065,6 +1065,7 @@ SESSIONS AND SEMANTICS
 
 DIAGNOSTICS AND BACKENDS
   doctor [--json] [--probe-kitty]   Diagnostics; kitty probing is opt-in
+  doctor --remote HOST              Check remote kittwm availability and SSH forwarding hints
   config [--keymap PATH] [--check]  Config/keymap inspection
   config-scene-json [--keymap PATH] Emit config readiness as a kittui Scene
   config-kitty [--keymap PATH]      Render config readiness with kitty graphics
@@ -1395,6 +1396,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            launch first remote app match through pooled SSH\n\
              kittwm --list-windows --remote HOST\n\
                                            list remote windows/displays when supported\n\
+             kittwm doctor --remote HOST\n\
+                                           check remote kittwm availability and suggested path\n\
              kittwm-terminal --remote HOST --title HOST\n\
                                            open a local kittwm pane running a remote login shell\n\
              kittwm-terminal --remote HOST -- htop\n\
@@ -2000,6 +2003,9 @@ fn real_main() -> Result<()> {
 
     // Inspection flags run cooked, never enter raw mode.
     if cli.doctor || cli.doctor_scene_json || cli.doctor_kitty {
+        if let Some(host) = cli.remote_host.as_deref() {
+            return remote_doctor_cmd(host, cli.json, cli.doctor_scene_json || cli.doctor_kitty);
+        }
         return doctor_cmd(
             cli.json,
             cli.doctor_scene_json,
@@ -2456,6 +2462,71 @@ fn write_stdout_or_ignore_broken_pipe(bytes: &[u8]) -> Result<()> {
         Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
         Err(err) => Err(err.into()),
     }
+}
+
+fn remote_doctor_cmd(host: &str, json: bool, graphical: bool) -> Result<()> {
+    if graphical {
+        return Err(anyhow!(
+            "remote doctor supports text/json output; run `ssh {host} kittwm doctor-kitty` when remote kittwm is installed"
+        ));
+    }
+    let args = pooled_ssh_args(
+        host,
+        &[(
+            "KITTWM_REMOTE_DOCTOR_JSON".to_string(),
+            if json { "1" } else { "0" }.to_string(),
+        )],
+        remote_doctor_script(),
+    )?;
+    let status = std::process::Command::new("ssh")
+        .args(&args)
+        .status()
+        .map_err(|e| anyhow!("ssh remote doctor {host}: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!("ssh remote doctor {host} exited with {status}"))
+    }
+}
+
+fn remote_doctor_script() -> &'static str {
+    r#"host=$(hostname 2>/dev/null || printf unknown)
+term=${TERM:-}
+term_program=${TERM_PROGRAM:-}
+ssh_tty=${SSH_TTY:-}
+size=$(stty size 2>/dev/null || true)
+kittwm_path=$(command -v kittwm 2>/dev/null || true)
+json_string() {
+    printf '%s' "$1" | awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
+}
+if [ "${KITTWM_REMOTE_DOCTOR_JSON:-0}" = "1" ]; then
+    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"kittwm_available":%s,"kittwm_path":%s}\n' \
+        "$(json_string "$host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$(json_string "$kittwm_path")"
+    exit 0
+fi
+printf 'kittwm remote doctor\n=====================\n'
+printf 'host           : %s\n' "$host"
+printf 'TERM           : %s\n' "$term"
+printf 'TERM_PROGRAM   : %s\n' "$term_program"
+printf 'SSH_TTY        : %s\n' "$ssh_tty"
+printf 'stty size      : %s\n' "${size:-unknown}"
+if [ -n "$kittwm_path" ]; then
+    printf 'remote kittwm  : %s\n' "$kittwm_path"
+    if kittwm doctor --json >/dev/null 2>&1; then
+        printf 'startup check  : kittwm doctor --json succeeded\n'
+        printf 'suggestion     : run kittwm on the remote for remote desktop/window context\n'
+    else
+        printf 'startup check  : kittwm doctor --json failed\n'
+        printf 'suggestion     : use local pooled-SSH forwarding until remote kittwm packaging is fixed\n'
+    fi
+else
+    printf 'remote kittwm  : not found\n'
+    printf 'suggestion     : use local kittwm pooled-SSH forwarding commands\n'
+fi
+printf 'local commands : kittwm apps --remote %s\n' "$host"
+printf '               : kittwm-terminal --remote %s\n' "$host"
+printf '               : kittwm --list-windows --remote %s\n' "$host"
+"#
 }
 
 fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> Result<()> {
@@ -4191,6 +4262,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "apps --remote HOST --filter QUERY --launch-first",
             category: "remote",
             description: "launch first remote app match via pooled SSH",
+        },
+        LocalCommandEntry {
+            command: "doctor --remote HOST",
+            category: "remote",
+            description: "check remote kittwm availability and forwarding hints",
         },
         LocalCommandEntry {
             command: "--list-windows --remote HOST",
@@ -9393,6 +9469,7 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("kittwm apps --remote HOST"), "{text}");
+        assert!(text.contains("kittwm doctor --remote HOST"), "{text}");
         assert!(text.contains("kittwm-terminal --remote HOST"), "{text}");
         assert!(text.contains("ControlMaster=auto"), "{text}");
     }
@@ -9564,6 +9641,9 @@ mod tests {
             .any(|entry| { entry["command"] == "apps-kitty" && entry["category"] == "apps" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "apps --remote HOST" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "doctor --remote HOST" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "kittwm-terminal --remote HOST" && entry["category"] == "remote"
@@ -10270,6 +10350,23 @@ mod tests {
             ..Cli::default()
         };
         assert!(apps_cmd(&cli).is_ok());
+    }
+
+    #[test]
+    fn remote_doctor_script_reports_installed_and_forwarding_paths() {
+        let script = remote_doctor_script();
+        assert!(script.contains("command -v kittwm"), "{script}");
+        assert!(script.contains("kittwm doctor --json"), "{script}");
+        assert!(script.contains("kittwm apps --remote"), "{script}");
+        assert!(script.contains("kittwm-terminal --remote"), "{script}");
+        let args = pooled_ssh_args(
+            "host.example",
+            &[("KITTWM_REMOTE_DOCTOR_JSON".to_string(), "1".to_string())],
+            script,
+        )
+        .unwrap();
+        assert!(args.contains(&"KITTWM_REMOTE_DOCTOR_JSON=1".to_string()));
+        assert!(args.contains(&"host.example".to_string()));
     }
 
     #[test]
