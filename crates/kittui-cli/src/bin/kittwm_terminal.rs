@@ -35,6 +35,8 @@ struct TerminalArgs {
     replace: bool,
     title: Option<String>,
     command: String,
+    command_explicit: bool,
+    remote_host: Option<String>,
     status: StatusMode,
     events: Option<EventsRequest>,
 }
@@ -63,6 +65,7 @@ impl TerminalArgs {
         let mut replace = false;
         let mut title = None;
         let mut command = None;
+        let mut remote_host = None;
         let mut status = StatusMode::None;
         let mut events = None;
         let mut iter = args.into_iter().map(Into::into).peekable();
@@ -114,6 +117,12 @@ impl TerminalArgs {
                         .ok_or_else(|| "--title requires a value".to_string())?;
                     title = Some(value);
                 }
+                "--remote" | "--host" => {
+                    remote_host = Some(
+                        iter.next()
+                            .ok_or_else(|| "--remote requires a host".to_string())?,
+                    );
+                }
                 "--command" | "-c" => {
                     let value = iter
                         .next()
@@ -135,10 +144,13 @@ impl TerminalArgs {
                 }
             }
         }
+        let command_explicit = command.is_some();
         Ok(Self {
             replace,
             title,
             command: command.unwrap_or_else(default_terminal_command),
+            command_explicit,
+            remote_host,
             status,
             events,
         })
@@ -247,9 +259,9 @@ fn push_shell_word(out: &mut String, arg: &str) {
 
 fn help_text() -> String {
     "kittwm-terminal — first-party terminal client for kittwm\n\n\
-Usage:\n  kittwm-terminal [--replace|--new-window] [--title TITLE] [--command CMD]\n  kittwm-terminal [--replace|--new-window] [--title TITLE] -- PROGRAM [ARGS...]\n  kittwm-terminal --status\n  kittwm-terminal --status-scene-json\n  kittwm-terminal --status-kitty\n  kittwm-terminal --events-ms MS\n  kittwm-terminal --events-scene-json MS\n  kittwm-terminal --events-kitty MS\n\n\
-Options:\n  --replace              Replace the currently focused pane (default)\n  --new-window           Spawn a new kittwm native pane\n  --title TITLE          Set the terminal surface title\n  --command CMD, -c CMD  Run CMD through the configured shell\n  --status               Print typed SDK status/pane detail\n  --status-scene-json    Emit the status card as kittui Scene JSON\n  --status-kitty         Render the status card with kitty graphics\n  --events-ms MS         Print a bounded event batch\n  --events-scene-json MS Emit the event batch as kittui Scene JSON\n  --events-kitty MS      Render the event batch with kitty graphics\n  --help, -h             Show this help text\n\n\
-Examples:\n  kittwm-terminal\n  kittwm-terminal --title logs -- tail -f /tmp/app.log\n  kittwm-terminal --replace --command 'zsh -l'\n  kittwm-terminal --status\n  kittwm-terminal --events-ms 1000\n\n\
+Usage:\n  kittwm-terminal [--replace|--new-window] [--title TITLE] [--command CMD]\n  kittwm-terminal [--replace|--new-window] [--title TITLE] -- PROGRAM [ARGS...]\n  kittwm-terminal --remote HOST [--title TITLE] [--command CMD]\n  kittwm-terminal --status\n  kittwm-terminal --status-scene-json\n  kittwm-terminal --status-kitty\n  kittwm-terminal --events-ms MS\n  kittwm-terminal --events-scene-json MS\n  kittwm-terminal --events-kitty MS\n\n\
+Options:\n  --replace              Replace the currently focused pane (default)\n  --new-window           Spawn a new kittwm native pane\n  --remote HOST          Open a local kittwm terminal pane running pooled SSH\n  --title TITLE          Set the terminal surface title\n  --command CMD, -c CMD  Run CMD through the configured shell\n  --status               Print typed SDK status/pane detail\n  --status-scene-json    Emit the status card as kittui Scene JSON\n  --status-kitty         Render the status card with kitty graphics\n  --events-ms MS         Print a bounded event batch\n  --events-scene-json MS Emit the event batch as kittui Scene JSON\n  --events-kitty MS      Render the event batch with kitty graphics\n  --help, -h             Show this help text\n\n\
+Examples:\n  kittwm-terminal\n  kittwm-terminal --title logs -- tail -f /tmp/app.log\n  kittwm-terminal --remote buildbox --title buildbox\n  kittwm-terminal --remote buildbox -- htop\n  kittwm-terminal --replace --command 'zsh -l'\n  kittwm-terminal --status\n  kittwm-terminal --events-ms 1000\n\n\
 Connects through KITTWM_SOCKET/KITTWM_DISPLAY using kittwm-sdk and asks the\n\
 running kittwm instance to spawn or replace a native terminal surface.\n\
 --status prints typed SDK status/pane detail; --status-scene-json and\n\
@@ -594,21 +606,79 @@ fn run(args: TerminalArgs) -> Result<String, String> {
             EventsMode::Kitty => render_events_kitty(&model),
         };
     }
+    let command = terminal_spawn_command(&args)?;
+    let title = args.title;
     if args.replace {
-        wm.replace_current(&WindowSpec {
-            title: args.title,
-            command: args.command,
-        })
-        .map_err(|err| sdk_error("replace current terminal", &err))
+        wm.replace_current(&WindowSpec { title, command })
+            .map_err(|err| sdk_error("replace current terminal", &err))
     } else {
-        let mut spec = SurfaceSpec::terminal(args.command);
-        if let Some(title) = args.title {
+        let mut spec = SurfaceSpec::terminal(command);
+        if let Some(title) = title {
             spec = spec.titled(title);
         }
         wm.spawn_surface(&spec)
             .map(|spawn| spawn.reply)
             .map_err(|err| sdk_error("spawn terminal surface", &err))
     }
+}
+
+fn terminal_spawn_command(args: &TerminalArgs) -> Result<String, String> {
+    if let Some(host) = args.remote_host.as_deref() {
+        return remote_terminal_command(host, &args.command, args.command_explicit);
+    }
+    Ok(args.command.clone())
+}
+
+fn remote_terminal_command(
+    host: &str,
+    command: &str,
+    command_explicit: bool,
+) -> Result<String, String> {
+    if host.trim().is_empty() {
+        return Err("--remote requires a non-empty host".to_string());
+    }
+    let control_path =
+        remote_terminal_control_path().map_err(|err| sdk_error("prepare ssh pool", &err))?;
+    let mut argv = vec![
+        "ssh".to_string(),
+        "-tt".to_string(),
+        "-o".to_string(),
+        "ControlMaster=auto".to_string(),
+        "-o".to_string(),
+        "ControlPersist=10m".to_string(),
+        "-o".to_string(),
+        format!("ControlPath={}", control_path.display()),
+        host.to_string(),
+    ];
+    if command_explicit {
+        argv.extend(["sh".to_string(), "-lc".to_string(), command.to_string()]);
+    }
+    Ok(shell_words(&argv))
+}
+
+fn remote_terminal_control_path() -> std::io::Result<std::path::PathBuf> {
+    let base = env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .map(|home| home.join(".cache"))
+        })
+        .unwrap_or_else(env::temp_dir);
+    let dir = base.join("kittwm-ssh");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join("%C"))
+}
+
+#[cfg(not(test))]
+fn shell_words(args: &[String]) -> String {
+    let mut out = String::with_capacity(
+        args.iter()
+            .map(|arg| arg.len().saturating_add(2))
+            .sum::<usize>(),
+    );
+    push_shell_words(&mut out, args.iter());
+    out
 }
 
 fn sdk_error(prefix: &str, err: &impl std::fmt::Display) -> String {
@@ -665,6 +735,8 @@ mod tests {
                 replace: true,
                 title: Some("dev shell".to_string()),
                 command: "zsh -l".to_string(),
+                command_explicit: true,
+                remote_host: None,
                 status: StatusMode::None,
                 events: None,
             }
@@ -685,6 +757,23 @@ mod tests {
         let command = login_shell_command("/bin/zsh".to_string());
         assert_eq!(command, "/bin/zsh -l");
         assert_eq!(command.capacity(), command.len());
+    }
+
+    #[test]
+    fn parses_remote_terminal_host_and_builds_pooled_ssh_command() {
+        let args = TerminalArgs::parse_from(["--remote", "buildbox", "--", "htop"]).unwrap();
+        assert_eq!(args.remote_host.as_deref(), Some("buildbox"));
+        assert!(args.command_explicit);
+        let command =
+            remote_terminal_command("buildbox", &args.command, args.command_explicit).unwrap();
+        assert!(command.contains("ssh -tt"), "{command}");
+        assert!(command.contains("ControlMaster=auto"), "{command}");
+        assert!(command.contains("ControlPersist=10m"), "{command}");
+        assert!(command.contains("buildbox sh -lc htop"), "{command}");
+
+        let login = remote_terminal_command("buildbox", "/bin/sh -l", false).unwrap();
+        assert!(login.contains("ssh -tt"), "{login}");
+        assert!(login.ends_with(" buildbox"), "{login}");
     }
 
     #[test]
