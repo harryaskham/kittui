@@ -7157,6 +7157,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn action_window_mode_status_line_builds_directly() {
+        let line = action_window_mode_status_line("toggle.float -> floating#1", 7, "floating");
+        assert_eq!(line, "toggle.float -> floating#1 window=7 mode=floating");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn focus_action_log_line_builds_directly() {
         let line = focus_action_log_line("focus.right -> right#1 window=native-2");
         assert_eq!(line, "focus action: focus.right -> right#1 window=native-2");
@@ -12776,6 +12783,18 @@ fn action_window_status_line(message: &str, window_id: u32) -> String {
     out
 }
 
+fn action_window_mode_status_line(message: &str, window_id: u32, mode: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(message.len() + " window= mode=".len() + mode.len() + 10);
+    out.push_str(message);
+    out.push_str(" window=");
+    let _ = write!(out, "{window_id}");
+    out.push_str(" mode=");
+    out.push_str(mode);
+    out
+}
+
 fn action_no_window_status_line(message: &str) -> String {
     let mut out = String::with_capacity(message.len() + " window=-".len());
     out.push_str(message);
@@ -13314,10 +13333,10 @@ pub fn run_loop_with<S: XServer>(
                                                 }
                                                 kittui_wm::compositor::WindowMode::Tiled => "tiled",
                                             };
-                                            format!("{msg} window={} mode={mode}", id.0)
+                                            action_window_mode_status_line(&msg, id.0, mode)
                                         }
-                                        Ok(None) => format!("{msg} window=-"),
-                                        Err(e) => format!("{msg} error={e}"),
+                                        Ok(None) => action_no_window_status_line(&msg),
+                                        Err(e) => action_error_status_line(&msg, &e),
                                     };
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&toggle_action_log_line(&msg));
