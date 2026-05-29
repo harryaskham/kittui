@@ -863,7 +863,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         }
         return queue_native_pane_command(
             pending,
-            &format!("{window}\t{title}"),
+            &tab_pair_arg(window, title),
             "RENAME_PANE requires window and title",
             |arg| {
                 let (window, title) = arg.split_once('\t').unwrap_or((&arg, ""));
@@ -3522,10 +3522,14 @@ mod tests {
     }
 
     #[test]
-    fn tab_pair_arg_builds_move_queue_arg_directly() {
+    fn tab_pair_arg_builds_move_and_rename_queue_args_directly() {
         let arg = tab_pair_arg("focused", "last");
         assert_eq!(arg, "focused\tlast");
         assert_eq!(arg.capacity(), arg.len());
+
+        let rename = tab_pair_arg("native-2", "editor pane");
+        assert_eq!(rename, "native-2\teditor pane");
+        assert_eq!(rename.capacity(), rename.len());
     }
 
     #[test]
