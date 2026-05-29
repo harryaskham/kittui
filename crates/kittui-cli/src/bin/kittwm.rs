@@ -31,7 +31,7 @@ use std::process::ExitCode;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use base64::Engine;
 
 use kittui::{
@@ -93,6 +93,7 @@ struct Cli {
     apps_filter: Option<String>,
     apps_first: bool,
     apps_launch_first: bool,
+    remote_host: Option<String>,
     status_scene_json: bool,
     status_kitty: bool,
     chrome_scene_json: bool,
@@ -445,6 +446,9 @@ fn parse_args() -> Result<Cli> {
             }
             "--filter" => {
                 out.apps_filter = Some(args.next().ok_or_else(missing_filter_error)?);
+            }
+            "--remote" | "--host" => {
+                out.remote_host = Some(args.next().ok_or_else(|| anyhow!("--remote HOST"))?);
             }
             "--first" => out.apps_first = true,
             "--launch-first" => out.apps_launch_first = true,
@@ -1066,6 +1070,9 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
+  apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
+                            List/launch remote candidates via pooled SSH;
+                            uses remote kittwm when installed, else PATH fallback
   apps-kitty [--filter QUERY] [--limit N]
                             Render launcher candidates with kitty graphics
   --apps-json              App discovery catalog JSON
@@ -1450,6 +1457,9 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
         "apps" | "app" => Ok("kittwm help apps\n\
              ================\n\n\
              apps                           list launch candidates\n\
+             apps --remote HOST             list remote candidates via pooled SSH\n\
+             apps --remote HOST --filter QUERY --launch-first\n\
+                                            launch first remote match; uses remote kittwm when present\n\
              --apps-json                    APPS_JSON catalog\n\
              --apps-first QUERY             first matching app candidate\n\
              --apps-launch-first QUERY      launch first matching candidate\n\
@@ -7237,7 +7247,194 @@ fn write_duplicate_action_labels(
     out.write_all(b"\n")
 }
 
+fn remote_apps_cmd(cli: &Cli, host: &str) -> Result<()> {
+    if cli.apps_scene_json || cli.apps_kitty {
+        return Err(anyhow!(
+            "remote apps currently supports text/json/first/launch-first; run `ssh {host} kittwm apps-kitty` when remote kittwm is installed"
+        ));
+    }
+    let limit = cli.apps_limit.unwrap_or(50);
+    let mode = remote_apps_mode(cli);
+    let args = pooled_ssh_args(
+        host,
+        &remote_apps_env(cli.apps_filter.as_deref(), limit, mode),
+        remote_apps_script(),
+    )?;
+    let status = std::process::Command::new("ssh")
+        .args(&args)
+        .status()
+        .map_err(|e| anyhow!("ssh remote apps {host}: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!("ssh remote apps {host} exited with {status}"))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoteAppsMode {
+    List,
+    Json,
+    First,
+    LaunchFirst,
+}
+
+fn remote_apps_mode(cli: &Cli) -> RemoteAppsMode {
+    if cli.apps_launch_first {
+        RemoteAppsMode::LaunchFirst
+    } else if cli.apps_first {
+        RemoteAppsMode::First
+    } else if cli.json {
+        RemoteAppsMode::Json
+    } else {
+        RemoteAppsMode::List
+    }
+}
+
+fn remote_apps_env(
+    query: Option<&str>,
+    limit: usize,
+    mode: RemoteAppsMode,
+) -> Vec<(String, String)> {
+    vec![
+        (
+            "KITTWM_REMOTE_QUERY".to_string(),
+            query.unwrap_or_default().to_string(),
+        ),
+        ("KITTWM_REMOTE_LIMIT".to_string(), limit.to_string()),
+        (
+            "KITTWM_REMOTE_MODE".to_string(),
+            match mode {
+                RemoteAppsMode::List => "list",
+                RemoteAppsMode::Json => "json",
+                RemoteAppsMode::First => "first",
+                RemoteAppsMode::LaunchFirst => "launch-first",
+            }
+            .to_string(),
+        ),
+    ]
+}
+
+fn pooled_ssh_args(host: &str, env: &[(String, String)], script: &str) -> Result<Vec<String>> {
+    if host.trim().is_empty() {
+        return Err(anyhow!("--remote HOST must not be empty"));
+    }
+    let control_path = pooled_ssh_control_path()?;
+    let mut args = vec![
+        "-o".to_string(),
+        "ControlMaster=auto".to_string(),
+        "-o".to_string(),
+        "ControlPersist=10m".to_string(),
+        "-o".to_string(),
+        format!("ControlPath={}", control_path.display()),
+        host.to_string(),
+        "env".to_string(),
+    ];
+    args.extend(
+        env.iter()
+            .map(|(key, value)| format!("{key}={}", shell_quote(value))),
+    );
+    args.extend(["sh".to_string(), "-lc".to_string(), script.to_string()]);
+    Ok(args)
+}
+
+fn pooled_ssh_control_path() -> Result<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .map(|home| home.join(".cache"))
+        })
+        .unwrap_or_else(std::env::temp_dir);
+    let dir = base.join("kittwm-ssh");
+    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    Ok(dir.join("%C"))
+}
+
+fn shell_quote(value: &str) -> String {
+    if value
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'/' | b':' | b','))
+    {
+        return value.to_string();
+    }
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('\'');
+    for ch in value.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+fn remote_apps_script() -> &'static str {
+    r#"if command -v kittwm >/dev/null 2>&1; then
+    set -- apps --limit "${KITTWM_REMOTE_LIMIT:-50}"
+    if [ -n "${KITTWM_REMOTE_QUERY:-}" ]; then set -- "$@" --filter "$KITTWM_REMOTE_QUERY"; fi
+    case "${KITTWM_REMOTE_MODE:-list}" in
+        json) set -- "$@" --json ;;
+        first) set -- "$@" --first ;;
+        launch-first) set -- "$@" --launch-first ;;
+    esac
+    exec kittwm "$@"
+fi
+kittwm_remote_list_path_commands() {
+    old_ifs=$IFS
+    IFS=:
+    for dir in $PATH; do
+        [ -d "$dir" ] || continue
+        for path in "$dir"/*; do
+            [ -f "$path" ] && [ -x "$path" ] && basename "$path"
+        done
+    done
+    IFS=$old_ifs
+}
+kittwm_remote_candidates() {
+    kittwm_remote_list_path_commands | sort -u | awk -v q="${KITTWM_REMOTE_QUERY:-}" 'BEGIN { q=tolower(q) } q == "" || index(tolower($0), q)'
+}
+limit=${KITTWM_REMOTE_LIMIT:-50}
+mode=${KITTWM_REMOTE_MODE:-list}
+host=$(hostname 2>/dev/null || printf unknown)
+case "$mode" in
+    json)
+        first=1
+        printf '{"host":%s,"mode":"shell-path","path_commands":[' "$(printf '%s' "$host" | awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }')"
+        kittwm_remote_candidates | head -n "$limit" | while IFS= read -r cmd; do
+            [ $first -eq 1 ] || printf ','
+            first=0
+            printf '%s' "$cmd" | awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
+        done
+        printf '],"macos_apps":[]}'
+        ;;
+    first)
+        candidate=$(kittwm_remote_candidates | head -n 1)
+        [ -n "$candidate" ] || { echo "ERR no remote app candidates matched"; exit 1; }
+        printf 'path:%s\n' "$candidate"
+        ;;
+    launch-first)
+        candidate=$(kittwm_remote_candidates | head -n 1)
+        [ -n "$candidate" ] || { echo "ERR no remote app candidates matched"; exit 1; }
+        ("$candidate" >/dev/null 2>&1 & printf 'kittwm remote apps: launched pid=%s kind=path name=%s host=%s\n' "$!" "$candidate" "$host")
+        ;;
+    *)
+        printf 'kittwm remote apps\n==================\nhost: %s\nmode: shell-path\n' "$host"
+        if [ -n "${KITTWM_REMOTE_QUERY:-}" ]; then printf 'filter: %s\n' "$KITTWM_REMOTE_QUERY"; fi
+        printf 'PATH commands (first %s):\n' "$limit"
+        kittwm_remote_candidates | head -n "$limit" | sed 's/^/  /'
+        ;;
+esac
+"#
+}
+
 fn apps_cmd(cli: &Cli) -> Result<()> {
+    if let Some(host) = cli.remote_host.as_deref() {
+        return remote_apps_cmd(cli, host);
+    }
     let limit = cli.apps_limit.unwrap_or(50);
     let default_cmd = kittui_cli::session::launcher_command();
     let default_prog = default_cmd.split_whitespace().next().unwrap_or("xterm");
@@ -9866,6 +10063,53 @@ mod tests {
             ..Cli::default()
         };
         assert!(apps_cmd(&cli).is_ok());
+    }
+
+    #[test]
+    fn remote_apps_env_selects_kittwm_or_shell_modes() {
+        let cli = Cli {
+            apps: true,
+            apps_launch_first: true,
+            apps_filter: Some("Visual Studio Code".to_string()),
+            apps_limit: Some(7),
+            ..Cli::default()
+        };
+        let env = remote_apps_env(cli.apps_filter.as_deref(), 7, remote_apps_mode(&cli));
+        assert!(env.contains(&(
+            "KITTWM_REMOTE_QUERY".to_string(),
+            "Visual Studio Code".to_string()
+        )));
+        assert!(env.contains(&("KITTWM_REMOTE_LIMIT".to_string(), "7".to_string())));
+        assert!(env.contains(&("KITTWM_REMOTE_MODE".to_string(), "launch-first".to_string())));
+        let script = remote_apps_script();
+        assert!(script.contains("command -v kittwm"), "{script}");
+        assert!(
+            script.contains("kittwm_remote_list_path_commands"),
+            "{script}"
+        );
+    }
+
+    #[test]
+    fn pooled_ssh_args_enable_controlmaster_and_quote_env() {
+        let args = pooled_ssh_args(
+            "host.example",
+            &[(
+                "KITTWM_REMOTE_QUERY".to_string(),
+                "Visual Studio Code".to_string(),
+            )],
+            "echo ok",
+        )
+        .unwrap();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-o", "ControlMaster=auto"]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-o", "ControlPersist=10m"]));
+        assert!(args.iter().any(|arg| arg.starts_with("ControlPath=")));
+        assert!(args.contains(&"host.example".to_string()));
+        assert!(args.contains(&"KITTWM_REMOTE_QUERY='Visual Studio Code'".to_string()));
+        assert_eq!(shell_quote("it's ok"), "'it'\\''s ok'");
     }
 
     #[test]
