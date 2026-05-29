@@ -2261,26 +2261,28 @@ pub fn native_display_tuning() -> NativeDisplayTuning {
 }
 
 fn native_cell_width_px() -> u32 {
-    native_cell_px_from_env(
+    native_cell_px_from_env_or_host(
         "KITTWM_NATIVE_CELL_WIDTH_PX",
+        HostTerminalAxis::Columns,
         NATIVE_BASE_CELL_WIDTH_PX,
         NATIVE_MAX_CELL_WIDTH_PX,
     )
 }
 
 fn native_cell_height_px() -> u32 {
-    native_cell_px_from_env(
+    native_cell_px_from_env_or_host(
         "KITTWM_NATIVE_CELL_HEIGHT_PX",
+        HostTerminalAxis::Rows,
         NATIVE_BASE_CELL_HEIGHT_PX,
         NATIVE_MAX_CELL_HEIGHT_PX,
     )
 }
 
-fn native_cell_px_from_env(key: &str, base: u32, max: u32) -> u32 {
+fn native_cell_px_from_env_or_host(key: &str, axis: HostTerminalAxis, base: u32, max: u32) -> u32 {
     std::env::var(key)
         .ok()
-        .and_then(|value| value.parse::<u32>().ok())
-        .filter(|value| *value > 0)
+        .and_then(|value| parse_positive_u32(&value))
+        .or_else(|| inferred_native_cell_px(axis))
         .unwrap_or_else(|| {
             if native_hidpi_enabled() {
                 base.saturating_mul(NATIVE_HIDPI_SCALE)
@@ -2289,6 +2291,19 @@ fn native_cell_px_from_env(key: &str, base: u32, max: u32) -> u32 {
             }
         })
         .clamp(1, max)
+}
+
+fn inferred_native_cell_px(axis: HostTerminalAxis) -> Option<u32> {
+    let snapshot = host_terminal_snapshot()?;
+    let (pixels, cells) = match axis {
+        HostTerminalAxis::Columns => (snapshot.width_px?, snapshot.cols),
+        HostTerminalAxis::Rows => (snapshot.height_px?, snapshot.rows),
+    };
+    infer_cell_px_from_terminal_pixels(pixels, cells)
+}
+
+fn infer_cell_px_from_terminal_pixels(pixels: u32, cells: u16) -> Option<u32> {
+    (pixels > 0 && cells > 0).then_some((pixels / u32::from(cells)).max(1))
 }
 
 fn native_hidpi_enabled() -> bool {
@@ -9805,6 +9820,44 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn host_terminal_cells_fall_back_to_shell_columns_and_lines() {
+        assert_eq!(
+            host_terminal_cells_from_sources(None, None, Some("132"), Some("43")),
+            Some((132, 43))
+        );
+        assert_eq!(
+            host_terminal_cells_from_sources(Some(100), Some(40), Some("132"), Some("43")),
+            Some((100, 40))
+        );
+        assert_eq!(
+            host_terminal_cells_from_sources(Some(0), Some(0), Some("132"), Some("43")),
+            Some((132, 43))
+        );
+        assert_eq!(
+            host_terminal_cells_from_sources(None, None, Some("132"), Some("0")),
+            None
+        );
+    }
+
+    #[test]
+    fn host_terminal_pixels_use_env_or_remote_ioctl_sources() {
+        assert_eq!(
+            host_terminal_pixels_from_sources(None, None, Some("2112"), Some("1032"), false),
+            Some((2112, 1032))
+        );
+        assert_eq!(
+            host_terminal_pixels_from_sources(Some(1600), Some(800), None, None, true),
+            Some((1600, 800))
+        );
+        assert_eq!(
+            host_terminal_pixels_from_sources(Some(1600), Some(800), None, None, false),
+            None
+        );
+        assert_eq!(infer_cell_px_from_terminal_pixels(2112, 132), Some(16));
+        assert_eq!(infer_cell_px_from_terminal_pixels(1032, 43), Some(24));
+    }
+
+    #[test]
     fn native_status_outer_rows_reports_layout_not_app_height() {
         let layout = NativePaneLayout {
             x: 0,
@@ -11383,7 +11436,54 @@ fn clamp_native_terminal_size(
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HostTerminalSnapshot {
+    cols: u16,
+    rows: u16,
+    width_px: Option<u32>,
+    height_px: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostTerminalAxis {
+    Columns,
+    Rows,
+}
+
 fn host_terminal_cells() -> Option<(u16, u16)> {
+    host_terminal_snapshot().map(|snapshot| (snapshot.cols, snapshot.rows))
+}
+
+fn host_terminal_snapshot() -> Option<HostTerminalSnapshot> {
+    let ws = ioctl_terminal_winsize();
+    let cells = host_terminal_cells_from_sources(
+        ws.as_ref().map(|ws| ws.ws_col),
+        ws.as_ref().map(|ws| ws.ws_row),
+        std::env::var("COLUMNS").ok().as_deref(),
+        std::env::var("LINES").ok().as_deref(),
+    )?;
+    let pixels = host_terminal_pixels_from_sources(
+        ws.as_ref().map(|ws| u32::from(ws.ws_xpixel)),
+        ws.as_ref().map(|ws| u32::from(ws.ws_ypixel)),
+        std::env::var("KITTWM_HOST_TERMINAL_WIDTH_PX")
+            .or_else(|_| std::env::var("KITTWM_HOST_WIDTH_PX"))
+            .ok()
+            .as_deref(),
+        std::env::var("KITTWM_HOST_TERMINAL_HEIGHT_PX")
+            .or_else(|_| std::env::var("KITTWM_HOST_HEIGHT_PX"))
+            .ok()
+            .as_deref(),
+        remote_ssh_session(),
+    );
+    Some(HostTerminalSnapshot {
+        cols: cells.0,
+        rows: cells.1,
+        width_px: pixels.map(|(width, _)| width),
+        height_px: pixels.map(|(_, height)| height),
+    })
+}
+
+fn ioctl_terminal_winsize() -> Option<libc::winsize> {
     let mut ws = libc::winsize {
         ws_row: 0,
         ws_col: 0,
@@ -11391,11 +11491,63 @@ fn host_terminal_cells() -> Option<(u16, u16)> {
         ws_ypixel: 0,
     };
     let rc = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) };
-    if rc == 0 && ws.ws_col > 0 && ws.ws_row > 0 {
-        Some((ws.ws_col, ws.ws_row))
-    } else {
-        None
+    (rc == 0).then_some(ws)
+}
+
+fn host_terminal_cells_from_sources(
+    ioctl_cols: Option<u16>,
+    ioctl_rows: Option<u16>,
+    env_cols: Option<&str>,
+    env_rows: Option<&str>,
+) -> Option<(u16, u16)> {
+    match (
+        ioctl_cols.filter(|cols| *cols > 0),
+        ioctl_rows.filter(|rows| *rows > 0),
+    ) {
+        (Some(cols), Some(rows)) => Some((cols, rows)),
+        _ => match (
+            env_cols.and_then(parse_positive_u16),
+            env_rows.and_then(parse_positive_u16),
+        ) {
+            (Some(cols), Some(rows)) => Some((cols, rows)),
+            _ => None,
+        },
     }
+}
+
+fn host_terminal_pixels_from_sources(
+    ioctl_width_px: Option<u32>,
+    ioctl_height_px: Option<u32>,
+    env_width_px: Option<&str>,
+    env_height_px: Option<&str>,
+    remote_ssh: bool,
+) -> Option<(u32, u32)> {
+    match (
+        env_width_px.and_then(parse_positive_u32),
+        env_height_px.and_then(parse_positive_u32),
+    ) {
+        (Some(width), Some(height)) => Some((width, height)),
+        _ if remote_ssh => match (
+            ioctl_width_px.filter(|width| *width > 0),
+            ioctl_height_px.filter(|height| *height > 0),
+        ) {
+            (Some(width), Some(height)) => Some((width, height)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn parse_positive_u16(value: &str) -> Option<u16> {
+    value.parse::<u16>().ok().filter(|value| *value > 0)
+}
+
+fn parse_positive_u32(value: &str) -> Option<u32> {
+    value.parse::<u32>().ok().filter(|value| *value > 0)
+}
+
+fn remote_ssh_session() -> bool {
+    std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some()
 }
 
 pub fn run_loop<S: XServer>(
