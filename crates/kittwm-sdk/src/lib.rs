@@ -2135,6 +2135,23 @@ pub struct DirtyFrameStatus {
     pub skipped_upload: bool,
 }
 
+impl DirtyFrameStatus {
+    /// Whether the frame was reported clean enough to avoid a fresh upload.
+    pub fn is_clean(&self) -> bool {
+        self.skipped_upload || self.changed_tiles == 0
+    }
+
+    /// Changed tile count and total tile count.
+    pub fn changed_tiles_ratio(&self) -> (u32, u32) {
+        (self.changed_tiles, self.total_tiles)
+    }
+
+    /// Changed tile percentage in `[0, 100]`.
+    pub fn changed_percent(&self) -> f32 {
+        self.changed_fraction * 100.0
+    }
+}
+
 /// Rich native pane detail returned by `PANES_JSON` / `STATUS_JSON`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct NativePaneDetail {
@@ -2424,6 +2441,32 @@ impl NativePaneDetail {
         self.dirty_frame.is_some()
     }
 
+    /// Dirty-frame changed tile count and total tile count, when reported.
+    pub fn frame_changed_tiles_ratio(&self) -> Option<(u32, u32)> {
+        self.dirty_frame
+            .as_ref()
+            .map(DirtyFrameStatus::changed_tiles_ratio)
+    }
+
+    /// Dirty-frame changed tile fraction, when reported.
+    pub fn frame_changed_fraction(&self) -> Option<f32> {
+        self.dirty_frame
+            .as_ref()
+            .map(|metrics| metrics.changed_fraction)
+    }
+
+    /// Whether the most recent frame upload was skipped because it was clean, when reported.
+    pub fn frame_upload_skipped(&self) -> Option<bool> {
+        self.dirty_frame
+            .as_ref()
+            .map(|metrics| metrics.skipped_upload)
+    }
+
+    /// Whether the reported frame is clean, when dirty-frame metrics are present.
+    pub fn is_frame_clean(&self) -> Option<bool> {
+        self.dirty_frame.as_ref().map(DirtyFrameStatus::is_clean)
+    }
+
     /// Whether transport diagnostics are present.
     pub fn has_transport_diagnostics(&self) -> bool {
         self.transport.is_some()
@@ -2692,6 +2735,20 @@ impl PanesStatus {
             .iter()
             .filter(|pane| pane.has_non_default_weight())
     }
+
+    /// Panes with dirty-frame metrics whose latest frame was clean/skipped.
+    pub fn clean_frame_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.is_frame_clean() == Some(true))
+    }
+
+    /// Panes with dirty-frame metrics whose latest frame changed tiles.
+    pub fn dirty_frame_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.is_frame_clean() == Some(false))
+    }
 }
 
 fn add_signed_host_cell_delta(value: u16, delta: i32) -> u16 {
@@ -2862,6 +2919,20 @@ impl Status {
         self.panes_detail
             .iter()
             .filter(|pane| pane.has_non_default_weight())
+    }
+
+    /// Panes with dirty-frame metrics whose latest frame was clean/skipped.
+    pub fn clean_frame_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.is_frame_clean() == Some(true))
+    }
+
+    /// Panes with dirty-frame metrics whose latest frame changed tiles.
+    pub fn dirty_frame_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.is_frame_clean() == Some(false))
     }
 }
 
@@ -4932,6 +5003,14 @@ mod tests {
             panes.focused_title_drag_cells_by(5, 2),
             Some(((6, 2), (11, 4)))
         );
+        assert_eq!(panes.clean_frame_panes().count(), 0);
+        assert_eq!(
+            panes
+                .dirty_frame_panes()
+                .map(|pane| pane.window.as_str())
+                .collect::<Vec<_>>(),
+            vec!["native-1"]
+        );
         assert_eq!(panes.title_draggable_panes().count(), 1);
         assert_eq!(
             panes
@@ -4964,6 +5043,14 @@ mod tests {
         assert!(!pane.has_mouse_all_motion());
         assert!(pane.has_mouse_sgr());
         assert!(pane.has_dirty_frame());
+        assert_eq!(pane.frame_changed_tiles_ratio(), Some((1, 4)));
+        assert_eq!(pane.frame_changed_fraction(), Some(0.25));
+        assert_eq!(pane.frame_upload_skipped(), Some(false));
+        assert_eq!(pane.is_frame_clean(), Some(false));
+        let frame = pane.dirty_frame.as_ref().unwrap();
+        assert!(!frame.is_clean());
+        assert_eq!(frame.changed_tiles_ratio(), (1, 4));
+        assert_eq!(frame.changed_percent(), 25.0);
         assert!(pane.has_transport_diagnostics());
         assert_eq!(pane.dirty_frame.as_ref().unwrap().changed_fraction, 0.25);
         assert_eq!(pane.transport.as_ref().unwrap()["selected"], "file");
@@ -4982,6 +5069,10 @@ mod tests {
         assert_eq!(pane.app_bounds(), None);
         assert_eq!(pane.floating_offset(), None);
         assert!(!pane.has_floating_offset());
+        assert_eq!(pane.frame_changed_tiles_ratio(), None);
+        assert_eq!(pane.frame_changed_fraction(), None);
+        assert_eq!(pane.frame_upload_skipped(), None);
+        assert_eq!(pane.is_frame_clean(), None);
         assert_eq!(pane.title_drag_cell(), None);
     }
 
@@ -5084,8 +5175,8 @@ mod tests {
               "focus": "native-1",
               "layout": "floating",
               "panes_detail": [
-                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"title_drag_col":4,"title_drag_row":1,"floating_dx":0,"floating_dy":0,"floating_moved":false},
-                {"window":"native-2","title":"editor","focused":false,"weight":3,"stack_index":1,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":true}
+                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"title_drag_col":4,"title_drag_row":1,"floating_dx":0,"floating_dy":0,"floating_moved":false,"dirty_frame":{"changed_tiles":0,"total_tiles":4,"changed_fraction":0.0,"skipped_upload":true}},
+                {"window":"native-2","title":"editor","focused":false,"weight":3,"stack_index":1,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":true,"dirty_frame":{"changed_tiles":2,"total_tiles":4,"changed_fraction":0.5,"skipped_upload":false}}
               ]
             }"#,
         )
@@ -5118,6 +5209,20 @@ mod tests {
         assert_eq!(
             status
                 .resized_panes()
+                .map(|pane| pane.window.as_str())
+                .collect::<Vec<_>>(),
+            vec!["native-2"]
+        );
+        assert_eq!(
+            status
+                .clean_frame_panes()
+                .map(|pane| pane.window.as_str())
+                .collect::<Vec<_>>(),
+            vec!["native-1"]
+        );
+        assert_eq!(
+            status
+                .dirty_frame_panes()
                 .map(|pane| pane.window.as_str())
                 .collect::<Vec<_>>(),
             vec!["native-2"]
