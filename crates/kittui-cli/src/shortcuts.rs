@@ -59,6 +59,11 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
         description: "toggle fullscreen",
     },
     NativeShortcut {
+        id: "nudge_floating_pane",
+        keys: "C-a w/a/s/d",
+        description: "nudge focused floating pane",
+    },
+    NativeShortcut {
         id: "focus_next",
         keys: "C-a Tab",
         description: "focus next pane",
@@ -108,6 +113,7 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a e              toggle current split vertical/horizontal",
     "C-a t              toggle floating mode",
     "C-a f              toggle fullscreen",
+    "C-a w/a/s/d        nudge focused floating pane",
     "C-a Tab            focus next pane",
     "C-a x              close pane (last pane returns to empty workspace)",
     "C-a +/-            resize focused pane",
@@ -157,6 +163,7 @@ mod tests {
         let text = render_native_shortcuts();
         assert!(text.contains("kittwm shortcuts"));
         assert!(text.contains(NATIVE_SHORTCUT_COMMAND_HINTS[0]));
+        assert!(text.contains("C-a w/a/s/d"));
         assert!(text.ends_with('\n'));
     }
 
@@ -170,5 +177,10 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry["id"] == "launch_terminal"));
+        assert!(value["shortcuts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == "nudge_floating_pane"));
     }
 }

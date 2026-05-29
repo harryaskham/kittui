@@ -533,6 +533,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             &mut focused,
                             &mut layout_axis,
                             &mut layout_mode,
+                            &mut floating_offsets,
                             &cmd,
                             &sock,
                             cols,
@@ -556,6 +557,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         &mut focused,
                         &mut layout_axis,
                         &mut layout_mode,
+                        &mut floating_offsets,
                         &cmd,
                         &sock,
                         cols,
@@ -2145,7 +2147,7 @@ const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
 const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
 const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
 const NATIVE_STATUS_LINE_HINTS: &str =
-    " · C-a ? help · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit";
+    " · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a e split · C-a x close · Ctrl-] exit";
 const NATIVE_STATUS_LINE_LOG_PREFIX: &str = " · log: ";
 
 fn native_status_line_text(
@@ -2838,6 +2840,7 @@ fn process_native_terminal_byte(
     focused: &mut usize,
     layout_axis: &mut NativePaneLayoutAxis,
     layout_mode: &mut NativePaneLayoutMode,
+    floating_offsets: &mut HashMap<String, NativeFloatingPaneOffset>,
     cmd: &str,
     sock: &str,
     cols: u16,
@@ -3122,6 +3125,18 @@ fn process_native_terminal_byte(
                         dbg,
                     )?
                 }
+            }
+            b'w' | b'W' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
+                native_nudge_focused_pane(floating_offsets, panes, *focused, 0, -1, clear, dbg);
+            }
+            b'a' | b'A' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
+                native_nudge_focused_pane(floating_offsets, panes, *focused, -1, 0, clear, dbg);
+            }
+            b's' | b'S' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
+                native_nudge_focused_pane(floating_offsets, panes, *focused, 0, 1, clear, dbg);
+            }
+            b'd' | b'D' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
+                native_nudge_focused_pane(floating_offsets, panes, *focused, 1, 0, clear, dbg);
             }
             0x01 if !panes.is_empty() => {
                 native_send_pane_bytes_logged(&mut panes[*focused], "keyboard-byte", &[0x01], dbg);
@@ -4062,6 +4077,23 @@ fn native_nudge_floating_offset(
     offset.dy = native_saturating_i16_add_i32(offset.dy, i32::from(dy));
 }
 
+fn native_nudge_focused_pane(
+    floating_offsets: &mut HashMap<String, NativeFloatingPaneOffset>,
+    panes: &[NativePane],
+    focused: usize,
+    dx: i16,
+    dy: i16,
+    clear: &mut bool,
+    dbg: &Debugger,
+) {
+    let Some(pane) = panes.get(focused) else {
+        return;
+    };
+    native_nudge_floating_offset(floating_offsets, &pane.window, dx, dy);
+    *clear = true;
+    dbg.log(&native_keyboard_nudge_log_line(&pane.window, dx, dy));
+}
+
 fn native_update_floating_drag(
     event_name: &str,
     col: u16,
@@ -4610,6 +4642,20 @@ fn native_socket_nudge_log_line(window: &str, dx: i16, dy: i16) -> String {
     let mut out =
         String::with_capacity("native terminal socket nudge:  dx= dy=".len() + window.len() + 16);
     out.push_str("native terminal socket nudge: ");
+    out.push_str(window);
+    out.push_str(" dx=");
+    let _ = write!(out, "{dx}");
+    out.push_str(" dy=");
+    let _ = write!(out, "{dy}");
+    out
+}
+
+fn native_keyboard_nudge_log_line(window: &str, dx: i16, dy: i16) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("native terminal keyboard nudge:  dx= dy=".len() + window.len() + 16);
+    out.push_str("native terminal keyboard nudge: ");
     out.push_str(window);
     out.push_str(" dx=");
     let _ = write!(out, "{dx}");
@@ -7581,7 +7627,7 @@ mod native_pane_tests {
         let footer = native_status_line_text(1, "floating", Some("native-1"), "/tmp/kittwm.log");
         assert_eq!(
             footer,
-            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
+            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
         );
         assert_eq!(footer.capacity(), footer.len());
 
@@ -8709,6 +8755,93 @@ mod native_pane_tests {
                 dx: i16::MAX,
                 dy: i16::MIN,
             }
+        );
+    }
+
+    #[test]
+    fn native_keyboard_nudge_updates_focused_floating_offset() {
+        let panes = vec![
+            dummy_native_pane("native-1", "left", 1),
+            dummy_native_pane("native-2", "right", 1),
+        ];
+        let mut offsets = HashMap::new();
+        let mut clear = false;
+        let dbg = Debugger::open();
+        native_nudge_focused_pane(&mut offsets, &panes, 1, -1, 1, &mut clear, &dbg);
+        assert!(clear);
+        assert_eq!(
+            offsets["native-2"],
+            NativeFloatingPaneOffset { dx: -1, dy: 1 }
+        );
+        assert!(!offsets.contains_key("native-1"));
+        assert_eq!(
+            native_keyboard_nudge_log_line("native-2", -1, 1),
+            "native terminal keyboard nudge: native-2 dx=-1 dy=1"
+        );
+    }
+
+    #[test]
+    fn native_prefix_wasd_nudges_in_floating_mode() {
+        let mut panes = vec![dummy_native_pane("native-1", "float", 1)];
+        let mut focused = 0usize;
+        let mut layout_axis = NativePaneLayoutAxis::Columns;
+        let mut layout_mode = NativePaneLayoutMode::Floating;
+        let mut offsets = HashMap::new();
+        let mut prefix = false;
+        let mut clear = false;
+        let mut help_overlay = false;
+        let mut ctrl_c_guard = NativeCtrlCExitGuard::default();
+        let mut quit_overlay = QuitConfirmOverlay::default();
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        let dbg = Debugger::open();
+
+        assert!(!process_native_terminal_byte(
+            0x01,
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert!(prefix);
+
+        assert!(!process_native_terminal_byte(
+            b'd',
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert!(!prefix);
+        assert!(clear);
+        assert_eq!(
+            offsets["native-1"],
+            NativeFloatingPaneOffset { dx: 1, dy: 0 }
         );
     }
 
