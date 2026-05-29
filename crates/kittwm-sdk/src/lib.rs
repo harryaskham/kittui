@@ -3428,6 +3428,11 @@ impl SurfaceHandle {
             .request_protocol(surface_token_request("RESET_PANE_OFFSET", &self.id))
     }
 
+    /// Alias for [`SurfaceHandle::reset_floating_offset`].
+    pub fn reset_position(&self) -> Result<String> {
+        self.reset_floating_offset()
+    }
+
     /// Lower this pane to the bottom of the stack/floating order.
     pub fn lower(&self) -> Result<String> {
         self.move_pane(MoveDirection::First)
@@ -6094,7 +6099,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..13 {
+            for _ in 0..14 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -6131,6 +6136,7 @@ mod tests {
         assert_eq!(surface.lower().unwrap().trim(), "OK");
         assert_eq!(surface.nudge(3, -2).unwrap().trim(), "OK");
         assert_eq!(surface.reset_floating_offset().unwrap().trim(), "OK");
+        assert_eq!(surface.reset_position().unwrap().trim(), "OK");
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(
@@ -6148,6 +6154,7 @@ mod tests {
                 "MOVE_PANE native-2 last",
                 "MOVE_PANE native-2 first",
                 "NUDGE_PANE native-2 3 -2",
+                "RESET_PANE_OFFSET native-2",
                 "RESET_PANE_OFFSET native-2"
             ]
         );
@@ -6196,6 +6203,10 @@ mod tests {
         ));
         assert!(matches!(
             client.surface("focused").reset_floating_offset(),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.surface("focused").reset_position(),
             Err(Error::CapabilityDenied(Capability::ControlWindow))
         ));
     }
