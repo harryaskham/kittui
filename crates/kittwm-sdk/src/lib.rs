@@ -2520,6 +2520,26 @@ impl PanesStatus {
         })
     }
 
+    /// Layout label, trimmed and empty-filtered.
+    pub fn layout_label(&self) -> Option<&str> {
+        normalized_layout_str(Some(self.layout.as_str()))
+    }
+
+    /// Whether the reported layout is floating mode.
+    pub fn is_floating_layout(&self) -> bool {
+        layout_label_matches(self.layout_label(), "floating")
+    }
+
+    /// Whether the reported layout is fullscreen mode.
+    pub fn is_fullscreen_layout(&self) -> bool {
+        layout_label_matches(self.layout_label(), "fullscreen")
+    }
+
+    /// Whether the reported layout is a tiled axis/grid mode.
+    pub fn is_tiled_layout(&self) -> bool {
+        layout_label_is_tiled(self.layout_label())
+    }
+
     /// Chrome reservation metadata, if present.
     pub fn chrome_reservation(&self) -> Option<&ChromeReservationStatus> {
         self.chrome.as_ref()
@@ -2560,6 +2580,21 @@ fn normalized_workspace_str(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
+fn normalized_layout_str(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn layout_label_matches(value: Option<&str>, expected: &str) -> bool {
+    value.is_some_and(|value| value.eq_ignore_ascii_case(expected))
+}
+
+fn layout_label_is_tiled(value: Option<&str>) -> bool {
+    matches!(
+        value.map(|label| label.to_ascii_lowercase()),
+        Some(label) if matches!(label.as_str(), "columns" | "rows" | "grid")
+    )
+}
+
 /// Minimal status response shape shared by standalone and native daemons.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Status {
@@ -2597,6 +2632,26 @@ impl Status {
                 .as_ref()
                 .and_then(|chrome| normalized_workspace_str(chrome.workspace.as_deref()))
         })
+    }
+
+    /// Layout label, trimmed and empty-filtered.
+    pub fn layout_label(&self) -> Option<&str> {
+        normalized_layout_str(self.layout.as_deref())
+    }
+
+    /// Whether the reported layout is floating mode.
+    pub fn is_floating_layout(&self) -> bool {
+        layout_label_matches(self.layout_label(), "floating")
+    }
+
+    /// Whether the reported layout is fullscreen mode.
+    pub fn is_fullscreen_layout(&self) -> bool {
+        layout_label_matches(self.layout_label(), "fullscreen")
+    }
+
+    /// Whether the reported layout is a tiled axis/grid mode.
+    pub fn is_tiled_layout(&self) -> bool {
+        layout_label_is_tiled(self.layout_label())
     }
 
     /// Chrome reservation metadata, if present.
@@ -4641,6 +4696,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(panes.focus, "native-1");
+        assert_eq!(panes.layout_label(), Some("columns"));
+        assert!(panes.is_tiled_layout());
+        assert!(!panes.is_floating_layout());
+        assert!(!panes.is_fullscreen_layout());
         assert_eq!(panes.workspace_id(), Some("1"));
         assert_eq!(panes.top_bar_rows(), 1);
         assert_eq!(panes.tilable_rows(), Some(23));
@@ -4677,6 +4736,10 @@ mod tests {
             serde_json::from_str(r#"{"pending":0,"panes":1,"focus":"native-1","layout":"rows"}"#)
                 .unwrap();
         assert_eq!(status.focus.as_deref(), Some("native-1"));
+        assert_eq!(status.layout_label(), Some("rows"));
+        assert!(status.is_tiled_layout());
+        assert!(!status.is_floating_layout());
+        assert!(!status.is_fullscreen_layout());
         assert_eq!(status.workspace_id(), None);
         assert_eq!(status.top_bar_rows(), 0);
         assert_eq!(status.tilable_rows(), None);
@@ -4686,6 +4749,26 @@ mod tests {
         assert!(status.topmost_pane().is_none());
         assert_eq!(status.title_draggable_panes().count(), 0);
         assert!(status.panes_detail.is_empty());
+    }
+
+    #[test]
+    fn status_layout_state_helpers_parse_window_manager_modes() {
+        let floating: Status = serde_json::from_str(
+            r#"{"pending":0,"panes":2,"focus":"native-1","layout":" floating "}"#,
+        )
+        .unwrap();
+        assert_eq!(floating.layout_label(), Some("floating"));
+        assert!(floating.is_floating_layout());
+        assert!(!floating.is_fullscreen_layout());
+        assert!(!floating.is_tiled_layout());
+
+        let fullscreen: PanesStatus = serde_json::from_str(
+            r#"{"panes":1,"focus":"native-1","layout":"fullscreen","panes_detail":[]}"#,
+        )
+        .unwrap();
+        assert!(fullscreen.is_fullscreen_layout());
+        assert!(!fullscreen.is_floating_layout());
+        assert!(!fullscreen.is_tiled_layout());
     }
 
     #[test]
