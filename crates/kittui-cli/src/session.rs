@@ -5603,6 +5603,14 @@ fn native_pane_focus_glow_label(idx: usize) -> String {
     label
 }
 
+fn native_pane_title_gutter_label(idx: usize) -> String {
+    let mut label = String::with_capacity("pane--title-gutter".len() + 20);
+    label.push_str("pane-");
+    let _ = write!(label, "{idx}");
+    label.push_str("-title-gutter");
+    label
+}
+
 fn native_pane_status_chip_rect(cols: u16, rect_width: f32, cell_w: f32, chip_h: f32) -> PxRect {
     let min_w = cell_w.max(1.0).min(rect_width.max(1.0));
     let right_pad = 4.0_f32.min((rect_width - min_w).max(0.0));
@@ -5666,7 +5674,7 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
         },
     ));
     layers.push(Layer::new(
-        format!("pane-{idx}-title-gutter"),
+        native_pane_title_gutter_label(idx),
         Node::Rect {
             rect: title_rect,
             fill: Paint::Solid { color: title_fill },
@@ -8140,6 +8148,13 @@ mod native_pane_tests {
     fn native_pane_focus_glow_label_builds_directly() {
         let label = native_pane_focus_glow_label(7);
         assert_eq!(label, "pane-7-focus-glow");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
+    fn native_pane_title_gutter_label_builds_directly() {
+        let label = native_pane_title_gutter_label(7);
+        assert_eq!(label, "pane-7-title-gutter");
         assert!(label.capacity() >= label.len());
     }
 
