@@ -895,6 +895,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "move a native pane within the layout order",
         ),
         (
+            "NUDGE_PANE <window|focused> <dx> <dy>",
+            "control",
+            "nudge a floating pane by cell deltas",
+        ),
+        (
             "SPLIT_PANE <window|focused> <columns|rows|grid> <cmd>",
             "control",
             "set split axis, spawn command, and place it next to target pane",
@@ -4091,6 +4096,10 @@ mod tests {
         assert!(help.contains("FOCUS_PREV"), "{help}");
         assert!(help.contains("LAYOUT <columns|rows|grid>"), "{help}");
         assert!(help.contains("MOVE_PANE <window|focused>"), "{help}");
+        assert!(
+            help.contains("NUDGE_PANE <window|focused> <dx> <dy>"),
+            "{help}"
+        );
         assert!(help.contains("RESIZE_PANE <window|focused>"), "{help}");
         assert!(help.contains("BALANCE_PANES"), "{help}");
         assert!(help.contains("RESTORE_SESSION_JSON <json>"), "{help}");
@@ -4156,6 +4165,14 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "EVENTS [ms]" && entry["category"] == "events" }));
+        assert!(help_json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["command"] == "NUDGE_PANE <window|focused> <dx> <dy>"
+                    && entry["category"] == "control"
+            }));
         assert!(help_json["commands"]
             .as_array()
             .unwrap()
