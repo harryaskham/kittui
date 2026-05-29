@@ -1439,6 +1439,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            check trusted X11 forwarding for remote app launch\n\
              kittwm remote HOST x11        short alias for the graphical forwarding check\n\
              kittwm remote HOST graphical  alias for remote HOST x11\n\
+             kittwm remote HOST forwarding alias for remote HOST x11\n\
              kittwm remote HOST            friendly alias for remote doctor\n\
              kittwm remote HOST kittwm     open remote kittwm in a pooled SSH pane\n\
              kittwm remote HOST desktop    alias for remote HOST kittwm\n\
@@ -1545,6 +1546,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST status --x11      check graphical forwarding for app launch\n\
              remote HOST x11               short alias for graphical forwarding check\n\
              remote HOST graphical         alias for remote HOST x11\n\
+             remote HOST forwarding        alias for remote HOST x11\n\
              remote HOST kittwm            open remote kittwm in a pooled SSH pane\n\
              remote HOST desktop           alias for remote HOST kittwm\n\
              remote HOST list              list remote app candidates\n\
@@ -2860,6 +2862,7 @@ fn remote_help_cmd(host: &str) -> Result<()> {
     println!("  kittwm remote {host} status --x11");
     println!("  kittwm remote {host} x11");
     println!("  kittwm remote {host} graphical");
+    println!("  kittwm remote {host} forwarding");
     println!("  kittwm remote {host} doctor");
     println!("  kittwm remote {host} list");
     println!("  kittwm remote {host} list apps firefox");
@@ -4813,6 +4816,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "alias for remote HOST x11",
         },
         LocalCommandEntry {
+            command: "remote HOST forwarding",
+            category: "remote",
+            description: "alias for remote HOST x11",
+        },
+        LocalCommandEntry {
             command: "remote HOST kittwm",
             category: "remote",
             description: "open remote kittwm in a pooled SSH terminal pane",
@@ -5645,6 +5653,7 @@ fn completion_words() -> &'static [&'static str] {
             "check",
             "x11",
             "graphical",
+            "forwarding",
             "list",
             "apps",
             "launch",
@@ -10447,6 +10456,7 @@ mod tests {
         assert!(bash.contains("desktop"), "{bash}");
         assert!(bash.contains("x11"), "{bash}");
         assert!(bash.contains("graphical"), "{bash}");
+        assert!(bash.contains("forwarding"), "{bash}");
 
         let zsh = completions_text("zsh").unwrap();
         assert!(zsh.contains("#compdef kittwm"), "{zsh}");
@@ -10455,6 +10465,7 @@ mod tests {
         assert!(zsh.contains("--remote"), "{zsh}");
         assert!(zsh.contains("desktop"), "{zsh}");
         assert!(zsh.contains("x11"), "{zsh}");
+        assert!(zsh.contains("forwarding"), "{zsh}");
 
         let fish = completions_text("fish").unwrap();
         assert!(fish.contains("complete -c kittwm"), "{fish}");
@@ -10464,6 +10475,7 @@ mod tests {
         assert!(fish.contains("kittwm"), "{fish}");
         assert!(fish.contains("desktop"), "{fish}");
         assert!(fish.contains("x11"), "{fish}");
+        assert!(fish.contains("forwarding"), "{fish}");
         assert_eq!(fish, fish_completions_text());
         assert_eq!(fish.capacity(), fish.len());
         assert!(std::ptr::eq(completion_words(), completion_words()));
@@ -11338,6 +11350,12 @@ mod tests {
         assert!(x11_alias.doctor);
         assert!(x11_alias.json);
         assert!(x11_alias.remote_doctor_graphical);
+
+        let mut forwarding_alias = Cli::default();
+        forwarding_alias.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut forwarding_alias, "forwarding", &[]).unwrap();
+        assert!(forwarding_alias.doctor);
+        assert!(forwarding_alias.remote_doctor_graphical);
 
         let mut help = Cli::default();
         help.remote_host = Some("buildbox".to_string());
