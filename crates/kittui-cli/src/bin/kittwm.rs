@@ -1408,9 +1408,11 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm --list-windows --remote HOST\n\
                                            list remote windows/displays when supported\n\
              kittwm remote HOST            friendly alias for remote doctor\n\
+             kittwm remote HOST apps firefox\n\
+                                           list remote app matches using a positional query\n\
              kittwm remote HOST launch firefox\n\
                                            shortest alias for launching the first remote app match\n\
-             kittwm remote HOST apps --filter firefox --launch-first\n\
+             kittwm remote HOST apps firefox --launch-first\n\
                                            explicit remote app launch path\n\
              kittwm remote HOST terminal -- htop\n\
                                            friendly alias for kittwm-terminal --remote HOST -- htop\n\
@@ -1499,8 +1501,9 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              ================\n\n\
              apps                           list launch candidates\n\
              remote HOST                    check remote kittwm availability\n\
+             remote HOST apps QUERY         list remote app matches with a positional query\n\
              remote HOST launch QUERY       shortest alias for remote app launch\n\
-             remote HOST apps --filter QUERY --launch-first\n\
+             remote HOST apps QUERY --launch-first\n\
                                             explicit first remote match launch alias\n\
              apps --remote HOST             list remote candidates via pooled SSH\n\
              apps --remote HOST --filter QUERY --launch-first\n\
@@ -1818,25 +1821,32 @@ fn parse_remote_launch_alias(out: &mut Cli, args: &[String]) -> Result<()> {
 }
 
 fn parse_remote_apps_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
+    let mut query_terms = Vec::new();
     let mut iter = flags.iter();
     while let Some(flag) = iter.next() {
         match flag.as_str() {
             "--json" => out.json = true,
-            "--filter" => {
-                out.apps_filter = Some(iter.next().ok_or_else(missing_filter_error)?.clone());
-            }
+            "--filter" => query_terms.push(iter.next().ok_or_else(missing_filter_error)?.clone()),
             "--limit" => {
                 let value = iter.next().ok_or_else(missing_limit_error)?;
                 out.apps_limit = Some(parse_limit_value(value)?);
             }
             "--first" => out.apps_first = true,
             "--launch-first" => out.apps_launch_first = true,
-            other => {
+            "--" => {
+                query_terms.extend(iter.cloned());
+                break;
+            }
+            other if other.starts_with('-') => {
                 return Err(anyhow!(
-                    "unknown remote apps flag {other:?}\ntry: kittwm remote HOST apps --filter firefox --launch-first\nhelp: kittwm help ssh"
+                    "unknown remote apps flag {other:?}\ntry: kittwm remote HOST apps firefox\nhelp: kittwm help ssh"
                 ))
             }
+            term => query_terms.push(term.to_string()),
         }
+    }
+    if !query_terms.is_empty() {
+        out.apps_filter = Some(query_terms.join(" "));
     }
     Ok(())
 }
@@ -4434,12 +4444,17 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "friendly alias for remote doctor",
         },
         LocalCommandEntry {
+            command: "remote HOST apps QUERY",
+            category: "remote",
+            description: "list remote app matches with a positional query",
+        },
+        LocalCommandEntry {
             command: "remote HOST launch QUERY",
             category: "remote",
             description: "shortest alias for remote app launch",
         },
         LocalCommandEntry {
-            command: "remote HOST apps --filter QUERY --launch-first",
+            command: "remote HOST apps QUERY --launch-first",
             category: "remote",
             description: "explicit alias for remote app launch",
         },
@@ -9886,6 +9901,9 @@ mod tests {
             .iter()
             .any(|entry| { entry["command"] == "remote HOST" && entry["category"] == "remote" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST apps QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST launch QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -10618,6 +10636,14 @@ mod tests {
         assert_eq!(cli.remote_host.as_deref(), Some("buildbox"));
         assert_eq!(cli.apps_filter.as_deref(), Some("firefox"));
         assert!(cli.apps_launch_first);
+
+        let mut app_query = Cli::default();
+        app_query.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut app_query, "apps", &args(&["fire", "fox", "--first"]))
+            .unwrap();
+        assert!(app_query.apps);
+        assert_eq!(app_query.apps_filter.as_deref(), Some("fire fox"));
+        assert!(app_query.apps_first);
 
         let mut doctor = Cli::default();
         doctor.remote_host = Some("buildbox".to_string());
