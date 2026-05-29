@@ -7013,6 +7013,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn keymap_unbound_status_line_builds_directly() {
+        let line = keymap_unbound_status_line(&"C-x");
+        assert_eq!(line, "unbound C-x");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn char_event_log_line_builds_directly() {
         let line = char_event_log_line('x');
         assert_eq!(line, "char event: 'x'");
@@ -12525,6 +12532,15 @@ fn keymap_unbound_prefix_log_line(spec: &dyn std::fmt::Display) -> String {
     out
 }
 
+fn keymap_unbound_status_line(spec: &dyn std::fmt::Display) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("unbound ".len() + 16);
+    out.push_str("unbound ");
+    let _ = write!(out, "{spec}");
+    out
+}
+
 fn char_event_log_line(ch: char) -> String {
     use std::fmt::Write as _;
 
@@ -13185,7 +13201,7 @@ pub fn run_loop_with<S: XServer>(
                             continue;
                         }
                     }
-                    last_keymap_action = Some(format!("unbound {spec}"));
+                    last_keymap_action = Some(keymap_unbound_status_line(&spec));
                     dbg.log(&keymap_unbound_prefix_log_line(&spec));
                     continue;
                 }
