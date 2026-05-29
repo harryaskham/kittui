@@ -6694,17 +6694,24 @@ fn write_native_shell_affordance_chrome<W: Write>(
 fn native_shell_chrome_scene_key(chrome: &NativeShellChromeScene) -> String {
     let scene_id = chrome.scene.id().0;
     let label_hash = native_shell_chrome_scene_label_hash(&chrome.scene);
-    format!(
-        "{}@{},{}:{}x{}:{}:{}:{}",
-        chrome.id,
-        chrome.x,
-        chrome.y,
-        chrome.scene.footprint.cols,
-        chrome.scene.footprint.rows,
-        chrome.scene.cell_size.width_px,
-        scene_id,
-        label_hash,
-    )
+    let mut key =
+        String::with_capacity(chrome.id.len() + scene_id.len() + "@,:x:::".len() + 20 * 5);
+    key.push_str(&chrome.id);
+    key.push('@');
+    let _ = write!(key, "{}", chrome.x);
+    key.push(',');
+    let _ = write!(key, "{}", chrome.y);
+    key.push(':');
+    let _ = write!(key, "{}", chrome.scene.footprint.cols);
+    key.push('x');
+    let _ = write!(key, "{}", chrome.scene.footprint.rows);
+    key.push(':');
+    let _ = write!(key, "{}", chrome.scene.cell_size.width_px);
+    key.push(':');
+    key.push_str(&scene_id);
+    key.push(':');
+    let _ = write!(key, "{label_hash}");
+    key
 }
 
 fn native_shell_chrome_scene_label_hash(scene: &Scene) -> u64 {
