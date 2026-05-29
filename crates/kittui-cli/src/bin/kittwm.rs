@@ -1654,8 +1654,14 @@ fn parse_log_command(argv: &[String]) -> Result<LogCommand> {
         [cmd, flag] if cmd == "tail" && (flag == "-f" || flag == "--follow") => {
             Ok(LogCommand::Tail { follow: true })
         }
-        _ => Err(anyhow!("usage: kittwm log path | kittwm log tail [-f]")),
+        _ => Err(log_usage_error()),
     }
+}
+
+fn log_usage_error() -> anyhow::Error {
+    anyhow!(
+        "usage: kittwm log path | kittwm log tail [-f]\ntry: kittwm log tail -f\nhelp: kittwm help log"
+    )
 }
 
 fn log_cmd(command: LogCommand) -> Result<()> {
@@ -8834,7 +8840,15 @@ mod tests {
             parse_log_command(&args(&["tail", "--follow"])).unwrap(),
             LogCommand::Tail { follow: true }
         );
-        assert!(parse_log_command(&args(&["tail", "--bad"])).is_err());
+        let err = parse_log_command(&args(&["tail", "--bad"]))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("usage: kittwm log path | kittwm log tail [-f]"),
+            "{err}"
+        );
+        assert!(err.contains("try: kittwm log tail -f"), "{err}");
+        assert!(err.contains("help: kittwm help log"), "{err}");
     }
 
     #[test]
