@@ -14869,7 +14869,7 @@ impl SwapState {
             _ => self.last_direction,
         };
         self.swaps += 1;
-        format!("swap.{} -> {}", self.last_direction, self.label())
+        swap_state_action_label(self.last_direction, &self.label())
     }
 
     fn label(&self) -> String {
@@ -14879,6 +14879,15 @@ impl SwapState {
         let _ = write!(label, "{}", self.swaps);
         label
     }
+}
+
+fn swap_state_action_label(direction: &str, label: &str) -> String {
+    let mut out = String::with_capacity("swap. -> ".len() + direction.len() + label.len());
+    out.push_str("swap.");
+    out.push_str(direction);
+    out.push_str(" -> ");
+    out.push_str(label);
+    out
 }
 
 #[cfg(test)]
