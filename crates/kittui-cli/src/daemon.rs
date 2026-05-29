@@ -2624,8 +2624,16 @@ fn native_spawn_semantic_publish_reply(
     format!("SEMANTIC_PUBLISHED window={window}\n")
 }
 
+fn semantic_component_id(window: &str, suffix: &str) -> String {
+    let mut id = String::with_capacity(window.len() + 1 + suffix.len());
+    id.push_str(window);
+    id.push('.');
+    id.push_str(suffix);
+    id
+}
+
 fn native_semantic_snapshot_for_pane(pane: &NativePaneStatus) -> SemanticSurfaceSnapshot {
-    let text_id = format!("{}.screen", pane.window);
+    let text_id = semantic_component_id(&pane.window, "screen");
     let mut text_state = ComponentState {
         focusable: true,
         focused: pane.focused,
@@ -2642,9 +2650,12 @@ fn native_semantic_snapshot_for_pane(pane: &NativePaneStatus) -> SemanticSurface
             ComponentAction::new("focus", ActionKind::Focus),
             ComponentAction::new("insert_text", ActionKind::InsertText),
         ]);
-    let root = ComponentNode::new(format!("{}.root", pane.window), ComponentRole::Group)
-        .labeled(pane.title.clone())
-        .children(vec![text]);
+    let root = ComponentNode::new(
+        semantic_component_id(&pane.window, "root"),
+        ComponentRole::Group,
+    )
+    .labeled(pane.title.clone())
+    .children(vec![text]);
     SemanticSurfaceSnapshot::new(pane.window.clone(), 1, root).focused(text_id)
 }
 
@@ -4523,6 +4534,13 @@ mod tests {
         assert!(shortcuts
             .iter()
             .any(|entry| entry["keys"] == "Ctrl-C×3 then y / Ctrl-]"));
+    }
+
+    #[test]
+    fn semantic_component_id_builds_directly() {
+        let id = semantic_component_id("native-1", "screen");
+        assert_eq!(id, "native-1.screen");
+        assert_eq!(id.capacity(), id.len());
     }
 
     #[test]
