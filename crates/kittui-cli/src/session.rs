@@ -14196,11 +14196,16 @@ fn picker_entry_row_text(row: usize, selected: usize, entry: &str, width: usize)
 }
 
 fn quit_confirm_overlay_key(overlay: &QuitConfirmOverlay) -> String {
-    format!(
-        "active={};opened={}",
-        overlay.active,
-        overlay.opened_at.is_some()
-    )
+    let mut key = String::with_capacity("active=;opened=".len() + 5 + 5);
+    key.push_str("active=");
+    key.push_str(if overlay.active { "true" } else { "false" });
+    key.push_str(";opened=");
+    key.push_str(if overlay.opened_at.is_some() {
+        "true"
+    } else {
+        "false"
+    });
+    key
 }
 
 fn overlay_row_visible(row: u16, terminal_rows: u16) -> bool {
