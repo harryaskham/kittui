@@ -311,9 +311,7 @@ fn parse_args() -> Result<Cli> {
             "completions" => {
                 out.completions = Some(args.next().ok_or_else(missing_completion_shell_error)?);
                 if let Some(extra) = args.next() {
-                    return Err(anyhow!(
-                        "kittwm completions accepts one shell, got {extra:?}"
-                    ));
+                    return Err(extra_completion_shell_error(&extra));
                 }
                 break;
             }
@@ -4803,6 +4801,12 @@ fn missing_completion_shell_error() -> anyhow::Error {
     )
 }
 
+fn extra_completion_shell_error(extra: &str) -> anyhow::Error {
+    anyhow!(
+        "kittwm completions accepts one shell, got {extra:?}; expected bash, zsh, or fish\ntry: kittwm completions bash\nhelp: kittwm help completions"
+    )
+}
+
 fn completions_text(shell: &str) -> Result<String> {
     match shell {
         "bash" => Ok(bash_completions_text()),
@@ -8932,6 +8936,16 @@ mod tests {
         let err = missing_completion_shell_error().to_string();
         assert!(err.contains("requires a shell"), "{err}");
         assert!(err.contains("bash, zsh, or fish"), "{err}");
+        assert!(err.contains("try: kittwm completions bash"), "{err}");
+        assert!(err.contains("help: kittwm help completions"), "{err}");
+    }
+
+    #[test]
+    fn completions_extra_shell_error_is_actionable() {
+        let err = extra_completion_shell_error("extra").to_string();
+        assert!(err.contains("accepts one shell"), "{err}");
+        assert!(err.contains("got \"extra\""), "{err}");
+        assert!(err.contains("expected bash, zsh, or fish"), "{err}");
         assert!(err.contains("try: kittwm completions bash"), "{err}");
         assert!(err.contains("help: kittwm help completions"), "{err}");
     }
