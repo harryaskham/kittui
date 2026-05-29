@@ -9746,6 +9746,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_overlay_panel_footer_label_builds_directly() {
+        let label = graphical_overlay_panel_footer_label("launcher-overlay");
+        assert_eq!(label, "launcher-overlay-footer-hints");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
     fn graphical_overlay_panel_row_label_builds_directly() {
         let label =
             graphical_overlay_panel_row_label("launcher-overlay", 1, "2. [shell] kittwm-terminal");
@@ -14694,6 +14701,14 @@ fn graphical_overlay_panel_row_label(id: &str, idx: usize, row: &str) -> String 
 }
 
 #[cfg(test)]
+fn graphical_overlay_panel_footer_label(id: &str) -> String {
+    let mut label = String::with_capacity(id.len() + "-footer-hints".len());
+    label.push_str(id);
+    label.push_str("-footer-hints");
+    label
+}
+
+#[cfg(test)]
 fn graphical_overlay_panel_scene(
     id: &str,
     title: &str,
@@ -14759,7 +14774,7 @@ fn graphical_overlay_panel_scene(
         ));
     }
     layers.push(Layer::new(
-        format!("{id}-footer-hints"),
+        graphical_overlay_panel_footer_label(id),
         Node::Rect {
             rect: PxRect::new(
                 8.0,
