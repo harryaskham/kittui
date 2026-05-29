@@ -4113,6 +4113,13 @@ fn focus_after_remove(current: usize, removed: usize, len_before: usize) -> usiz
     }
 }
 
+fn native_reaped_pane_log_line(window: &str) -> String {
+    let mut out = String::with_capacity("native terminal reaped exited pane ".len() + window.len());
+    out.push_str("native terminal reaped exited pane ");
+    out.push_str(window);
+    out
+}
+
 fn reap_exited_native_panes(
     panes: &mut Vec<NativePane>,
     mut focused: usize,
@@ -4132,7 +4139,7 @@ fn reap_exited_native_panes(
             if removed_focused && !panes.is_empty() {
                 let _ = native_send_focus_event(&mut panes[focused], true);
             }
-            dbg.log(&format!("native terminal reaped exited pane {window}"));
+            dbg.log(&native_reaped_pane_log_line(&window));
         } else {
             idx += 1;
         }
@@ -10040,6 +10047,13 @@ mod native_pane_tests {
         assert_eq!(prev_native_focus(0, 3), 2);
         assert_eq!(prev_native_focus(2, 3), 1);
         assert_eq!(prev_native_focus(0, 0), 0);
+    }
+
+    #[test]
+    fn native_reaped_pane_log_line_builds_directly() {
+        let line = native_reaped_pane_log_line("native-42");
+        assert_eq!(line, "native terminal reaped exited pane native-42");
+        assert_eq!(line.capacity(), line.len());
     }
 
     #[test]
