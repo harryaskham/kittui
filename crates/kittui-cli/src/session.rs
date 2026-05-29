@@ -5068,6 +5068,17 @@ fn config_color_rgba(value: &str, opacity: f32, fallback: Rgba) -> Rgba {
 }
 
 #[cfg(test)]
+fn native_pane_title_focus_marker_label(idx: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut label = String::with_capacity("pane--title-focus-marker".len() + 20);
+    label.push_str("pane-");
+    let _ = write!(label, "{idx}");
+    label.push_str("-title-focus-marker");
+    label
+}
+
+#[cfg(test)]
 fn native_pane_title_status_scene(
     idx: usize,
     pane: &NativePaneChrome,
@@ -5104,7 +5115,7 @@ fn native_pane_title_status_scene(
     )];
     let focus_width = if pane.focused { 4.0 } else { 2.0 };
     layers.push(Layer::new(
-        format!("pane-{idx}-title-focus-marker"),
+        native_pane_title_focus_marker_label(idx),
         Node::Rect {
             rect: PxRect::new(0.0, 0.0, focus_width, rect.height),
             fill: Paint::Solid {
@@ -8428,6 +8439,13 @@ mod native_pane_tests {
     fn native_pane_focus_ring_label_builds_directly() {
         let label = native_pane_focus_ring_label(7);
         assert_eq!(label, "pane-7-focus-ring");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
+    fn native_pane_title_focus_marker_label_builds_directly() {
+        let label = native_pane_title_focus_marker_label(7);
+        assert_eq!(label, "pane-7-title-focus-marker");
         assert!(label.capacity() >= label.len());
     }
 
