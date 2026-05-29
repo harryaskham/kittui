@@ -1392,7 +1392,12 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              ===================\n\n\
              --save-session PATH|-          write SESSION_JSON manifest\n\
              --restore-session PATH|-       queue RESTORE_SESSION_JSON\n\
-             --session-json                 print current SESSION_JSON\n\n\
+             --session-json                 print current SESSION_JSON\n\
+             kittwm --save-session session.json\n\
+                                            save current layout to a file\n\
+             kittwm --restore-session session.json\n\
+                                            restore layout from a file\n\
+             kittwm --save-session -        write session JSON to stdout\n\n\
              Session manifests store layout axis, focus, pane order, titles,\n\
              commands, and weights. Restore replaces the native pane set.\n"),
         "events" | "event" => Ok("kittwm help events\n\
@@ -11524,6 +11529,21 @@ END
             "{text}"
         );
         assert!(text.contains("--events-ms MS"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_session_mentions_save_restore_examples() {
+        let text = help_topic_text("session").unwrap();
+        assert!(
+            text.contains("kittwm --save-session session.json"),
+            "{text}"
+        );
+        assert!(
+            text.contains("kittwm --restore-session session.json"),
+            "{text}"
+        );
+        assert!(text.contains("kittwm --save-session -"), "{text}");
+        assert!(text.contains("--session-json"), "{text}");
     }
 
     #[test]
