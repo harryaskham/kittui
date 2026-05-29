@@ -4919,6 +4919,8 @@ More help
    kittwm help input
    kittwm help completions
    kittwm completions bash >> ~/.bashrc
+   kittwm completions zsh >> ~/.zshrc
+   mkdir -p ~/.config/fish/completions && kittwm completions fish > ~/.config/fish/completions/kittwm.fish
    kittwm shortcuts
 "#
 }
@@ -10911,6 +10913,14 @@ mod tests {
         assert!(text.contains("kittwm help completions"), "{text}");
         assert!(
             text.contains("kittwm completions bash >> ~/.bashrc"),
+            "{text}"
+        );
+        assert!(
+            text.contains("kittwm completions zsh >> ~/.zshrc"),
+            "{text}"
+        );
+        assert!(
+            text.contains("mkdir -p ~/.config/fish/completions && kittwm completions fish > ~/.config/fish/completions/kittwm.fish"),
             "{text}"
         );
     }
