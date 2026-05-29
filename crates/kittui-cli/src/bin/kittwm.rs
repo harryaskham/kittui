@@ -7900,6 +7900,16 @@ fn native_terminal_cmd() -> Result<()> {
     Ok(())
 }
 
+fn native_browser_default_out_path(pid: u32) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("/tmp/kittwm-native-browser-.png".len() + 10);
+    out.push_str("/tmp/kittwm-native-browser-");
+    let _ = write!(out, "{pid}");
+    out.push_str(".png");
+    out
+}
+
 fn native_browser_cmd(cli: &Cli) -> Result<()> {
     use kittui_wm::native::{HeadlessBrowserApp, NativeApp, NativeFrame};
 
@@ -7921,7 +7931,7 @@ fn native_browser_cmd(cli: &Cli) -> Result<()> {
     let out = cli
         .native_out
         .clone()
-        .unwrap_or_else(|| format!("/tmp/kittwm-native-browser-{}.png", std::process::id()));
+        .unwrap_or_else(|| native_browser_default_out_path(std::process::id()));
     std::fs::write(&out, &bytes)?;
     println!("kittwm native-browser");
     println!("======================");
@@ -10560,6 +10570,13 @@ mod tests {
             }
         }
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn native_browser_default_out_path_builds_directly() {
+        let path = native_browser_default_out_path(42);
+        assert_eq!(path, "/tmp/kittwm-native-browser-42.png");
+        assert!(path.capacity() >= "/tmp/kittwm-native-browser-".len() + 10 + ".png".len());
     }
 
     #[test]
