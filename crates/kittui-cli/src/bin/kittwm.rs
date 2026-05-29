@@ -10069,13 +10069,30 @@ mod tests {
         assert_eq!(panic_payload_message(&42usize), "non-string panic payload");
     }
 
+    fn process_event_log_test_filename(pid: u32, clock: &str) -> String {
+        let clock = clock.replace('.', "-");
+        let mut name = String::with_capacity("kittwm-process-event--.log".len() + 10 + clock.len());
+        name.push_str("kittwm-process-event-");
+        let _ = write!(name, "{pid}");
+        name.push('-');
+        name.push_str(&clock);
+        name.push_str(".log");
+        name
+    }
+
+    #[test]
+    fn process_event_log_test_filename_builds_directly() {
+        let name = process_event_log_test_filename(123, "456.789");
+        assert_eq!(name, "kittwm-process-event-123-456-789.log");
+        assert!(name.capacity() >= name.len());
+    }
+
     #[test]
     fn kittwm_process_event_log_appends_timestamped_line() {
         let _guard = ENV_LOCK.lock().unwrap();
-        let path = std::env::temp_dir().join(format!(
-            "kittwm-process-event-{}-{}.log",
+        let path = std::env::temp_dir().join(process_event_log_test_filename(
             std::process::id(),
-            kittwm_log_clock().replace('.', "-")
+            &kittwm_log_clock(),
         ));
         std::env::set_var("KITTUI_WM_LOG", &path);
         log_kittwm_process_event("panic: synthetic crash");
