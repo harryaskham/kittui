@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
         return render_pty_sampled_command(&args, command);
     }
 
-    let input = input_bytes(&args)?;
+    let (input, inner_exit_status) = input_bytes(&args)?;
 
     let mut terminal = GhosttyVtTerminal::new(args.cols, args.rows, 1_000)?;
     terminal.write(&input);
@@ -59,12 +59,15 @@ fn main() -> anyhow::Result<()> {
     let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
     std::fs::write(&args.out, png)?;
     println!(
-        "kittui-ghostty wrote {} ({}x{} cells, cursor={}, {})",
+        "kittui-ghostty wrote {} ({}x{} cells, cursor={}, {}, inner_exit_status={})",
         args.out.display(),
         snapshot.cols,
         snapshot.rows,
         snapshot.cursor_x,
-        snapshot.cursor_y
+        snapshot.cursor_y,
+        inner_exit_status
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "n/a".to_string())
     );
     Ok(())
 }
@@ -80,7 +83,7 @@ fn render_pty_timelapse_command(args: &Args, command: &str) -> anyhow::Result<()
         .as_deref()
         .map(decode_pty_input)
         .transpose()?;
-    let bytes = pty_command_bytes_with_input(
+    let (bytes, _inner_exit_status) = pty_command_bytes_with_input(
         command,
         args.cols,
         args.rows,
@@ -378,7 +381,7 @@ fn parse_args() -> anyhow::Result<Args> {
     })
 }
 
-fn input_bytes(args: &Args) -> anyhow::Result<Vec<u8>> {
+fn input_bytes(args: &Args) -> anyhow::Result<(Vec<u8>, Option<u32>)> {
     let command_modes = [
         args.command.is_some(),
         args.pty_command.is_some(),
@@ -419,7 +422,7 @@ fn input_bytes(args: &Args) -> anyhow::Result<Vec<u8>> {
         );
     }
     if let Some(command) = &args.command {
-        return command_bytes(command);
+        return command_bytes(command).map(|bytes| (bytes, None));
     }
 
     let mut input = Vec::new();
@@ -427,7 +430,7 @@ fn input_bytes(args: &Args) -> anyhow::Result<Vec<u8>> {
     if args.demo || input.is_empty() {
         input = demo_bytes();
     }
-    Ok(input)
+    Ok((input, None))
 }
 
 fn command_bytes(command: &str) -> anyhow::Result<Vec<u8>> {
@@ -453,7 +456,7 @@ fn pty_command_bytes_with_input(
     rows: u16,
     pty_input: Option<&[u8]>,
     pty_input_delay_ms: u64,
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<(Vec<u8>, Option<u32>)> {
     pty_command_bytes_with_env_and_input(
         command,
         cols,
@@ -473,7 +476,7 @@ fn pty_command_bytes_with_env_and_input<const N: usize>(
     pty_input: Option<&[u8]>,
     pty_input_delay_ms: u64,
     prefer_pre_input_snapshot: bool,
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<(Vec<u8>, Option<u32>)> {
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows,
@@ -536,6 +539,7 @@ fn pty_command_bytes_with_env_and_input<const N: usize>(
         writer.flush()?;
     }
     let status = child.wait()?;
+    let exit_code = status.exit_code();
     drop(child);
     handle
         .join()
@@ -554,7 +558,7 @@ fn pty_command_bytes_with_env_and_input<const N: usize>(
     if !status.success() {
         bytes.extend_from_slice(format!("\r\n[exit {}]\r\n", status.exit_code()).as_bytes());
     }
-    Ok(bytes)
+    Ok((bytes, Some(exit_code)))
 }
 
 fn choose_pty_snapshot_output(pre_input_output: Option<Vec<u8>>, output: Vec<u8>) -> Vec<u8> {

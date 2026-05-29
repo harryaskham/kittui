@@ -112,14 +112,18 @@ scripts/kittwm-ghostty-harness.sh --mode timelapse --out-dir /tmp/kittwm-frames 
 ```
 
 Every mode writes `harness-manifest.json` plus mode-specific logs/artifacts in
-`--out-dir`. The headless/proof/timelapse modes run in a PTY, capture the VT byte
-stream, and render through libghostty-vt, so they are deterministic enough for
-agent validation and do not require the macOS GUI app. The `app` mode is a
-best-effort macOS smoke runner that launches `Ghostty.app` and captures a desktop
-screenshot with `screencapture`; use it only when GUI permissions and a visible
-session are available. The `kittem` mode delegates to an installed `kittem`
-binary and captures stdout/stderr/status for terminal-emulator validation
-workflows.
+`--out-dir`. The manifest includes both the harness `status` and, for PTY-backed
+single-frame modes, `inner_exit_status` from the command that ran inside the PTY.
+By default the harness can still return 0 when rendering succeeded even if the
+inner command failed; pass `--strict-inner-status` to make headless/proof modes
+exit with the inner status instead. The headless/proof/timelapse modes run in a
+PTY, capture the VT byte stream, and render through libghostty-vt, so they are
+deterministic enough for agent validation and do not require the macOS GUI app.
+The `app` mode is a best-effort macOS smoke runner that launches `Ghostty.app`
+and captures a desktop screenshot with `screencapture`; use it only when GUI
+permissions and a visible session are available. The `kittem` mode delegates to
+an installed `kittem` binary and captures stdout/stderr/status for
+terminal-emulator validation workflows.
 
 As with all kittwm evidence, generated screenshots must be reviewed before they
 are treated as visual proof. If the image only shows command/test logs, classify

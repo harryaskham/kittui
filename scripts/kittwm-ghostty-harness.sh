@@ -21,6 +21,8 @@ Options:
   --chunk-lines N   Lines per frame in timelapse mode (default: 1)
   --sample-ms N     Milliseconds between frames in sampled mode (default: 250)
   --max-ms N        Maximum sampled-mode runtime before killing child (default: 10000)
+  --strict-inner-status
+                   Exit nonzero when kittui-ghostty reports inner_exit_status != 0
   --scroll MODE     top | bottom | current for PNG preview modes (default: current)
   --pty-input TEXT  Input to send to PTY command in headless/proof/timelapse modes (escapes: \n \r \t \e \xHH)
   --pty-input-delay-ms N
@@ -59,6 +61,7 @@ scroll=current
 chunk_lines=1
 sample_ms=250
 max_ms=10000
+strict_inner_status=0
 app_name=Ghostty
 keep_app=0
 pty_input=()
@@ -92,6 +95,10 @@ while [[ $# -gt 0 ]]; do
     --max-ms)
       max_ms="${2:?--max-ms requires a value}"
       shift 2
+      ;;
+    --strict-inner-status)
+      strict_inner_status=1
+      shift
       ;;
     --scroll)
       scroll="${2:?--scroll requires a value}"
@@ -146,14 +153,16 @@ write_manifest() {
   local status="$1"
   local runner="$2"
   local artifact_json="$3"
-  local escaped_command escaped_dir
+  local escaped_command escaped_dir inner_exit_status_json
   escaped_command=$(printf '%s' "$command_text" | json_escape)
   escaped_dir=$(printf '%s' "$out_dir" | json_escape)
+  inner_exit_status_json=$(inner_exit_status_json)
   cat > "$out_dir/harness-manifest.json" <<MANIFEST
 {
   "kind": "kittwm-ghostty-harness",
   "runner": "$runner",
   "status": $status,
+  "inner_exit_status": $inner_exit_status_json,
   "command": $escaped_command,
   "out_dir": $escaped_dir,
   "cols": $cols,
@@ -161,6 +170,33 @@ write_manifest() {
   "artifacts": $artifact_json
 }
 MANIFEST
+}
+
+inner_exit_status_json() {
+  python3 - "$out_dir/kittui-ghostty.stdout.txt" <<'PY'
+import re, sys
+path = sys.argv[1]
+try:
+    text = open(path, 'r', encoding='utf-8', errors='replace').read()
+except FileNotFoundError:
+    print('null')
+    raise SystemExit
+matches = re.findall(r'inner_exit_status=([0-9]+|n/a)', text)
+if not matches or matches[-1] == 'n/a':
+    print('null')
+else:
+    print(matches[-1])
+PY
+}
+
+apply_strict_inner_status() {
+  local status="$1"
+  local inner
+  inner=$(inner_exit_status_json)
+  if [[ "$strict_inner_status" -eq 1 && "$inner" != "null" && "$inner" != "0" ]]; then
+    return "$inner"
+  fi
+  return "$status"
 }
 
 run_cargo_ghostty() {
@@ -185,6 +221,10 @@ case "$mode" in
     run_cargo_ghostty --pty-command "$command_text" "${pty_input[@]}" --out "$frame" --cols "$cols" --rows "$rows" --scroll "$scroll"
     status=$?
     set -e
+    set +e
+    apply_strict_inner_status "$status"
+    status=$?
+    set -e
     write_manifest "$status" "headless-libghostty-vt" '["frame.png","kittui-ghostty.stdout.txt","kittui-ghostty.stderr.txt"]'
     exit "$status"
     ;;
@@ -192,6 +232,10 @@ case "$mode" in
     frame="$out_dir/proof.png"
     set +e
     run_cargo_ghostty --kittwm-proof-command "$command_text" "${pty_input[@]}" --out "$frame" --cols "$cols" --rows "$rows" --scroll "$scroll"
+    status=$?
+    set -e
+    set +e
+    apply_strict_inner_status "$status"
     status=$?
     set -e
     write_manifest "$status" "kittwm-proof-libghostty-vt" '["proof.png","kittui-ghostty.stdout.txt","kittui-ghostty.stderr.txt"]'
