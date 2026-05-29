@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -406,6 +406,7 @@ fn input_bytes(args: &Args) -> anyhow::Result<Vec<u8>> {
             kittwm_proof_env(),
             pty_input.as_deref(),
             args.pty_input_delay_ms,
+            true,
         );
     }
     if let Some(command) = &args.pty_command {
@@ -453,7 +454,15 @@ fn pty_command_bytes_with_input(
     pty_input: Option<&[u8]>,
     pty_input_delay_ms: u64,
 ) -> anyhow::Result<Vec<u8>> {
-    pty_command_bytes_with_env_and_input(command, cols, rows, [], pty_input, pty_input_delay_ms)
+    pty_command_bytes_with_env_and_input(
+        command,
+        cols,
+        rows,
+        [],
+        pty_input,
+        pty_input_delay_ms,
+        false,
+    )
 }
 
 fn pty_command_bytes_with_env_and_input<const N: usize>(
@@ -463,6 +472,7 @@ fn pty_command_bytes_with_env_and_input<const N: usize>(
     extra_env: [(&'static str, &'static str); N],
     pty_input: Option<&[u8]>,
     pty_input_delay_ms: u64,
+    prefer_pre_input_snapshot: bool,
 ) -> anyhow::Result<Vec<u8>> {
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
@@ -492,24 +502,49 @@ fn pty_command_bytes_with_env_and_input<const N: usize>(
     };
     let mut child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
+    let shared_output = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let reader_output = Arc::clone(&shared_output);
+    let handle = thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Ok(mut output) = reader_output.lock() {
+                        output.extend_from_slice(&chunk[..n]);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    let mut pre_input_output = None;
     if let (Some(input), Some(writer)) = (pty_input, writer.as_mut()) {
         if pty_input_delay_ms > 0 {
             thread::sleep(std::time::Duration::from_millis(pty_input_delay_ms));
+        }
+        if prefer_pre_input_snapshot {
+            pre_input_output = Some(
+                shared_output
+                    .lock()
+                    .map(|output| output.clone())
+                    .unwrap_or_default(),
+            );
         }
         use std::io::Write as _;
         writer.write_all(input)?;
         writer.flush()?;
     }
-    let handle = thread::spawn(move || {
-        let mut output = Vec::new();
-        let _ = reader.read_to_end(&mut output);
-        output
-    });
     let status = child.wait()?;
     drop(child);
-    let output = handle
+    handle
         .join()
         .map_err(|_| anyhow::anyhow!("PTY reader thread panicked"))?;
+    let output = shared_output
+        .lock()
+        .map(|output| output.clone())
+        .unwrap_or_default();
+    let output = choose_pty_snapshot_output(pre_input_output, output);
 
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"$ ");
@@ -520,6 +555,12 @@ fn pty_command_bytes_with_env_and_input<const N: usize>(
         bytes.extend_from_slice(format!("\r\n[exit {}]\r\n", status.exit_code()).as_bytes());
     }
     Ok(bytes)
+}
+
+fn choose_pty_snapshot_output(pre_input_output: Option<Vec<u8>>, output: Vec<u8>) -> Vec<u8> {
+    pre_input_output
+        .filter(|snapshot| !snapshot.is_empty())
+        .unwrap_or(output)
 }
 
 fn decode_pty_input(input: &str) -> anyhow::Result<Vec<u8>> {
@@ -765,6 +806,25 @@ mod tests {
         assert!(env.contains(&("KITTWM_NATIVE_CHROME_RENDERER", "terminal")));
         assert!(env.contains(&("KITTWM_STARTUP_TERMINAL", "0")));
         assert!(env.contains(&("TERM_PROGRAM", "kittui-ghostty-proof")));
+    }
+
+    #[test]
+    fn choose_pty_snapshot_output_prefers_nonempty_pre_input_snapshot() {
+        assert_eq!(
+            choose_pty_snapshot_output(
+                Some(b"live alt-screen".to_vec()),
+                b"restored shell".to_vec()
+            ),
+            b"live alt-screen".to_vec()
+        );
+        assert_eq!(
+            choose_pty_snapshot_output(Some(Vec::new()), b"restored shell".to_vec()),
+            b"restored shell".to_vec()
+        );
+        assert_eq!(
+            choose_pty_snapshot_output(None, b"full output".to_vec()),
+            b"full output".to_vec()
+        );
     }
 
     #[test]
