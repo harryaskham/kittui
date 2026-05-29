@@ -3151,8 +3151,24 @@ mod tests {
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    fn test_socket_filename(prefix: &str, pid: u32) -> String {
+        let mut name = String::with_capacity(prefix.len() + 1 + 10 + ".sock".len());
+        name.push_str(prefix);
+        name.push('-');
+        let _ = write!(name, "{pid}");
+        name.push_str(".sock");
+        name
+    }
+
     fn tmp_sock() -> PathBuf {
-        std::env::temp_dir().join(format!("kittwm-test-{}.sock", std::process::id()))
+        std::env::temp_dir().join(test_socket_filename("kittwm-test", std::process::id()))
+    }
+
+    #[test]
+    fn test_socket_filename_builds_directly() {
+        let name = test_socket_filename("kittwm-test", 123);
+        assert_eq!(name, "kittwm-test-123.sock");
+        assert!(name.capacity() >= name.len());
     }
 
     #[test]
