@@ -2278,7 +2278,17 @@ fn kittwm_log_clock() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
-    format!("{}.{:03}", now.as_secs(), now.subsec_millis())
+    kittwm_log_clock_line(now.as_secs(), now.subsec_millis())
+}
+
+fn kittwm_log_clock_line(secs: u64, millis: u32) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(24);
+    let _ = write!(out, "{secs}");
+    out.push('.');
+    let _ = write!(out, "{millis:03}");
+    out
 }
 
 fn real_main() -> Result<()> {
@@ -9792,6 +9802,13 @@ mod tests {
             &"failed printing to stdout: os error 32".to_string()
         ));
         assert!(!panic_payload_is_broken_pipe(&"unrelated panic"));
+    }
+
+    #[test]
+    fn kittwm_log_clock_line_builds_directly() {
+        assert_eq!(kittwm_log_clock_line(7, 3), "7.003");
+        assert_eq!(kittwm_log_clock_line(123, 456), "123.456");
+        assert!(kittwm_log_clock_line(123, 456).capacity() >= "123.456".len());
     }
 
     #[test]
