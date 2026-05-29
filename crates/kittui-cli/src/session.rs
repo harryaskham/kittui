@@ -6698,6 +6698,16 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn keymap_launcher_selected_log_line_builds_directly() {
+        let line = keymap_launcher_selected_log_line(LauncherKind::Shell, "echo hi", 42);
+        assert_eq!(
+            line,
+            "keymap launcher selected Shell \"echo hi\" spawned pid=42"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn keymap_launcher_failed_log_line_builds_directly() {
         let err = anyhow!("spawn denied");
         let line = keymap_launcher_failed_log_line(&err);
@@ -11741,6 +11751,21 @@ fn launcher_overlay_launch_failed_log_line(err: &dyn std::fmt::Display) -> Strin
     out
 }
 
+fn keymap_launcher_selected_log_line(kind: LauncherKind, command: &str, pid: u32) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "keymap launcher selected  \"\" spawned pid=".len() + command.len() + 32,
+    );
+    out.push_str("keymap launcher selected ");
+    let _ = write!(out, "{kind:?}");
+    out.push(' ');
+    let _ = write!(out, "{command:?}");
+    out.push_str(" spawned pid=");
+    let _ = write!(out, "{pid}");
+    out
+}
+
 fn keymap_launcher_failed_log_line(err: &dyn std::fmt::Display) -> String {
     use std::fmt::Write as _;
 
@@ -11992,7 +12017,11 @@ pub fn run_loop_with<S: XServer>(
                                         match spawn_launcher_command() {
                                             Ok(pid) => {
                                                 last_launch_pid = Some(pid);
-                                                dbg.log(&format!("keymap launcher selected {:?} {:?} spawned pid={pid}", selection.kind, selection.command));
+                                                dbg.log(&keymap_launcher_selected_log_line(
+                                                    selection.kind,
+                                                    &selection.command,
+                                                    pid,
+                                                ));
                                             }
                                             Err(e) => {
                                                 last_keymap_action =
