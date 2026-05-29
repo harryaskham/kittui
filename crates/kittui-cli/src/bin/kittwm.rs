@@ -4962,6 +4962,11 @@ AUTOMATION
   kittwm read-json focused
   kittwm wait focused 'Finished'
 
+HELPERS
+  kittwm-launch --browser URL   kittwm-terminal --events-ms 1000
+  kittwm-top --json             kittwm-bar --reserve --kitty
+  kittwm-browser --semantic-snapshot URL
+
 MORE
   kittwm quickstart         kittwm examples    kittwm help panes
 "#
@@ -10806,6 +10811,14 @@ mod tests {
         assert!(text.contains("kittwm spawn htop"), "{text}");
         assert!(text.contains("kittwm balance"), "{text}");
         assert!(text.contains("kittwm wait focused 'Finished'"), "{text}");
+        assert!(text.contains("kittwm-launch --browser URL"), "{text}");
+        assert!(text.contains("kittwm-terminal --events-ms 1000"), "{text}");
+        assert!(text.contains("kittwm-top --json"), "{text}");
+        assert!(text.contains("kittwm-bar --reserve --kitty"), "{text}");
+        assert!(
+            text.contains("kittwm-browser --semantic-snapshot URL"),
+            "{text}"
+        );
         assert!(
             text.lines().count() < quickstart_text().lines().count(),
             "{text}"
