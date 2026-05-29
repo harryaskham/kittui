@@ -8050,49 +8050,80 @@ fn remote_apps_script() -> &'static str {
     esac
     exec kittwm "$@"
 fi
+json_escape() {
+    awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
+}
 kittwm_remote_list_path_commands() {
     old_ifs=$IFS
     IFS=:
     for dir in $PATH; do
         [ -d "$dir" ] || continue
         for path in "$dir"/*; do
-            [ -f "$path" ] && [ -x "$path" ] && basename "$path"
+            [ -f "$path" ] && [ -x "$path" ] && printf 'path\t%s\n' "$(basename "$path")"
         done
     done
     IFS=$old_ifs
 }
+kittwm_remote_list_macos_apps() {
+    command -v open >/dev/null 2>&1 || return 0
+    for root in /Applications /System/Applications "$HOME/Applications"; do
+        [ -d "$root" ] || continue
+        find "$root" -name '*.app' -prune 2>/dev/null | while IFS= read -r app; do
+            name=$(basename "$app" .app)
+            [ -n "$name" ] && printf 'macos\t%s\n' "$name"
+        done
+    done
+}
 kittwm_remote_candidates() {
-    kittwm_remote_list_path_commands | sort -u | awk -v q="${KITTWM_REMOTE_QUERY:-}" 'BEGIN { q=tolower(q) } q == "" || index(tolower($0), q)'
+    { kittwm_remote_list_path_commands; kittwm_remote_list_macos_apps; } | awk -F '\t' -v q="${KITTWM_REMOTE_QUERY:-}" 'BEGIN { q=tolower(q) } !seen[$1 FS $2]++ && (q == "" || index(tolower($2), q))'
 }
 limit=${KITTWM_REMOTE_LIMIT:-50}
 mode=${KITTWM_REMOTE_MODE:-list}
 host=$(hostname 2>/dev/null || printf unknown)
 case "$mode" in
     json)
+        printf '{"host":%s,"mode":"shell-path-or-macos","path_commands":[' "$(printf '%s' "$host" | json_escape)"
         first=1
-        printf '{"host":%s,"mode":"shell-path","path_commands":[' "$(printf '%s' "$host" | awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }')"
-        kittwm_remote_candidates | head -n "$limit" | while IFS= read -r cmd; do
+        kittwm_remote_candidates | awk -F '\t' '$1 == "path" { print $2 }' | head -n "$limit" | while IFS= read -r cmd; do
             [ $first -eq 1 ] || printf ','
             first=0
-            printf '%s' "$cmd" | awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
+            printf '%s' "$cmd" | json_escape
         done
-        printf '],"macos_apps":[]}'
+        printf '],"macos_apps":['
+        first=1
+        kittwm_remote_candidates | awk -F '\t' '$1 == "macos" { print $2 }' | head -n "$limit" | while IFS= read -r app; do
+            [ $first -eq 1 ] || printf ','
+            first=0
+            printf '%s' "$app" | json_escape
+        done
+        printf ']}'
         ;;
     first)
         candidate=$(kittwm_remote_candidates | head -n 1)
         [ -n "$candidate" ] || { echo "ERR no remote app candidates matched"; exit 1; }
-        printf 'path:%s\n' "$candidate"
+        kind=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $1}')
+        name=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
+        printf '%s:%s\n' "$kind" "$name"
         ;;
     launch-first)
         candidate=$(kittwm_remote_candidates | head -n 1)
         [ -n "$candidate" ] || { echo "ERR no remote app candidates matched"; exit 1; }
-        ("$candidate" >/dev/null 2>&1 & printf 'kittwm remote apps: launched pid=%s kind=path name=%s host=%s\n' "$!" "$candidate" "$host")
+        kind=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $1}')
+        name=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
+        if [ "$kind" = "macos" ]; then
+            open -a "$name" >/dev/null 2>&1 &
+        else
+            "$name" >/dev/null 2>&1 &
+        fi
+        printf 'kittwm remote apps: launched pid=%s kind=%s name=%s host=%s\n' "$!" "$kind" "$name" "$host"
         ;;
     *)
-        printf 'kittwm remote apps\n==================\nhost: %s\nmode: shell-path\n' "$host"
+        printf 'kittwm remote apps\n==================\nhost: %s\nmode: shell-path-or-macos\n' "$host"
         if [ -n "${KITTWM_REMOTE_QUERY:-}" ]; then printf 'filter: %s\n' "$KITTWM_REMOTE_QUERY"; fi
         printf 'PATH commands (first %s):\n' "$limit"
-        kittwm_remote_candidates | head -n "$limit" | sed 's/^/  /'
+        kittwm_remote_candidates | awk -F '\t' '$1 == "path" { print "  "$2 }' | head -n "$limit"
+        printf 'macOS applications (first %s):\n' "$limit"
+        kittwm_remote_candidates | awk -F '\t' '$1 == "macos" { print "  "$2 }' | head -n "$limit"
         ;;
 esac
 "#
@@ -11008,6 +11039,9 @@ mod tests {
             script.contains("kittwm_remote_list_path_commands"),
             "{script}"
         );
+        assert!(script.contains("kittwm_remote_list_macos_apps"), "{script}");
+        assert!(script.contains("open -a"), "{script}");
+        assert!(script.contains("\"macos_apps\":"), "{script}");
     }
 
     #[test]
