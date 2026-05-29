@@ -111,7 +111,15 @@ struct PaneRegistry {
     focused: Option<u32>,
 }
 
-fn u32_decimal_len(mut value: u32) -> usize {
+fn u32_decimal_len(value: u32) -> usize {
+    u64_decimal_len(value as u64)
+}
+
+fn usize_decimal_len(value: usize) -> usize {
+    u64_decimal_len(value as u64)
+}
+
+fn u64_decimal_len(mut value: u64) -> usize {
     let mut len = 1;
     while value >= 10 {
         value /= 10;
@@ -3358,6 +3366,16 @@ mod tests {
     }
 
     #[test]
+    fn daemon_status_line_builds_directly() {
+        let line = daemon_status_line(42, 7, "/tmp/kittwm-test.sock", 3, "2");
+        assert_eq!(
+            line,
+            "pid=42 uptime_s=7 sock=/tmp/kittwm-test.sock panes=3 focus=2\n"
+        );
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn status_includes_pid_and_uptime() {
         let p = std::env::temp_dir().join(test_socket_filename(
             "kittwm-test-status",
@@ -5361,18 +5379,36 @@ pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
     Ok(out)
 }
 
+fn daemon_status_line(pid: u32, uptime_s: u64, socket: &str, panes: usize, focus: &str) -> String {
+    let mut out = String::with_capacity(
+        "pid= uptime_s= sock= panes= focus=\n".len()
+            + u32_decimal_len(pid)
+            + u64_decimal_len(uptime_s)
+            + socket.len()
+            + usize_decimal_len(panes)
+            + focus.len(),
+    );
+    writeln!(
+        out,
+        "pid={pid} uptime_s={uptime_s} sock={socket} panes={panes} focus={focus}"
+    )
+    .expect("write to string");
+    out
+}
+
 fn daemon_status_reply(started: Instant, path: &Path, panes: &SharedPanes) -> String {
     let snapshot = panes.lock().ok();
-    format!(
-        "pid={} uptime_s={} sock={} panes={} focus={}\n",
+    let pane_count = snapshot.as_ref().map(|p| p.panes.len()).unwrap_or(0);
+    let focus = snapshot
+        .and_then(|p| p.focused)
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    daemon_status_line(
         std::process::id(),
         started.elapsed().as_secs(),
-        path.display(),
-        snapshot.as_ref().map(|p| p.panes.len()).unwrap_or(0),
-        snapshot
-            .and_then(|p| p.focused)
-            .map(|id| id.to_string())
-            .unwrap_or_else(|| "-".to_string())
+        &path.display().to_string(),
+        pane_count,
+        &focus,
     )
 }
 
