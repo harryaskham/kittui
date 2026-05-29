@@ -4848,11 +4848,23 @@ fn reap_exited_native_panes(
     Ok(focused.min(panes.len().saturating_sub(1)))
 }
 
+const NATIVE_FOCUSED_PANE_TITLE_MARKER: &str = "▶";
+const NATIVE_UNFOCUSED_PANE_TITLE_MARKER: &str = " ";
+
 fn native_pane_title_text(pane: &NativePane, layout: NativePaneLayout, focused: bool) -> String {
     let width = layout.cols as usize;
     let mut out = String::with_capacity(width);
     let mut count = 0usize;
-    native_pane_title_push(&mut out, &mut count, width, if focused { "*" } else { " " });
+    native_pane_title_push(
+        &mut out,
+        &mut count,
+        width,
+        if focused {
+            NATIVE_FOCUSED_PANE_TITLE_MARKER
+        } else {
+            NATIVE_UNFOCUSED_PANE_TITLE_MARKER
+        },
+    );
     native_pane_title_push(&mut out, &mut count, width, " ");
     native_pane_title_push(&mut out, &mut count, width, &pane.window);
     native_pane_title_push(&mut out, &mut count, width, " ");
@@ -9168,7 +9180,7 @@ mod native_pane_tests {
             },
             true,
         );
-        assert_eq!(text, "* native-1 title");
+        assert_eq!(text, "▶ native-1 title");
         assert_eq!(text.chars().count(), 16);
         assert!(text.capacity() >= 16);
         assert!(!text.contains(&"title-".repeat(2)), "{text}");
