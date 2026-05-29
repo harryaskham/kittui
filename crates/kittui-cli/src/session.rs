@@ -218,9 +218,23 @@ fn should_write_ansi_top_bar(
 
 fn raw_compositor_app_z_index() -> i32 {
     // The raw compositor draws pane titles/footer as ANSI text, not kittui
-    // scene text. Keep app images below that terminal text layer; graphical
-    // native chrome paths continue to use the SDK app z-index contract.
+    // scene text. Keep app images below that terminal text layer.
     native_app_z_index().min(-1)
+}
+
+fn native_live_app_z_index() -> i32 {
+    // Live kittwm still paints readable chrome text through ANSI overlays while
+    // kittui scenes provide graphical glass, borders, and focus affordances.
+    // Keep app frames below the terminal text plane.
+    native_app_z_index().min(-2)
+}
+
+fn native_live_chrome_z_index() -> i32 {
+    // Place graphical chrome above app frames but below ANSI text overlays so
+    // workspace, clock, title, and status text remains visible.
+    native_chrome_z_index()
+        .min(-1)
+        .max(native_live_app_z_index().saturating_add(1))
 }
 
 fn raw_compositor_app_placement_options(image_id: u32) -> kittui_kitty::PlacementOptions {
@@ -1172,7 +1186,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     );
                     let placement_options =
                         kittui_kitty::PlacementOptions::stable_absolute(pane.image_id)
-                            .with_z_index(native_app_z_index());
+                            .with_z_index(native_live_app_z_index());
                     let mut write_bytes = NativeFrameWriteBytes::default();
                     if placement_write.write_upload {
                         let p = runtime.place_raw_frame_with_options(
@@ -1251,7 +1265,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     );
                     let placement_options =
                         kittui_kitty::PlacementOptions::stable_absolute(pane.image_id)
-                            .with_z_index(native_app_z_index());
+                            .with_z_index(native_live_app_z_index());
                     let mut write_bytes = NativeFrameWriteBytes::default();
                     if decision.upload {
                         let p = runtime.place_png_frame_with_options(
@@ -1372,6 +1386,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     rows,
                     &mut affordance_chrome_keys,
                 )?;
+                write_native_graphical_pane_text_overlays(&mut frame_out, &shell_view, cols, rows)?;
                 last_affordance_chrome_view_key = Some(chrome_view_key);
             }
             if redraw_static || shell_view.top_bar.text != last_top_bar {
@@ -5930,6 +5945,65 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
     }
 }
 
+fn write_native_graphical_pane_text_overlays<W: Write>(
+    out: &mut W,
+    view: &NativeShellView,
+    cols: u16,
+    rows: u16,
+) -> Result<()> {
+    let colors = native_glass_chrome_colors();
+    let focused_style = ansi_fg_bg(colors.fg, colors.border);
+    let unfocused_style = ansi_fg_bg(colors.fg, rgba_with_alpha(colors.fill, 180));
+    let status_style = ansi_fg_bg(colors.fg, rgba_with_alpha(colors.border, 180));
+    for pane in &view.panes {
+        let Some(row) = terminal_visible_row_opt(pane.y, rows) else {
+            continue;
+        };
+        let Some(width) = terminal_visible_width(pane.x, pane.cols, cols) else {
+            continue;
+        };
+        let status_cols = native_graphical_pane_status_overlay_cols(&pane.status, width);
+        let title_cols = width.saturating_sub(status_cols);
+        if title_cols > 0 {
+            let title = clip_and_pad(&pane.text, title_cols);
+            let style = if pane.focused {
+                focused_style.as_str()
+            } else {
+                unfocused_style.as_str()
+            };
+            write!(
+                out,
+                "\x1b[{};{}H{}{}\x1b[0m",
+                row + 1,
+                pane.x + 1,
+                style,
+                title
+            )?;
+        }
+        if status_cols > 0 {
+            let status_x = pane.x.saturating_add(title_cols as u16);
+            let status = clip_and_pad(&pane.status, status_cols);
+            write!(
+                out,
+                "\x1b[{};{}H{}{}\x1b[0m",
+                row + 1,
+                status_x + 1,
+                status_style,
+                status
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn native_graphical_pane_status_overlay_cols(status: &str, title_row_width: usize) -> usize {
+    if title_row_width < 16 || status.is_empty() {
+        return 0;
+    }
+    let desired = status.chars().count().saturating_add(2);
+    desired.min(title_row_width / 2).max(8)
+}
+
 fn write_native_graphical_top_bar_text_overlay<W: Write>(
     out: &mut W,
     view: &NativeShellView,
@@ -6191,7 +6265,7 @@ fn write_native_shell_affordance_chrome<W: Write>(
         );
         let image_id = chrome.scene.id().kitty_image_id();
         let placement_options = kittui_kitty::PlacementOptions::stable_absolute(image_id)
-            .with_z_index(native_chrome_z_index());
+            .with_z_index(native_live_chrome_z_index());
         let p = runtime.place_at_with_options(&chrome.scene, placement, &placement_options)?;
         out.write_all(p.upload.as_bytes())?;
         out.write_all(p.placement.as_bytes())?;
@@ -9143,6 +9217,52 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_graphical_pane_overlay_writes_title_and_status_text() {
+        let view = NativeShellView {
+            top_bar: NativeTopBarChrome {
+                row: 0,
+                text: "| 1 | 2 | 3 |                  12:00 ".to_string(),
+            },
+            panes: vec![NativePaneChrome {
+                x: 4,
+                y: 3,
+                focused: true,
+                text: "* native-7 editor".to_string(),
+                cache_key: "key".to_string(),
+                status: "editor · pid:707 · frame:clean".to_string(),
+                app_x: 4,
+                app_y: 4,
+                app_cols: 20,
+                app_rows: 6,
+                cols: 40,
+                rows: 7,
+                text_snapshot: String::new(),
+            }],
+            footer: NativeFooterChrome {
+                row: 12,
+                text: String::new(),
+            },
+            help_overlay: false,
+        };
+        let mut out = Vec::new();
+        write_native_graphical_pane_text_overlays(&mut out, &view, 80, 24).unwrap();
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.contains("\x1b[4;5H"), "{text:?}");
+        assert!(text.contains("* native-7 editor"), "{text:?}");
+        assert!(text.contains("editor · pid:707"), "{text:?}");
+    }
+
+    #[test]
+    fn native_graphical_pane_status_overlay_width_avoids_tiny_titles() {
+        assert_eq!(native_graphical_pane_status_overlay_cols("status", 8), 0);
+        assert_eq!(native_graphical_pane_status_overlay_cols("status", 16), 8);
+        assert_eq!(
+            native_graphical_pane_status_overlay_cols("long-status-label", 40),
+            19
+        );
+    }
+
+    #[test]
     fn native_graphical_top_bar_uses_ansi_shortcut_overlay_text() {
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
@@ -9202,6 +9322,7 @@ mod native_pane_tests {
         write_native_help_overlay(&mut out, 80, 24).unwrap();
         let text = String::from_utf8_lossy(&out);
         assert!(text.contains("_G"), "{text:?}");
+        assert!(text.contains("z=-1"), "{text:?}");
         assert!(text.contains("kittwm shortcuts"), "{text:?}");
         assert!(!last.contains_key("help-overlay"));
     }
@@ -10427,6 +10548,8 @@ mod native_pane_tests {
             contract.decoration_z_index().unwrap()
         );
         assert!(native_chrome_z_index() > native_app_z_index());
+        assert!(native_live_app_z_index() < native_live_chrome_z_index());
+        assert!(native_live_chrome_z_index() < 0);
     }
 
     #[test]
