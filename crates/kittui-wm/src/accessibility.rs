@@ -524,7 +524,7 @@ mod tests {
 
     impl AccessibilityActionBackend for RecordingBackend {
         fn focus(&mut self, node: &AccessibilityNode) -> Result<(), AccessibilityActionError> {
-            self.calls.push(format!("focus:{}", node.id));
+            self.calls.push(recorded_action_call("focus", &node.id));
             Ok(())
         }
 
@@ -533,7 +533,7 @@ mod tests {
             node: &AccessibilityNode,
             action: &str,
         ) -> Result<(), AccessibilityActionError> {
-            self.calls.push(format!("{action}:{}", node.id));
+            self.calls.push(recorded_action_call(action, &node.id));
             Ok(())
         }
 
@@ -542,7 +542,11 @@ mod tests {
             node: &AccessibilityNode,
             value: &str,
         ) -> Result<(), AccessibilityActionError> {
-            self.calls.push(format!("set_value:{}={value}", node.id));
+            self.calls.push(recorded_action_call_with_value(
+                "set_value",
+                &node.id,
+                value,
+            ));
             Ok(())
         }
 
@@ -551,7 +555,11 @@ mod tests {
             node: &AccessibilityNode,
             text: &str,
         ) -> Result<(), AccessibilityActionError> {
-            self.calls.push(format!("insert_text:{}={text}", node.id));
+            self.calls.push(recorded_action_call_with_value(
+                "insert_text",
+                &node.id,
+                text,
+            ));
             Ok(())
         }
 
@@ -560,14 +568,43 @@ mod tests {
             node: &AccessibilityNode,
             value: &str,
         ) -> Result<(), AccessibilityActionError> {
-            self.calls.push(format!("select:{}={value}", node.id));
+            self.calls
+                .push(recorded_action_call_with_value("select", &node.id, value));
             Ok(())
         }
 
         fn scroll(&mut self, node: &AccessibilityNode) -> Result<(), AccessibilityActionError> {
-            self.calls.push(format!("scroll:{}", node.id));
+            self.calls.push(recorded_action_call("scroll", &node.id));
             Ok(())
         }
+    }
+
+    fn recorded_action_call(action: &str, node_id: &str) -> String {
+        let mut call = String::with_capacity(action.len() + 1 + node_id.len());
+        call.push_str(action);
+        call.push(':');
+        call.push_str(node_id);
+        call
+    }
+
+    fn recorded_action_call_with_value(action: &str, node_id: &str, value: &str) -> String {
+        let mut call = String::with_capacity(action.len() + 1 + node_id.len() + 1 + value.len());
+        call.push_str(action);
+        call.push(':');
+        call.push_str(node_id);
+        call.push('=');
+        call.push_str(value);
+        call
+    }
+
+    #[test]
+    fn recorded_action_call_helpers_build_directly() {
+        let call = recorded_action_call("focus", "ax:button");
+        assert_eq!(call, "focus:ax:button");
+        assert!(call.capacity() >= call.len());
+        let valued = recorded_action_call_with_value("set_value", "ax:field", "hello");
+        assert_eq!(valued, "set_value:ax:field=hello");
+        assert!(valued.capacity() >= valued.len());
     }
 
     #[test]
