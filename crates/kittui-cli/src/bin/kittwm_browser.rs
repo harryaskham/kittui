@@ -1569,6 +1569,22 @@ mod tests {
         assert!(!should_build_browser_placement(false, true));
     }
 
+    fn browser_status_test_repeated_path(prefix: &str, segment: &str, count: usize) -> String {
+        let mut out = String::with_capacity(prefix.len() + segment.len() * count);
+        out.push_str(prefix);
+        for _ in 0..count {
+            out.push_str(segment);
+        }
+        out
+    }
+
+    #[test]
+    fn browser_status_test_repeated_path_builds_directly() {
+        let path = browser_status_test_repeated_path("/tmp/", "sock/", 3);
+        assert_eq!(path, "/tmp/sock/sock/sock/");
+        assert!(path.capacity() >= path.len());
+    }
+
     #[test]
     fn browser_status_is_stable_by_default_and_frame_opt_in() {
         let _guard = ENV_LOCK.lock().unwrap();
@@ -1576,7 +1592,7 @@ mod tests {
         std::env::set_var("KITTWM_SOCKET", "/tmp/kittwm.sock");
         std::env::remove_var("KITTWM_BROWSER_STATUS_FRAMES");
         assert!(!browser_status_frame_counter_enabled());
-        let huge_url = format!("https://example.com/{}", "path/".repeat(10_000));
+        let huge_url = browser_status_test_repeated_path("https://example.com/", "path/", 10_000);
         assert_eq!(truncate(&huge_url, 12), "https://exa…");
         assert!(matches!(truncate("short", 12), Cow::Borrowed("short")));
         assert_eq!(truncate("short", 12), "short");
@@ -1607,7 +1623,7 @@ mod tests {
         assert_eq!(narrow.chars().count(), 12);
         assert!(narrow.ends_with('…'), "{narrow}");
         let huge_window = "window-".repeat(10_000);
-        let huge_socket = format!("/tmp/{}", "sock/".repeat(10_000));
+        let huge_socket = browser_status_test_repeated_path("/tmp/", "sock/", 10_000);
         std::env::set_var("KITTWM_WINDOW", huge_window);
         std::env::set_var("KITTWM_SOCKET", huge_socket);
         let huge_metadata = BrowserStatusMetadata::from_env();
