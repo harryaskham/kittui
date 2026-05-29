@@ -14273,7 +14273,11 @@ impl FocusState {
     }
 
     fn label(&self) -> String {
-        format!("{}#{}", self.last_direction, self.moves)
+        let mut label = String::with_capacity(self.last_direction.len() + 1 + 20);
+        label.push_str(self.last_direction);
+        label.push('#');
+        let _ = write!(label, "{}", self.moves);
+        label
     }
 }
 
