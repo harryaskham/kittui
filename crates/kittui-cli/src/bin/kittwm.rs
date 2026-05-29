@@ -8488,7 +8488,7 @@ mode=${KITTWM_REMOTE_MODE:-list}
 host=$(hostname 2>/dev/null || printf unknown)
 case "$mode" in
     json)
-        printf '{"host":%s,"mode":"shell-path-macos-linux-desktop","path_commands":[' "$(printf '%s' "$host" | json_escape)"
+        printf '{"host":%s,"mode":"shell-path-macos-linux-desktop","filter":%s,"limit":%s,"path_commands":[' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)" "$limit"
         first=1
         kittwm_remote_candidates | awk -F '\t' '$1 == "path" { print $2 }' | head -n "$limit" | while IFS= read -r cmd; do
             [ $first -eq 1 ] || printf ','
@@ -11831,6 +11831,8 @@ mod tests {
             script.contains("shell-path-macos-linux-desktop"),
             "{script}"
         );
+        assert!(script.contains("\"filter\":"), "{script}");
+        assert!(script.contains("\"limit\":"), "{script}");
         assert!(script.contains("\"macos_apps\":"), "{script}");
         assert!(script.contains("\"linux_desktop_ids\":"), "{script}");
         assert!(script.contains("\"linux_desktop_files\":"), "{script}");
