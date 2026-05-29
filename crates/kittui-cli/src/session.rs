@@ -6537,6 +6537,15 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn char_event_log_line_builds_directly() {
+        let line = char_event_log_line('x');
+        assert_eq!(line, "char event: 'x'");
+        assert!(line.capacity() >= line.len());
+        let escaped = char_event_log_line('\n');
+        assert_eq!(escaped, "char event: '\\n'");
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11280,6 +11289,15 @@ fn keymap_unbound_prefix_log_line(spec: &dyn std::fmt::Display) -> String {
     out
 }
 
+fn char_event_log_line(ch: char) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("char event: ".len() + 8);
+    out.push_str("char event: ");
+    let _ = write!(out, "{ch:?}");
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11688,7 +11706,7 @@ pub fn run_loop_with<S: XServer>(
                     let _ = compositor.route_pointer(&ev);
                 }
                 InputEvent::Char { ch, .. } => {
-                    dbg.log(&format!("char event: {:?}", ch));
+                    dbg.log(&char_event_log_line(*ch));
                     let _ = compositor.route_key(&ev);
                 }
                 InputEvent::Key {
