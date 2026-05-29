@@ -3900,6 +3900,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "focused topic help",
         },
         LocalCommandEntry {
+            command: "help topics",
+            category: "help",
+            description: "list focused help topics",
+        },
+        LocalCommandEntry {
+            command: "help completions",
+            category: "help",
+            description: "shell completion setup help",
+        },
+        LocalCommandEntry {
             command: "help-scene-json [topic]",
             category: "help",
             description: "focused topic help kittui scene",
@@ -8929,6 +8939,8 @@ mod tests {
             text.contains("Daily workflows: kittwm examples | kittwm cheat | kittwm help topics"),
             "{text}"
         );
+        assert!(text.contains("help topics"), "{text}");
+        assert!(text.contains("help completions"), "{text}");
         assert!(text.contains("spawn CMD [ARGS...]"), "{text}");
         assert!(
             text.contains("split [WINDOW] columns|rows|grid CMD [ARGS...]"),
