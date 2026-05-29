@@ -14353,7 +14353,11 @@ impl SplitState {
     }
 
     fn label(&self) -> String {
-        format!("{}:{}", self.panes, self.last_orientation)
+        let mut label = String::with_capacity(20 + 1 + self.last_orientation.len());
+        let _ = write!(label, "{}", self.panes);
+        label.push(':');
+        label.push_str(self.last_orientation);
+        label
     }
 }
 
