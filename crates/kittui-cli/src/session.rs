@@ -2719,7 +2719,7 @@ fn process_native_terminal_byte(
             b'?' => {
                 *help_overlay = !*help_overlay;
                 *clear = true;
-                dbg.log(&format!("native terminal help overlay: {}", *help_overlay));
+                dbg.log(&native_help_overlay_log_line(*help_overlay));
             }
             b'\r' | b'\n' => {
                 native_launch_terminal_pane(
@@ -4122,6 +4122,13 @@ fn focus_after_remove(current: usize, removed: usize, len_before: usize) -> usiz
     } else {
         current.min(len_after - 1)
     }
+}
+
+fn native_help_overlay_log_line(visible: bool) -> String {
+    let mut out = String::with_capacity("native terminal help overlay: ".len() + 5);
+    out.push_str("native terminal help overlay: ");
+    out.push_str(if visible { "true" } else { "false" });
+    out
 }
 
 fn native_close_panes_log_line(panes: usize) -> String {
@@ -10074,6 +10081,22 @@ mod native_pane_tests {
         assert_eq!(prev_native_focus(0, 3), 2);
         assert_eq!(prev_native_focus(2, 3), 1);
         assert_eq!(prev_native_focus(0, 0), 0);
+    }
+
+    #[test]
+    fn native_help_overlay_log_line_builds_directly() {
+        let visible = native_help_overlay_log_line(true);
+        assert_eq!(visible, "native terminal help overlay: true");
+        assert_eq!(
+            visible.capacity(),
+            "native terminal help overlay: ".len() + 5
+        );
+        let hidden = native_help_overlay_log_line(false);
+        assert_eq!(hidden, "native terminal help overlay: false");
+        assert_eq!(
+            hidden.capacity(),
+            "native terminal help overlay: ".len() + 5
+        );
     }
 
     #[test]
