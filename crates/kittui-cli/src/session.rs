@@ -2883,9 +2883,10 @@ fn process_native_terminal_byte(
                         reservation,
                     )?;
                     *clear = true;
-                    dbg.log(&format!(
-                        "native terminal resize grow: {} weight={}",
-                        panes[*focused].window, panes[*focused].weight
+                    dbg.log(&native_resize_weight_log_line(
+                        "grow",
+                        &panes[*focused].window,
+                        panes[*focused].weight,
                     ));
                 }
             }
@@ -2902,9 +2903,10 @@ fn process_native_terminal_byte(
                         reservation,
                     )?;
                     *clear = true;
-                    dbg.log(&format!(
-                        "native terminal resize shrink: {} weight={}",
-                        panes[*focused].window, panes[*focused].weight
+                    dbg.log(&native_resize_weight_log_line(
+                        "shrink",
+                        &panes[*focused].window,
+                        panes[*focused].weight,
                     ));
                 }
             }
@@ -4448,6 +4450,21 @@ fn native_split_toggle_log_line(axis_label: &str) -> String {
     let mut out = String::with_capacity("native terminal split toggle: ".len() + axis_label.len());
     out.push_str("native terminal split toggle: ");
     out.push_str(axis_label);
+    out
+}
+
+fn native_resize_weight_log_line(direction: &str, window: &str, weight: u16) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal resize :  weight=".len() + direction.len() + window.len() + 5,
+    );
+    out.push_str("native terminal resize ");
+    out.push_str(direction);
+    out.push_str(": ");
+    out.push_str(window);
+    out.push_str(" weight=");
+    let _ = write!(out, "{weight}");
     out
 }
 
@@ -10768,6 +10785,16 @@ mod native_pane_tests {
         let line = native_split_toggle_log_line("rows");
         assert_eq!(line, "native terminal split toggle: rows");
         assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
+    fn native_resize_weight_log_line_builds_directly() {
+        let grow = native_resize_weight_log_line("grow", "native-1", 4);
+        assert_eq!(grow, "native terminal resize grow: native-1 weight=4");
+        assert!(grow.capacity() >= grow.len());
+        let shrink = native_resize_weight_log_line("shrink", "native-2", 1);
+        assert_eq!(shrink, "native terminal resize shrink: native-2 weight=1");
+        assert!(shrink.capacity() >= shrink.len());
     }
 
     #[test]
