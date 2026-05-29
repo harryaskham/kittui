@@ -8158,7 +8158,7 @@ fn pooled_ssh_args_with_forwarding(
         "-o".to_string(),
         "ControlPersist=10m".to_string(),
         "-o".to_string(),
-        format!("ControlPath={}", control_path.display()),
+        ssh_control_path_arg(&control_path),
     ];
     if graphical_forwarding {
         args.push("-Y".to_string());
@@ -8170,6 +8170,14 @@ fn pooled_ssh_args_with_forwarding(
     );
     args.extend(["sh".to_string(), "-lc".to_string(), script.to_string()]);
     Ok(args)
+}
+
+fn ssh_control_path_arg(path: &std::path::Path) -> String {
+    let path = path.display().to_string();
+    let mut out = String::with_capacity("ControlPath=".len() + path.len());
+    out.push_str("ControlPath=");
+    out.push_str(&path);
+    out
 }
 
 fn pooled_ssh_control_path(graphical_forwarding: bool) -> Result<std::path::PathBuf> {
@@ -11455,6 +11463,14 @@ mod tests {
         assert!(script.contains("wmctrl"), "{script}");
         assert!(script.contains("xrandr"), "{script}");
         assert!(script.contains("system_profiler"), "{script}");
+    }
+
+    #[test]
+    fn ssh_control_path_arg_builds_directly() {
+        let path = std::path::PathBuf::from("/tmp/kittwm-ssh/%C");
+        let arg = ssh_control_path_arg(&path);
+        assert_eq!(arg, "ControlPath=/tmp/kittwm-ssh/%C");
+        assert_eq!(arg.capacity(), arg.len());
     }
 
     #[test]
