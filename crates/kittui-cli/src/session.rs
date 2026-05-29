@@ -7115,6 +7115,17 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn runtime_keymap_load_failed_log_line_builds_directly() {
+        let err = anyhow!("missing keymap");
+        let line = runtime_keymap_load_failed_log_line(&err);
+        assert_eq!(
+            line,
+            "failed to load runtime keymap: missing keymap; using defaults"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -12584,6 +12595,17 @@ fn loaded_keymap_log_line(path: &str) -> String {
     out
 }
 
+fn runtime_keymap_load_failed_log_line(err: &dyn std::fmt::Display) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("failed to load runtime keymap: ; using defaults".len() + 80);
+    out.push_str("failed to load runtime keymap: ");
+    let _ = write!(out, "{err}");
+    out.push_str("; using defaults");
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -14850,9 +14872,7 @@ fn load_runtime_keymap(dbg: &Debugger) -> Keymap {
     match load_runtime_keymap_result(dbg) {
         Ok(km) => km,
         Err(e) => {
-            dbg.log(&format!(
-                "failed to load runtime keymap: {e}; using defaults"
-            ));
+            dbg.log(&runtime_keymap_load_failed_log_line(&e));
             crate::keymap::default_keymap()
         }
     }
