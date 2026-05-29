@@ -4054,8 +4054,10 @@ mod tests {
 
     #[test]
     fn native_spawn_queue_read_text_round_trip_over_socket() {
-        let p =
-            tmp_sock().with_file_name(format!("kittwm-native-read-{}.sock", std::process::id()));
+        let p = tmp_sock().with_file_name(test_socket_filename(
+            "kittwm-native-read",
+            std::process::id(),
+        ));
         let _ = std::fs::remove_file(&p);
         let queue = NativeSpawnQueue::bind(p).unwrap();
         queue.update_panes(vec![NativePaneStatus {
