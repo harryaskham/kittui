@@ -5660,6 +5660,15 @@ fn native_pane_focus_ring_label(idx: usize) -> String {
     label
 }
 
+fn native_pane_title_strip_label(idx: usize, text: &str) -> String {
+    let mut label = String::with_capacity("pane--title-strip:".len() + 20 + text.len());
+    label.push_str("pane-");
+    let _ = write!(label, "{idx}");
+    label.push_str("-title-strip:");
+    label.push_str(text);
+    label
+}
+
 fn native_pane_status_chip_rect(cols: u16, rect_width: f32, cell_w: f32, chip_h: f32) -> PxRect {
     let min_w = cell_w.max(1.0).min(rect_width.max(1.0));
     let right_pad = 4.0_f32.min((rect_width - min_w).max(0.0));
@@ -5705,7 +5714,7 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
         ));
     }
     layers.push(Layer::new(
-        format!("pane-{idx}-title-strip:{}", pane.text),
+        native_pane_title_strip_label(idx, &pane.text),
         Node::Rect {
             rect: title_rect,
             fill: Paint::Solid { color: title_fill },
@@ -8225,6 +8234,13 @@ mod native_pane_tests {
     fn native_pane_focus_ring_label_builds_directly() {
         let label = native_pane_focus_ring_label(7);
         assert_eq!(label, "pane-7-focus-ring");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
+    fn native_pane_title_strip_label_builds_directly() {
+        let label = native_pane_title_strip_label(7, "* native-7 editor");
+        assert_eq!(label, "pane-7-title-strip:* native-7 editor");
         assert!(label.capacity() >= label.len());
     }
 
