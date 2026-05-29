@@ -1141,11 +1141,12 @@ fn browser_image_placement_options() -> kitty::PlacementOptions {
 #[cfg(test)]
 fn browser_image_placement(image_id: u32, footprint: CellRect, transport: Transport) -> String {
     let options = browser_image_placement_options();
-    format!(
-        "{}{}",
-        kitty::cursor_move(footprint.x, footprint.y, transport),
-        kitty::placement_command_ex(image_id, footprint, &options, transport)
-    )
+    let cursor = kitty::cursor_move(footprint.x, footprint.y, transport);
+    let placement = kitty::placement_command_ex(image_id, footprint, &options, transport);
+    let mut out = String::with_capacity(cursor.len() + placement.len());
+    out.push_str(&cursor);
+    out.push_str(&placement);
+    out
 }
 
 fn terminal_cells() -> Option<(u16, u16)> {
@@ -1719,6 +1720,7 @@ mod tests {
     #[test]
     fn browser_image_placement_uses_absolute_kitty_graphics_without_placeholders() {
         let placement = browser_image_placement(42, CellRect::new(0, 0, 80, 22), Transport::Direct);
+        assert_eq!(placement.capacity(), placement.len());
         assert!(placement.contains("a=p"), "{placement:?}");
         assert!(placement.contains("c=80"), "{placement:?}");
         assert!(placement.contains("r=22"), "{placement:?}");
