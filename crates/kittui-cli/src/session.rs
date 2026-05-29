@@ -6523,6 +6523,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn keymap_unbound_prefix_log_line_builds_directly() {
+        let line = keymap_unbound_prefix_log_line(&"C-x");
+        assert_eq!(line, "keymap unbound prefix chord: C-x");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11250,6 +11257,15 @@ fn keymap_prefix_entered_log_line(spec: &dyn std::fmt::Display) -> String {
     out
 }
 
+fn keymap_unbound_prefix_log_line(spec: &dyn std::fmt::Display) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("keymap unbound prefix chord: ".len() + 16);
+    out.push_str("keymap unbound prefix chord: ");
+    let _ = write!(out, "{spec}");
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11620,7 +11636,7 @@ pub fn run_loop_with<S: XServer>(
                         }
                     }
                     last_keymap_action = Some(format!("unbound {spec}"));
-                    dbg.log(&format!("keymap unbound prefix chord: {spec}"));
+                    dbg.log(&keymap_unbound_prefix_log_line(&spec));
                     continue;
                 }
             }
