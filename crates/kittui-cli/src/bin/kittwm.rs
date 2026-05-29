@@ -4892,9 +4892,13 @@ fn quickstart_text() -> &'static str {
 
 More help
    kittwm --help
+   kittwm examples
+   kittwm cheat
    kittwm help topics
    kittwm help panes
    kittwm help input
+   kittwm help completions
+   kittwm completions bash >> ~/.bashrc
    kittwm shortcuts
 "#
 }
@@ -10860,7 +10864,14 @@ mod tests {
             text.contains("kittwm-browser --semantic-snapshot https://example.com"),
             "{text}"
         );
+        assert!(text.contains("kittwm examples"), "{text}");
+        assert!(text.contains("kittwm cheat"), "{text}");
         assert!(text.contains("kittwm help topics"), "{text}");
+        assert!(text.contains("kittwm help completions"), "{text}");
+        assert!(
+            text.contains("kittwm completions bash >> ~/.bashrc"),
+            "{text}"
+        );
     }
 
     #[test]
