@@ -4357,6 +4357,33 @@ mod tests {
         assert_eq!(value["focus"], "native-1.screen");
     }
 
+    fn semantic_publish_request(target: &str, snapshot: &SemanticSurfaceSnapshot) -> String {
+        let snapshot = serde_json::to_string(snapshot).unwrap();
+        let mut request =
+            String::with_capacity("SEMANTIC_PUBLISH  ".len() + target.len() + snapshot.len());
+        request.push_str("SEMANTIC_PUBLISH ");
+        request.push_str(target);
+        request.push(' ');
+        request.push_str(&snapshot);
+        request
+    }
+
+    #[test]
+    fn semantic_publish_request_builds_directly() {
+        let snapshot = SemanticSurfaceSnapshot::new(
+            "native-1",
+            42,
+            ComponentNode::new("native-1.button", ComponentRole::Button).labeled("Run"),
+        );
+        let request = semantic_publish_request("focused", &snapshot);
+        assert!(
+            request.starts_with("SEMANTIC_PUBLISH focused {"),
+            "{request}"
+        );
+        assert!(request.contains("\"surface\":\"native-1\""), "{request}");
+        assert_eq!(request.capacity(), request.len());
+    }
+
     #[test]
     fn native_spawn_queue_publishes_and_reads_semantic_snapshot() {
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
@@ -4366,13 +4393,8 @@ mod tests {
             42,
             ComponentNode::new("native-1.button", ComponentRole::Button).labeled("Run"),
         );
-        let publish = native_spawn_queue_reply(
-            &format!(
-                "SEMANTIC_PUBLISH focused {}",
-                serde_json::to_string(&snapshot).unwrap()
-            ),
-            &pending,
-        );
+        let publish =
+            native_spawn_queue_reply(&semantic_publish_request("focused", &snapshot), &pending);
         assert_eq!(publish, "SEMANTIC_PUBLISHED window=native-1\n");
         let reply = native_spawn_queue_reply("SEMANTIC_SNAPSHOT native-1", &pending);
         let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
