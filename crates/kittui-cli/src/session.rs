@@ -951,8 +951,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                     )),
                                 };
                             } else {
-                                dbg.log(&format!(
-                                    "native terminal socket send mouse ignored: {window} event={event} modes={modes:?}"
+                                dbg.log(&native_socket_send_mouse_ignored_log_line(
+                                    &window, &event, modes,
                                 ));
                             }
                         }
@@ -4341,6 +4341,28 @@ fn native_socket_send_mouse_direct_log_line(
     let _ = write!(out, "{sent}");
     out.push('/');
     let _ = write!(out, "{total}");
+    out
+}
+
+fn native_socket_send_mouse_ignored_log_line(
+    window: &str,
+    event: &str,
+    modes: MouseReportingModes,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal socket send mouse ignored:  event= modes=".len()
+            + window.len()
+            + event.len()
+            + 96,
+    );
+    out.push_str("native terminal socket send mouse ignored: ");
+    out.push_str(window);
+    out.push_str(" event=");
+    out.push_str(event);
+    out.push_str(" modes=");
+    let _ = write!(out, "{modes:?}");
     out
 }
 
@@ -10476,6 +10498,17 @@ mod native_pane_tests {
         assert_eq!(
             line,
             "native terminal socket send mouse direct: native-1 event=move-left col=7 row=9 events=2/3"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_socket_send_mouse_ignored_log_line_builds_directly() {
+        let modes = MouseReportingModes::default();
+        let line = native_socket_send_mouse_ignored_log_line("native-1", "move-left", modes);
+        assert_eq!(
+            line,
+            "native terminal socket send mouse ignored: native-1 event=move-left modes=MouseReportingModes { basic: false, button_motion: false, all_motion: false, sgr: false }"
         );
         assert!(line.capacity() >= line.len());
     }
