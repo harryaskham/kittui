@@ -575,7 +575,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 &last_chrome_reservation,
                             )?;
                             clear = true;
-                            dbg.log(&format!("native terminal socket spawn: {spawn_cmd}"));
+                            dbg.log(&native_socket_spawn_log_line(&spawn_cmd));
                         }
                         Err(err) => dbg.log(&native_spawn_failure_log_line(&spawn_cmd, &err)),
                     }
@@ -4122,6 +4122,13 @@ fn focus_after_remove(current: usize, removed: usize, len_before: usize) -> usiz
     } else {
         current.min(len_after - 1)
     }
+}
+
+fn native_socket_spawn_log_line(command: &str) -> String {
+    let mut out = String::with_capacity("native terminal socket spawn: ".len() + command.len());
+    out.push_str("native terminal socket spawn: ");
+    out.push_str(command);
+    out
 }
 
 fn native_help_overlay_log_line(visible: bool) -> String {
@@ -10081,6 +10088,16 @@ mod native_pane_tests {
         assert_eq!(prev_native_focus(0, 3), 2);
         assert_eq!(prev_native_focus(2, 3), 1);
         assert_eq!(prev_native_focus(0, 0), 0);
+    }
+
+    #[test]
+    fn native_socket_spawn_log_line_builds_directly() {
+        let line = native_socket_spawn_log_line("zsh -l");
+        assert_eq!(line, "native terminal socket spawn: zsh -l");
+        assert_eq!(
+            line.capacity(),
+            "native terminal socket spawn: ".len() + "zsh -l".len()
+        );
     }
 
     #[test]
