@@ -8278,21 +8278,30 @@ case "$mode" in
         name=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
         label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
         exec_line=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $4}')
+        launch_pid=""
         if [ "$kind" = "macos" ]; then
             open -a "$name" >/dev/null 2>&1 &
+            launch_pid=$!
         elif [ "$kind" = "desktop" ]; then
             if command -v gtk-launch >/dev/null 2>&1; then
                 gtk-launch "$name" >/dev/null 2>&1 &
-            elif [ -n "$exec_line" ]; then
+                launch_pid=$!
+                if ! wait "$launch_pid"; then
+                    launch_pid=""
+                fi
+            fi
+            if [ -z "$launch_pid" ] && [ -n "$exec_line" ]; then
                 desktop_exec=$(printf '%s\n' "$exec_line" | sed -E 's/[[:space:]]+%[fFuUdDnNickvm]//g; s/%[fFuUdDnNickvm]//g')
                 sh -lc "$desktop_exec" >/dev/null 2>&1 &
-            else
-                echo "ERR gtk-launch is required for Linux desktop entry launch without Exec fallback"; exit 1
+                launch_pid=$!
+            elif [ -z "$launch_pid" ]; then
+                echo "ERR gtk-launch failed and no Linux desktop Exec fallback is available"; exit 1
             fi
         else
             "$name" >/dev/null 2>&1 &
+            launch_pid=$!
         fi
-        printf 'kittwm remote apps: launched pid=%s kind=%s name=%s host=%s\n' "$!" "$kind" "$label" "$host"
+        printf 'kittwm remote apps: launched pid=%s kind=%s name=%s host=%s\n' "$launch_pid" "$kind" "$label" "$host"
         ;;
     *)
         printf 'kittwm remote apps\n==================\nhost: %s\nmode: shell-path-macos-linux-desktop\n' "$host"
@@ -11340,6 +11349,7 @@ mod tests {
         assert!(script.contains("$1 == \"Name\""), "{script}");
         assert!(script.contains("$1 == \"Exec\""), "{script}");
         assert!(script.contains("desktop_exec="), "{script}");
+        assert!(script.contains("gtk-launch failed"), "{script}");
         assert!(script.contains("index(tolower($0), q)"), "{script}");
         assert!(
             script.contains("shell-path-macos-linux-desktop"),
