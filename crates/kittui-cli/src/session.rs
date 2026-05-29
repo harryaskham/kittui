@@ -14250,7 +14250,7 @@ fn launcher_candidate_row_text(
         return String::new();
     }
     let marker = if row == selected { "▶" } else { " " };
-    let prefix = format!("{marker} {:>2}. [{:<5}] ", row + 1, candidate.kind_name());
+    let prefix = launcher_candidate_row_prefix(marker, row + 1, candidate.kind_name());
     let mut out = String::with_capacity(width);
     let mut used = 0usize;
     if !push_truncated_cells(&mut out, &mut used, width, &prefix) {
@@ -14258,6 +14258,17 @@ fn launcher_candidate_row_text(
     }
     let _ = push_truncated_cells(&mut out, &mut used, width, &candidate.command);
     out
+}
+
+fn launcher_candidate_row_prefix(marker: &str, row: usize, kind: &str) -> String {
+    let mut prefix = String::with_capacity(marker.len() + " 00. [     ] ".len() + kind.len());
+    prefix.push_str(marker);
+    prefix.push(' ');
+    let _ = write!(prefix, "{row:>2}");
+    prefix.push_str(". [");
+    let _ = write!(prefix, "{kind:<5}");
+    prefix.push_str("] ");
+    prefix
 }
 
 fn picker_overlay_key(overlay: &PickerOverlay) -> String {
@@ -15506,6 +15517,13 @@ mod launcher_overlay_tests {
         assert!(!row.contains(&"window-title-with-pathological-length-".repeat(2)));
         assert_eq!(picker_entry_row_text(0, 0, "anything", 1), "…");
         assert_eq!(picker_entry_row_text(0, 0, "anything", 0), "");
+    }
+
+    #[test]
+    fn launcher_candidate_row_prefix_builds_directly() {
+        let prefix = launcher_candidate_row_prefix("▶", 3, "path");
+        assert_eq!(prefix, "▶  3. [path ] ");
+        assert!(prefix.capacity() >= prefix.len());
     }
 
     #[test]
