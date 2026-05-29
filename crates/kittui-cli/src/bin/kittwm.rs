@@ -7993,7 +7993,7 @@ fn pooled_ssh_args_with_forwarding(
     if host.trim().is_empty() {
         return Err(anyhow!("--remote HOST must not be empty"));
     }
-    let control_path = pooled_ssh_control_path()?;
+    let control_path = pooled_ssh_control_path(graphical_forwarding)?;
     let mut args = vec![
         "-o".to_string(),
         "ControlMaster=auto".to_string(),
@@ -8014,7 +8014,7 @@ fn pooled_ssh_args_with_forwarding(
     Ok(args)
 }
 
-fn pooled_ssh_control_path() -> Result<std::path::PathBuf> {
+fn pooled_ssh_control_path(graphical_forwarding: bool) -> Result<std::path::PathBuf> {
     let base = std::env::var_os("XDG_RUNTIME_DIR")
         .map(std::path::PathBuf::from)
         .or_else(|| {
@@ -8025,7 +8025,7 @@ fn pooled_ssh_control_path() -> Result<std::path::PathBuf> {
         .unwrap_or_else(std::env::temp_dir);
     let dir = base.join("kittwm-ssh");
     std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
-    Ok(dir.join("%C"))
+    Ok(dir.join(if graphical_forwarding { "%C-x11" } else { "%C" }))
 }
 
 fn shell_quote(value: &str) -> String {
@@ -11083,6 +11083,11 @@ mod tests {
         )
         .unwrap();
         assert!(args.contains(&"-Y".to_string()), "{args:?}");
+        assert!(
+            args.iter()
+                .any(|arg| arg.starts_with("ControlPath=") && arg.ends_with("%C-x11")),
+            "{args:?}"
+        );
         let script = remote_apps_script();
         assert!(script.contains("command -v kittwm"), "{script}");
         assert!(
@@ -11135,7 +11140,9 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-o", "ControlPersist=10m"]));
-        assert!(args.iter().any(|arg| arg.starts_with("ControlPath=")));
+        assert!(args
+            .iter()
+            .any(|arg| arg.starts_with("ControlPath=") && arg.ends_with("%C")));
         assert!(args.contains(&"host.example".to_string()));
         assert!(args.contains(&"KITTWM_REMOTE_QUERY='Visual Studio Code'".to_string()));
         assert_eq!(shell_quote("it's ok"), "'it'\\''s ok'");
