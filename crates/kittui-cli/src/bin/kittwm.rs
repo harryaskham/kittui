@@ -1084,7 +1084,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|graphical|wayland|kittwm|desktop|list|apps|app|launch|open|run|windows|displays|monitors|screens|terminal|term|shell|ssh]
+  remote HOST [help|doctor|status|check|x11|graphical|wayland|kittwm|desktop|list|apps|app|launch|open|run|windows|win|displays|monitors|screens|terminal|term|shell|ssh]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1481,6 +1481,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            singular alias for remote HOST list apps\n\
              kittwm remote HOST list windows firefox\n\
                                            list remote windows matching a query\n\
+             kittwm remote HOST win firefox\n\
+                                           short alias for remote window listing\n\
              kittwm remote HOST monitors retina\n\
                                            alias for remote display listing\n\
              kittwm remote HOST apps firefox\n\
@@ -1596,6 +1598,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST list apps QUERY    list remote app matches with a natural alias\n\
              remote HOST list app QUERY     singular alias for remote HOST list apps\n\
              remote HOST list windows QUERY list remote windows matching a query\n\
+             remote HOST list win QUERY     short alias for remote HOST list windows\n\
              remote HOST list displays QUERY\n\
                                             list remote displays matching a query\n\
              remote HOST list monitors QUERY\n\
@@ -1858,7 +1861,9 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             ));
             Ok(())
         }
-        "windows" | "window" => parse_remote_listing_alias(out, RemoteListingKind::Windows, rest),
+        "windows" | "window" | "wins" | "win" => {
+            parse_remote_listing_alias(out, RemoteListingKind::Windows, rest)
+        }
         "displays" | "display" | "monitors" | "monitor" | "screens" | "screen" => {
             parse_remote_listing_alias(out, RemoteListingKind::Displays, rest)
         }
@@ -1991,7 +1996,9 @@ fn parse_remote_list_alias(out: &mut Cli, args: &[String]) -> Result<()> {
             out.apps = true;
             parse_remote_apps_flags(out, &args[1..])
         }
-        "windows" | "window" => parse_remote_listing_alias(out, RemoteListingKind::Windows, &args[1..]),
+        "windows" | "window" | "wins" | "win" => {
+            parse_remote_listing_alias(out, RemoteListingKind::Windows, &args[1..])
+        }
         "displays" | "display" | "monitors" | "monitor" | "screens" | "screen" => {
             parse_remote_listing_alias(out, RemoteListingKind::Displays, &args[1..])
         }
@@ -4938,6 +4945,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "list remote windows through pooled SSH",
         },
         LocalCommandEntry {
+            command: "remote HOST list win",
+            category: "remote",
+            description: "short alias for remote window listing",
+        },
+        LocalCommandEntry {
+            command: "remote HOST win QUERY",
+            category: "remote",
+            description: "short alias for remote window listing",
+        },
+        LocalCommandEntry {
             command: "remote HOST list displays",
             category: "remote",
             description: "list remote displays through pooled SSH",
@@ -5786,6 +5803,9 @@ fn completion_words() -> &'static [&'static str] {
             "kittwm",
             "desktop",
             "windows",
+            "window",
+            "wins",
+            "win",
             "displays",
             "monitors",
             "monitor",
@@ -10735,6 +10755,7 @@ mod tests {
         assert!(bash.contains("term"), "{bash}");
         assert!(bash.contains("monitors"), "{bash}");
         assert!(bash.contains("screens"), "{bash}");
+        assert!(bash.contains("win"), "{bash}");
 
         let zsh = completions_text("zsh").unwrap();
         assert!(zsh.contains("#compdef kittwm"), "{zsh}");
@@ -10752,6 +10773,7 @@ mod tests {
         assert!(zsh.contains("term"), "{zsh}");
         assert!(zsh.contains("monitors"), "{zsh}");
         assert!(zsh.contains("screens"), "{zsh}");
+        assert!(zsh.contains("win"), "{zsh}");
 
         let fish = completions_text("fish").unwrap();
         assert!(fish.contains("complete -c kittwm"), "{fish}");
@@ -10770,6 +10792,7 @@ mod tests {
         assert!(fish.contains("term"), "{fish}");
         assert!(fish.contains("monitors"), "{fish}");
         assert!(fish.contains("screens"), "{fish}");
+        assert!(fish.contains("win"), "{fish}");
         assert_eq!(fish, fish_completions_text());
         assert_eq!(fish.capacity(), fish.len());
         assert!(std::ptr::eq(completion_words(), completion_words()));
@@ -10875,6 +10898,12 @@ mod tests {
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list windows" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST list win" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST win QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list monitors" && entry["category"] == "remote"
@@ -11768,6 +11797,18 @@ mod tests {
             list_windows.remote_listing_filter.as_deref(),
             Some("firefox")
         );
+
+        let mut win = Cli::default();
+        win.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut win, "win", &args(&["firefox"])).unwrap();
+        assert!(win.list_windows);
+        assert_eq!(win.remote_listing_filter.as_deref(), Some("firefox"));
+
+        let mut list_win = Cli::default();
+        list_win.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut list_win, "list", &args(&["win", "firefox"])).unwrap();
+        assert!(list_win.list_windows);
+        assert_eq!(list_win.remote_listing_filter.as_deref(), Some("firefox"));
 
         let mut displays = Cli::default();
         displays.remote_host = Some("buildbox".to_string());
