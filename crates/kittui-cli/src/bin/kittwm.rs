@@ -8178,12 +8178,18 @@ fn pooled_ssh_args_with_forwarding(
         args.push("-Y".to_string());
     }
     args.extend([host.to_string(), "env".to_string()]);
-    args.extend(
-        env.iter()
-            .map(|(key, value)| format!("{key}={}", shell_quote(value))),
-    );
+    args.extend(env.iter().map(|(key, value)| ssh_env_arg(key, value)));
     args.extend(["sh".to_string(), "-lc".to_string(), script.to_string()]);
     Ok(args)
+}
+
+fn ssh_env_arg(key: &str, value: &str) -> String {
+    let quoted = shell_quote(value);
+    let mut out = String::with_capacity(key.len() + 1 + quoted.len());
+    out.push_str(key);
+    out.push('=');
+    out.push_str(&quoted);
+    out
 }
 
 fn ssh_control_path_arg(path: &std::path::Path) -> String {
@@ -11488,6 +11494,14 @@ mod tests {
         assert!(script.contains("wmctrl"), "{script}");
         assert!(script.contains("xrandr"), "{script}");
         assert!(script.contains("system_profiler"), "{script}");
+    }
+
+    #[test]
+    fn ssh_env_arg_builds_directly() {
+        let arg = ssh_env_arg("KITTWM_REMOTE_QUERY", "Visual Studio Code");
+        assert_eq!(arg, "KITTWM_REMOTE_QUERY='Visual Studio Code'");
+        assert_eq!(arg.capacity(), arg.len());
+        assert_eq!(ssh_env_arg("Q", "it's ok"), "Q='it'\\''s ok'");
     }
 
     #[test]
