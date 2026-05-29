@@ -1046,7 +1046,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [doctor|apps|launch|windows|displays|terminal]
+  remote HOST [doctor|list|apps|launch|windows|displays|terminal]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1408,6 +1408,11 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm --list-windows --remote HOST\n\
                                            list remote windows/displays when supported\n\
              kittwm remote HOST            friendly alias for remote doctor\n\
+             kittwm remote HOST list       list remote app candidates\n\
+             kittwm remote HOST list apps firefox\n\
+                                           list remote app matches using a natural alias\n\
+             kittwm remote HOST list windows\n\
+                                           list remote windows through pooled SSH\n\
              kittwm remote HOST apps firefox\n\
                                            list remote app matches using a positional query\n\
              kittwm remote HOST launch firefox\n\
@@ -1501,6 +1506,10 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              ================\n\n\
              apps                           list launch candidates\n\
              remote HOST                    check remote kittwm availability\n\
+             remote HOST list              list remote app candidates\n\
+             remote HOST list apps QUERY    list remote app matches with a natural alias\n\
+             remote HOST list windows       list remote windows through pooled SSH\n\
+             remote HOST list displays      list remote displays through pooled SSH\n\
              remote HOST apps QUERY         list remote app matches with a positional query\n\
              remote HOST launch QUERY       shortest alias for remote app launch\n\
              remote HOST apps QUERY --launch-first\n\
@@ -1737,6 +1746,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             out.apps = true;
             parse_remote_apps_flags(out, rest)
         }
+        "list" | "ls" => parse_remote_list_alias(out, rest),
         "launch" | "open" | "run" => parse_remote_launch_alias(out, rest),
         "windows" | "window" => ensure_no_remote_alias_rest(action, rest, || {
             out.list_windows = true;
@@ -1759,7 +1769,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             parse_remote_doctor_flags(out, &flags)
         }
         other => Err(anyhow!(
-            "unknown remote action {other:?}\ntry: kittwm remote HOST doctor | apps | launch | windows | displays | terminal\nhelp: kittwm help ssh"
+            "unknown remote action {other:?}\ntry: kittwm remote HOST doctor | list | apps | launch | windows | displays | terminal\nhelp: kittwm help ssh"
         )),
     }
 }
@@ -1784,6 +1794,36 @@ fn parse_remote_doctor_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn parse_remote_list_alias(out: &mut Cli, args: &[String]) -> Result<()> {
+    let Some(kind) = args.first().map(String::as_str) else {
+        out.apps = true;
+        return Ok(());
+    };
+    match kind {
+        "apps" | "app" => {
+            out.apps = true;
+            parse_remote_apps_flags(out, &args[1..])
+        }
+        "windows" | "window" => ensure_no_remote_alias_rest("list windows", &args[1..], || {
+            out.list_windows = true;
+        }),
+        "displays" | "display" => ensure_no_remote_alias_rest("list displays", &args[1..], || {
+            out.list_displays = true;
+        }),
+        "terminals" | "terminal" | "terms" | "term" => Err(anyhow!(
+            "remote terminal listing is not supported yet\ntry: kittwm remote HOST terminal\nhelp: kittwm help ssh"
+        )),
+        other if other.starts_with('-') => {
+            out.apps = true;
+            parse_remote_apps_flags(out, args)
+        }
+        _ => {
+            out.apps = true;
+            parse_remote_apps_flags(out, args)
+        }
+    }
 }
 
 fn parse_remote_launch_alias(out: &mut Cli, args: &[String]) -> Result<()> {
@@ -4444,6 +4484,26 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "friendly alias for remote doctor",
         },
         LocalCommandEntry {
+            command: "remote HOST list",
+            category: "remote",
+            description: "list remote app candidates",
+        },
+        LocalCommandEntry {
+            command: "remote HOST list apps QUERY",
+            category: "remote",
+            description: "list remote app matches with a natural alias",
+        },
+        LocalCommandEntry {
+            command: "remote HOST list windows",
+            category: "remote",
+            description: "list remote windows through pooled SSH",
+        },
+        LocalCommandEntry {
+            command: "remote HOST list displays",
+            category: "remote",
+            description: "list remote displays through pooled SSH",
+        },
+        LocalCommandEntry {
             command: "remote HOST apps QUERY",
             category: "remote",
             description: "list remote app matches with a positional query",
@@ -5229,6 +5289,7 @@ fn completion_words() -> &'static [&'static str] {
             "--first",
             "--launch-first",
             "doctor",
+            "list",
             "apps",
             "launch",
             "windows",
@@ -9901,6 +9962,15 @@ mod tests {
             .iter()
             .any(|entry| { entry["command"] == "remote HOST" && entry["category"] == "remote" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST list" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST list apps QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST list windows" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST apps QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -10655,6 +10725,17 @@ mod tests {
         windows.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut windows, "windows", &[]).unwrap();
         assert!(windows.list_windows);
+
+        let mut list_apps = Cli::default();
+        list_apps.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut list_apps, "list", &args(&["apps", "terminal"])).unwrap();
+        assert!(list_apps.apps);
+        assert_eq!(list_apps.apps_filter.as_deref(), Some("terminal"));
+
+        let mut list_windows = Cli::default();
+        list_windows.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut list_windows, "list", &args(&["windows"])).unwrap();
+        assert!(list_windows.list_windows);
 
         let mut terminal = Cli::default();
         terminal.remote_host = Some("buildbox".to_string());
