@@ -8633,7 +8633,11 @@ case "$kind" in
         elif command -v wmctrl >/dev/null 2>&1; then
             wmctrl -l | kittwm_remote_filter
         elif command -v xdotool >/dev/null 2>&1; then
-            xdotool search --onlyvisible --name '.*' 2>/dev/null | while IFS= read -r id; do xdotool getwindowname "$id" 2>/dev/null | sed "s/^/$id  /"; done | kittwm_remote_filter
+            xdotool search --onlyvisible --name '.*' 2>/dev/null | while IFS= read -r id; do
+                class=$(xdotool getwindowclassname "$id" 2>/dev/null || printf '?')
+                title=$(xdotool getwindowname "$id" 2>/dev/null || printf '')
+                printf '  %s %s  %s\n' "$id" "$class" "$title"
+            done | kittwm_remote_filter
         elif command -v osascript >/dev/null 2>&1; then
             osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /' | kittwm_remote_filter
         else
@@ -11710,6 +11714,7 @@ mod tests {
         );
         assert!(script.contains("swaymsg+python3"), "{script}");
         assert!(script.contains("wmctrl"), "{script}");
+        assert!(script.contains("getwindowclassname"), "{script}");
         assert!(script.contains("xrandr"), "{script}");
         assert!(script.contains("system_profiler"), "{script}");
     }
