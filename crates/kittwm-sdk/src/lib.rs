@@ -3375,6 +3375,16 @@ impl SurfaceHandle {
         self.move_pane(MoveDirection::Last)
     }
 
+    /// Nudge this pane's floating offset by cell deltas.
+    pub fn nudge(&self, dx: i16, dy: i16) -> Result<String> {
+        self.client.capabilities.ensure(Capability::ControlWindow)?;
+        self.client.request_protocol(surface_payload_request(
+            "NUDGE_PANE",
+            &self.id,
+            &format!("{dx} {dy}"),
+        ))
+    }
+
     /// Lower this pane to the bottom of the stack/floating order.
     pub fn lower(&self) -> Result<String> {
         self.move_pane(MoveDirection::First)
@@ -6031,7 +6041,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..11 {
+            for _ in 0..12 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -6066,6 +6076,7 @@ mod tests {
         assert_eq!(surface.move_pane(MoveDirection::Down).unwrap().trim(), "OK");
         assert_eq!(surface.raise().unwrap().trim(), "OK");
         assert_eq!(surface.lower().unwrap().trim(), "OK");
+        assert_eq!(surface.nudge(3, -2).unwrap().trim(), "OK");
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(
@@ -6081,7 +6092,8 @@ mod tests {
                 "MOVE_PANE native-2 first",
                 "MOVE_PANE native-2 down",
                 "MOVE_PANE native-2 last",
-                "MOVE_PANE native-2 first"
+                "MOVE_PANE native-2 first",
+                "NUDGE_PANE native-2 3 -2"
             ]
         );
     }
@@ -6121,6 +6133,10 @@ mod tests {
         ));
         assert!(matches!(
             client.surface("focused").raise(),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.surface("focused").nudge(1, 0),
             Err(Error::CapabilityDenied(Capability::ControlWindow))
         ));
     }

@@ -429,8 +429,8 @@ fn parse_args() -> Result<Cli> {
                     Some(default_window_payload_alias("WAIT_OUTPUT", "wait", &argv)?);
                 break;
             }
-            "focus" | "close" | "layout" | "move" | "raise" | "lower" | "resize" | "balance"
-            | "rename" => {
+            "focus" | "close" | "layout" | "move" | "raise" | "lower" | "nudge" | "resize"
+            | "balance" | "rename" => {
                 out.automation_request = Some(parse_pane_control_alias(a.as_str(), args.by_ref())?);
                 break;
             }
@@ -2114,6 +2114,16 @@ fn parse_pane_control_alias(alias: &str, mut args: impl Iterator<Item = String>)
         "lower" => {
             let window = next().unwrap_or_else(|| "focused".to_string());
             move_pane_request(&window, "first")?
+        }
+        "nudge" => {
+            let first = next().ok_or_else(|| anyhow!("kittwm nudge [WINDOW] DX DY"))?;
+            let second = next().ok_or_else(|| anyhow!("kittwm nudge [WINDOW] DX DY"))?;
+            let third = next();
+            let (window, dx, dy) = match third {
+                Some(dy) => (first, second, dy),
+                None => ("focused".to_string(), first, second),
+            };
+            nudge_pane_request(&window, &dx, &dy)?
         }
         "resize" => {
             let first = next().ok_or_else(|| anyhow!("kittwm resize [WINDOW] AMOUNT"))?;
@@ -4159,6 +4169,27 @@ fn move_pane_request(window: &str, direction: &str) -> Result<String> {
     out.push_str(&window);
     out.push(' ');
     out.push_str(&direction);
+    Ok(out)
+}
+
+fn nudge_pane_request(window: &str, dx: &str, dy: &str) -> Result<String> {
+    let window = protocol_token(window, "window")?;
+    let dx = dx
+        .trim()
+        .parse::<i16>()
+        .with_context(|| format!("nudge dx must be an i16: {dx:?}"))?;
+    let dy = dy
+        .trim()
+        .parse::<i16>()
+        .with_context(|| format!("nudge dy must be an i16: {dy:?}"))?;
+    if dx == 0 && dy == 0 {
+        return Err(anyhow!("nudge delta must move at least one axis"));
+    }
+    let mut out = String::with_capacity("NUDGE_PANE   ".len() + window.len() + 16);
+    out.push_str("NUDGE_PANE ");
+    out.push_str(&window);
+    out.push(' ');
+    let _ = write!(out, "{dx} {dy}");
     Ok(out)
 }
 
@@ -13799,6 +13830,14 @@ END
             "MOVE_PANE native-2 first"
         );
         assert_eq!(
+            parse_pane_control_alias("nudge", args(&["3", "-2"]).into_iter()).unwrap(),
+            "NUDGE_PANE focused 3 -2"
+        );
+        assert_eq!(
+            parse_pane_control_alias("nudge", args(&["native-2", "3", "-2"]).into_iter()).unwrap(),
+            "NUDGE_PANE native-2 3 -2"
+        );
+        assert_eq!(
             parse_pane_control_alias("resize", args(&["native-2", "+2"]).into_iter()).unwrap(),
             "RESIZE_PANE native-2 +2"
         );
@@ -13817,6 +13856,10 @@ END
         assert!(parse_pane_control_alias("focus", Vec::<String>::new().into_iter()).is_err());
         assert!(parse_pane_control_alias("balance", args(&["extra"]).into_iter()).is_err());
         assert!(parse_pane_control_alias("layout", args(&["diagonal"]).into_iter()).is_err());
+        assert!(parse_pane_control_alias("nudge", args(&["0", "0"]).into_iter()).is_err());
+        assert!(
+            parse_pane_control_alias("nudge", args(&["native-1", "x", "1"]).into_iter()).is_err()
+        );
         assert_eq!(
             parse_pane_control_alias("layout", args(&["grid"]).into_iter()).unwrap(),
             "LAYOUT grid"
@@ -13908,6 +13951,9 @@ END
         let move_request = move_pane_request("focused", "LAST").unwrap();
         assert_eq!(move_request, "MOVE_PANE focused last");
         assert_eq!(move_request.capacity(), move_request.len());
+        let nudge_request = nudge_pane_request("focused", "3", "-2").unwrap();
+        assert_eq!(nudge_request, "NUDGE_PANE focused 3 -2");
+        assert!(nudge_request.capacity() >= nudge_request.len());
         let resize_request = resize_pane_request("focused", "+2").unwrap();
         assert_eq!(resize_request, "RESIZE_PANE focused +2");
         assert_eq!(resize_request.capacity(), resize_request.len());

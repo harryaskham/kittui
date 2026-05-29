@@ -221,6 +221,11 @@ pub enum NativePaneCommand {
         window: String,
         direction: String,
     },
+    Nudge {
+        window: String,
+        dx: i16,
+        dy: i16,
+    },
     Resize {
         window: String,
         delta: i16,
@@ -635,6 +640,44 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
                 }
             },
             "MOVE_QUEUED",
+        );
+    }
+    if let Some(rest) = cmd.strip_prefix("NUDGE_PANE ") {
+        let parts = rest.split_whitespace().collect::<Vec<_>>();
+        if parts.len() != 3 {
+            return "ERR NUDGE_PANE expects <window|focused> <dx> <dy>\n".to_string();
+        }
+        let window = parts[0].trim();
+        let dx = match parts[1].parse::<i16>() {
+            Ok(value) => value,
+            Err(_) => return "ERR NUDGE_PANE expects <window|focused> <dx> <dy>\n".to_string(),
+        };
+        let dy = match parts[2].parse::<i16>() {
+            Ok(value) => value,
+            Err(_) => return "ERR NUDGE_PANE expects <window|focused> <dx> <dy>\n".to_string(),
+        };
+        if window.is_empty() || (dx == 0 && dy == 0) {
+            return "ERR NUDGE_PANE expects <window|focused> <dx> <dy>\n".to_string();
+        }
+        return queue_native_pane_command(
+            pending,
+            &format!("{window}\t{dx}\t{dy}"),
+            "NUDGE_PANE requires window and dx/dy",
+            |arg| {
+                let mut parts = arg.split('\t');
+                NativePaneCommand::Nudge {
+                    window: parts.next().unwrap_or("").to_string(),
+                    dx: parts
+                        .next()
+                        .and_then(|value| value.parse().ok())
+                        .unwrap_or(0),
+                    dy: parts
+                        .next()
+                        .and_then(|value| value.parse().ok())
+                        .unwrap_or(0),
+                }
+            },
+            "NUDGE_QUEUED",
         );
     }
     if let Some(rest) = cmd.strip_prefix("RESIZE_PANE ") {
@@ -3281,6 +3324,10 @@ mod tests {
         assert!(
             native_spawn_queue_reply("MOVE_PANE focused last", &pending).starts_with("MOVE_QUEUED")
         );
+        assert!(
+            native_spawn_queue_reply("NUDGE_PANE focused 3 -2", &pending)
+                .starts_with("NUDGE_QUEUED")
+        );
         assert!(native_spawn_queue_reply("RESIZE_PANE focused +2", &pending)
             .starts_with("RESIZE_QUEUED"));
         assert!(native_spawn_queue_reply("BALANCE_PANES", &pending).starts_with("BALANCE_QUEUED"));
@@ -3372,6 +3419,8 @@ mod tests {
         assert!(native_spawn_queue_reply("LAYOUT diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("FOCUS_PANE", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("MOVE_PANE focused diagonal", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("NUDGE_PANE focused nope 1", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("NUDGE_PANE focused 0 0", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RESIZE_PANE focused nope", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RENAME_PANE native-2", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_TEXT focused", &pending).contains("ERR"));
@@ -3399,6 +3448,11 @@ mod tests {
                 NativePaneCommand::Move {
                     window: "focused".to_string(),
                     direction: "last".to_string(),
+                },
+                NativePaneCommand::Nudge {
+                    window: "focused".to_string(),
+                    dx: 3,
+                    dy: -2,
                 },
                 NativePaneCommand::Resize {
                     window: "focused".to_string(),
