@@ -1006,15 +1006,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 &chrome_reservation,
             )?;
             clear = true;
-            dbg.log(&format!(
-                "native chrome reservation changed: top={} bottom={} left={} right={} gap={}x{} owner={}",
-                chrome_reservation.top_bar_rows,
-                chrome_reservation.bottom_bar_rows,
-                chrome_reservation.left_cols,
-                chrome_reservation.right_cols,
-                chrome_reservation.gap_cols,
-                chrome_reservation.gap_rows,
-                chrome_reservation.owner.as_deref().unwrap_or("-")
+            dbg.log(&native_chrome_reservation_changed_log_line(
+                &chrome_reservation,
             ));
             last_chrome_reservation = chrome_reservation.clone();
         }
@@ -4386,6 +4379,34 @@ fn native_terminal_resized_log_line(
     let _ = write!(out, "{panes}");
     out.push_str(" resize_failures=");
     let _ = write!(out, "{resize_failures}");
+    out
+}
+
+fn native_chrome_reservation_changed_log_line(
+    reservation: &crate::daemon::NativeChromeReservationConfig,
+) -> String {
+    use std::fmt::Write as _;
+
+    let owner = reservation.owner.as_deref().unwrap_or("-");
+    let mut out = String::with_capacity(
+        "native chrome reservation changed: top= bottom= left= right= gap=x owner=".len()
+            + owner.len()
+            + 60,
+    );
+    out.push_str("native chrome reservation changed: top=");
+    let _ = write!(out, "{}", reservation.top_bar_rows);
+    out.push_str(" bottom=");
+    let _ = write!(out, "{}", reservation.bottom_bar_rows);
+    out.push_str(" left=");
+    let _ = write!(out, "{}", reservation.left_cols);
+    out.push_str(" right=");
+    let _ = write!(out, "{}", reservation.right_cols);
+    out.push_str(" gap=");
+    let _ = write!(out, "{}", reservation.gap_cols);
+    out.push('x');
+    let _ = write!(out, "{}", reservation.gap_rows);
+    out.push_str(" owner=");
+    out.push_str(owner);
     out
 }
 
@@ -10542,6 +10563,25 @@ mod native_pane_tests {
         assert_eq!(
             line,
             "native terminal resized to 120x40 panes=3 resize_failures=1"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_chrome_reservation_changed_log_line_builds_directly() {
+        let reservation = crate::daemon::NativeChromeReservationConfig {
+            top_bar_rows: 1,
+            bottom_bar_rows: 2,
+            left_cols: 3,
+            right_cols: 4,
+            gap_cols: 5,
+            gap_rows: 6,
+            owner: Some("kittwm-bar".to_string()),
+        };
+        let line = native_chrome_reservation_changed_log_line(&reservation);
+        assert_eq!(
+            line,
+            "native chrome reservation changed: top=1 bottom=2 left=3 right=4 gap=5x6 owner=kittwm-bar"
         );
         assert!(line.capacity() >= line.len());
     }
