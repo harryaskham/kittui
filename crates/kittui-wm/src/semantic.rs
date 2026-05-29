@@ -481,9 +481,20 @@ fn selection_value(node: &ComponentNode) -> Vec<String> {
 }
 
 fn translate_layer(mut layer: Layer, dx: f32, dy: f32, index: usize) -> Layer {
-    layer.label = layer.label.map(|label| format!("semantic_{index}_{label}"));
+    layer.label = layer
+        .label
+        .map(|label| translated_semantic_layer_label(index, &label));
     layer.root = translate_node(layer.root, dx, dy);
     layer
+}
+
+fn translated_semantic_layer_label(index: usize, label: &str) -> String {
+    let mut out = String::with_capacity("semantic_".len() + 20 + 1 + label.len());
+    out.push_str("semantic_");
+    out.push_str(&index.to_string());
+    out.push('_');
+    out.push_str(label);
+    out
 }
 
 fn translate_node(node: Node, dx: f32, dy: f32) -> Node {
@@ -649,6 +660,13 @@ pub fn synthetic_settings_surface() -> SemanticSurfaceSnapshot {
 mod tests {
     use super::*;
     use kittui_affordances::ControlKind;
+
+    #[test]
+    fn translated_semantic_layer_label_builds_directly() {
+        let label = translated_semantic_layer_label(12, "control_background");
+        assert_eq!(label, "semantic_12_control_background");
+        assert!(label.capacity() >= label.len());
+    }
 
     #[test]
     fn synthetic_semantic_surface_renders_through_affordance_controls() {
