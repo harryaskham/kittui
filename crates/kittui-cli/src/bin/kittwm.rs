@@ -1384,7 +1384,10 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --read-text[-json] WINDOW      text snapshot\n\
              --read-scrollback[-json] WINDOW scrollback snapshot\n\
              --semantic-snapshot WINDOW     semantic component snapshot\n\
-             --apps-json                    app discovery catalog\n"),
+             --apps-json                    app discovery catalog\n\
+             kittwm-top --json              first-party process snapshot helper\n\
+             kittwm-browser --semantic-snapshot URL\n\
+                                            first-party browser semantic snapshot\n"),
         "session" | "sessions" => Ok("kittwm help session\n\
              ===================\n\n\
              --save-session PATH|-          write SESSION_JSON manifest\n\
@@ -11472,6 +11475,17 @@ END
         );
         assert!(text.contains("--semantic-action"), "{text}");
         assert!(!text.contains("--save-session"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_inspect_mentions_first_party_helper_examples() {
+        let text = help_topic_text("inspect").unwrap();
+        assert!(text.contains("kittwm-top --json"), "{text}");
+        assert!(
+            text.contains("kittwm-browser --semantic-snapshot URL"),
+            "{text}"
+        );
+        assert!(text.contains("--semantic-snapshot WINDOW"), "{text}");
     }
 
     #[test]
