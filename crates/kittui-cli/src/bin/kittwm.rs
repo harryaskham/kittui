@@ -12503,7 +12503,7 @@ mod tests {
     fn keymap_duplicate_test_alternate_key_builds_directly() {
         let key = keymap_duplicate_test_alternate_key("C-a");
         assert_eq!(key, "C-a-other");
-        assert!(key.capacity() >= key.len());
+        assert_eq!(key.capacity(), key.len());
     }
 
     fn keymap_duplicate_test_alternate_key(base: &str) -> String {
