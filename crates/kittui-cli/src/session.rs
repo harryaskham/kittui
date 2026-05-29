@@ -6387,6 +6387,18 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_footer_keymap_note_builds_directly() {
+        let note = raw_compositor_footer_keymap_note(false, Some("launch"));
+        assert_eq!(note, " — action=launch");
+        assert!(note.capacity() >= note.len());
+        assert_eq!(
+            raw_compositor_footer_keymap_note(true, Some("ignored")),
+            " — keymap prefix"
+        );
+        assert!(raw_compositor_footer_keymap_note(false, None).is_empty());
+    }
+
+    #[test]
     fn raw_compositor_footer_key_reuses_precomputed_state_labels() {
         let key = raw_compositor_footer_key(
             24,
@@ -11842,14 +11854,8 @@ pub fn run_loop_with<S: XServer>(
                     terminal_rows,
                 );
                 let launch_note = raw_compositor_footer_launch_note(last_launch_pid);
-                let keymap_note = if prefix_active {
-                    " — keymap prefix".to_string()
-                } else {
-                    last_keymap_action
-                        .as_ref()
-                        .map(|a| format!(" — action={a}"))
-                        .unwrap_or_default()
-                };
+                let keymap_note =
+                    raw_compositor_footer_keymap_note(prefix_active, last_keymap_action.as_deref());
                 if let Some(footer_row) = safe_footer_row {
                     let workspace_label = workspaces.label();
                     let split_label = split_state.label();
@@ -12049,6 +12055,22 @@ fn raw_compositor_footer_launch_note(last_launch_pid: Option<u32>) -> String {
     let mut note = String::with_capacity(" — last launch pid=".len() + 10);
     note.push_str(" — last launch pid=");
     let _ = write!(note, "{pid}");
+    note
+}
+
+fn raw_compositor_footer_keymap_note(
+    prefix_active: bool,
+    last_keymap_action: Option<&str>,
+) -> String {
+    if prefix_active {
+        return " — keymap prefix".to_string();
+    }
+    let Some(action) = last_keymap_action else {
+        return String::new();
+    };
+    let mut note = String::with_capacity(" — action=".len() + action.len());
+    note.push_str(" — action=");
+    note.push_str(action);
     note
 }
 
