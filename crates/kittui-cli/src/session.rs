@@ -14966,10 +14966,13 @@ impl ConfigState {
     }
 
     fn label(&self) -> String {
-        match &self.last_error {
-            Some(_) => format!("reload#{}:err", self.reloads),
-            None => format!("reload#{}", self.reloads),
+        let mut label = String::with_capacity("reload#".len() + 20 + ":err".len());
+        label.push_str("reload#");
+        let _ = write!(label, "{}", self.reloads);
+        if self.last_error.is_some() {
+            label.push_str(":err");
         }
+        label
     }
 }
 
