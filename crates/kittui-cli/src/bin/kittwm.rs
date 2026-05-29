@@ -4131,17 +4131,21 @@ fn commands_text() -> String {
     let entries = local_command_entries();
     let mut out = String::with_capacity(entries.len().saturating_mul(48).saturating_add(96));
     out.push_str("kittwm commands — local CLI catalog\n");
-    let mut current = "";
+    let mut categories = Vec::new();
     for entry in entries {
-        if entry.category != current {
-            current = entry.category;
-            out.push('\n');
-            for ch in current.chars() {
-                out.push(ch.to_ascii_uppercase());
-            }
-            out.push('\n');
+        if !categories.contains(&entry.category) {
+            categories.push(entry.category);
         }
-        let _ = writeln!(out, "  {:28} {}", entry.command, entry.description);
+    }
+    for category in categories {
+        out.push('\n');
+        for ch in category.chars() {
+            out.push(ch.to_ascii_uppercase());
+        }
+        out.push('\n');
+        for entry in entries.iter().filter(|entry| entry.category == category) {
+            let _ = writeln!(out, "  {:28} {}", entry.command, entry.description);
+        }
     }
     out.push_str("\nFor socket verbs from a running WM: kittwm --help-json\n");
     out
@@ -8917,6 +8921,8 @@ mod tests {
         assert!(text.capacity() >= text.len());
         assert!(text.contains("kittwm commands"), "{text}");
         assert!(text.contains("LIFECYCLE"), "{text}");
+        assert_eq!(text.matches("\nHELP\n").count(), 1, "{text}");
+        assert_eq!(text.matches("\nDIAGNOSTICS\n").count(), 1, "{text}");
         assert!(text.contains("spawn CMD [ARGS...]"), "{text}");
         assert!(
             text.contains("split [WINDOW] columns|rows|grid CMD [ARGS...]"),
