@@ -2765,6 +2765,7 @@ fn remote_help_cmd(host: &str) -> Result<()> {
     println!("  kittwm remote {host} terminal htop");
     println!();
     println!("Connections reuse ControlMaster=auto and ControlPersist=10m.");
+    println!("Remote app launch requests trusted X11 forwarding with ssh -Y.");
     Ok(())
 }
 
@@ -7856,6 +7857,7 @@ fn remote_apps_cmd(cli: &Cli, host: &str) -> Result<()> {
         &remote_apps_env(cli.apps_filter.as_deref(), limit, mode),
         remote_apps_script(),
         "remote apps",
+        mode.requests_graphical_forwarding(),
     )
 }
 
@@ -7896,6 +7898,7 @@ fn remote_listing_cmd(kind: RemoteListingKind, host: &str, query: Option<&str>) 
         ],
         remote_listing_script(),
         kind.label(),
+        false,
     )
 }
 
@@ -7904,8 +7907,9 @@ fn run_pooled_ssh_script(
     env: &[(String, String)],
     script: &str,
     label: &str,
+    graphical_forwarding: bool,
 ) -> Result<()> {
-    let args = pooled_ssh_args(host, env, script)?;
+    let args = pooled_ssh_args_with_forwarding(host, env, script, graphical_forwarding)?;
     let status = std::process::Command::new("ssh")
         .args(&args)
         .status()
@@ -7923,6 +7927,12 @@ enum RemoteAppsMode {
     Json,
     First,
     LaunchFirst,
+}
+
+impl RemoteAppsMode {
+    fn requests_graphical_forwarding(self) -> bool {
+        matches!(self, Self::LaunchFirst)
+    }
 }
 
 fn remote_apps_mode(cli: &Cli) -> RemoteAppsMode {
@@ -7962,6 +7972,15 @@ fn remote_apps_env(
 }
 
 fn pooled_ssh_args(host: &str, env: &[(String, String)], script: &str) -> Result<Vec<String>> {
+    pooled_ssh_args_with_forwarding(host, env, script, false)
+}
+
+fn pooled_ssh_args_with_forwarding(
+    host: &str,
+    env: &[(String, String)],
+    script: &str,
+    graphical_forwarding: bool,
+) -> Result<Vec<String>> {
     if host.trim().is_empty() {
         return Err(anyhow!("--remote HOST must not be empty"));
     }
@@ -7973,9 +7992,11 @@ fn pooled_ssh_args(host: &str, env: &[(String, String)], script: &str) -> Result
         "ControlPersist=10m".to_string(),
         "-o".to_string(),
         format!("ControlPath={}", control_path.display()),
-        host.to_string(),
-        "env".to_string(),
     ];
+    if graphical_forwarding {
+        args.push("-Y".to_string());
+    }
+    args.extend([host.to_string(), "env".to_string()]);
     args.extend(
         env.iter()
             .map(|(key, value)| format!("{key}={}", shell_quote(value))),
@@ -10972,6 +10993,15 @@ mod tests {
         )));
         assert!(env.contains(&("KITTWM_REMOTE_LIMIT".to_string(), "7".to_string())));
         assert!(env.contains(&("KITTWM_REMOTE_MODE".to_string(), "launch-first".to_string())));
+        assert!(remote_apps_mode(&cli).requests_graphical_forwarding());
+        let args = pooled_ssh_args_with_forwarding(
+            "host.example",
+            &remote_apps_env(cli.apps_filter.as_deref(), 7, remote_apps_mode(&cli)),
+            "echo ok",
+            remote_apps_mode(&cli).requests_graphical_forwarding(),
+        )
+        .unwrap();
+        assert!(args.contains(&"-Y".to_string()), "{args:?}");
         let script = remote_apps_script();
         assert!(script.contains("command -v kittwm"), "{script}");
         assert!(
