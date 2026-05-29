@@ -5738,6 +5738,8 @@ mod tests {
         assert!(session.starts_with("/tmp/kwsession-9753-"), "{session}");
         let events = test_socket_path("kwe", 8642);
         assert!(events.starts_with("/tmp/kwe-8642-"), "{events}");
+        let events_iter = test_socket_path("kwei", 7531);
+        assert!(events_iter.starts_with("/tmp/kwei-7531-"), "{events_iter}");
         assert!(path.ends_with(".sock"), "{path}");
         assert!(path.capacity() >= path.len());
     }
@@ -6188,11 +6190,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn events_iter_ms_iterates_bounded_socket_batch() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwei-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwei", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
