@@ -5200,6 +5200,7 @@ const NATIVE_FLOATING_PANE_TOP_MARKER: &str = "▲";
 const NATIVE_FLOATING_PANE_NOT_TOP_MARKER: &str = " ";
 const NATIVE_FLOATING_PANE_MOVED_MARKER: &str = "●";
 const NATIVE_FLOATING_PANE_NOT_MOVED_MARKER: &str = " ";
+const NATIVE_RESIZED_TILED_PANE_MARKER: &str = "↔";
 
 fn native_title_drag_affordance_enabled(layout_label: &str) -> bool {
     layout_label.trim().eq_ignore_ascii_case("floating")
@@ -5226,6 +5227,14 @@ fn native_pane_title_text(
             NATIVE_UNFOCUSED_PANE_TITLE_MARKER
         },
     );
+    if !drag_affordance && pane.weight > 1 {
+        native_pane_title_push(
+            &mut out,
+            &mut count,
+            width,
+            NATIVE_RESIZED_TILED_PANE_MARKER,
+        );
+    }
     if drag_affordance {
         native_pane_title_push(
             &mut out,
@@ -10255,6 +10264,27 @@ mod native_pane_tests {
         assert_eq!(text.chars().count(), 16);
         assert!(text.capacity() >= 16);
         assert!(!text.contains(&"title-".repeat(2)), "{text}");
+
+        pane.weight = 3;
+        let resized_text = native_pane_title_text(
+            &pane,
+            NativePaneLayout {
+                x: 0,
+                y: 0,
+                cols: 16,
+                rows: 4,
+                app_x: 0,
+                app_y: 1,
+                app_cols: 16,
+                app_rows: 3,
+            },
+            true,
+            false,
+            true,
+            false,
+        );
+        assert_eq!(resized_text, "▶↔ native-1 titl");
+        assert_eq!(resized_text.chars().count(), 16);
         assert_eq!(
             native_pane_title_text(
                 &pane,
@@ -10276,6 +10306,7 @@ mod native_pane_tests {
             ""
         );
 
+        pane.weight = 1;
         let floating_text = native_pane_title_text(
             &pane,
             NativePaneLayout {
