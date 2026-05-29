@@ -1407,6 +1407,9 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              launcher [--filter Q] [--limit N]\n\
                                             boxed launcher preview\n\
              kittwm-launch                  first-party SDK launcher helper\n\
+             kittwm-launch --browser URL    launch first-party browser helper\n\
+             kittwm-terminal --title logs -- tail -f /tmp/app.log\n\
+                                            launch a titled terminal helper\n\
              kittwm-top                     first-party SDK process viewer\n\
              kittwm-bar --kitty --reserve   kitty-native top bar chrome app; reserves drawable row\n\
              kittwm-bar --release           clear the bar chrome reservation\n"),
@@ -11478,6 +11481,17 @@ END
         assert!(text.contains("kittwm-top"), "{text}");
         assert!(text.contains("kittwm-bar --kitty --reserve"), "{text}");
         assert!(text.contains("kittwm-bar --release"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_apps_mentions_first_party_helper_examples() {
+        let text = help_topic_text("apps").unwrap();
+        assert!(text.contains("kittwm-launch --browser URL"), "{text}");
+        assert!(
+            text.contains("kittwm-terminal --title logs -- tail -f /tmp/app.log"),
+            "{text}"
+        );
+        assert!(text.contains("kittwm-top"), "{text}");
     }
 
     #[test]
