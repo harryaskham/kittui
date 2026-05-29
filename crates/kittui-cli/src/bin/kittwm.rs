@@ -158,6 +158,7 @@ struct Cli {
     semantic_publish: Option<(String, String)>,
     automation_request: Option<String>,
     remote_help: bool,
+    remote_doctor_graphical: bool,
     remote_listing_filter: Option<String>,
     remote_terminal_args: Option<Vec<String>>,
     socket: Option<String>,
@@ -1416,6 +1417,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            list remote windows/displays when supported\n\
              kittwm remote HOST help       host-specific SSH quick reference\n\
              kittwm remote HOST status     check remote kittwm availability\n\
+             kittwm remote HOST status --x11\n\
+                                           check trusted X11 forwarding for remote app launch\n\
              kittwm remote HOST            friendly alias for remote doctor\n\
              kittwm remote HOST kittwm     open remote kittwm in a pooled SSH pane\n\
              kittwm remote HOST desktop    alias for remote HOST kittwm\n\
@@ -1519,6 +1522,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              ================\n\n\
              apps                           list launch candidates\n\
              remote HOST                    check remote kittwm availability\n\
+             remote HOST status --x11      check graphical forwarding for app launch\n\
              remote HOST kittwm            open remote kittwm in a pooled SSH pane\n\
              remote HOST desktop           alias for remote HOST kittwm\n\
              remote HOST list              list remote app candidates\n\
@@ -1828,9 +1832,10 @@ fn parse_remote_doctor_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
     for flag in flags {
         match flag.as_str() {
             "--json" => out.json = true,
+            "--x11" | "--graphical" | "--forwarding" => out.remote_doctor_graphical = true,
             other => {
                 return Err(anyhow!(
-                    "unknown remote doctor flag {other:?}\ntry: kittwm remote HOST doctor --json\nhelp: kittwm help ssh"
+                    "unknown remote doctor flag {other:?}\ntry: kittwm remote HOST doctor --json | --x11\nhelp: kittwm help ssh"
                 ))
             }
         }
@@ -2307,7 +2312,12 @@ fn real_main() -> Result<()> {
     }
     if cli.doctor || cli.doctor_scene_json || cli.doctor_kitty {
         if let Some(host) = cli.remote_host.as_deref() {
-            return remote_doctor_cmd(host, cli.json, cli.doctor_scene_json || cli.doctor_kitty);
+            if cli.doctor_scene_json || cli.doctor_kitty {
+                return Err(anyhow!(
+                    "remote doctor supports text/json output; run `ssh {host} kittwm doctor-kitty` when remote kittwm is installed"
+                ));
+            }
+            return remote_doctor_cmd(host, cli.json, cli.remote_doctor_graphical);
         }
         return doctor_cmd(
             cli.json,
@@ -2786,6 +2796,7 @@ fn remote_help_cmd(host: &str) -> Result<()> {
     println!();
     println!("Local kittwm pooled-SSH helpers:");
     println!("  kittwm remote {host} status");
+    println!("  kittwm remote {host} status --x11");
     println!("  kittwm remote {host} doctor");
     println!("  kittwm remote {host} list");
     println!("  kittwm remote {host} list apps firefox");
@@ -2814,19 +2825,21 @@ fn remote_terminal_alias_cmd(args: &[String]) -> Result<()> {
 }
 
 fn remote_doctor_cmd(host: &str, json: bool, graphical: bool) -> Result<()> {
-    if graphical {
-        return Err(anyhow!(
-            "remote doctor supports text/json output; run `ssh {host} kittwm doctor-kitty` when remote kittwm is installed"
-        ));
-    }
-    let args = pooled_ssh_args(
-        host,
-        &[(
+    let env = [
+        (
             "KITTWM_REMOTE_DOCTOR_JSON".to_string(),
             if json { "1" } else { "0" }.to_string(),
-        )],
-        remote_doctor_script(),
-    )?;
+        ),
+        (
+            "KITTWM_REMOTE_DOCTOR_GRAPHICAL".to_string(),
+            if graphical { "1" } else { "0" }.to_string(),
+        ),
+    ];
+    let args = if graphical {
+        pooled_ssh_args_with_forwarding(host, &env, remote_doctor_script(), true)?
+    } else {
+        pooled_ssh_args(host, &env, remote_doctor_script())?
+    };
     let status = std::process::Command::new("ssh")
         .args(&args)
         .status()
@@ -2843,6 +2856,9 @@ fn remote_doctor_script() -> &'static str {
 term=${TERM:-}
 term_program=${TERM_PROGRAM:-}
 ssh_tty=${SSH_TTY:-}
+display=${DISPLAY:-}
+wayland_display=${WAYLAND_DISPLAY:-}
+graphical=${KITTWM_REMOTE_DOCTOR_GRAPHICAL:-0}
 size=$(stty size 2>/dev/null || true)
 kittwm_path=$(command -v kittwm 2>/dev/null || true)
 json_string() {
@@ -2861,8 +2877,8 @@ else
     kittwm_startup_check="kittwm not found"
 fi
 if [ "${KITTWM_REMOTE_DOCTOR_JSON:-0}" = "1" ]; then
-    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"kittwm_available":%s,"kittwm_healthy":%s,"kittwm_path":%s,"startup_check":%s}\n' \
-        "$(json_string "$host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$kittwm_healthy" "$(json_string "$kittwm_path")" "$(json_string "$kittwm_startup_check")"
+    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"graphical_check":%s,"display":%s,"wayland_display":%s,"x11_forwarding_available":%s,"kittwm_available":%s,"kittwm_healthy":%s,"kittwm_path":%s,"startup_check":%s}\n' \
+        "$(json_string "$host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ "$graphical" = "1" ] && printf true || printf false)" "$(json_string "$display")" "$(json_string "$wayland_display")" "$([ -n "$display" ] && printf true || printf false)" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$kittwm_healthy" "$(json_string "$kittwm_path")" "$(json_string "$kittwm_startup_check")"
     exit 0
 fi
 printf 'kittwm remote doctor\n=====================\n'
@@ -2871,6 +2887,16 @@ printf 'TERM           : %s\n' "$term"
 printf 'TERM_PROGRAM   : %s\n' "$term_program"
 printf 'SSH_TTY        : %s\n' "$ssh_tty"
 printf 'stty size      : %s\n' "${size:-unknown}"
+if [ "$graphical" = "1" ]; then
+    printf 'graphical check: requested trusted X11 forwarding\n'
+    printf 'DISPLAY        : %s\n' "${display:-unset}"
+    printf 'WAYLAND_DISPLAY: %s\n' "${wayland_display:-unset}"
+    if [ -n "$display" ]; then
+        printf 'X11 forwarding : available\n'
+    else
+        printf 'X11 forwarding : unavailable; check ssh -Y, sshd X11Forwarding, and local X server\n'
+    fi
+fi
 if [ -n "$kittwm_path" ]; then
     printf 'remote kittwm  : %s\n' "$kittwm_path"
     printf 'startup check  : %s\n' "$kittwm_startup_check"
@@ -5458,6 +5484,8 @@ fn completion_words() -> &'static [&'static str] {
             "--limit",
             "--first",
             "--launch-first",
+            "--x11",
+            "--graphical",
             "help",
             "doctor",
             "status",
@@ -11065,6 +11093,12 @@ mod tests {
         parse_remote_alias_action(&mut status, "status", &[]).unwrap();
         assert!(status.doctor);
 
+        let mut x11_status = Cli::default();
+        x11_status.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut x11_status, "status", &args(&["--x11"])).unwrap();
+        assert!(x11_status.doctor);
+        assert!(x11_status.remote_doctor_graphical);
+
         let mut help = Cli::default();
         help.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut help, "help", &[]).unwrap();
@@ -11152,6 +11186,8 @@ mod tests {
         assert!(script.contains("kittwm doctor --json"), "{script}");
         assert!(script.contains("kittwm_healthy"), "{script}");
         assert!(script.contains("startup_check"), "{script}");
+        assert!(script.contains("DISPLAY"), "{script}");
+        assert!(script.contains("x11_forwarding_available"), "{script}");
         assert!(script.contains("kittwm remote %s kittwm"), "{script}");
         assert!(script.contains("kittwm remote %s list"), "{script}");
         assert!(
@@ -11171,6 +11207,23 @@ mod tests {
         .unwrap();
         assert!(args.contains(&"KITTWM_REMOTE_DOCTOR_JSON=1".to_string()));
         assert!(args.contains(&"host.example".to_string()));
+        let x11_args = pooled_ssh_args_with_forwarding(
+            "host.example",
+            &[(
+                "KITTWM_REMOTE_DOCTOR_GRAPHICAL".to_string(),
+                "1".to_string(),
+            )],
+            script,
+            true,
+        )
+        .unwrap();
+        assert!(x11_args.contains(&"-Y".to_string()), "{x11_args:?}");
+        assert!(
+            x11_args
+                .iter()
+                .any(|arg| arg.starts_with("ControlPath=") && arg.ends_with("%C-x11")),
+            "{x11_args:?}"
+        );
     }
 
     #[test]
