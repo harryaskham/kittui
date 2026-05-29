@@ -8240,7 +8240,7 @@ mode=${KITTWM_REMOTE_MODE:-list}
 host=$(hostname 2>/dev/null || printf unknown)
 case "$mode" in
     json)
-        printf '{"host":%s,"mode":"shell-path-or-macos","path_commands":[' "$(printf '%s' "$host" | json_escape)"
+        printf '{"host":%s,"mode":"shell-path-macos-linux-desktop","path_commands":[' "$(printf '%s' "$host" | json_escape)"
         first=1
         kittwm_remote_candidates | awk -F '\t' '$1 == "path" { print $2 }' | head -n "$limit" | while IFS= read -r cmd; do
             [ $first -eq 1 ] || printf ','
@@ -8295,7 +8295,7 @@ case "$mode" in
         printf 'kittwm remote apps: launched pid=%s kind=%s name=%s host=%s\n' "$!" "$kind" "$label" "$host"
         ;;
     *)
-        printf 'kittwm remote apps\n==================\nhost: %s\nmode: shell-path-or-macos\n' "$host"
+        printf 'kittwm remote apps\n==================\nhost: %s\nmode: shell-path-macos-linux-desktop\n' "$host"
         if [ -n "${KITTWM_REMOTE_QUERY:-}" ]; then printf 'filter: %s\n' "$KITTWM_REMOTE_QUERY"; fi
         printf 'PATH commands (first %s):\n' "$limit"
         kittwm_remote_candidates | awk -F '\t' '$1 == "path" { print "  "$2 }' | head -n "$limit"
@@ -11341,6 +11341,10 @@ mod tests {
         assert!(script.contains("$1 == \"Exec\""), "{script}");
         assert!(script.contains("desktop_exec="), "{script}");
         assert!(script.contains("index(tolower($0), q)"), "{script}");
+        assert!(
+            script.contains("shell-path-macos-linux-desktop"),
+            "{script}"
+        );
         assert!(script.contains("\"macos_apps\":"), "{script}");
         assert!(script.contains("\"linux_desktop_apps\":"), "{script}");
     }
