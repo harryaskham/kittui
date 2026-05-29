@@ -5595,6 +5595,14 @@ fn native_offset_node(node: &mut Node, dx: f32, dy: f32) {
     }
 }
 
+fn native_pane_focus_glow_label(idx: usize) -> String {
+    let mut label = String::with_capacity("pane--focus-glow".len() + 20);
+    label.push_str("pane-");
+    let _ = write!(label, "{idx}");
+    label.push_str("-focus-glow");
+    label
+}
+
 fn native_pane_status_chip_rect(cols: u16, rect_width: f32, cell_w: f32, chip_h: f32) -> PxRect {
     let min_w = cell_w.max(1.0).min(rect_width.max(1.0));
     let right_pad = 4.0_f32.min((rect_width - min_w).max(0.0));
@@ -5628,7 +5636,7 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
     let mut layers = Vec::new();
     if pane.focused {
         layers.push(Layer::new(
-            format!("pane-{idx}-focus-glow"),
+            native_pane_focus_glow_label(idx),
             Node::Rect {
                 rect,
                 fill: Paint::Solid {
@@ -8126,6 +8134,13 @@ mod native_pane_tests {
             rect.origin.0 + rect.width <= width + 0.01,
             "{rect:?} > {width}"
         );
+    }
+
+    #[test]
+    fn native_pane_focus_glow_label_builds_directly() {
+        let label = native_pane_focus_glow_label(7);
+        assert_eq!(label, "pane-7-focus-glow");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
