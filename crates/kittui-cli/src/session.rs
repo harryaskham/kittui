@@ -8131,6 +8131,21 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn single_ctrl_c_never_confirms_outer_quit() {
+        let start = Instant::now();
+        let mut guard = NativeCtrlCExitGuard::default();
+
+        assert_eq!(
+            native_ctrl_c_action(&mut guard, start),
+            NativeCtrlCAction::Forward
+        );
+        assert_eq!(
+            native_ctrl_c_action(&mut guard, start + Duration::from_millis(250)),
+            NativeCtrlCAction::Forward
+        );
+    }
+
+    #[test]
     fn native_quit_confirm_byte_action_requires_explicit_yes() {
         let start = Instant::now();
         let mut overlay = QuitConfirmOverlay::default();
