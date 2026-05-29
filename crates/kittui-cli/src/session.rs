@@ -2154,7 +2154,7 @@ const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
 const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
 const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
 const NATIVE_STATUS_LINE_HINTS: &str =
-    " · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a r reset · C-a e split · C-a x close · Ctrl-] exit";
+    " · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r reset · C-a e split · C-a x close · Ctrl-] exit";
 const NATIVE_STATUS_LINE_LOG_PREFIX: &str = " · log: ";
 
 fn native_status_line_text(
@@ -3128,6 +3128,36 @@ fn process_native_terminal_byte(
                         rows,
                         reservation,
                         "right",
+                        clear,
+                        dbg,
+                    )?
+                }
+            }
+            b'{' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
+                if !panes.is_empty() {
+                    native_move_focused(
+                        panes,
+                        focused,
+                        *layout_axis,
+                        cols,
+                        rows,
+                        reservation,
+                        "first",
+                        clear,
+                        dbg,
+                    )?
+                }
+            }
+            b'}' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
+                if !panes.is_empty() {
+                    native_move_focused(
+                        panes,
+                        focused,
+                        *layout_axis,
+                        cols,
+                        rows,
+                        reservation,
+                        "last",
                         clear,
                         dbg,
                     )?
@@ -7697,7 +7727,7 @@ mod native_pane_tests {
         let footer = native_status_line_text(1, "floating", Some("native-1"), "/tmp/kittwm.log");
         assert_eq!(
             footer,
-            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a r reset · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
+            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r reset · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
         );
         assert_eq!(footer.capacity(), footer.len());
 
@@ -8993,6 +9023,111 @@ mod native_pane_tests {
         .unwrap());
         assert!(!prefix);
         assert!(!offsets.contains_key("native-1"));
+    }
+
+    #[test]
+    fn native_prefix_braces_raise_and_lower_floating_pane() {
+        let mut panes = vec![
+            dummy_native_pane("native-1", "bottom", 1),
+            dummy_native_pane("native-2", "top", 1),
+        ];
+        let mut focused = 0usize;
+        let mut layout_axis = NativePaneLayoutAxis::Columns;
+        let mut layout_mode = NativePaneLayoutMode::Floating;
+        let mut offsets = HashMap::new();
+        let mut prefix = false;
+        let mut clear = false;
+        let mut help_overlay = false;
+        let mut ctrl_c_guard = NativeCtrlCExitGuard::default();
+        let mut quit_overlay = QuitConfirmOverlay::default();
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        let dbg = Debugger::open();
+
+        assert!(!process_native_terminal_byte(
+            0x01,
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert!(!process_native_terminal_byte(
+            b'}',
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert_eq!(focused, 1);
+        assert_eq!(panes[1].window, "native-1");
+
+        assert!(!process_native_terminal_byte(
+            0x01,
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert!(!process_native_terminal_byte(
+            b'{',
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert_eq!(focused, 0);
+        assert_eq!(panes[0].window, "native-1");
     }
 
     #[test]

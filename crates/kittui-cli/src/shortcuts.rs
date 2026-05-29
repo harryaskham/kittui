@@ -64,6 +64,11 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
         description: "nudge focused floating pane",
     },
     NativeShortcut {
+        id: "stack_floating_pane",
+        keys: "C-a { / C-a }",
+        description: "lower/raise focused floating pane",
+    },
+    NativeShortcut {
         id: "reset_floating_pane",
         keys: "C-a r",
         description: "reset focused floating pane position",
@@ -119,6 +124,7 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a t              toggle floating mode",
     "C-a f              toggle fullscreen",
     "C-a w/a/s/d        nudge focused floating pane",
+    "C-a { / C-a }      lower/raise focused floating pane",
     "C-a r              reset focused floating pane position",
     "C-a Tab            focus next pane",
     "C-a x              close pane (last pane returns to empty workspace)",
@@ -170,6 +176,7 @@ mod tests {
         assert!(text.contains("kittwm shortcuts"));
         assert!(text.contains(NATIVE_SHORTCUT_COMMAND_HINTS[0]));
         assert!(text.contains("C-a w/a/s/d"));
+        assert!(text.contains("C-a { / C-a }"));
         assert!(text.contains("C-a r"));
         assert!(text.ends_with('\n'));
     }
@@ -189,6 +196,11 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry["id"] == "nudge_floating_pane"));
+        assert!(value["shortcuts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == "stack_floating_pane"));
         assert!(value["shortcuts"]
             .as_array()
             .unwrap()
