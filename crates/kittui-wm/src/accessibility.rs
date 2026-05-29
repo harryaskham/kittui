@@ -168,11 +168,18 @@ pub fn accessibility_snapshot_from_tree(
     let root_component =
         accessibility_component_from_node(root, 0, 12, 2_000).unwrap_or_else(|| {
             ComponentNode::new(
-                format!("{}.root", association.surface),
+                accessibility_fallback_root_id(&association.surface),
                 ComponentRole::Group,
             )
         });
     SemanticSurfaceSnapshot::new(association.surface.clone(), 1, root_component)
+}
+
+fn accessibility_fallback_root_id(surface: &str) -> String {
+    let mut id = String::with_capacity(surface.len() + ".root".len());
+    id.push_str(surface);
+    id.push_str(".root");
+    id
 }
 
 fn accessibility_component_from_node(
@@ -470,6 +477,13 @@ fn payload_text(payload: &serde_json::Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accessibility_fallback_root_id_builds_directly() {
+        let id = accessibility_fallback_root_id("native-1");
+        assert_eq!(id, "native-1.root");
+        assert!(id.capacity() >= id.len());
+    }
 
     #[test]
     fn maps_mac_ax_nodes_to_semantic_snapshot_and_redacts_sensitive_values() {
