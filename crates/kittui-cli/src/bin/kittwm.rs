@@ -8435,6 +8435,8 @@ kittwm_remote_list_linux_desktop_apps() {
     for root in /usr/share/applications /usr/local/share/applications "$HOME/.local/share/applications"; do
         [ -d "$root" ] || continue
         find "$root" -name '*.desktop' -type f 2>/dev/null | while IFS= read -r desktop; do
+            entry_type=$(awk -F= '$1 == "Type" { print tolower($2); exit }' "$desktop" 2>/dev/null)
+            [ -n "$entry_type" ] && [ "$entry_type" != "application" ] && continue
             hidden=$(awk -F= '$1 == "Hidden" || $1 == "NoDisplay" { v=tolower($2); if (v == "true" || v == "1") { print "1"; exit } }' "$desktop" 2>/dev/null)
             [ "$hidden" = "1" ] && continue
             only_show_in=$(awk -F= '$1 == "OnlyShowIn" { print $2; exit }' "$desktop" 2>/dev/null)
@@ -11757,6 +11759,8 @@ mod tests {
             script.contains("checks X11 forwarding and waypipe"),
             "{script}"
         );
+        assert!(script.contains("$1 == \"Type\""), "{script}");
+        assert!(script.contains("application"), "{script}");
         assert!(script.contains("$1 == \"Name\""), "{script}");
         assert!(
             script.contains("kittwm_remote_desktop_localized_values"),
