@@ -6602,6 +6602,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn workspace_action_log_line_builds_directly() {
+        let line = workspace_action_log_line("workspace.next -> 2/3");
+        assert_eq!(line, "workspace action: workspace.next -> 2/3");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11413,6 +11420,13 @@ fn config_action_log_line(message: &str) -> String {
     out
 }
 
+fn workspace_action_log_line(message: &str) -> String {
+    let mut out = String::with_capacity("workspace action: ".len() + message.len());
+    out.push_str("workspace action: ");
+    out.push_str(message);
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11672,7 +11686,7 @@ pub fn run_loop_with<S: XServer>(
                                     let msg = workspaces.apply(&action);
                                     publish_workspace_label_for_status(&workspaces.active_label());
                                     last_keymap_action = Some(msg.clone());
-                                    dbg.log(&format!("workspace action: {msg}"));
+                                    dbg.log(&workspace_action_log_line(&msg));
                                 }
                                 Action::FocusLeft
                                 | Action::FocusDown
