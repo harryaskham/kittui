@@ -13269,9 +13269,9 @@ pub fn run_loop_with<S: XServer>(
                                         _ => compositor.raise_focused(),
                                     };
                                     let msg = match moved {
-                                        Ok(Some(id)) => format!("{msg} window={}", id.0),
-                                        Ok(None) => format!("{msg} window=-"),
-                                        Err(e) => format!("{msg} error={e}"),
+                                        Ok(Some(id)) => action_window_status_line(&msg, id.0),
+                                        Ok(None) => action_no_window_status_line(&msg),
+                                        Err(e) => action_error_status_line(&msg, &e),
                                     };
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&swap_action_log_line(&msg));
