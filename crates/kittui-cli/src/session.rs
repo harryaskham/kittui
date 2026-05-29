@@ -16791,8 +16791,8 @@ mod launcher_overlay_tests {
 
     #[test]
     fn launcher_match_score_avoids_candidate_and_query_lowercase_allocation() {
-        let huge = format!("{}Needle{}", "x".repeat(10_000), "y".repeat(10_000));
-        let huge_query = format!("{}missing", "q".repeat(10_000));
+        let huge = launcher_match_test_wrapped_needle(10_000);
+        let huge_query = launcher_match_test_prefixed_missing_query(10_000);
         assert_eq!(launcher_match_score("Needle", "needle"), Some(0));
         assert_eq!(launcher_match_score("NeedleSuffix", "needle"), Some(1));
         assert_eq!(launcher_match_score(&huge, "needle"), Some(2));
@@ -16800,6 +16800,32 @@ mod launcher_overlay_tests {
         assert_eq!(launcher_match_score(&huge, "missing"), None);
         assert_eq!(launcher_match_score("short", &huge_query), None);
         assert!(ascii_casefold_contains("RésuméNeedle", "needle"));
+    }
+
+    #[test]
+    fn launcher_match_test_stress_strings_build_directly() {
+        let huge = launcher_match_test_wrapped_needle(3);
+        assert_eq!(huge, "xxxNeedleyyy");
+        assert!(huge.capacity() >= huge.len());
+
+        let query = launcher_match_test_prefixed_missing_query(3);
+        assert_eq!(query, "qqqmissing");
+        assert!(query.capacity() >= query.len());
+    }
+
+    fn launcher_match_test_wrapped_needle(count: usize) -> String {
+        let mut out = String::with_capacity(count + "Needle".len() + count);
+        out.extend(std::iter::repeat_n('x', count));
+        out.push_str("Needle");
+        out.extend(std::iter::repeat_n('y', count));
+        out
+    }
+
+    fn launcher_match_test_prefixed_missing_query(count: usize) -> String {
+        let mut out = String::with_capacity(count + "missing".len());
+        out.extend(std::iter::repeat_n('q', count));
+        out.push_str("missing");
+        out
     }
 
     #[test]
