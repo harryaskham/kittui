@@ -5486,6 +5486,16 @@ fn native_help_overlay_key_chip_label(idx: usize) -> String {
 }
 
 #[cfg(test)]
+fn native_help_overlay_row_label(idx: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut label = String::with_capacity("help-overlay-row-".len() + 20);
+    label.push_str("help-overlay-row-");
+    let _ = write!(label, "{idx}");
+    label
+}
+
+#[cfg(test)]
 fn native_help_overlay_scene(
     cell_size: CellSize,
     cols: u16,
@@ -5579,7 +5589,7 @@ fn native_help_overlay_scene(
         let row_line_y = row_y + row_h - 2.0;
         if row_line_y < rect.height {
             layers.push(Layer::new(
-                format!("help-overlay-row-{idx}"),
+                native_help_overlay_row_label(idx),
                 Node::Rect {
                     rect: PxRect::new(row_line_x, row_line_y, row_line_w, 1.0),
                     fill: Paint::Solid {
@@ -9391,6 +9401,13 @@ mod native_pane_tests {
     fn native_help_overlay_key_chip_label_builds_directly() {
         let label = native_help_overlay_key_chip_label(3);
         assert_eq!(label, "help-overlay-key-chip-3");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
+    fn native_help_overlay_row_label_builds_directly() {
+        let label = native_help_overlay_row_label(3);
+        assert_eq!(label, "help-overlay-row-3");
         assert!(label.capacity() >= label.len());
     }
 
