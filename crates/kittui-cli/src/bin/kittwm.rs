@@ -1394,7 +1394,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                           install Bash completions for future shells\n\
              kittwm completions zsh >> ~/.zshrc\n\
                                           install Zsh completions for future shells\n\
-             kittwm completions fish > ~/.config/fish/completions/kittwm.fish\n\
+             mkdir -p ~/.config/fish/completions && kittwm completions fish > ~/.config/fish/completions/kittwm.fish\n\
                                           install Fish completions\n"),
         "input" => Ok("kittwm help input\n\
              =================\n\n\
@@ -4938,7 +4938,7 @@ START
 SHELL SETUP
   kittwm completions bash >> ~/.bashrc
   kittwm completions zsh >> ~/.zshrc
-  kittwm completions fish > ~/.config/fish/completions/kittwm.fish
+  mkdir -p ~/.config/fish/completions && kittwm completions fish > ~/.config/fish/completions/kittwm.fish
 
 INSPECT
   kittwm info
@@ -8899,7 +8899,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("kittwm completions fish > ~/.config/fish/completions/kittwm.fish"),
+            text.contains("mkdir -p ~/.config/fish/completions && kittwm completions fish > ~/.config/fish/completions/kittwm.fish"),
             "{text}"
         );
         assert!(known_help_topics().contains(&"completions"));
@@ -10921,7 +10921,7 @@ mod tests {
         for line in [
             "kittwm completions bash >> ~/.bashrc",
             "kittwm completions zsh >> ~/.zshrc",
-            "kittwm completions fish > ~/.config/fish/completions/kittwm.fish",
+            "mkdir -p ~/.config/fish/completions && kittwm completions fish > ~/.config/fish/completions/kittwm.fish",
             "kittwm info",
             "kittwm spawn htop",
             "kittwm line focused 'cargo test -p kittui-cli'",
