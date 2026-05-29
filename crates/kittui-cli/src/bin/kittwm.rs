@@ -13904,6 +13904,20 @@ END
         assert!(text.contains("kittwm tui-smoke-json"), "{text}");
     }
 
+    fn help_command_tree_needle(command: &str) -> String {
+        let mut needle = String::with_capacity("kittwm ".len() + command.len());
+        needle.push_str("kittwm ");
+        needle.push_str(command);
+        needle
+    }
+
+    #[test]
+    fn help_command_tree_needle_builds_directly() {
+        let needle = help_command_tree_needle("spawn htop");
+        assert_eq!(needle, "kittwm spawn htop");
+        assert_eq!(needle.capacity(), needle.len());
+    }
+
     #[test]
     fn kittwm_help_command_tree_is_derived_from_catalog() {
         let tree = kittwm_help_command_tree_text();
@@ -13912,7 +13926,7 @@ END
             "{tree}"
         );
         for entry in local_command_entries() {
-            let needle = format!("kittwm {}", entry.command);
+            let needle = help_command_tree_needle(entry.command);
             assert!(tree.contains(&needle), "missing {needle:?}: {tree}");
             assert!(
                 tree.contains(entry.description),
