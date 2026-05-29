@@ -5012,6 +5012,7 @@ HELPERS
 
 MORE
   kittwm quickstart         kittwm examples    kittwm help panes
+  kittwm help completions   kittwm completions bash >> ~/.bashrc
 "#
 }
 
@@ -10907,6 +10908,11 @@ mod tests {
         assert!(text.contains("kittwm-bar --reserve --kitty"), "{text}");
         assert!(
             text.contains("kittwm-browser --semantic-snapshot URL"),
+            "{text}"
+        );
+        assert!(text.contains("kittwm help completions"), "{text}");
+        assert!(
+            text.contains("kittwm completions bash >> ~/.bashrc"),
             "{text}"
         );
         assert!(
