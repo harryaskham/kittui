@@ -149,6 +149,10 @@ pub struct NativePaneStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_top: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub floating_dx: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub floating_dy: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
@@ -292,6 +296,8 @@ pub struct NativeSessionRestorePane {
     pub command: String,
     pub weight: u16,
     pub focused: bool,
+    pub floating_dx: Option<i16>,
+    pub floating_dy: Option<i16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1496,6 +1502,14 @@ fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, jso
                 .get("focused")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
+            floating_dx: item
+                .get("floating_dx")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16),
+            floating_dy: item
+                .get("floating_dy")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16),
         });
     }
     let focus_index = panes.iter().position(|pane| pane.focused);
@@ -1987,7 +2001,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} stack={} top={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} app_cursor={} mouse={} layout={} title={:?}",
+            "  window={} focused={} weight={} stack={} top={} floating={},{} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} app_cursor={} mouse={} layout={} title={:?}",
             pane.window,
             pane.focused,
             pane.weight,
@@ -1995,6 +2009,12 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
                 .map(|stack| stack.to_string())
                 .unwrap_or_else(|| "-".to_string()),
             native_pane_bool_label(pane.stack_top),
+            pane.floating_dx
+                .map(|dx| dx.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            pane.floating_dy
+                .map(|dy| dy.to_string())
+                .unwrap_or_else(|| "-".to_string()),
             pane.pid
                 .map(|pid| pid.to_string())
                 .unwrap_or_else(|| "-".to_string()),
@@ -2754,12 +2774,14 @@ fn native_spawn_session_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) 
         }
         let _ = write!(
             out,
-            "{{\"index\":{index},\"window\":{},\"title\":{},\"command\":{},\"weight\":{},\"focused\":{}}}",
+            "{{\"index\":{index},\"window\":{},\"title\":{},\"command\":{},\"weight\":{},\"focused\":{},\"floating_dx\":{},\"floating_dy\":{}}}",
             serde_json::to_string(&pane.window).unwrap(),
             serde_json::to_string(&pane.title).unwrap(),
             serde_json::to_string(&pane.command).unwrap(),
             pane.weight,
-            pane.focused
+            pane.focused,
+            pane.floating_dx.unwrap_or(0),
+            pane.floating_dy.unwrap_or(0)
         );
     }
     out.push_str("]}\n");
@@ -3470,24 +3492,32 @@ mod tests {
                             title: Some("shell".to_string()),
                             command: "bash".to_string(),
                             weight: 2,
+                            floating_dx: None,
+                            floating_dy: None,
                             focused: false,
                         },
                         NativeSessionRestorePane {
                             title: Some("logs".to_string()),
                             command: "tail -f app.log".to_string(),
                             weight: 1,
+                            floating_dx: None,
+                            floating_dy: None,
                             focused: true,
                         },
                         NativeSessionRestorePane {
                             title: Some("top".to_string()),
                             command: "kittwm-top".to_string(),
                             weight: 1,
+                            floating_dx: None,
+                            floating_dy: None,
                             focused: false,
                         },
                         NativeSessionRestorePane {
                             title: Some("browser".to_string()),
                             command: "kittwm-browser https://example.com".to_string(),
                             weight: 1,
+                            floating_dx: None,
+                            floating_dy: None,
                             focused: false,
                         },
                     ],
@@ -3534,6 +3564,8 @@ mod tests {
             weight,
             stack_index: None,
             stack_top: None,
+            floating_dx: None,
+            floating_dy: None,
             pid: None,
             command: Some("/bin/sh".to_string()),
             x: None,
@@ -3877,6 +3909,8 @@ mod tests {
             weight: 1,
             stack_index: Some(0),
             stack_top: Some(true),
+            floating_dx: Some(0),
+            floating_dy: Some(0),
             pid: None,
             command: None,
             x: None,
@@ -3927,6 +3961,8 @@ mod tests {
             weight: 1,
             stack_index: Some(0),
             stack_top: Some(true),
+            floating_dx: Some(0),
+            floating_dy: Some(0),
             pid: None,
             command: None,
             x: None,
@@ -4413,6 +4449,8 @@ mod tests {
                 weight: 1,
                 stack_index: Some(0),
                 stack_top: Some(false),
+                floating_dx: Some(0),
+                floating_dy: Some(0),
                 pid: Some(101),
                 command: Some("/bin/sh".to_string()),
                 x: Some(0),
@@ -4443,6 +4481,8 @@ mod tests {
                 weight: 3,
                 stack_index: Some(1),
                 stack_top: Some(true),
+                floating_dx: Some(3),
+                floating_dy: Some(-2),
                 pid: Some(202),
                 command: Some("htop".to_string()),
                 x: Some(40),
@@ -4475,11 +4515,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 stack=0 top=off pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on app_cursor=on mouse=basic,button-motion,sgr layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 stack=0 top=off floating=0,0 pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on app_cursor=on mouse=basic,button-motion,sgr layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 stack=1 top=on pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off app_cursor=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 stack=1 top=on floating=3,-2 pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off app_cursor=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let chrome_json: serde_json::Value =
@@ -4502,6 +4542,8 @@ mod tests {
         assert_eq!(status_json["focused_pane"]["weight"], 3);
         assert_eq!(status_json["focused_pane"]["stack_index"], 1);
         assert_eq!(status_json["focused_pane"]["stack_top"], true);
+        assert_eq!(status_json["focused_pane"]["floating_dx"], 3);
+        assert_eq!(status_json["focused_pane"]["floating_dy"], -2);
         assert_eq!(status_json["focused_pane"]["pid"], 202);
         assert_eq!(status_json["focused_pane"]["command"], "htop");
         assert_eq!(status_json["focused_pane"]["app_cols"], 80);
@@ -4525,6 +4567,8 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["weight"], 3);
         assert_eq!(panes_json["panes_detail"][1]["stack_index"], 1);
         assert_eq!(panes_json["panes_detail"][1]["stack_top"], true);
+        assert_eq!(panes_json["panes_detail"][1]["floating_dx"], 3);
+        assert_eq!(panes_json["panes_detail"][1]["floating_dy"], -2);
         assert_eq!(panes_json["panes_detail"][1]["x"], 40);
         assert_eq!(panes_json["panes_detail"][1]["app_cols"], 80);
         assert_eq!(panes_json["panes_detail"][1]["cursor_col"], 12);
@@ -4550,7 +4594,11 @@ mod tests {
         assert_eq!(session_json["panes"].as_array().unwrap().len(), 2);
         assert_eq!(session_json["panes"][0]["index"], 0);
         assert_eq!(session_json["panes"][0]["command"], "/bin/sh");
+        assert_eq!(session_json["panes"][0]["floating_dx"], 0);
+        assert_eq!(session_json["panes"][0]["floating_dy"], 0);
         assert_eq!(session_json["panes"][1]["weight"], 3);
+        assert_eq!(session_json["panes"][1]["floating_dx"], 3);
+        assert_eq!(session_json["panes"][1]["floating_dy"], -2);
         assert!(session_json["panes"][1].get("pid").is_none());
         assert!(session_json["panes"][1].get("x").is_none());
         assert!(session_json["panes"][1].get("text_snapshot").is_none());
@@ -4580,6 +4628,8 @@ mod tests {
         assert_eq!(restore.panes[0].weight, 1);
         assert_eq!(restore.panes[1].command, "htop");
         assert_eq!(restore.panes[1].weight, 3);
+        assert_eq!(restore.panes[1].floating_dx, Some(3));
+        assert_eq!(restore.panes[1].floating_dy, Some(-2));
         assert!(restore.panes[1].focused);
 
         let text = native_spawn_queue_reply("READ_TEXT focused", &pending);

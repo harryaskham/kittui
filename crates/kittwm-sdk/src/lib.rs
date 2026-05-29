@@ -1436,6 +1436,12 @@ pub struct SessionPane {
     /// Whether this pane should be focused after restore.
     #[serde(default)]
     pub focused: bool,
+    /// Floating-pane x offset from the generated floating layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub floating_dx: Option<i16>,
+    /// Floating-pane y offset from the generated floating layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub floating_dy: Option<i16>,
 }
 
 fn default_session_pane_weight() -> u16 {
@@ -2146,6 +2152,12 @@ pub struct NativePaneDetail {
     /// Whether this pane is currently topmost in the visual stack.
     #[serde(default)]
     pub stack_top: Option<bool>,
+    /// Floating-pane x offset from the generated floating layout.
+    #[serde(default)]
+    pub floating_dx: Option<i16>,
+    /// Floating-pane y offset from the generated floating layout.
+    #[serde(default)]
+    pub floating_dy: Option<i16>,
     /// Process id, if known.
     #[serde(default)]
     pub pid: Option<u32>,
@@ -2283,6 +2295,11 @@ impl NativePaneDetail {
     /// Whether this pane is reported as topmost in the current visual stack.
     pub fn is_stack_top(&self) -> bool {
         self.stack_top.unwrap_or(false)
+    }
+
+    /// Floating-pane offset from the generated layout when reported.
+    pub fn floating_offset(&self) -> Option<(i16, i16)> {
+        Some((self.floating_dx?, self.floating_dy?))
     }
 
     /// Cursor position as `(col, row)` when reported.
@@ -4526,6 +4543,8 @@ mod tests {
                 "weight": 2,
                 "stack_index": 3,
                 "stack_top": true,
+                "floating_dx": 4,
+                "floating_dy": -2,
                 "pid": 123,
                 "command": "/bin/sh",
                 "x": 0,
@@ -4566,6 +4585,7 @@ mod tests {
         assert_eq!(pane.mouse_sgr, Some(true));
         assert_eq!(pane.stack_index(), Some(3));
         assert!(pane.is_stack_top());
+        assert_eq!(pane.floating_offset(), Some((4, -2)));
         assert_eq!(pane.bounds(), Some((0, 0, 80, 24)));
         assert_eq!(pane.app_bounds(), Some((0, 1, 80, 23)));
         assert_eq!(pane.cursor_position(), Some((4, 5)));
@@ -4655,8 +4675,8 @@ mod tests {
               "layout": "columns",
               "focus": "native-2",
               "panes": [
-                {"index":0,"window":"native-1","title":"shell","command":"bash","weight":1,"focused":false},
-                {"index":1,"window":"native-2","title":null,"command":"htop","weight":2,"focused":true}
+                {"index":0,"window":"native-1","title":"shell","command":"bash","weight":1,"focused":false,"floating_dx":0,"floating_dy":0},
+                {"index":1,"window":"native-2","title":null,"command":"htop","weight":2,"focused":true,"floating_dx":5,"floating_dy":-3}
               ]
             }"#,
         )
@@ -4669,6 +4689,8 @@ mod tests {
         assert_eq!(session.panes[0].title.as_deref(), Some("shell"));
         assert_eq!(session.panes[1].weight, 2);
         assert!(session.panes[1].focused);
+        assert_eq!(session.panes[1].floating_dx, Some(5));
+        assert_eq!(session.panes[1].floating_dy, Some(-3));
     }
 
     #[test]
@@ -4676,6 +4698,8 @@ mod tests {
         let pane: SessionPane = serde_json::from_str(r#"{"command":"bash"}"#).unwrap();
         assert_eq!(pane.weight, 1);
         assert!(!pane.focused);
+        assert_eq!(pane.floating_dx, None);
+        assert_eq!(pane.floating_dy, None);
         assert!(pane.title.is_none());
     }
 
@@ -5405,6 +5429,8 @@ mod tests {
                 command: "bash".to_string(),
                 weight: 1,
                 focused: true,
+                floating_dx: Some(0),
+                floating_dy: Some(0),
             }],
         };
         assert!(matches!(
@@ -6390,6 +6416,8 @@ mod tests {
             weight: 1,
             stack_index: Some(0),
             stack_top: Some(true),
+            floating_dx: Some(0),
+            floating_dy: Some(0),
             pid: Some(999999),
             command: Some("zsh".to_string()),
             x: None,

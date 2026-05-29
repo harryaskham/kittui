@@ -442,7 +442,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         &floating_offsets,
     );
     let mut last_resized_layouts = initial_layouts.clone();
-    let mut last_published_pane_statuses = native_pane_statuses(&panes, focused, &initial_layouts);
+    let mut last_published_pane_statuses =
+        native_pane_statuses(&panes, focused, &initial_layouts, &floating_offsets);
     let mut last_published_layout = layout_mode.label(layout_axis).to_string();
     queue.update_panes(last_published_pane_statuses.clone());
     queue.update_layout(layout_mode.label(layout_axis));
@@ -779,52 +780,69 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     }
                 }
                 crate::daemon::NativePaneCommand::RestoreSession(restore) => {
-                    let restore_result: Result<(NativePaneLayoutAxis, Vec<NativePane>, usize)> =
-                        (|| {
-                            let new_axis = restore
-                                .layout
-                                .as_deref()
-                                .and_then(NativePaneLayoutAxis::parse)
-                                .unwrap_or(layout_axis);
-                            let mut restored = Vec::with_capacity(restore.panes.len());
-                            for (idx, restore_pane) in restore.panes.iter().enumerate() {
-                                let id = (idx + 1).min(u32::MAX as usize) as u32;
-                                let mut pane =
-                                    match spawn_native_pane(id, &restore_pane.command, &sock, 1, 1)
-                                    {
-                                        Ok(pane) => pane,
-                                        Err(err) => {
-                                            terminate_native_panes(&mut restored);
-                                            return Err(err);
-                                        }
-                                    };
-                                pane.weight = restore_pane.weight.max(1);
-                                pane.display_title = restore_pane.title.clone();
-                                restored.push(pane);
-                            }
-                            if restored.is_empty() {
-                                return Err(anyhow!("restore session contains no panes"));
-                            }
-                            if let Err(err) = resize_native_panes_for_layout_with_reservation(
-                                &mut restored,
-                                cols,
-                                rows,
-                                new_axis,
-                                &last_chrome_reservation,
-                            ) {
-                                terminate_native_panes(&mut restored);
-                                return Err(err);
-                            }
-                            let new_focus =
-                                native_restore_focus_target(restored.len(), restore.focus_index)
-                                    .expect("restored panes checked non-empty");
-                            Ok((new_axis, restored, new_focus))
-                        })();
+                    let restore_result: Result<(
+                        NativePaneLayoutAxis,
+                        Vec<NativePane>,
+                        usize,
+                        HashMap<String, NativeFloatingPaneOffset>,
+                    )> = (|| {
+                        let new_axis = restore
+                            .layout
+                            .as_deref()
+                            .and_then(NativePaneLayoutAxis::parse)
+                            .unwrap_or(layout_axis);
+                        let mut restored = Vec::with_capacity(restore.panes.len());
+                        for (idx, restore_pane) in restore.panes.iter().enumerate() {
+                            let id = (idx + 1).min(u32::MAX as usize) as u32;
+                            let mut pane =
+                                match spawn_native_pane(id, &restore_pane.command, &sock, 1, 1) {
+                                    Ok(pane) => pane,
+                                    Err(err) => {
+                                        terminate_native_panes(&mut restored);
+                                        return Err(err);
+                                    }
+                                };
+                            pane.weight = restore_pane.weight.max(1);
+                            pane.display_title = restore_pane.title.clone();
+                            restored.push(pane);
+                        }
+                        if restored.is_empty() {
+                            return Err(anyhow!("restore session contains no panes"));
+                        }
+                        if let Err(err) = resize_native_panes_for_layout_with_reservation(
+                            &mut restored,
+                            cols,
+                            rows,
+                            new_axis,
+                            &last_chrome_reservation,
+                        ) {
+                            terminate_native_panes(&mut restored);
+                            return Err(err);
+                        }
+                        let new_focus =
+                            native_restore_focus_target(restored.len(), restore.focus_index)
+                                .expect("restored panes checked non-empty");
+                        let new_offsets = restored
+                            .iter()
+                            .zip(restore.panes.iter())
+                            .filter_map(|(pane, restore_pane)| {
+                                let offset = NativeFloatingPaneOffset {
+                                    dx: restore_pane.floating_dx.unwrap_or_default(),
+                                    dy: restore_pane.floating_dy.unwrap_or_default(),
+                                };
+                                (offset != NativeFloatingPaneOffset::default())
+                                    .then(|| (pane.window.clone(), offset))
+                            })
+                            .collect::<HashMap<_, _>>();
+                        Ok((new_axis, restored, new_focus, new_offsets))
+                    })();
                     match restore_result {
-                        Ok((new_axis, mut restored, new_focus)) => {
+                        Ok((new_axis, mut restored, new_focus, new_offsets)) => {
                             terminate_native_panes(&mut panes);
                             std::mem::swap(&mut panes, &mut restored);
                             layout_axis = new_axis;
+                            floating_offsets = new_offsets;
+                            floating_drag = None;
                             focused = new_focus;
                             if should_focus_restored_pane(panes.len(), focused) {
                                 let _ = native_send_focus_event(&mut panes[focused], true);
@@ -1002,7 +1020,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             publish_native_pane_statuses_if_changed(
                 &queue,
                 &mut last_published_pane_statuses,
-                native_pane_statuses(&panes, focused, &layouts),
+                native_pane_statuses(&panes, focused, &layouts, &floating_offsets),
             );
             clear = true;
             dbg.log(&native_terminal_resized_log_line(
@@ -1095,7 +1113,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             publish_native_pane_statuses_if_changed(
                 &queue,
                 &mut last_published_pane_statuses,
-                native_pane_statuses(&panes, focused, &layouts),
+                native_pane_statuses(&panes, focused, &layouts, &floating_offsets),
             );
             if should_write_pure_terminal_frame(
                 &last_terminal_render,
@@ -1342,7 +1360,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         publish_native_pane_statuses_if_changed(
             &queue,
             &mut last_published_pane_statuses,
-            native_pane_statuses(&panes, focused, &layouts),
+            native_pane_statuses(&panes, focused, &layouts, &floating_offsets),
         );
         let shell_view = native_shell_view(
             cols,
@@ -4281,12 +4299,17 @@ fn native_pane_statuses(
     panes: &[NativePane],
     focused: usize,
     layouts: &[NativePaneLayout],
+    floating_offsets: &HashMap<String, NativeFloatingPaneOffset>,
 ) -> Vec<crate::daemon::NativePaneStatus> {
     panes
         .iter()
         .enumerate()
         .map(|(idx, pane)| {
             let layout = layouts.get(idx).copied();
+            let offset = floating_offsets
+                .get(&pane.window)
+                .copied()
+                .unwrap_or_default();
             let (cursor_col, cursor_row) = pane.app.cursor_position();
             let mouse = pane.app.mouse_reporting_modes();
             crate::daemon::NativePaneStatus {
@@ -4296,6 +4319,8 @@ fn native_pane_statuses(
                 weight: pane.weight,
                 stack_index: Some(idx.min(u16::MAX as usize) as u16),
                 stack_top: Some(idx + 1 == panes.len()),
+                floating_dx: Some(offset.dx),
+                floating_dy: Some(offset.dy),
                 pid: pane.pid,
                 command: Some(pane.command.clone()),
                 x: layout.map(|l| l.x),
@@ -6694,6 +6719,8 @@ mod native_pane_tests {
             weight: 1,
             stack_index: Some(0),
             stack_top: Some(true),
+            floating_dx: Some(0),
+            floating_dy: Some(0),
             pid: Some(42),
             command: Some("sh".to_string()),
             x: Some(0),
@@ -7912,7 +7939,7 @@ mod native_pane_tests {
             app_cols: 10,
             app_rows: 4,
         }];
-        let statuses = native_pane_statuses(&panes, 0, &layouts);
+        let statuses = native_pane_statuses(&panes, 0, &layouts, &HashMap::new());
         let dirty = statuses[0].dirty_frame.as_ref().unwrap();
         assert_eq!(dirty.changed_tiles, 2);
         assert_eq!(dirty.total_tiles, 4);
@@ -12073,7 +12100,7 @@ mod native_pane_tests {
             },
         ];
         let layouts = native_pane_layouts_weighted(80, 24, &[1, 3], NativePaneLayoutAxis::Columns);
-        let statuses = native_pane_statuses(&panes, 1, &layouts);
+        let statuses = native_pane_statuses(&panes, 1, &layouts, &HashMap::new());
         assert_eq!(statuses.len(), 2);
         assert!(!statuses[0].focused);
         assert!(statuses[1].focused);
