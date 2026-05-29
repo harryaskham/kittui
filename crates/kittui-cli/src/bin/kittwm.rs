@@ -1011,6 +1011,7 @@ PANE CONTROL
   move [WINDOW] DIR           Alias for --move-pane (default focused)
   raise [WINDOW]              Raise pane to top of floating/stack order
   lower [WINDOW]              Lower pane to bottom of floating/stack order
+  nudge [WINDOW] DX DY        Nudge floating pane by cell delta
   resize [WINDOW] AMOUNT      Alias for --resize-pane (default focused)
   balance                     Alias for --balance-panes
   rename WINDOW TITLE         Alias for --rename-pane
@@ -1354,6 +1355,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              layout columns|rows|grid            switch layout axis
 \
              move [WINDOW] DIR              move pane (default focused)
+\
+             nudge [WINDOW] DX DY           nudge floating pane by cell delta
 \
              resize [WINDOW] AMOUNT         resize pane weight (default focused)
 \
@@ -4722,6 +4725,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "move pane",
         },
         LocalCommandEntry {
+            command: "nudge [WINDOW] DX DY",
+            category: "panes",
+            description: "nudge floating pane",
+        },
+        LocalCommandEntry {
             command: "resize [WINDOW] N",
             category: "panes",
             description: "resize pane weight",
@@ -5866,8 +5874,9 @@ INSPECT
 PANE CONTROL
   kittwm spawn htop         kittwm focus native-2
   kittwm close              kittwm layout rows
-  kittwm move last          kittwm resize focused +2
-  kittwm balance            kittwm rename focused editor
+  kittwm move last          kittwm nudge focused 3 -2
+  kittwm resize focused +2  kittwm rename focused editor
+  kittwm balance
 
 AUTOMATION
   kittwm type focused 'echo hi'
@@ -10378,6 +10387,7 @@ mod tests {
         assert!(bash.contains("complete -F _kittwm kittwm"), "{bash}");
         assert!(bash.contains("quickstart"), "{bash}");
         assert!(bash.contains("spawn"), "{bash}");
+        assert!(bash.contains("nudge"), "{bash}");
         assert!(bash.contains("--panes-json"), "{bash}");
         assert!(bash.contains("--remote"), "{bash}");
         assert!(bash.contains("--launch-first"), "{bash}");
@@ -10387,12 +10397,14 @@ mod tests {
         let zsh = completions_text("zsh").unwrap();
         assert!(zsh.contains("#compdef kittwm"), "{zsh}");
         assert!(zsh.contains("commands-json"), "{zsh}");
+        assert!(zsh.contains("nudge"), "{zsh}");
         assert!(zsh.contains("--remote"), "{zsh}");
         assert!(zsh.contains("desktop"), "{zsh}");
 
         let fish = completions_text("fish").unwrap();
         assert!(fish.contains("complete -c kittwm"), "{fish}");
         assert!(fish.contains("cheat"), "{fish}");
+        assert!(fish.contains("nudge"), "{fish}");
         assert!(fish.contains("--remote"), "{fish}");
         assert!(fish.contains("kittwm"), "{fish}");
         assert!(fish.contains("desktop"), "{fish}");
@@ -13564,6 +13576,7 @@ END
         }
         assert!(text.contains("kittwm --panes"), "{text}");
         assert!(text.contains("--spawn-pty CMD"), "{text}");
+        assert!(text.contains("nudge [WINDOW] DX DY"), "{text}");
         assert!(text.contains("--wait-output-json-ms"), "{text}");
         assert!(
             text.contains(
