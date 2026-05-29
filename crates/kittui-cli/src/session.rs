@@ -7675,6 +7675,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_footer_test_huge_log_path_builds_directly() {
+        let path = native_footer_test_huge_log_path(4);
+        assert_eq!(path, "/tmp/xxxx");
+        assert!(path.capacity() >= path.len());
+    }
+
+    #[test]
     fn native_status_pane_focus_combined_label_builds_directly() {
         let label = native_status_pane_focus_combined_label("native-1", "editor");
         assert_eq!(label, "native-1(editor)");
@@ -7698,7 +7705,7 @@ mod native_pane_tests {
             1,
             "floating",
             Some("native-1"),
-            &format!("/tmp/{}", "x".repeat(10_000)),
+            &native_footer_test_huge_log_path(10_000),
         );
         assert!(huge_footer.contains('…'), "{huge_footer:?}");
         assert!(
@@ -7724,6 +7731,13 @@ mod native_pane_tests {
         assert_eq!(bounded.chars().count(), NATIVE_STATUS_FOCUS_MAX_CHARS);
         assert!(bounded.ends_with('…'), "{bounded}");
         assert!(!bounded.contains(&"title-".repeat(8)), "{bounded}");
+    }
+
+    fn native_footer_test_huge_log_path(x_count: usize) -> String {
+        let mut path = String::with_capacity("/tmp/".len() + x_count);
+        path.push_str("/tmp/");
+        path.extend(std::iter::repeat_n('x', x_count));
+        path
     }
 
     #[test]
