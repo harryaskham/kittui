@@ -3183,6 +3183,16 @@ impl SurfaceHandle {
         ))
     }
 
+    /// Raise this pane to the top of the stack/floating order.
+    pub fn raise(&self) -> Result<String> {
+        self.move_pane(MoveDirection::Last)
+    }
+
+    /// Lower this pane to the bottom of the stack/floating order.
+    pub fn lower(&self) -> Result<String> {
+        self.move_pane(MoveDirection::First)
+    }
+
     /// Send raw UTF-8 text.
     pub fn send_text(&self, text: impl AsRef<str>) -> Result<String> {
         self.client.capabilities.ensure(Capability::SendInput)?;
@@ -5694,7 +5704,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..9 {
+            for _ in 0..11 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -5727,6 +5737,8 @@ mod tests {
             "OK"
         );
         assert_eq!(surface.move_pane(MoveDirection::Down).unwrap().trim(), "OK");
+        assert_eq!(surface.raise().unwrap().trim(), "OK");
+        assert_eq!(surface.lower().unwrap().trim(), "OK");
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(
@@ -5740,7 +5752,9 @@ mod tests {
                 "BALANCE_PANES",
                 "RENAME_PANE native-2 Editor Pane",
                 "MOVE_PANE native-2 first",
-                "MOVE_PANE native-2 down"
+                "MOVE_PANE native-2 down",
+                "MOVE_PANE native-2 last",
+                "MOVE_PANE native-2 first"
             ]
         );
     }
@@ -5776,6 +5790,10 @@ mod tests {
         ));
         assert!(matches!(
             client.surface("focused").move_pane(MoveDirection::Last),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.surface("focused").raise(),
             Err(Error::CapabilityDenied(Capability::ControlWindow))
         ));
     }

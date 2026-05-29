@@ -427,7 +427,8 @@ fn parse_args() -> Result<Cli> {
                     Some(default_window_payload_alias("WAIT_OUTPUT", "wait", &argv)?);
                 break;
             }
-            "focus" | "close" | "layout" | "move" | "resize" | "balance" | "rename" => {
+            "focus" | "close" | "layout" | "move" | "raise" | "lower" | "resize" | "balance"
+            | "rename" => {
                 out.automation_request = Some(parse_pane_control_alias(a.as_str(), args.by_ref())?);
                 break;
             }
@@ -1006,6 +1007,8 @@ PANE CONTROL
   close [WINDOW]              Alias for --close-pane (default focused)
   layout columns|rows|grid         Alias for --layout
   move [WINDOW] DIR           Alias for --move-pane (default focused)
+  raise [WINDOW]              Raise pane to top of floating/stack order
+  lower [WINDOW]              Lower pane to bottom of floating/stack order
   resize [WINDOW] AMOUNT      Alias for --resize-pane (default focused)
   balance                     Alias for --balance-panes
   rename WINDOW TITLE         Alias for --rename-pane
@@ -2061,6 +2064,14 @@ fn parse_pane_control_alias(alias: &str, mut args: impl Iterator<Item = String>)
                 None => ("focused".to_string(), first),
             };
             move_pane_request(&window, &direction)?
+        }
+        "raise" => {
+            let window = next().unwrap_or_else(|| "focused".to_string());
+            move_pane_request(&window, "last")?
+        }
+        "lower" => {
+            let window = next().unwrap_or_else(|| "focused".to_string());
+            move_pane_request(&window, "first")?
         }
         "resize" => {
             let first = next().ok_or_else(|| anyhow!("kittwm resize [WINDOW] AMOUNT"))?;
@@ -13273,6 +13284,14 @@ END
         assert_eq!(
             parse_pane_control_alias("move", args(&["last"]).into_iter()).unwrap(),
             "MOVE_PANE focused last"
+        );
+        assert_eq!(
+            parse_pane_control_alias("raise", Vec::<String>::new().into_iter()).unwrap(),
+            "MOVE_PANE focused last"
+        );
+        assert_eq!(
+            parse_pane_control_alias("lower", args(&["native-2"]).into_iter()).unwrap(),
+            "MOVE_PANE native-2 first"
         );
         assert_eq!(
             parse_pane_control_alias("resize", args(&["native-2", "+2"]).into_iter()).unwrap(),
