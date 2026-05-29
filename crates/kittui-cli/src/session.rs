@@ -2197,8 +2197,18 @@ fn native_status_pane_focus_label(pane: &NativePane) -> String {
     if title.is_empty() || title == pane.window {
         native_status_focused_window_label(Some(&pane.window))
     } else {
-        native_status_focused_window_label(Some(&format!("{}({title})", pane.window)))
+        let label = native_status_pane_focus_combined_label(&pane.window, title);
+        native_status_focused_window_label(Some(&label))
     }
+}
+
+fn native_status_pane_focus_combined_label(window: &str, title: &str) -> String {
+    let mut label = String::with_capacity(window.len() + 2 + title.len());
+    label.push_str(window);
+    label.push('(');
+    label.push_str(title);
+    label.push(')');
+    label
 }
 
 fn native_footer_visible_text(text: &str, cols: u16) -> String {
@@ -7457,6 +7467,13 @@ mod native_pane_tests {
         assert_eq!(clip_and_pad("abcdef", 3), "abc");
         assert_eq!(clip_and_pad("éx", 4), "éx  ");
         assert_eq!(clip_and_pad("anything", 0), "");
+    }
+
+    #[test]
+    fn native_status_pane_focus_combined_label_builds_directly() {
+        let label = native_status_pane_focus_combined_label("native-1", "editor");
+        assert_eq!(label, "native-1(editor)");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
