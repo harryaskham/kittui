@@ -1485,6 +1485,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            short alias for remote window listing\n\
              kittwm remote HOST monitors retina\n\
                                            alias for remote display listing\n\
+             kittwm remote HOST screens retina\n\
+                                           alias for remote display listing\n\
              kittwm remote HOST apps firefox\n\
                                            list remote app matches using a positional query\n\
              kittwm remote HOST app firefox\n\
@@ -1602,6 +1604,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST list displays QUERY\n\
                                             list remote displays matching a query\n\
              remote HOST list monitors QUERY\n\
+                                            alias for remote HOST list displays\n\
+             remote HOST list screens QUERY\n\
                                             alias for remote HOST list displays\n\
              remote HOST apps QUERY         list remote app matches with a positional query\n\
              remote HOST app QUERY          singular alias for remote HOST apps\n\
@@ -4966,6 +4970,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
         },
         LocalCommandEntry {
             command: "remote HOST monitors QUERY",
+            category: "remote",
+            description: "alias for remote display listing",
+        },
+        LocalCommandEntry {
+            command: "remote HOST list screens",
+            category: "remote",
+            description: "alias for remote display listing",
+        },
+        LocalCommandEntry {
+            command: "remote HOST screens QUERY",
             category: "remote",
             description: "alias for remote display listing",
         },
@@ -10912,6 +10926,12 @@ mod tests {
             entry["command"] == "remote HOST monitors QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST list screens" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST screens QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST apps QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -11821,6 +11841,12 @@ mod tests {
         parse_remote_alias_action(&mut monitors, "monitors", &args(&["retina"])).unwrap();
         assert!(monitors.list_displays);
         assert_eq!(monitors.remote_listing_filter.as_deref(), Some("retina"));
+
+        let mut screens = Cli::default();
+        screens.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut screens, "screens", &args(&["retina"])).unwrap();
+        assert!(screens.list_displays);
+        assert_eq!(screens.remote_listing_filter.as_deref(), Some("retina"));
 
         let mut list_screens = Cli::default();
         list_screens.remote_host = Some("buildbox".to_string());
