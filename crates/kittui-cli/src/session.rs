@@ -5459,7 +5459,13 @@ fn native_top_bar_overlay_text_cols(text: &str, padding_cols: u16) -> u16 {
 }
 
 fn native_graphical_top_bar_overlay_clear(row: u16) -> String {
-    format!("\x1b[0m\x1b[{row};1H\x1b[K")
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("\x1b[0m\x1b[;1H\x1b[K".len() + 5);
+    out.push_str("\x1b[0m\x1b[");
+    let _ = write!(out, "{row}");
+    out.push_str(";1H\x1b[K");
+    out
 }
 
 fn native_graphical_top_bar_overlay_labels(model: &BarModel, cols: u16) -> Vec<String> {
@@ -6079,10 +6085,9 @@ mod native_pane_tests {
             native_graphical_top_bar_overlay_clear(1),
             "\x1b[0m\x1b[1;1H\x1b[K"
         );
-        assert_eq!(
-            native_graphical_top_bar_overlay_clear(3),
-            "\x1b[0m\x1b[3;1H\x1b[K"
-        );
+        let row_three = native_graphical_top_bar_overlay_clear(3);
+        assert_eq!(row_three, "\x1b[0m\x1b[3;1H\x1b[K");
+        assert!(row_three.capacity() >= row_three.len());
     }
 
     #[test]
