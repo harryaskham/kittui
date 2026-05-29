@@ -6691,6 +6691,14 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn split_launcher_failed_log_line_builds_directly() {
+        let err = anyhow!("spawn denied");
+        let line = split_launcher_failed_log_line(&err);
+        assert_eq!(line, "split launcher failed: spawn denied");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn keymap_action_unimplemented_log_line_builds_directly() {
         let line = keymap_action_unimplemented_log_line(&"picker.open");
         assert_eq!(line, "keymap action not implemented yet: picker.open");
@@ -11590,6 +11598,15 @@ fn keymap_launcher_failed_log_line(err: &dyn std::fmt::Display) -> String {
     out
 }
 
+fn split_launcher_failed_log_line(err: &dyn std::fmt::Display) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("split launcher failed: ".len() + 80);
+    out.push_str("split launcher failed: ");
+    let _ = write!(out, "{err}");
+    out
+}
+
 fn keymap_action_unimplemented_log_line(action: &dyn std::fmt::Display) -> String {
     use std::fmt::Write as _;
 
@@ -11853,7 +11870,7 @@ pub fn run_loop_with<S: XServer>(
                                             Err(e) => {
                                                 last_keymap_action =
                                                     Some(format!("launcher.error {e}"));
-                                                dbg.log(&format!("split launcher failed: {e}"));
+                                                dbg.log(&split_launcher_failed_log_line(&e));
                                             }
                                         }
                                     }
