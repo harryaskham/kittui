@@ -3769,7 +3769,7 @@ fn native_paste_payload(bytes: &[u8], bracketed_paste: bool) -> Vec<u8> {
 
 fn native_route_mouse_event(
     event: &InputEvent,
-    panes: &mut [NativePane],
+    panes: &mut Vec<NativePane>,
     focused: &mut usize,
     cols: u16,
     rows: u16,
@@ -3792,25 +3792,26 @@ fn native_route_mouse_event(
             if let Some(idx) =
                 native_pane_chrome_at_host_cell_ordered(&layouts, col, row, topmost_first)
             {
-                native_set_focus(panes, focused, idx)?;
+                native_focus_or_raise_for_mouse(panes, focused, idx, mode)?;
                 *clear = true;
             }
         }
         return Ok(true);
     };
+    let mut target_idx = idx;
     if should_focus {
-        native_set_focus(panes, focused, idx)?;
+        target_idx = native_focus_or_raise_for_mouse(panes, focused, idx, mode)?;
         *clear = true;
     }
-    if panes[idx].app.supports_direct_pointer() {
+    if panes[target_idx].app.supports_direct_pointer() {
         for event in native_surface_pointer_events(event_name, local_col, local_row) {
-            NativeSurface::send_surface_pointer(&mut panes[idx].app, event)?;
+            NativeSurface::send_surface_pointer(&mut panes[target_idx].app, event)?;
         }
         return Ok(true);
     }
-    let modes = panes[idx].app.mouse_reporting_modes();
+    let modes = panes[target_idx].app.mouse_reporting_modes();
     if let Some(payload) = native_mouse_event_payload(event_name, local_col, local_row, modes) {
-        panes[idx].app.send_bytes(&payload)?;
+        panes[target_idx].app.send_bytes(&payload)?;
     }
     Ok(true)
 }
@@ -4062,6 +4063,47 @@ fn native_send_focus_event(pane: &mut NativePane, focused: bool) -> bool {
         return true;
     };
     pane.app.send_bytes(payload).is_ok()
+}
+
+fn native_focus_or_raise_for_mouse(
+    panes: &mut Vec<NativePane>,
+    focused: &mut usize,
+    target: usize,
+    mode: NativePaneLayoutMode,
+) -> Result<usize> {
+    if matches!(mode, NativePaneLayoutMode::Floating) {
+        return native_raise_and_focus_pane(panes, focused, target);
+    }
+    native_set_focus(panes, focused, target)?;
+    Ok(target.min(panes.len().saturating_sub(1)))
+}
+
+fn native_raise_and_focus_pane(
+    panes: &mut Vec<NativePane>,
+    focused: &mut usize,
+    target: usize,
+) -> Result<usize> {
+    if panes.is_empty() {
+        *focused = 0;
+        return Ok(0);
+    }
+    let target = target.min(panes.len().saturating_sub(1));
+    if target == panes.len().saturating_sub(1) {
+        native_set_focus(panes, focused, target)?;
+        return Ok(target);
+    }
+    let old_focus = (*focused).min(panes.len().saturating_sub(1));
+    if old_focus != target {
+        let _ = native_send_focus_event(&mut panes[old_focus], false);
+    }
+    let pane = panes.remove(target);
+    panes.push(pane);
+    let new_focus = panes.len().saturating_sub(1);
+    if old_focus != target {
+        let _ = native_send_focus_event(&mut panes[new_focus], true);
+    }
+    *focused = new_focus;
+    Ok(new_focus)
 }
 
 fn native_set_focus(
@@ -7934,6 +7976,56 @@ mod native_pane_tests {
         )
         .unwrap());
         assert_eq!(focused, 1);
+        assert!(clear);
+    }
+
+    #[test]
+    fn native_route_mouse_raises_background_floating_pane_on_focus() {
+        let mut panes = vec![
+            dummy_native_pane("native-1", "bottom", 1),
+            dummy_native_pane("native-2", "top", 1),
+        ];
+        let mut focused = 1usize;
+        let mut clear = false;
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        let layouts = native_layouts_for_panes_display_mode(
+            80,
+            24,
+            &panes,
+            focused,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+        );
+        let (host_col, host_row) = (1..=80)
+            .flat_map(|col| (1..=24).map(move |row| (col, row)))
+            .find(|(col, row)| {
+                native_pane_at_host_cell_ordered(&layouts, *col, *row, false).map(|hit| hit.0)
+                    == Some(0)
+                    && native_pane_at_host_cell_ordered(&layouts, *col, *row, true).map(|hit| hit.0)
+                        == Some(0)
+            })
+            .expect("non-overlapped app cell for background floating pane");
+
+        assert!(native_route_mouse_event(
+            &InputEvent::MousePress {
+                col: host_col,
+                row: host_row,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+            &mut clear,
+        )
+        .unwrap());
+        assert_eq!(focused, 1);
+        assert_eq!(panes[1].command, "bottom");
         assert!(clear);
     }
 
