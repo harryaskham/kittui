@@ -157,6 +157,7 @@ struct Cli {
     session_kitty: bool,
     semantic_publish: Option<(String, String)>,
     automation_request: Option<String>,
+    remote_listing_filter: Option<String>,
     remote_terminal_args: Option<Vec<String>>,
     socket: Option<String>,
     display: Option<String>,
@@ -1051,10 +1052,12 @@ APPS AND LAUNCHING
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
                             uses remote kittwm when installed, else PATH fallback
-  windows --remote HOST       List remote windows via pooled SSH; delegates to
-                            remote kittwm when available, else best-effort fallback
-  displays --remote HOST      List remote displays via pooled SSH; delegates to
-                            remote kittwm when available, else best-effort fallback
+  windows --remote HOST [QUERY]
+                            List/filter remote windows via pooled SSH; delegates
+                            to remote kittwm when available, else best-effort fallback
+  displays --remote HOST [QUERY]
+                            List/filter remote displays via pooled SSH; delegates
+                            to remote kittwm when available, else best-effort fallback
   apps-kitty [--filter QUERY] [--limit N]
                             Render launcher candidates with kitty graphics
   --apps-json              App discovery catalog JSON
@@ -1411,8 +1414,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST list       list remote app candidates\n\
              kittwm remote HOST list apps firefox\n\
                                            list remote app matches using a natural alias\n\
-             kittwm remote HOST list windows\n\
-                                           list remote windows through pooled SSH\n\
+             kittwm remote HOST list windows firefox\n\
+                                           list remote windows matching a query\n\
              kittwm remote HOST apps firefox\n\
                                            list remote app matches using a positional query\n\
              kittwm remote HOST launch firefox\n\
@@ -1508,8 +1511,9 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST                    check remote kittwm availability\n\
              remote HOST list              list remote app candidates\n\
              remote HOST list apps QUERY    list remote app matches with a natural alias\n\
-             remote HOST list windows       list remote windows through pooled SSH\n\
-             remote HOST list displays      list remote displays through pooled SSH\n\
+             remote HOST list windows QUERY list remote windows matching a query\n\
+             remote HOST list displays QUERY\n\
+                                            list remote displays matching a query\n\
              remote HOST apps QUERY         list remote app matches with a positional query\n\
              remote HOST launch QUERY       shortest alias for remote app launch\n\
              remote HOST apps QUERY --launch-first\n\
@@ -1748,12 +1752,8 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
         }
         "list" | "ls" => parse_remote_list_alias(out, rest),
         "launch" | "open" | "run" => parse_remote_launch_alias(out, rest),
-        "windows" | "window" => ensure_no_remote_alias_rest(action, rest, || {
-            out.list_windows = true;
-        }),
-        "displays" | "display" => ensure_no_remote_alias_rest(action, rest, || {
-            out.list_displays = true;
-        }),
+        "windows" | "window" => parse_remote_listing_alias(out, RemoteListingKind::Windows, rest),
+        "displays" | "display" => parse_remote_listing_alias(out, RemoteListingKind::Displays, rest),
         "terminal" | "term" => {
             out.remote_terminal_args = Some(remote_terminal_alias_args(
                 out.remote_host.as_deref().unwrap_or("HOST"),
@@ -1796,6 +1796,48 @@ fn parse_remote_doctor_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn parse_remote_listing_alias(
+    out: &mut Cli,
+    kind: RemoteListingKind,
+    args: &[String],
+) -> Result<()> {
+    let query = remote_listing_query(args)?;
+    match kind {
+        RemoteListingKind::Windows => out.list_windows = true,
+        RemoteListingKind::Displays => out.list_displays = true,
+    }
+    out.remote_listing_filter = query;
+    Ok(())
+}
+
+fn remote_listing_query(args: &[String]) -> Result<Option<String>> {
+    if args.is_empty() {
+        return Ok(None);
+    }
+    let mut terms = Vec::new();
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--filter" | "--query" => terms.push(iter.next().ok_or_else(missing_filter_error)?.clone()),
+            "--" => {
+                terms.extend(iter.cloned());
+                break;
+            }
+            flag if flag.starts_with('-') => {
+                return Err(anyhow!(
+                    "unknown remote listing flag {flag:?}\ntry: kittwm remote HOST windows firefox\nhelp: kittwm help ssh"
+                ))
+            }
+            term => terms.push(term.to_string()),
+        }
+    }
+    if terms.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(terms.join(" ")))
+    }
+}
+
 fn parse_remote_list_alias(out: &mut Cli, args: &[String]) -> Result<()> {
     let Some(kind) = args.first().map(String::as_str) else {
         out.apps = true;
@@ -1806,12 +1848,8 @@ fn parse_remote_list_alias(out: &mut Cli, args: &[String]) -> Result<()> {
             out.apps = true;
             parse_remote_apps_flags(out, &args[1..])
         }
-        "windows" | "window" => ensure_no_remote_alias_rest("list windows", &args[1..], || {
-            out.list_windows = true;
-        }),
-        "displays" | "display" => ensure_no_remote_alias_rest("list displays", &args[1..], || {
-            out.list_displays = true;
-        }),
+        "windows" | "window" => parse_remote_listing_alias(out, RemoteListingKind::Windows, &args[1..]),
+        "displays" | "display" => parse_remote_listing_alias(out, RemoteListingKind::Displays, &args[1..]),
         "terminals" | "terminal" | "terms" | "term" => Err(anyhow!(
             "remote terminal listing is not supported yet\ntry: kittwm remote HOST terminal\nhelp: kittwm help ssh"
         )),
@@ -1888,16 +1926,6 @@ fn parse_remote_apps_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
     if !query_terms.is_empty() {
         out.apps_filter = Some(query_terms.join(" "));
     }
-    Ok(())
-}
-
-fn ensure_no_remote_alias_rest(action: &str, rest: &[String], apply: impl FnOnce()) -> Result<()> {
-    if let Some(extra) = rest.first() {
-        return Err(anyhow!(
-            "kittwm remote {action} accepts no extra argument {extra:?}\nhelp: kittwm help ssh"
-        ));
-    }
-    apply();
     Ok(())
 }
 
@@ -2348,13 +2376,21 @@ fn real_main() -> Result<()> {
     }
     if cli.list_windows {
         if let Some(host) = cli.remote_host.as_deref() {
-            return remote_listing_cmd(RemoteListingKind::Windows, host);
+            return remote_listing_cmd(
+                RemoteListingKind::Windows,
+                host,
+                cli.remote_listing_filter.as_deref(),
+            );
         }
         return list_windows_cmd();
     }
     if cli.list_displays {
         if let Some(host) = cli.remote_host.as_deref() {
-            return remote_listing_cmd(RemoteListingKind::Displays, host);
+            return remote_listing_cmd(
+                RemoteListingKind::Displays,
+                host,
+                cli.remote_listing_filter.as_deref(),
+            );
         }
         return list_displays_cmd();
     }
@@ -7764,13 +7800,19 @@ impl RemoteListingKind {
     }
 }
 
-fn remote_listing_cmd(kind: RemoteListingKind, host: &str) -> Result<()> {
+fn remote_listing_cmd(kind: RemoteListingKind, host: &str, query: Option<&str>) -> Result<()> {
     run_pooled_ssh_script(
         host,
-        &[(
-            "KITTWM_REMOTE_KIND".to_string(),
-            kind.env_value().to_string(),
-        )],
+        &[
+            (
+                "KITTWM_REMOTE_KIND".to_string(),
+                kind.env_value().to_string(),
+            ),
+            (
+                "KITTWM_REMOTE_QUERY".to_string(),
+                query.unwrap_or_default().to_string(),
+            ),
+        ],
         remote_listing_script(),
         kind.label(),
     )
@@ -7956,32 +7998,43 @@ esac
 
 fn remote_listing_script() -> &'static str {
     r#"kind=${KITTWM_REMOTE_KIND:-windows}
+query=${KITTWM_REMOTE_QUERY:-}
 host=$(hostname 2>/dev/null || printf unknown)
+kittwm_remote_filter() {
+    if [ -n "$query" ]; then
+        awk -v q="$query" 'BEGIN { q=tolower(q) } index(tolower($0), q)'
+    else
+        cat
+    fi
+}
 if command -v kittwm >/dev/null 2>&1; then
     case "$kind" in
-        displays) exec kittwm --list-displays ;;
-        *) exec kittwm --list-windows ;;
+        displays) kittwm --list-displays | kittwm_remote_filter ;;
+        *) kittwm --list-windows | kittwm_remote_filter ;;
     esac
+    exit 0
 fi
 case "$kind" in
     displays)
         printf 'kittwm remote displays\n======================\nhost: %s\nmode: fallback\n' "$host"
+        [ -z "$query" ] || printf 'filter: %s\n' "$query"
         if command -v xrandr >/dev/null 2>&1; then
-            xrandr --listmonitors 2>/dev/null || xrandr --query 2>/dev/null | awk '/ connected/{print "  "$0}'
+            (xrandr --listmonitors 2>/dev/null || xrandr --query 2>/dev/null | awk '/ connected/{print "  "$0}') | kittwm_remote_filter
         elif command -v system_profiler >/dev/null 2>&1; then
-            system_profiler SPDisplaysDataType 2>/dev/null | awk '/^[[:space:]]*(Resolution|Main Display|Online|Display Type):/{print "  "$0}'
+            system_profiler SPDisplaysDataType 2>/dev/null | awk '/^[[:space:]]*(Resolution|Main Display|Online|Display Type):/{print "  "$0}' | kittwm_remote_filter
         else
             printf '  capability unavailable: install remote kittwm, xrandr, or system_profiler\n'
         fi
         ;;
     *)
         printf 'kittwm remote windows\n=====================\nhost: %s\nmode: fallback\n' "$host"
+        [ -z "$query" ] || printf 'filter: %s\n' "$query"
         if command -v wmctrl >/dev/null 2>&1; then
-            wmctrl -l
+            wmctrl -l | kittwm_remote_filter
         elif command -v xdotool >/dev/null 2>&1; then
-            xdotool search --onlyvisible --name '.*' 2>/dev/null | while IFS= read -r id; do xdotool getwindowname "$id" 2>/dev/null | sed "s/^/$id  /"; done
+            xdotool search --onlyvisible --name '.*' 2>/dev/null | while IFS= read -r id; do xdotool getwindowname "$id" 2>/dev/null | sed "s/^/$id  /"; done | kittwm_remote_filter
         elif command -v osascript >/dev/null 2>&1; then
-            osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /'
+            osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /' | kittwm_remote_filter
         else
             printf '  capability unavailable: install remote kittwm, wmctrl, xdotool, or enable macOS osascript accessibility\n'
         fi
@@ -10737,8 +10790,19 @@ mod tests {
 
         let mut list_windows = Cli::default();
         list_windows.remote_host = Some("buildbox".to_string());
-        parse_remote_alias_action(&mut list_windows, "list", &args(&["windows"])).unwrap();
+        parse_remote_alias_action(&mut list_windows, "list", &args(&["windows", "firefox"]))
+            .unwrap();
         assert!(list_windows.list_windows);
+        assert_eq!(
+            list_windows.remote_listing_filter.as_deref(),
+            Some("firefox")
+        );
+
+        let mut displays = Cli::default();
+        displays.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut displays, "displays", &args(&["retina"])).unwrap();
+        assert!(displays.list_displays);
+        assert_eq!(displays.remote_listing_filter.as_deref(), Some("retina"));
 
         let mut terminal = Cli::default();
         terminal.remote_host = Some("buildbox".to_string());
@@ -10818,6 +10882,8 @@ mod tests {
         let script = remote_listing_script();
         assert!(script.contains("kittwm --list-windows"), "{script}");
         assert!(script.contains("kittwm --list-displays"), "{script}");
+        assert!(script.contains("KITTWM_REMOTE_QUERY"), "{script}");
+        assert!(script.contains("kittwm_remote_filter"), "{script}");
         assert!(script.contains("wmctrl"), "{script}");
         assert!(script.contains("xrandr"), "{script}");
         assert!(script.contains("system_profiler"), "{script}");
