@@ -8322,9 +8322,23 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_theme_test_temp_dir_name_builds_directly() {
+        let name = native_theme_test_temp_dir_name(1234);
+        assert_eq!(name, "kittwm-theme-test-1234");
+        assert!(name.capacity() >= name.len());
+    }
+
+    fn native_theme_test_temp_dir_name(pid: u32) -> String {
+        let mut name = String::with_capacity("kittwm-theme-test-".len() + 20);
+        name.push_str("kittwm-theme-test-");
+        let _ = write!(name, "{pid}");
+        name
+    }
+
+    #[test]
     fn native_chrome_colors_follow_kittwm_config() {
         let _guard = ENV_LOCK.lock().unwrap();
-        let root = std::env::temp_dir().join(format!("kittwm-theme-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(native_theme_test_temp_dir_name(std::process::id()));
         let cfg_dir = root.join("kittwm");
         std::fs::create_dir_all(&cfg_dir).unwrap();
         std::fs::write(
