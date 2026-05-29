@@ -10,6 +10,7 @@ use kittui_affordances::{
     text_area, text_input, ControlComponent, ControlOption, ControlState,
 };
 use kittwm_sdk as sdk;
+use std::fmt::Write as FmtWrite;
 
 /// Stable semantic component identifier.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -480,21 +481,29 @@ fn selection_value(node: &ComponentNode) -> Vec<String> {
     }
 }
 
+fn usize_decimal_len(mut value: usize) -> usize {
+    let mut len = 1;
+    while value >= 10 {
+        value /= 10;
+        len += 1;
+    }
+    len
+}
+
+fn translated_semantic_layer_label(index: usize, label: &str) -> String {
+    let mut translated =
+        String::with_capacity("semantic__".len() + usize_decimal_len(index) + label.len());
+    write!(translated, "semantic_{index}_").expect("write to string");
+    translated.push_str(label);
+    translated
+}
+
 fn translate_layer(mut layer: Layer, dx: f32, dy: f32, index: usize) -> Layer {
     layer.label = layer
         .label
         .map(|label| translated_semantic_layer_label(index, &label));
     layer.root = translate_node(layer.root, dx, dy);
     layer
-}
-
-fn translated_semantic_layer_label(index: usize, label: &str) -> String {
-    let mut out = String::with_capacity("semantic_".len() + 20 + 1 + label.len());
-    out.push_str("semantic_");
-    out.push_str(&index.to_string());
-    out.push('_');
-    out.push_str(label);
-    out
 }
 
 fn translate_node(node: Node, dx: f32, dy: f32) -> Node {
@@ -663,9 +672,12 @@ mod tests {
 
     #[test]
     fn translated_semantic_layer_label_builds_directly() {
+        assert_eq!(usize_decimal_len(0), 1);
+        assert_eq!(usize_decimal_len(9), 1);
+        assert_eq!(usize_decimal_len(10), 2);
         let label = translated_semantic_layer_label(12, "control_background");
         assert_eq!(label, "semantic_12_control_background");
-        assert!(label.capacity() >= label.len());
+        assert_eq!(label.capacity(), label.len());
     }
 
     #[test]
