@@ -8239,8 +8239,10 @@ kittwm_remote_list_linux_desktop_apps() {
             [ "$hidden" = "1" ] && continue
             only_show_in=$(awk -F= '$1 == "OnlyShowIn" { print $2; exit }' "$desktop" 2>/dev/null)
             not_show_in=$(awk -F= '$1 == "NotShowIn" { print $2; exit }' "$desktop" 2>/dev/null)
+            try_exec=$(awk -F= '$1 == "TryExec" { print $2; exit }' "$desktop" 2>/dev/null)
             [ -n "$only_show_in" ] && ! kittwm_remote_desktop_field_matches "$only_show_in" && continue
             [ -n "$not_show_in" ] && kittwm_remote_desktop_field_matches "$not_show_in" && continue
+            [ -n "$try_exec" ] && ! command -v "$try_exec" >/dev/null 2>&1 && continue
             id=$(basename "$desktop" .desktop)
             name=$(awk -F= '$1 == "Name" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             exec_line=$(awk -F= '$1 == "Exec" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
@@ -11369,6 +11371,7 @@ mod tests {
         assert!(script.contains("$1 == \"NoDisplay\""), "{script}");
         assert!(script.contains("$1 == \"OnlyShowIn\""), "{script}");
         assert!(script.contains("$1 == \"NotShowIn\""), "{script}");
+        assert!(script.contains("$1 == \"TryExec\""), "{script}");
         assert!(script.contains("XDG_CURRENT_DESKTOP"), "{script}");
         assert!(script.contains("desktop_exec="), "{script}");
         assert!(script.contains("gtk-launch failed"), "{script}");
