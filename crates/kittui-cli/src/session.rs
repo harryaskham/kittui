@@ -2105,8 +2105,12 @@ const NATIVE_PANE_STATUS_COMMAND_MAX_CHARS: usize = 64;
 
 fn native_pane_status_chip_text(pane: &NativePane) -> String {
     let command = bounded_ellipsis(&pane.command, NATIVE_PANE_STATUS_COMMAND_MAX_CHARS);
-    let mut out = String::with_capacity(command.len().saturating_add(32));
+    let mut out = String::with_capacity(command.len().saturating_add(48));
     out.push_str(&command);
+    if pane.weight != 1 {
+        out.push_str(" · wt:");
+        out.push_str(&pane.weight.to_string());
+    }
     out.push_str(" · pid:");
     if let Some(pid) = pane.pid {
         out.push_str(&pid.to_string());
@@ -10185,6 +10189,13 @@ mod native_pane_tests {
         assert!(chip.ends_with(" · pid:1234 · frame:7"), "{chip}");
         assert!(!chip.contains(&"cmd-".repeat(128)), "{chip}");
         assert!(chip.capacity() >= bounded.len() + 32);
+
+        pane.weight = 3;
+        let resized_chip = native_pane_status_chip_text(&pane);
+        assert!(
+            resized_chip.contains(" · wt:3 · pid:1234"),
+            "{resized_chip}"
+        );
     }
 
     #[test]
