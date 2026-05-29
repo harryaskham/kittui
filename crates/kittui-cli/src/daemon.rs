@@ -3323,6 +3323,25 @@ mod tests {
         assert!(drain_native_spawn_pending(&pending).is_empty());
     }
 
+    fn restore_session_json_request(manifest: &serde_json::Value) -> String {
+        let manifest = manifest.to_string();
+        let mut request = String::with_capacity("RESTORE_SESSION_JSON ".len() + manifest.len());
+        request.push_str("RESTORE_SESSION_JSON ");
+        request.push_str(&manifest);
+        request
+    }
+
+    #[test]
+    fn restore_session_json_request_builds_directly() {
+        let manifest = serde_json::json!({ "layout": "rows", "panes": [] });
+        let request = restore_session_json_request(&manifest);
+        assert_eq!(
+            request,
+            "RESTORE_SESSION_JSON {\"layout\":\"rows\",\"panes\":[]}"
+        );
+        assert_eq!(request.capacity(), request.len());
+    }
+
     #[test]
     fn invalid_restore_session_reports_errors_without_pending_ghost_panes() {
         let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
@@ -3333,7 +3352,7 @@ mod tests {
             ]
         });
         let reply =
-            native_spawn_queue_reply(&format!("RESTORE_SESSION_JSON {missing_command}"), &pending);
+            native_spawn_queue_reply(&restore_session_json_request(&missing_command), &pending);
         assert!(
             reply.contains("ERR RESTORE_SESSION_JSON pane 0 missing command"),
             "{reply}"
@@ -3341,7 +3360,7 @@ mod tests {
         assert!(drain_native_spawn_pending(&pending).is_empty());
 
         let empty = serde_json::json!({ "layout": "rows", "panes": [] });
-        let reply = native_spawn_queue_reply(&format!("RESTORE_SESSION_JSON {empty}"), &pending);
+        let reply = native_spawn_queue_reply(&restore_session_json_request(&empty), &pending);
         assert!(
             reply.contains("ERR RESTORE_SESSION_JSON requires at least one pane"),
             "{reply}"
