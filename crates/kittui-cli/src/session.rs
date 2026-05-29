@@ -16806,11 +16806,11 @@ mod launcher_overlay_tests {
     fn launcher_match_test_stress_strings_build_directly() {
         let huge = launcher_match_test_wrapped_needle(3);
         assert_eq!(huge, "xxxNeedleyyy");
-        assert!(huge.capacity() >= huge.len());
+        assert_eq!(huge.capacity(), huge.len());
 
         let query = launcher_match_test_prefixed_missing_query(3);
         assert_eq!(query, "qqqmissing");
-        assert!(query.capacity() >= query.len());
+        assert_eq!(query.capacity(), query.len());
     }
 
     fn launcher_match_test_wrapped_needle(count: usize) -> String {
