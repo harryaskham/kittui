@@ -5507,6 +5507,11 @@ mod tests {
         assert!(reserve.starts_with("/tmp/kwreserve-5678-"), "{reserve}");
         let clip = test_socket_path("kwclip", 9012);
         assert!(clip.starts_with("/tmp/kwclip-9012-"), "{clip}");
+        let shortcuts = test_socket_path("kwshortcuts", 3456);
+        assert!(
+            shortcuts.starts_with("/tmp/kwshortcuts-3456-"),
+            "{shortcuts}"
+        );
         assert!(path.ends_with(".sock"), "{path}");
         assert!(path.capacity() >= path.len());
     }
@@ -5576,11 +5581,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn shortcuts_helper_sends_expected_socket_command() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwshortcuts-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwshortcuts", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
