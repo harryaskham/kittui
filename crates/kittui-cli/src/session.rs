@@ -2122,7 +2122,7 @@ fn native_pane_status_chip_text(pane: &NativePane) -> String {
         if metrics.is_clean() {
             out.push_str("clean");
         } else {
-            out.push_str(&metrics.changed_tiles.to_string());
+            out.push_str(&metrics.changed_tiles_label());
         }
     } else {
         out.push_str("new");
@@ -2376,6 +2376,16 @@ impl NativeDirtyFrameMetrics {
 
     fn is_clean(&self) -> bool {
         self.skipped_upload || self.changed_tiles == 0
+    }
+
+    fn changed_tiles_label(&self) -> String {
+        if self.total_tiles == 0 {
+            return self.changed_tiles.to_string();
+        }
+        let mut out = String::with_capacity(21);
+        use std::fmt::Write as _;
+        let _ = write!(out, "{}/{}", self.changed_tiles, self.total_tiles);
+        out
     }
 }
 
@@ -10190,7 +10200,7 @@ mod native_pane_tests {
         });
         let chip = native_pane_status_chip_text(&pane);
         assert!(chip.starts_with(&bounded), "{chip}");
-        assert!(chip.ends_with(" · pid:1234 · frame:7"), "{chip}");
+        assert!(chip.ends_with(" · pid:1234 · frame:7/9"), "{chip}");
         assert!(!chip.contains(&"cmd-".repeat(128)), "{chip}");
         assert!(chip.capacity() >= bounded.len() + 32);
 
@@ -10210,6 +10220,14 @@ mod native_pane_tests {
         let clean_chip = native_pane_status_chip_text(&pane);
         assert!(clean_chip.ends_with(" · frame:clean"), "{clean_chip}");
         assert!(pane.dirty_frame.as_ref().unwrap().is_clean());
+
+        let metrics = NativeDirtyFrameMetrics {
+            changed_tiles: 5,
+            total_tiles: 8,
+            changed_fraction: 5.0 / 8.0,
+            skipped_upload: false,
+        };
+        assert_eq!(metrics.changed_tiles_label(), "5/8");
     }
 
     #[test]
