@@ -816,9 +816,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             ));
                         }
                         Err(err) => {
-                            dbg.log(&format!(
-                                "native terminal socket restore session failed: {err}"
-                            ));
+                            dbg.log(&native_socket_restore_session_failure_log_line(&err));
                         }
                     }
                 }
@@ -4223,6 +4221,16 @@ fn native_socket_restore_session_log_line(panes: usize, focused: usize) -> Strin
     let _ = write!(out, "{panes}");
     out.push_str(" focus=");
     let _ = write!(out, "{focused}");
+    out
+}
+
+fn native_socket_restore_session_failure_log_line(err: &dyn std::fmt::Display) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("native terminal socket restore session failed: ".len() + 80);
+    out.push_str("native terminal socket restore session failed: ");
+    let _ = write!(out, "{err}");
     out
 }
 
@@ -10482,6 +10490,17 @@ mod native_pane_tests {
         assert!(
             line.capacity() >= "native terminal socket restore session: panes= focus=".len() + 40
         );
+    }
+
+    #[test]
+    fn native_socket_restore_session_failure_log_line_builds_directly() {
+        let err = anyhow!("restore session contains no panes");
+        let line = native_socket_restore_session_failure_log_line(&err);
+        assert_eq!(
+            line,
+            "native terminal socket restore session failed: restore session contains no panes"
+        );
+        assert!(line.capacity() >= line.len());
     }
 
     #[test]
