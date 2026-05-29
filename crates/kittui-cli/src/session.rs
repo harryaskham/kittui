@@ -810,9 +810,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 let _ = native_send_focus_event(&mut panes[focused], true);
                             }
                             clear = true;
-                            dbg.log(&format!(
-                                "native terminal socket restore session: panes={} focus={focused}",
-                                panes.len()
+                            dbg.log(&native_socket_restore_session_log_line(
+                                panes.len(),
+                                focused,
                             ));
                         }
                         Err(err) => {
@@ -4209,6 +4209,18 @@ fn native_socket_resize_log_line(window: &str, delta: i16, weight: u16) -> Strin
     let _ = write!(out, "{delta}");
     out.push_str(" weight=");
     let _ = write!(out, "{weight}");
+    out
+}
+
+fn native_socket_restore_session_log_line(panes: usize, focused: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("native terminal socket restore session: panes= focus=".len() + 40);
+    out.push_str("native terminal socket restore session: panes=");
+    let _ = write!(out, "{panes}");
+    out.push_str(" focus=");
+    let _ = write!(out, "{focused}");
     out
 }
 
@@ -10272,6 +10284,18 @@ mod native_pane_tests {
             "native terminal socket resize: native-2 delta=-3 weight=7"
         );
         assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_socket_restore_session_log_line_builds_directly() {
+        let line = native_socket_restore_session_log_line(3, 1);
+        assert_eq!(
+            line,
+            "native terminal socket restore session: panes=3 focus=1"
+        );
+        assert!(
+            line.capacity() >= "native terminal socket restore session: panes= focus=".len() + 40
+        );
     }
 
     #[test]
