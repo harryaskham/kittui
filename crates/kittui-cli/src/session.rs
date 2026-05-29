@@ -6509,6 +6509,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn keymap_prefix_entered_log_line_builds_directly() {
+        let line = keymap_prefix_entered_log_line(&"C-a");
+        assert_eq!(line, "keymap prefix entered: C-a");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11220,6 +11227,15 @@ fn ctrl_c_debounce_log_line(count: usize) -> String {
     out
 }
 
+fn keymap_prefix_entered_log_line(spec: &dyn std::fmt::Display) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("keymap prefix entered: ".len() + 16);
+    out.push_str("keymap prefix entered: ");
+    let _ = write!(out, "{spec}");
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11404,7 +11420,7 @@ pub fn run_loop_with<S: XServer>(
                 if keymap.prefix.as_ref() == Some(&spec) {
                     prefix_active = true;
                     last_keymap_action = Some("prefix".to_string());
-                    dbg.log(&format!("keymap prefix entered: {spec}"));
+                    dbg.log(&keymap_prefix_entered_log_line(&spec));
                     continue;
                 }
                 if prefix_active {
