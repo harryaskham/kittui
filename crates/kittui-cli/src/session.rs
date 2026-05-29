@@ -15656,17 +15656,31 @@ fn key_spec_for_event(ev: &InputEvent) -> Option<KeySpec> {
                 Key::Backspace => "backspace".to_string(),
                 Key::Enter => "enter".to_string(),
                 Key::Escape => "escape".to_string(),
-                Key::F(n) => format!("f{n}"),
+                Key::F(n) => function_key_spec_label(*n),
             },
         }),
         _ => None,
     }
 }
 
+fn function_key_spec_label(n: u8) -> String {
+    let mut label = String::with_capacity(3);
+    label.push('f');
+    let _ = write!(label, "{n}");
+    label
+}
+
 #[cfg(test)]
 mod runtime_keymap_tests {
     use super::*;
     use kittui_input::Modifiers;
+
+    #[test]
+    fn function_key_spec_label_builds_directly() {
+        let label = function_key_spec_label(12);
+        assert_eq!(label, "f12");
+        assert!(label.capacity() >= label.len());
+    }
 
     #[test]
     fn event_to_keyspec_maps_ctrl_a_and_enter() {
@@ -15686,6 +15700,12 @@ mod runtime_keymap_tests {
         })
         .unwrap();
         assert_eq!(enter.to_string(), "enter");
+        let f12 = key_spec_for_event(&InputEvent::Key {
+            key: Key::F(12),
+            mods: Modifiers::default(),
+        })
+        .unwrap();
+        assert_eq!(f12.to_string(), "f12");
     }
 }
 
