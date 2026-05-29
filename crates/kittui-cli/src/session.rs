@@ -15727,13 +15727,13 @@ impl ConfigState {
     fn reload_ok(&mut self) -> String {
         self.reloads += 1;
         self.last_error = None;
-        format!("reload.config -> {}", self.label())
+        config_state_action_label("reload.config", &self.label())
     }
 
     fn reload_err(&mut self, err: &str) -> String {
         self.reloads += 1;
         self.last_error = Some(err.to_string());
-        format!("reload.config error -> {}", self.label())
+        config_state_action_label("reload.config error", &self.label())
     }
 
     fn label(&self) -> String {
@@ -15745,6 +15745,14 @@ impl ConfigState {
         }
         label
     }
+}
+
+fn config_state_action_label(action: &str, label: &str) -> String {
+    let mut out = String::with_capacity(action.len() + " -> ".len() + label.len());
+    out.push_str(action);
+    out.push_str(" -> ");
+    out.push_str(label);
+    out
 }
 
 #[cfg(test)]
