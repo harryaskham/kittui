@@ -4093,6 +4093,7 @@ fn request_socket(path: &Path, command: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as FmtWrite;
     use std::sync::Mutex;
 
     #[cfg(unix)]
@@ -5400,11 +5401,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn chrome_helper_sends_expected_socket_command() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwchrome-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwchrome", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
@@ -5438,6 +5435,28 @@ mod tests {
             json_payload_request("RESTORE_SESSION_JSON", "{\"panes\":[]}"),
             "RESTORE_SESSION_JSON {\"panes\":[]}"
         );
+    }
+
+    fn test_socket_path(prefix: &str, pid: u32) -> String {
+        let suffix = now_test_nanos() % 1_000_000;
+        let mut path =
+            String::with_capacity("/tmp/-".len() + prefix.len() + 20 + 1 + 6 + ".sock".len());
+        path.push_str("/tmp/");
+        path.push_str(prefix);
+        path.push('-');
+        let _ = write!(path, "{pid}");
+        path.push('-');
+        let _ = write!(path, "{suffix}");
+        path.push_str(".sock");
+        path
+    }
+
+    #[test]
+    fn test_socket_path_builds_directly() {
+        let path = test_socket_path("kwchrome", 1234);
+        assert!(path.starts_with("/tmp/kwchrome-1234-"), "{path}");
+        assert!(path.ends_with(".sock"), "{path}");
+        assert!(path.capacity() >= path.len());
     }
 
     #[cfg(unix)]
