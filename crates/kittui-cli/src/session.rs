@@ -13971,11 +13971,49 @@ fn raw_compositor_footer_key(
     keymap_note: &str,
     quit_hint: &str,
 ) -> String {
+    use std::fmt::Write as _;
+
     let launch_note = truncate_cells(launch_note, RAW_COMPOSITOR_FOOTER_KEY_NOTE_MAX_CHARS);
     let keymap_note = truncate_cells(keymap_note, RAW_COMPOSITOR_FOOTER_KEY_NOTE_MAX_CHARS);
-    format!(
-        "row={footer_row};ws={workspace};panes={split};layout={layout};cfg={config};focus={focus};swap={swap};mode={mode};windows={window_count};launch={launch_note};keymap={keymap_note};quit={quit_hint}"
-    )
+    let mut out = String::with_capacity(
+        "row=;ws=;panes=;layout=;cfg=;focus=;swap=;mode=;windows=;launch=;keymap=;quit=".len()
+            + workspace.len()
+            + split.len()
+            + layout.len()
+            + config.len()
+            + focus.len()
+            + swap.len()
+            + mode.len()
+            + launch_note.len()
+            + keymap_note.len()
+            + quit_hint.len()
+            + 32,
+    );
+    out.push_str("row=");
+    let _ = write!(out, "{footer_row}");
+    out.push_str(";ws=");
+    out.push_str(workspace);
+    out.push_str(";panes=");
+    out.push_str(split);
+    out.push_str(";layout=");
+    out.push_str(layout);
+    out.push_str(";cfg=");
+    out.push_str(config);
+    out.push_str(";focus=");
+    out.push_str(focus);
+    out.push_str(";swap=");
+    out.push_str(swap);
+    out.push_str(";mode=");
+    out.push_str(mode);
+    out.push_str(";windows=");
+    let _ = write!(out, "{window_count}");
+    out.push_str(";launch=");
+    out.push_str(&launch_note);
+    out.push_str(";keymap=");
+    out.push_str(&keymap_note);
+    out.push_str(";quit=");
+    out.push_str(quit_hint);
+    out
 }
 
 fn raw_compositor_footer_fps_label(fps: f32) -> String {
