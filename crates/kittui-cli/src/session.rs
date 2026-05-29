@@ -1105,6 +1105,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 &layouts,
                 &sock,
                 dbg.path_display(),
+                layout_mode.label(layout_axis),
                 help_overlay,
                 true,
             );
@@ -1370,6 +1371,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             &layouts,
             &sock,
             dbg.path_display(),
+            layout_mode.label(layout_axis),
             help_overlay,
             false,
         );
@@ -1981,6 +1983,7 @@ fn native_shell_view(
     layouts: &[NativePaneLayout],
     sock: &str,
     log_path: &str,
+    layout_label: &str,
     help_overlay: bool,
     include_text_snapshots: bool,
 ) -> NativeShellView {
@@ -2021,7 +2024,7 @@ fn native_shell_view(
         panes: pane_chrome,
         footer: NativeFooterChrome {
             row: native_footer_row(rows),
-            text: native_status_line_text(panes.len(), log_path),
+            text: native_status_line_text(panes.len(), layout_label, log_path),
         },
         help_overlay,
     }
@@ -2109,17 +2112,35 @@ fn terminal_visible_width(x: u16, desired: u16, cols: u16) -> Option<usize> {
 }
 
 const NATIVE_STATUS_LOG_PATH_MAX_CHARS: usize = 96;
-const NATIVE_STATUS_LINE_PREFIX: &str = " C-a ? help · C-a g launcher · C-a Enter term · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · log: ";
+const NATIVE_STATUS_LINE_PREFIX: &str = " C-a ? help · C-a g launcher · C-a Enter term · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · mode:";
+const NATIVE_STATUS_LINE_LOG_PREFIX: &str = " · log: ";
 
-fn native_status_line_text(panes: usize, log_path: &str) -> String {
+fn native_status_line_text(panes: usize, layout_label: &str, log_path: &str) -> String {
     if panes == 0 {
         String::new()
     } else {
         let log_path = bounded_ellipsis(log_path, NATIVE_STATUS_LOG_PATH_MAX_CHARS);
-        let mut out = String::with_capacity(NATIVE_STATUS_LINE_PREFIX.len() + log_path.len());
+        let mode = native_status_layout_label(layout_label);
+        let mut out = String::with_capacity(
+            NATIVE_STATUS_LINE_PREFIX.len()
+                + mode.len()
+                + NATIVE_STATUS_LINE_LOG_PREFIX.len()
+                + log_path.len(),
+        );
         out.push_str(NATIVE_STATUS_LINE_PREFIX);
+        out.push_str(&mode);
+        out.push_str(NATIVE_STATUS_LINE_LOG_PREFIX);
         out.push_str(&log_path);
         out
+    }
+}
+
+fn native_status_layout_label(layout_label: &str) -> String {
+    let trimmed = layout_label.trim();
+    if trimmed.is_empty() {
+        "-".to_string()
+    } else {
+        bounded_ellipsis(trimmed, 32)
     }
 }
 
@@ -7264,15 +7285,16 @@ mod native_pane_tests {
 
     #[test]
     fn native_footer_visible_text_clips_huge_log_paths_to_terminal_width() {
-        assert_eq!(native_status_line_text(0, "/tmp/kittwm.log"), "");
-        let footer = native_status_line_text(1, "/tmp/kittwm.log");
+        assert_eq!(native_status_line_text(0, "columns", "/tmp/kittwm.log"), "");
+        let footer = native_status_line_text(1, "floating", "/tmp/kittwm.log");
         assert_eq!(
             footer,
-            " C-a ? help · C-a g launcher · C-a Enter term · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
+            " C-a ? help · C-a g launcher · C-a Enter term · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · mode:floating · log: /tmp/kittwm.log"
         );
         assert_eq!(footer.capacity(), footer.len());
 
-        let huge_footer = native_status_line_text(1, &format!("/tmp/{}", "x".repeat(10_000)));
+        let huge_footer =
+            native_status_line_text(1, "floating", &format!("/tmp/{}", "x".repeat(10_000)));
         assert!(huge_footer.contains('…'), "{huge_footer:?}");
         assert!(
             !huge_footer.contains(&"x".repeat(128)),
@@ -10523,11 +10545,12 @@ mod native_pane_tests {
             &[],
             "/tmp/kittwm.sock",
             "/tmp/kittwm.log",
+            "columns",
             false,
             false,
         );
         assert_eq!(view.top_bar.row, 0);
-        assert!(view.top_bar.text.contains("| 1 | 2 | 3 |"));
+        assert!(view.top_bar.text.contains("[1]"), "{}", view.top_bar.text);
         assert!(!view.top_bar.text.contains("kittui-bar"));
         assert!(view.footer.text.is_empty());
     }
@@ -10760,6 +10783,7 @@ mod native_pane_tests {
             &[layout],
             "/tmp/kittwm.sock",
             "/tmp/kittwm.log",
+            "columns",
             false,
             false,
         );
@@ -10788,6 +10812,7 @@ mod native_pane_tests {
             &[layout],
             "/tmp/kittwm.sock",
             "/tmp/kittwm.log",
+            "columns",
             false,
             false,
         );
