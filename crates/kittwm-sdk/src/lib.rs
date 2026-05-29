@@ -2620,6 +2620,11 @@ impl PanesStatus {
         topmost_pane_from_details(&self.panes_detail)
     }
 
+    /// Whether the focused pane is also the topmost pane.
+    pub fn focused_is_topmost(&self) -> Option<bool> {
+        focused_is_topmost_from_details(self.focused_pane(), self.topmost_pane())
+    }
+
     /// Panes whose title row is reported as a window-manager drag handle.
     pub fn title_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         self.panes_detail
@@ -2747,6 +2752,11 @@ impl Status {
         topmost_pane_from_details(&self.panes_detail)
     }
 
+    /// Whether the focused pane is also the topmost pane.
+    pub fn focused_is_topmost(&self) -> Option<bool> {
+        focused_is_topmost_from_details(self.focused_pane(), self.topmost_pane())
+    }
+
     /// Panes whose title row is reported as a window-manager drag handle.
     pub fn title_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         self.panes_detail
@@ -2780,6 +2790,13 @@ fn topmost_pane_from_details(panes: &[NativePaneDetail]) -> Option<&NativePaneDe
             .max_by_key(|(idx, _)| *idx)
             .map(|(_, pane)| pane)
     })
+}
+
+fn focused_is_topmost_from_details(
+    focused: Option<&NativePaneDetail>,
+    topmost: Option<&NativePaneDetail>,
+) -> Option<bool> {
+    Some(focused?.window == topmost?.window)
 }
 
 /// Native app discovery catalog returned by `APPS_JSON`.
@@ -4795,6 +4812,7 @@ mod tests {
         assert!(panes.chrome_reservation().unwrap().is_reported());
         assert_eq!(panes.focused_pane().unwrap().window, "native-1");
         assert_eq!(panes.topmost_pane().unwrap().window, "native-1");
+        assert_eq!(panes.focused_is_topmost(), Some(true));
         assert_eq!(panes.title_draggable_panes().count(), 1);
         assert_eq!(
             panes
@@ -4903,6 +4921,7 @@ mod tests {
         assert!(status.focused_pane.is_none());
         assert!(status.focused_pane().is_none());
         assert!(status.topmost_pane().is_none());
+        assert_eq!(status.focused_is_topmost(), None);
         assert_eq!(status.title_draggable_panes().count(), 0);
         assert!(status.panes_detail.is_empty());
     }
@@ -4933,7 +4952,7 @@ mod tests {
             r#"{
               "pending": 0,
               "panes": 2,
-              "focus": "native-2",
+              "focus": "native-1",
               "layout": "floating",
               "panes_detail": [
                 {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"floating_dx":0,"floating_dy":0},
@@ -4942,8 +4961,9 @@ mod tests {
             }"#,
         )
         .unwrap();
-        assert_eq!(status.focused_pane().unwrap().window, "native-2");
+        assert_eq!(status.focused_pane().unwrap().window, "native-1");
         assert_eq!(status.topmost_pane().unwrap().window, "native-2");
+        assert_eq!(status.focused_is_topmost(), Some(false));
         assert_eq!(
             status
                 .title_draggable_panes()
