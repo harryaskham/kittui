@@ -2154,7 +2154,7 @@ const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
 const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
 const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
 const NATIVE_STATUS_LINE_HINTS: &str =
-    " · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a e split · C-a x close · Ctrl-] exit";
+    " · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a r reset · C-a e split · C-a x close · Ctrl-] exit";
 const NATIVE_STATUS_LINE_LOG_PREFIX: &str = " · log: ";
 
 fn native_status_line_text(
@@ -3145,6 +3145,9 @@ fn process_native_terminal_byte(
             b'd' | b'D' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
                 native_nudge_focused_pane(floating_offsets, panes, *focused, 1, 0, clear, dbg);
             }
+            b'r' | b'R' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
+                native_reset_focused_pane(floating_offsets, panes, *focused, clear, dbg);
+            }
             0x01 if !panes.is_empty() => {
                 native_send_pane_bytes_logged(&mut panes[*focused], "keyboard-byte", &[0x01], dbg);
             }
@@ -4108,6 +4111,21 @@ fn native_nudge_focused_pane(
     dbg.log(&native_keyboard_nudge_log_line(&pane.window, dx, dy));
 }
 
+fn native_reset_focused_pane(
+    floating_offsets: &mut HashMap<String, NativeFloatingPaneOffset>,
+    panes: &[NativePane],
+    focused: usize,
+    clear: &mut bool,
+    dbg: &Debugger,
+) {
+    let Some(pane) = panes.get(focused) else {
+        return;
+    };
+    native_reset_floating_offset(floating_offsets, &pane.window);
+    *clear = true;
+    dbg.log(&native_keyboard_reset_offset_log_line(&pane.window));
+}
+
 fn native_update_floating_drag(
     event_name: &str,
     col: u16,
@@ -4682,6 +4700,14 @@ fn native_socket_reset_offset_log_line(window: &str) -> String {
     let mut out =
         String::with_capacity("native terminal socket reset offset: ".len() + window.len());
     out.push_str("native terminal socket reset offset: ");
+    out.push_str(window);
+    out
+}
+
+fn native_keyboard_reset_offset_log_line(window: &str) -> String {
+    let mut out =
+        String::with_capacity("native terminal keyboard reset offset: ".len() + window.len());
+    out.push_str("native terminal keyboard reset offset: ");
     out.push_str(window);
     out
 }
@@ -7664,7 +7690,7 @@ mod native_pane_tests {
         let footer = native_status_line_text(1, "floating", Some("native-1"), "/tmp/kittwm.log");
         assert_eq!(
             footer,
-            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
+            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a r reset · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
         );
         assert_eq!(footer.capacity(), footer.len());
 
@@ -8830,6 +8856,24 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_keyboard_reset_removes_focused_floating_offset() {
+        let panes = vec![dummy_native_pane("native-1", "float", 1)];
+        let mut offsets = HashMap::from([(
+            "native-1".to_string(),
+            NativeFloatingPaneOffset { dx: 4, dy: -3 },
+        )]);
+        let mut clear = false;
+        let dbg = Debugger::open();
+        native_reset_focused_pane(&mut offsets, &panes, 0, &mut clear, &dbg);
+        assert!(clear);
+        assert!(!offsets.contains_key("native-1"));
+        assert_eq!(
+            native_keyboard_reset_offset_log_line("native-1"),
+            "native terminal keyboard reset offset: native-1"
+        );
+    }
+
+    #[test]
     fn native_prefix_wasd_nudges_in_floating_mode() {
         let mut panes = vec![dummy_native_pane("native-1", "float", 1)];
         let mut focused = 0usize;
@@ -8892,6 +8936,49 @@ mod native_pane_tests {
             offsets["native-1"],
             NativeFloatingPaneOffset { dx: 1, dy: 0 }
         );
+
+        assert!(!process_native_terminal_byte(
+            0x01,
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert!(!process_native_terminal_byte(
+            b'r',
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert!(!prefix);
+        assert!(!offsets.contains_key("native-1"));
     }
 
     #[test]
