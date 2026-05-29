@@ -12070,9 +12070,13 @@ mod tests {
         assert_eq!(events_scene_rows(3), 7);
         assert_eq!(events_scene_rows(usize::MAX), 18);
 
-        let kinds = (0..128)
-            .map(|idx| format!("pane_frame_presented_{idx}"))
-            .collect::<Vec<_>>();
+        let mut kinds = Vec::with_capacity(128);
+        for idx in 0..128 {
+            let mut kind = String::with_capacity("pane_frame_presented_".len() + 3);
+            kind.push_str("pane_frame_presented_");
+            let _ = write!(kind, "{idx}");
+            kinds.push(kind);
+        }
         let scene = events_scene_for_cols(250, &kinds, 80);
         assert_eq!(scene.footprint.rows, 18);
     }
