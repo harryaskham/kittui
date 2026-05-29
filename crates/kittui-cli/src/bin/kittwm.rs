@@ -4937,6 +4937,8 @@ START
 
 SHELL SETUP
   kittwm completions bash >> ~/.bashrc
+  kittwm completions zsh >> ~/.zshrc
+  kittwm completions fish > ~/.config/fish/completions/kittwm.fish
 
 INSPECT
   kittwm info
@@ -10918,6 +10920,8 @@ mod tests {
         let text = examples_text();
         for line in [
             "kittwm completions bash >> ~/.bashrc",
+            "kittwm completions zsh >> ~/.zshrc",
+            "kittwm completions fish > ~/.config/fish/completions/kittwm.fish",
             "kittwm info",
             "kittwm spawn htop",
             "kittwm line focused 'cargo test -p kittui-cli'",
