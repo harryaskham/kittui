@@ -14125,12 +14125,14 @@ fn launcher_candidate_row_text(
 }
 
 fn picker_overlay_key(overlay: &PickerOverlay) -> String {
-    format!(
-        "active={};selected={};entry_count={}",
-        overlay.active,
-        overlay.selected,
-        overlay.entries.len()
-    )
+    let mut key = String::with_capacity("active=;selected=;entry_count=".len() + 5 + 20 + 20);
+    key.push_str("active=");
+    key.push_str(if overlay.active { "true" } else { "false" });
+    key.push_str(";selected=");
+    let _ = write!(key, "{}", overlay.selected);
+    key.push_str(";entry_count=");
+    let _ = write!(key, "{}", overlay.entries.len());
+    key
 }
 
 fn picker_entry_row_text(row: usize, selected: usize, entry: &str, width: usize) -> String {
