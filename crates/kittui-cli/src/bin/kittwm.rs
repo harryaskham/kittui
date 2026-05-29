@@ -11150,15 +11150,34 @@ mod tests {
         );
     }
 
+    fn help_topic_stress_text() -> String {
+        let heading = "heading-".repeat(1024);
+        let row = "row-".repeat(2048);
+        let mut text = String::with_capacity(
+            heading.len() + "kittwm --".len() + row.len() + "plain text".len() + 2,
+        );
+        text.push_str(&heading);
+        text.push('\n');
+        text.push_str("kittwm --");
+        text.push_str(&row);
+        text.push('\n');
+        text.push_str("plain text");
+        text
+    }
+
+    #[test]
+    fn help_topic_stress_text_builds_directly() {
+        let text = help_topic_stress_text();
+        assert!(text.starts_with("heading-heading-"));
+        assert!(text.contains("\nkittwm --row-row-"));
+        assert!(text.ends_with("\nplain text"));
+        assert_eq!(text.capacity(), text.len());
+    }
+
     #[test]
     fn help_topic_scene_labels_clip_pathological_payloads() {
         let topic = "topic-".repeat(1024);
-        let text = format!(
-            "{}\n{}\n{}",
-            "heading-".repeat(1024),
-            "kittwm --".to_string() + &"row-".repeat(2048),
-            "plain text"
-        );
+        let text = help_topic_stress_text();
         let scene = help_topic_scene_for_cols(&topic, &text, 80);
         let labels = scene
             .layers
