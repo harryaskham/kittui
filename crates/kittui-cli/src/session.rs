@@ -2737,9 +2737,8 @@ fn process_native_terminal_byte(
                     reservation,
                 )?;
                 *clear = true;
-                dbg.log(&format!(
-                    "native terminal layout mode: {}",
-                    layout_mode.label(*layout_axis)
+                dbg.log(&native_layout_mode_log_line(
+                    layout_mode.label(*layout_axis),
                 ));
             }
             b'f' | b'F' => {
@@ -2758,9 +2757,8 @@ fn process_native_terminal_byte(
                     reservation,
                 )?;
                 *clear = true;
-                dbg.log(&format!(
-                    "native terminal layout mode: {}",
-                    layout_mode.label(*layout_axis)
+                dbg.log(&native_layout_mode_log_line(
+                    layout_mode.label(*layout_axis),
                 ));
             }
             b'e' | b'E' => {
@@ -4439,6 +4437,13 @@ fn native_keyboard_focus_log_line(window: &str) -> String {
     let mut out = String::with_capacity("native terminal focus: ".len() + window.len());
     out.push_str("native terminal focus: ");
     out.push_str(window);
+    out
+}
+
+fn native_layout_mode_log_line(label: &str) -> String {
+    let mut out = String::with_capacity("native terminal layout mode: ".len() + label.len());
+    out.push_str("native terminal layout mode: ");
+    out.push_str(label);
     out
 }
 
@@ -10713,6 +10718,13 @@ mod native_pane_tests {
     fn native_keyboard_focus_log_line_builds_directly() {
         let line = native_keyboard_focus_log_line("native-3");
         assert_eq!(line, "native terminal focus: native-3");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
+    fn native_layout_mode_log_line_builds_directly() {
+        let line = native_layout_mode_log_line("float");
+        assert_eq!(line, "native terminal layout mode: float");
         assert_eq!(line.capacity(), line.len());
     }
 
