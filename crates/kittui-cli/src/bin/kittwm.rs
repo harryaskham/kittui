@@ -11205,15 +11205,30 @@ mod tests {
 
     #[test]
     fn candidate_match_score_avoids_candidate_and_query_lowercase_allocation() {
-        let huge = format!("{}Needle{}", "x".repeat(10_000), "y".repeat(10_000));
+        let huge = candidate_match_test_wrapped_text("Needle", 10_000);
         assert_eq!(candidate_match_score("Needle", "NeEdLe"), Some(0));
         assert_eq!(candidate_match_score("NeedleSuffix", "NEEDLE"), Some(1));
         assert_eq!(candidate_match_score(&huge, "nEeDlE"), Some(2));
         assert_eq!(candidate_match_score(&huge, "missing"), None);
         assert!(ascii_casefold_contains("RésuméNeedle", "NeEdLe"));
-        let huge_title = format!("{}Terminal{}", "x".repeat(10_000), "y".repeat(10_000));
+        let huge_title = candidate_match_test_wrapped_text("Terminal", 10_000);
         assert!(ascii_casefold_contains(&huge_title, "TERMINAL"));
         assert!(!ascii_casefold_contains(&huge_title, "browser"));
+    }
+
+    #[test]
+    fn candidate_match_test_wrapped_text_builds_directly() {
+        let text = candidate_match_test_wrapped_text("Needle", 3);
+        assert_eq!(text, "xxxNeedleyyy");
+        assert!(text.capacity() >= text.len());
+    }
+
+    fn candidate_match_test_wrapped_text(needle: &str, count: usize) -> String {
+        let mut text = String::with_capacity(count + needle.len() + count);
+        text.extend(std::iter::repeat_n('x', count));
+        text.push_str(needle);
+        text.extend(std::iter::repeat_n('y', count));
+        text
     }
 
     #[test]
