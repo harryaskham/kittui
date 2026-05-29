@@ -6731,6 +6731,16 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn launcher_f12_selected_log_line_builds_directly() {
+        let line = launcher_f12_selected_log_line(LauncherKind::MacOsApp, "Safari", 88);
+        assert_eq!(
+            line,
+            "launcher F12 selected MacOsApp \"Safari\" spawned pid=88"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn launcher_f12_failed_log_line_builds_directly() {
         let err = anyhow!("spawn denied");
         let line = launcher_f12_failed_log_line(&err);
@@ -11814,6 +11824,21 @@ fn split_launcher_failed_log_line(err: &dyn std::fmt::Display) -> String {
     out
 }
 
+fn launcher_f12_selected_log_line(kind: LauncherKind, command: &str, pid: u32) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "launcher F12 selected  \"\" spawned pid=".len() + command.len() + 32,
+    );
+    out.push_str("launcher F12 selected ");
+    let _ = write!(out, "{kind:?}");
+    out.push(' ');
+    let _ = write!(out, "{command:?}");
+    out.push_str(" spawned pid=");
+    let _ = write!(out, "{pid}");
+    out
+}
+
 fn launcher_f12_failed_log_line(err: &dyn std::fmt::Display) -> String {
     use std::fmt::Write as _;
 
@@ -12273,9 +12298,10 @@ pub fn run_loop_with<S: XServer>(
                         match spawn_launcher_command() {
                             Ok(pid) => {
                                 last_launch_pid = Some(pid);
-                                dbg.log(&format!(
-                                    "launcher F12 selected {:?} {:?} spawned pid={pid}",
-                                    selection.kind, selection.command
+                                dbg.log(&launcher_f12_selected_log_line(
+                                    selection.kind,
+                                    &selection.command,
+                                    pid,
                                 ));
                             }
                             Err(e) => {
