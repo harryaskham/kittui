@@ -4957,6 +4957,14 @@ fn native_showcase_scenes(cols: u16, rows: u16, help_overlay: bool) -> Vec<Nativ
     render_native_shell_view_affordance_scenes(&view, native_cell_size(), cols, rows)
 }
 
+fn native_pane_border_scene_id(idx: usize) -> String {
+    let mut id = String::with_capacity("pane--border".len() + 20);
+    id.push_str("pane-");
+    let _ = write!(id, "{idx}");
+    id.push_str("-border");
+    id
+}
+
 fn render_native_shell_view_affordance_scenes(
     view: &NativeShellView,
     cell_size: CellSize,
@@ -4973,7 +4981,7 @@ fn render_native_shell_view_affordance_scenes(
     // Empty workspaces intentionally render only the top bar by default.
     for (idx, pane) in view.panes.iter().enumerate() {
         scenes.push(NativeShellChromeScene {
-            id: format!("pane-{idx}-border"),
+            id: native_pane_border_scene_id(idx),
             x: pane.x,
             y: pane.y,
             scene: native_pane_border_scene(idx, pane, cell_size),
@@ -8286,6 +8294,13 @@ mod native_pane_tests {
         let label = native_pane_status_chip_label(7, "shell · pid:101");
         assert_eq!(label, "pane-7-status-chip:shell · pid:101");
         assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
+    fn native_pane_border_scene_id_builds_directly() {
+        let id = native_pane_border_scene_id(7);
+        assert_eq!(id, "pane-7-border");
+        assert!(id.capacity() >= id.len());
     }
 
     #[test]
