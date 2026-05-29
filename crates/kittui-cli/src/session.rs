@@ -5998,6 +5998,17 @@ fn native_help_overlay_control_layers(
 }
 
 #[cfg(test)]
+fn native_prefixed_control_layer_label(prefix: &str, idx: usize, suffix: &str) -> String {
+    let mut label = String::with_capacity(prefix.len() + 1 + 20 + 1 + suffix.len());
+    label.push_str(prefix);
+    label.push(':');
+    let _ = write!(label, "{idx}");
+    label.push(':');
+    label.push_str(suffix);
+    label
+}
+
+#[cfg(test)]
 fn native_prefix_and_offset_control_layers(
     scene: &mut Scene,
     prefix: &str,
@@ -6009,7 +6020,7 @@ fn native_prefix_and_offset_control_layers(
     let dy = y_cells as f32 * cell_size.height_px as f32;
     for (idx, layer) in scene.layers.iter_mut().enumerate() {
         let suffix = layer.label.as_deref().unwrap_or("layer");
-        layer.label = Some(format!("{prefix}:{idx}:{suffix}"));
+        layer.label = Some(native_prefixed_control_layer_label(prefix, idx, suffix));
         native_offset_node(&mut layer.root, dx, dy);
     }
 }
@@ -10395,6 +10406,13 @@ mod native_pane_tests {
             );
             assert_eq!(x, 0);
         }
+    }
+
+    #[test]
+    fn native_prefixed_control_layer_label_builds_directly() {
+        let label = native_prefixed_control_layer_label("help-overlay-control", 7, "button");
+        assert_eq!(label, "help-overlay-control:7:button");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
