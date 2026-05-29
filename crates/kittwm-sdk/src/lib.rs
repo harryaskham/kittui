@@ -2715,6 +2715,21 @@ impl PanesStatus {
             .title_drag_cells_by(delta_cols, delta_rows)
     }
 
+    /// Whether the focused pane's latest dirty-frame metrics report a clean/skipped frame.
+    pub fn focused_frame_is_clean(&self) -> Option<bool> {
+        self.focused_pane()?.is_frame_clean()
+    }
+
+    /// Dirty-frame changed tile count and total tile count for the focused pane.
+    pub fn focused_frame_changed_tiles_ratio(&self) -> Option<(u32, u32)> {
+        self.focused_pane()?.frame_changed_tiles_ratio()
+    }
+
+    /// Dirty-frame changed tile fraction for the focused pane.
+    pub fn focused_frame_changed_fraction(&self) -> Option<f32> {
+        self.focused_pane()?.frame_changed_fraction()
+    }
+
     /// Panes whose title row is reported as a window-manager drag handle.
     pub fn title_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         self.panes_detail
@@ -2898,6 +2913,21 @@ impl Status {
     ) -> Option<((u16, u16), (u16, u16))> {
         self.focused_pane()?
             .title_drag_cells_by(delta_cols, delta_rows)
+    }
+
+    /// Whether the focused pane's latest dirty-frame metrics report a clean/skipped frame.
+    pub fn focused_frame_is_clean(&self) -> Option<bool> {
+        self.focused_pane()?.is_frame_clean()
+    }
+
+    /// Dirty-frame changed tile count and total tile count for the focused pane.
+    pub fn focused_frame_changed_tiles_ratio(&self) -> Option<(u32, u32)> {
+        self.focused_pane()?.frame_changed_tiles_ratio()
+    }
+
+    /// Dirty-frame changed tile fraction for the focused pane.
+    pub fn focused_frame_changed_fraction(&self) -> Option<f32> {
+        self.focused_pane()?.frame_changed_fraction()
     }
 
     /// Panes whose title row is reported as a window-manager drag handle.
@@ -5003,6 +5033,9 @@ mod tests {
             panes.focused_title_drag_cells_by(5, 2),
             Some(((6, 2), (11, 4)))
         );
+        assert_eq!(panes.focused_frame_is_clean(), Some(false));
+        assert_eq!(panes.focused_frame_changed_tiles_ratio(), Some((1, 4)));
+        assert_eq!(panes.focused_frame_changed_fraction(), Some(0.25));
         assert_eq!(panes.clean_frame_panes().count(), 0);
         assert_eq!(
             panes
@@ -5142,6 +5175,9 @@ mod tests {
         assert_eq!(status.focused_is_title_draggable(), None);
         assert_eq!(status.focused_title_drag_cell(), None);
         assert_eq!(status.focused_title_drag_cells_by(1, 1), None);
+        assert_eq!(status.focused_frame_is_clean(), None);
+        assert_eq!(status.focused_frame_changed_tiles_ratio(), None);
+        assert_eq!(status.focused_frame_changed_fraction(), None);
         assert_eq!(status.title_draggable_panes().count(), 0);
         assert!(status.panes_detail.is_empty());
     }
@@ -5192,6 +5228,9 @@ mod tests {
             status.focused_title_drag_cells_by(3, 2),
             Some(((4, 1), (7, 3)))
         );
+        assert_eq!(status.focused_frame_is_clean(), Some(true));
+        assert_eq!(status.focused_frame_changed_tiles_ratio(), Some((0, 4)));
+        assert_eq!(status.focused_frame_changed_fraction(), Some(0.0));
         assert_eq!(
             status
                 .title_draggable_panes()
