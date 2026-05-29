@@ -2657,6 +2657,21 @@ impl PanesStatus {
             .map(NativePaneDetail::is_title_draggable)
     }
 
+    /// Host-cell coordinate suitable for dragging the focused pane title row.
+    pub fn focused_title_drag_cell(&self) -> Option<(u16, u16)> {
+        self.focused_pane()?.title_drag_cell()
+    }
+
+    /// Start/end host-cell coordinates for dragging the focused pane title row by a delta.
+    pub fn focused_title_drag_cells_by(
+        &self,
+        delta_cols: i32,
+        delta_rows: i32,
+    ) -> Option<((u16, u16), (u16, u16))> {
+        self.focused_pane()?
+            .title_drag_cells_by(delta_cols, delta_rows)
+    }
+
     /// Panes whose title row is reported as a window-manager drag handle.
     pub fn title_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         self.panes_detail
@@ -2811,6 +2826,21 @@ impl Status {
     pub fn focused_is_title_draggable(&self) -> Option<bool> {
         self.focused_pane()
             .map(NativePaneDetail::is_title_draggable)
+    }
+
+    /// Host-cell coordinate suitable for dragging the focused pane title row.
+    pub fn focused_title_drag_cell(&self) -> Option<(u16, u16)> {
+        self.focused_pane()?.title_drag_cell()
+    }
+
+    /// Start/end host-cell coordinates for dragging the focused pane title row by a delta.
+    pub fn focused_title_drag_cells_by(
+        &self,
+        delta_cols: i32,
+        delta_rows: i32,
+    ) -> Option<((u16, u16), (u16, u16))> {
+        self.focused_pane()?
+            .title_drag_cells_by(delta_cols, delta_rows)
     }
 
     /// Panes whose title row is reported as a window-manager drag handle.
@@ -4897,6 +4927,11 @@ mod tests {
         assert_eq!(panes.focused_is_resized(), Some(true));
         assert_eq!(panes.focused_is_moved(), Some(true));
         assert_eq!(panes.focused_is_title_draggable(), Some(true));
+        assert_eq!(panes.focused_title_drag_cell(), Some((6, 2)));
+        assert_eq!(
+            panes.focused_title_drag_cells_by(5, 2),
+            Some(((6, 2), (11, 4)))
+        );
         assert_eq!(panes.title_draggable_panes().count(), 1);
         assert_eq!(
             panes
@@ -5014,6 +5049,8 @@ mod tests {
         assert_eq!(status.focused_is_resized(), None);
         assert_eq!(status.focused_is_moved(), None);
         assert_eq!(status.focused_is_title_draggable(), None);
+        assert_eq!(status.focused_title_drag_cell(), None);
+        assert_eq!(status.focused_title_drag_cells_by(1, 1), None);
         assert_eq!(status.title_draggable_panes().count(), 0);
         assert!(status.panes_detail.is_empty());
     }
@@ -5047,7 +5084,7 @@ mod tests {
               "focus": "native-1",
               "layout": "floating",
               "panes_detail": [
-                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":false},
+                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"title_drag_col":4,"title_drag_row":1,"floating_dx":0,"floating_dy":0,"floating_moved":false},
                 {"window":"native-2","title":"editor","focused":false,"weight":3,"stack_index":1,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":true}
               ]
             }"#,
@@ -5059,6 +5096,11 @@ mod tests {
         assert_eq!(status.focused_is_resized(), Some(false));
         assert_eq!(status.focused_is_moved(), Some(false));
         assert_eq!(status.focused_is_title_draggable(), Some(true));
+        assert_eq!(status.focused_title_drag_cell(), Some((4, 1)));
+        assert_eq!(
+            status.focused_title_drag_cells_by(3, 2),
+            Some(((4, 1), (7, 3)))
+        );
         assert_eq!(
             status
                 .title_draggable_panes()
