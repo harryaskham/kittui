@@ -50,14 +50,38 @@ pub fn default_socket_path() -> PathBuf {
         }
     }
     let user = std::env::var("USER").unwrap_or_else(|_| "anon".to_string());
-    PathBuf::from(format!("/tmp/kittwm-{user}.sock"))
+    user_socket_path(&user)
+}
+
+fn user_socket_path(user: &str) -> PathBuf {
+    PathBuf::from(user_socket_path_string(user))
+}
+
+fn user_socket_path_string(user: &str) -> String {
+    let mut path = String::with_capacity("/tmp/kittwm-.sock".len() + user.len());
+    path.push_str("/tmp/kittwm-");
+    path.push_str(user);
+    path.push_str(".sock");
+    path
+}
+
+fn display_id_socket_path(id: &str) -> PathBuf {
+    PathBuf::from(display_id_socket_path_string(id))
+}
+
+fn display_id_socket_path_string(id: &str) -> String {
+    let mut path = String::with_capacity("/tmp/kittui-wm-.sock".len() + id.len());
+    path.push_str("/tmp/kittui-wm-");
+    path.push_str(id);
+    path.push_str(".sock");
+    path
 }
 
 /// Convert a DISPLAY-like token into a socket path.
 pub fn display_to_socket_path(display: &str) -> PathBuf {
     if let Some(id) = display.strip_prefix(':') {
         let id = id.split('.').next().unwrap_or(id);
-        PathBuf::from(format!("/tmp/kittui-wm-{id}.sock"))
+        display_id_socket_path(id)
     } else {
         PathBuf::from(display)
     }
@@ -3198,6 +3222,17 @@ mod tests {
         let name = test_socket_filename("kittwm-test", 123);
         assert_eq!(name, "kittwm-test-123.sock");
         assert!(name.capacity() >= name.len());
+    }
+
+    #[test]
+    fn daemon_socket_path_strings_build_directly() {
+        let user = user_socket_path_string("alice");
+        assert_eq!(user, "/tmp/kittwm-alice.sock");
+        assert_eq!(user.capacity(), user.len());
+
+        let display = display_id_socket_path_string("7");
+        assert_eq!(display, "/tmp/kittui-wm-7.sock");
+        assert_eq!(display.capacity(), display.len());
     }
 
     #[test]
