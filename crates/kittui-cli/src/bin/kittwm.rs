@@ -1284,7 +1284,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              inspect  status, panes, chrome, shortcuts, help, and text reads\n\
              session  save/restore session manifests\n\
              events   bounded event streams and typed SDK event helpers\n\
-             apps     app discovery and launch helpers\n\n\
+             apps     app discovery and launch helpers\n\
+             log      debug log path and tailing workflows\n\n\
              Usage: kittwm help <topic>\n"),
         "start" | "startup" => Ok("kittwm help start\n\
              =================\n\n\
@@ -1455,7 +1456,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 
 fn known_help_topics() -> &'static [&'static str] {
     &[
-        "topics", "start", "panes", "input", "inspect", "session", "events", "apps",
+        "topics", "start", "panes", "input", "inspect", "session", "events", "apps", "log",
     ]
 }
 
@@ -8797,6 +8798,13 @@ mod tests {
         assert!(err.contains("unknown kittwm help topic"), "{err}");
         assert!(err.contains("kittwm help panes"), "{err}");
         assert!(err.contains("kittwm help topics"), "{err}");
+    }
+
+    #[test]
+    fn help_topics_lists_log_topic() {
+        let text = help_topic_text("topics").unwrap();
+        assert!(text.contains("log      debug log path"), "{text}");
+        assert!(known_help_topics().contains(&"log"));
     }
 
     #[test]
