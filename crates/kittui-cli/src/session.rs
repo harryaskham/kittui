@@ -851,9 +851,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 } => {
                     if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         match panes[idx].app.send_browser_key_label(&label) {
-                            Ok(true) => dbg.log(&format!(
-                                "native terminal socket send browser key: {window} key={label}"
-                            )),
+                            Ok(true) => {
+                                dbg.log(&native_socket_send_browser_key_log_line(&window, &label))
+                            }
                             Ok(false) => match panes[idx].app.send_bytes(&bytes) {
                                 Ok(()) => dbg.log(&native_socket_send_key_log_line(
                                     &window,
@@ -4249,6 +4249,17 @@ fn native_socket_send_key_log_line(window: &str, key: &str, bytes: usize) -> Str
     out.push_str(key);
     out.push_str(" bytes=");
     let _ = write!(out, "{bytes}");
+    out
+}
+
+fn native_socket_send_browser_key_log_line(window: &str, key: &str) -> String {
+    let mut out = String::with_capacity(
+        "native terminal socket send browser key:  key=".len() + window.len() + key.len(),
+    );
+    out.push_str("native terminal socket send browser key: ");
+    out.push_str(window);
+    out.push_str(" key=");
+    out.push_str(key);
     out
 }
 
@@ -10341,6 +10352,21 @@ mod native_pane_tests {
             "native terminal socket send key: native-1 key=ctrl-c bytes=1"
         );
         assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_socket_send_browser_key_log_line_builds_directly() {
+        let line = native_socket_send_browser_key_log_line("native-browser", "back");
+        assert_eq!(
+            line,
+            "native terminal socket send browser key: native-browser key=back"
+        );
+        assert_eq!(
+            line.capacity(),
+            "native terminal socket send browser key:  key=".len()
+                + "native-browser".len()
+                + "back".len()
+        );
     }
 
     #[test]
