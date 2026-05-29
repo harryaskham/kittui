@@ -4850,6 +4850,13 @@ fn quickstart_text() -> &'static str {
    kittwm --save-session session.json
    kittwm --restore-session session.json
 
+7. Try first-party helpers when you need richer views
+   kittwm-launch --browser https://example.com
+   kittwm-terminal --events-ms 1000
+   kittwm-top --json
+   kittwm-bar --reserve --kitty
+   kittwm-browser --semantic-snapshot https://example.com
+
 More help
    kittwm --help
    kittwm help topics
@@ -10768,6 +10775,17 @@ mod tests {
         );
         assert!(
             text.contains("kittwm --paste-bytes-b64 focused cGFzdGUgbWU="),
+            "{text}"
+        );
+        assert!(
+            text.contains("kittwm-launch --browser https://example.com"),
+            "{text}"
+        );
+        assert!(text.contains("kittwm-terminal --events-ms 1000"), "{text}");
+        assert!(text.contains("kittwm-top --json"), "{text}");
+        assert!(text.contains("kittwm-bar --reserve --kitty"), "{text}");
+        assert!(
+            text.contains("kittwm-browser --semantic-snapshot https://example.com"),
             "{text}"
         );
         assert!(text.contains("kittwm help topics"), "{text}");
