@@ -2927,6 +2927,7 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
     let term = std::env::var("TERM").unwrap_or_default();
     let colorterm = std::env::var("COLORTERM").unwrap_or_default();
     let term_program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    let executable = doctor_executable_provenance(std::env::current_exe().ok());
 
     let feat_sck = cfg!(all(target_os = "macos", feature = "sck"));
     let feat_quartz = cfg!(all(target_os = "macos", feature = "quartz"));
@@ -2974,6 +2975,16 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
         let mut buf = String::new();
         buf.push_str("{\n");
         let _ = writeln!(buf, "  \"version\": {version:?},");
+        let _ = writeln!(
+            buf,
+            "  \"executable_path\": {},",
+            serde_json::to_string(&executable.path)?
+        );
+        let _ = writeln!(
+            buf,
+            "  \"executable_realpath\": {},",
+            serde_json::to_string(&executable.realpath)?
+        );
         let _ = writeln!(buf, "  \"os\": {os:?},");
         let _ = writeln!(buf, "  \"arch\": {arch:?},");
         let _ = writeln!(
@@ -3005,6 +3016,7 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
         out.push_str("kittwm doctor\n");
         out.push_str("============\n");
         let _ = writeln!(out, "  version        : {version}");
+        append_doctor_executable_rows(&mut out, &executable);
         let _ = writeln!(out, "  os / arch      : {os} / {arch}");
         let _ = writeln!(
             out,
@@ -3093,6 +3105,36 @@ fn doctor_cmd(json: bool, scene_json: bool, kitty: bool, probe_kitty: bool) -> R
         write_stdout_or_ignore_broken_pipe(out.as_bytes())?;
     }
     Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DoctorExecutableProvenance {
+    path: Option<String>,
+    realpath: Option<String>,
+}
+
+fn doctor_executable_provenance(path: Option<std::path::PathBuf>) -> DoctorExecutableProvenance {
+    let path_string = path.as_ref().map(|path| path.display().to_string());
+    let realpath = path
+        .as_ref()
+        .and_then(|path| std::fs::canonicalize(path).ok())
+        .map(|path| path.display().to_string());
+    DoctorExecutableProvenance {
+        path: path_string,
+        realpath,
+    }
+}
+
+fn append_doctor_executable_rows(out: &mut String, executable: &DoctorExecutableProvenance) {
+    let path = executable.path.as_deref().unwrap_or("-");
+    let _ = writeln!(out, "  executable     : {path}");
+    if let Some(realpath) = executable
+        .realpath
+        .as_deref()
+        .filter(|realpath| *realpath != path)
+    {
+        let _ = writeln!(out, "  executable real: {realpath}");
+    }
 }
 
 fn append_doctor_log_row(out: &mut String, log_path: &str, log_present: bool, log_size: u64) {
@@ -11177,6 +11219,27 @@ mod tests {
         assert!(launch.apps);
         assert_eq!(launch.apps_filter.as_deref(), Some("fire fox"));
         assert!(launch.apps_launch_first);
+    }
+
+    #[test]
+    fn doctor_executable_provenance_reports_path_and_realpath() {
+        let provenance = doctor_executable_provenance(Some(std::path::PathBuf::from(".")));
+        assert_eq!(provenance.path.as_deref(), Some("."));
+        assert!(provenance.realpath.is_some(), "{provenance:?}");
+
+        let mut text = String::new();
+        append_doctor_executable_rows(&mut text, &provenance);
+        assert!(text.contains("  executable     : ."), "{text}");
+        assert!(text.contains("  executable real:"), "{text}");
+
+        let missing = doctor_executable_provenance(Some(std::path::PathBuf::from(
+            "definitely-missing-kittwm-binary",
+        )));
+        assert_eq!(
+            missing.path.as_deref(),
+            Some("definitely-missing-kittwm-binary")
+        );
+        assert_eq!(missing.realpath, None);
     }
 
     #[test]
