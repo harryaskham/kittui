@@ -429,6 +429,14 @@ fn parse_args() -> Result<Cli> {
                 out.automation_request = Some(parse_pane_control_alias(a.as_str(), args.by_ref())?);
                 break;
             }
+            "remote" => {
+                let host = args.next().ok_or_else(remote_alias_missing_host_error)?;
+                let action = args.next().unwrap_or_else(|| "doctor".to_string());
+                let rest = args.by_ref().collect::<Vec<_>>();
+                out.remote_host = Some(host);
+                parse_remote_alias_action(&mut out, &action, &rest)?;
+                break;
+            }
             "apps" => out.apps = true,
             "apps-scene-json" => out.apps_scene_json = true,
             "apps-kitty" | "apps-graphics" => out.apps_kitty = true,
@@ -1037,6 +1045,8 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
+  remote HOST [doctor|apps|windows|displays]
+                            Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
                             uses remote kittwm when installed, else PATH fallback
@@ -1396,6 +1406,9 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            launch first remote app match through pooled SSH\n\
              kittwm --list-windows --remote HOST\n\
                                            list remote windows/displays when supported\n\
+             kittwm remote HOST            friendly alias for remote doctor\n\
+             kittwm remote HOST apps --filter firefox --launch-first\n\
+                                           friendly alias for remote app launch\n\
              kittwm doctor --remote HOST\n\
                                            check remote kittwm availability and suggested path\n\
              kittwm-terminal --remote HOST --title HOST\n\
@@ -1480,6 +1493,9 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
         "apps" | "app" => Ok("kittwm help apps\n\
              ================\n\n\
              apps                           list launch candidates\n\
+             remote HOST                    check remote kittwm availability\n\
+             remote HOST apps --filter QUERY --launch-first\n\
+                                            launch first remote match with a friendlier alias\n\
              apps --remote HOST             list remote candidates via pooled SSH\n\
              apps --remote HOST --filter QUERY --launch-first\n\
                                             launch first remote match; uses remote kittwm when present\n\
@@ -1562,8 +1578,8 @@ fn known_kittwm_commands() -> &'static [&'static str] {
         "balance",
         "rename",
         "apps",
-        "ssh",
         "remote",
+        "ssh",
         "apps-scene-json",
         "apps-kitty",
         "apps-graphics",
@@ -1694,6 +1710,93 @@ fn limit_parse_error(value: &str) -> anyhow::Error {
 
 fn missing_filter_error() -> anyhow::Error {
     anyhow!("--filter requires a query\ntry: kittwm apps --filter terminal\nhelp: kittwm help apps")
+}
+
+fn remote_alias_missing_host_error() -> anyhow::Error {
+    anyhow!(
+        "kittwm remote requires HOST\ntry: kittwm remote buildbox doctor\nhelp: kittwm help ssh"
+    )
+}
+
+fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Result<()> {
+    match action {
+        "doctor" => {
+            out.doctor = true;
+            parse_remote_doctor_flags(out, rest)
+        }
+        "apps" | "app" => {
+            out.apps = true;
+            parse_remote_apps_flags(out, rest)
+        }
+        "windows" | "window" => ensure_no_remote_alias_rest(action, rest, || {
+            out.list_windows = true;
+        }),
+        "displays" | "display" => ensure_no_remote_alias_rest(action, rest, || {
+            out.list_displays = true;
+        }),
+        "terminal" | "term" => Err(anyhow!(
+            "remote terminal panes use kittwm-terminal\ntry: kittwm-terminal --remote {}\nhelp: kittwm help ssh",
+            out.remote_host.as_deref().unwrap_or("HOST")
+        )),
+        flag if flag.starts_with('-') => {
+            out.doctor = true;
+            let mut flags = Vec::with_capacity(rest.len() + 1);
+            flags.push(flag.to_string());
+            flags.extend(rest.iter().cloned());
+            parse_remote_doctor_flags(out, &flags)
+        }
+        other => Err(anyhow!(
+            "unknown remote action {other:?}\ntry: kittwm remote HOST doctor | apps | windows | displays\nhelp: kittwm help ssh"
+        )),
+    }
+}
+
+fn parse_remote_doctor_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
+    for flag in flags {
+        match flag.as_str() {
+            "--json" => out.json = true,
+            other => {
+                return Err(anyhow!(
+                    "unknown remote doctor flag {other:?}\ntry: kittwm remote HOST doctor --json\nhelp: kittwm help ssh"
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_remote_apps_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
+    let mut iter = flags.iter();
+    while let Some(flag) = iter.next() {
+        match flag.as_str() {
+            "--json" => out.json = true,
+            "--filter" => {
+                out.apps_filter = Some(iter.next().ok_or_else(missing_filter_error)?.clone());
+            }
+            "--limit" => {
+                let value = iter.next().ok_or_else(missing_limit_error)?;
+                out.apps_limit = Some(parse_limit_value(value)?);
+            }
+            "--first" => out.apps_first = true,
+            "--launch-first" => out.apps_launch_first = true,
+            other => {
+                return Err(anyhow!(
+                    "unknown remote apps flag {other:?}\ntry: kittwm remote HOST apps --filter firefox --launch-first\nhelp: kittwm help ssh"
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+fn ensure_no_remote_alias_rest(action: &str, rest: &[String], apply: impl FnOnce()) -> Result<()> {
+    if let Some(extra) = rest.first() {
+        return Err(anyhow!(
+            "kittwm remote {action} accepts no extra argument {extra:?}\nhelp: kittwm help ssh"
+        ));
+    }
+    apply();
+    Ok(())
 }
 
 fn debug_log_path() -> String {
@@ -4257,6 +4360,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "apps",
             category: "apps",
             description: "list launch candidates",
+        },
+        LocalCommandEntry {
+            command: "remote HOST",
+            category: "remote",
+            description: "friendly alias for remote doctor",
+        },
+        LocalCommandEntry {
+            command: "remote HOST apps --filter QUERY --launch-first",
+            category: "remote",
+            description: "friendly alias for remote app launch",
         },
         LocalCommandEntry {
             command: "apps --remote HOST",
@@ -9507,6 +9620,7 @@ mod tests {
             text.contains("If the remote has kittwm installed"),
             "{text}"
         );
+        assert!(text.contains("kittwm remote HOST"), "{text}");
         assert!(text.contains("kittwm apps --remote HOST"), "{text}");
         assert!(text.contains("kittwm doctor --remote HOST"), "{text}");
         assert!(text.contains("kittwm-terminal --remote HOST"), "{text}");
@@ -9682,6 +9796,11 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "apps-kitty" && entry["category"] == "apps" }));
+        assert!(json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["command"] == "remote HOST" && entry["category"] == "remote" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "apps --remote HOST" && entry["category"] == "remote"
         }));
@@ -10393,6 +10512,33 @@ mod tests {
             ..Cli::default()
         };
         assert!(apps_cmd(&cli).is_ok());
+    }
+
+    #[test]
+    fn remote_aliases_map_to_pooled_ssh_commands() {
+        let mut cli = Cli::default();
+        cli.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut cli,
+            "apps",
+            &args(&["--filter", "firefox", "--launch-first"]),
+        )
+        .unwrap();
+        assert!(cli.apps);
+        assert_eq!(cli.remote_host.as_deref(), Some("buildbox"));
+        assert_eq!(cli.apps_filter.as_deref(), Some("firefox"));
+        assert!(cli.apps_launch_first);
+
+        let mut doctor = Cli::default();
+        doctor.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut doctor, "doctor", &args(&["--json"])).unwrap();
+        assert!(doctor.doctor);
+        assert!(doctor.json);
+
+        let mut windows = Cli::default();
+        windows.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut windows, "windows", &[]).unwrap();
+        assert!(windows.list_windows);
     }
 
     #[test]
