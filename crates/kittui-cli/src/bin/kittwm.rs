@@ -8390,25 +8390,29 @@ case "$kind" in
     displays)
         printf 'kittwm remote displays\n======================\nhost: %s\nmode: fallback\n' "$host"
         [ -z "$query" ] || printf 'filter: %s\n' "$query"
-        if command -v xrandr >/dev/null 2>&1; then
+        if command -v swaymsg >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+            swaymsg -t get_outputs 2>/dev/null | jq -r '.[] | "  " + (.name // "?") + " " + (.make // "") + " " + (.model // "") + " " + ((.current_mode.width // 0)|tostring) + "x" + ((.current_mode.height // 0)|tostring) + " active=" + ((.active // false)|tostring)' | kittwm_remote_filter
+        elif command -v xrandr >/dev/null 2>&1; then
             (xrandr --listmonitors 2>/dev/null || xrandr --query 2>/dev/null | awk '/ connected/{print "  "$0}') | kittwm_remote_filter
         elif command -v system_profiler >/dev/null 2>&1; then
             system_profiler SPDisplaysDataType 2>/dev/null | awk '/^[[:space:]]*(Resolution|Main Display|Online|Display Type):/{print "  "$0}' | kittwm_remote_filter
         else
-            printf '  capability unavailable: install remote kittwm, xrandr, or system_profiler\n'
+            printf '  capability unavailable: install remote kittwm, swaymsg+jq, xrandr, or system_profiler\n'
         fi
         ;;
     *)
         printf 'kittwm remote windows\n=====================\nhost: %s\nmode: fallback\n' "$host"
         [ -z "$query" ] || printf 'filter: %s\n' "$query"
-        if command -v wmctrl >/dev/null 2>&1; then
+        if command -v swaymsg >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+            swaymsg -t get_tree 2>/dev/null | jq -r '.. | objects | select((.type? == "con") and ((.app_id? != null) or (.window? != null))) | "  " + ((.id // 0)|tostring) + " " + (.app_id // .window_properties.class // "?") + "  " + (.name // "")' | kittwm_remote_filter
+        elif command -v wmctrl >/dev/null 2>&1; then
             wmctrl -l | kittwm_remote_filter
         elif command -v xdotool >/dev/null 2>&1; then
             xdotool search --onlyvisible --name '.*' 2>/dev/null | while IFS= read -r id; do xdotool getwindowname "$id" 2>/dev/null | sed "s/^/$id  /"; done | kittwm_remote_filter
         elif command -v osascript >/dev/null 2>&1; then
             osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /' | kittwm_remote_filter
         else
-            printf '  capability unavailable: install remote kittwm, wmctrl, xdotool, or enable macOS osascript accessibility\n'
+            printf '  capability unavailable: install remote kittwm, swaymsg+jq, wmctrl, xdotool, or enable macOS osascript accessibility\n'
         fi
         ;;
 esac
@@ -11415,6 +11419,8 @@ mod tests {
         );
         assert!(script.contains("KITTWM_REMOTE_QUERY"), "{script}");
         assert!(script.contains("kittwm_remote_filter"), "{script}");
+        assert!(script.contains("swaymsg"), "{script}");
+        assert!(script.contains("jq"), "{script}");
         assert!(script.contains("wmctrl"), "{script}");
         assert!(script.contains("xrandr"), "{script}");
         assert!(script.contains("system_profiler"), "{script}");
