@@ -6989,6 +6989,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn stdin_read_log_line_builds_directly() {
+        let line = stdin_read_log_line(4, &[0, 1, 0xab, 0xff]);
+        assert_eq!(line, "stdin read 4 bytes: [00, 01, ab, ff]");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn compose_error_log_line_builds_directly() {
         let line = compose_error_log_line("capture denied");
         assert_eq!(line, "compose err: capture denied");
@@ -12454,6 +12461,17 @@ fn frame_budget_blown_log_line(frame: u64, elapsed_ms: u128, target_ms: u128) ->
     out
 }
 
+fn stdin_read_log_line(count: usize, preview: &[u8]) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("stdin read  bytes: []".len() + preview.len() * 4 + 24);
+    out.push_str("stdin read ");
+    let _ = write!(out, "{count}");
+    out.push_str(" bytes: ");
+    let _ = write!(out, "{preview:02x?}");
+    out
+}
+
 fn compose_error_log_line(message: &str) -> String {
     let mut out = String::with_capacity("compose err: ".len() + message.len());
     out.push_str("compose err: ");
@@ -13479,10 +13497,7 @@ pub fn run_loop_with<S: XServer>(
                         false,
                         true,
                     );
-                    dbg.log(&format!(
-                        "stdin read {n} bytes: {:02x?}",
-                        &chunk[..n.min(32)]
-                    ));
+                    dbg.log(&stdin_read_log_line(n, &chunk[..n.min(32)]));
                     input_buf.extend_from_slice(&chunk[..n]);
                 }
             }
