@@ -1391,7 +1391,11 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm completions zsh       print Zsh completion script\n\
              kittwm completions fish      print Fish completion script\n\
              kittwm completions bash >> ~/.bashrc\n\
-                                          install Bash completions for future shells\n"),
+                                          install Bash completions for future shells\n\
+             kittwm completions zsh >> ~/.zshrc\n\
+                                          install Zsh completions for future shells\n\
+             kittwm completions fish > ~/.config/fish/completions/kittwm.fish\n\
+                                          install Fish completions\n"),
         "input" => Ok("kittwm help input\n\
              =================\n\n\
              type [WINDOW] TEXT             short alias for --send-text\n\
@@ -8886,6 +8890,14 @@ mod tests {
         assert!(text.contains("kittwm completions fish"), "{text}");
         assert!(
             text.contains("kittwm completions bash >> ~/.bashrc"),
+            "{text}"
+        );
+        assert!(
+            text.contains("kittwm completions zsh >> ~/.zshrc"),
+            "{text}"
+        );
+        assert!(
+            text.contains("kittwm completions fish > ~/.config/fish/completions/kittwm.fish"),
             "{text}"
         );
         assert!(known_help_topics().contains(&"completions"));
