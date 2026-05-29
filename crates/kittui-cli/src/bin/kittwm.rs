@@ -8425,12 +8425,14 @@ kittwm_remote_list_linux_desktop_apps() {
             localized_names=$(kittwm_remote_desktop_localized_values Name "$desktop")
             generic_name=$(awk -F= '$1 == "GenericName" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             localized_generic_names=$(kittwm_remote_desktop_localized_values GenericName "$desktop")
+            comment=$(awk -F= '$1 == "Comment" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
+            localized_comments=$(kittwm_remote_desktop_localized_values Comment "$desktop")
             keywords=$(awk -F= '$1 == "Keywords" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             localized_keywords=$(kittwm_remote_desktop_localized_values Keywords "$desktop")
             categories=$(awk -F= '$1 == "Categories" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             exec_line=$(awk -F= '$1 == "Exec" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             [ -n "$name" ] || name="$id"
-            [ -n "$id" ] && printf 'desktop\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$exec_line" "$desktop" "$generic_name" "$keywords" "$categories" "$localized_names" "$localized_generic_names" "$localized_keywords"
+            [ -n "$id" ] && printf 'desktop\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$exec_line" "$desktop" "$generic_name" "$keywords" "$categories" "$localized_names" "$localized_generic_names" "$localized_keywords" "$comment" "$localized_comments"
         done
     done
 }
@@ -11655,8 +11657,10 @@ mod tests {
         );
         assert!(script.contains("localized_names="), "{script}");
         assert!(script.contains("localized_generic_names="), "{script}");
+        assert!(script.contains("localized_comments="), "{script}");
         assert!(script.contains("localized_keywords="), "{script}");
         assert!(script.contains("$1 == \"GenericName\""), "{script}");
+        assert!(script.contains("$1 == \"Comment\""), "{script}");
         assert!(script.contains("$1 == \"Keywords\""), "{script}");
         assert!(script.contains("$1 == \"Categories\""), "{script}");
         assert!(script.contains("$1 == \"Exec\""), "{script}");
