@@ -846,6 +846,18 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--move-pane WINDOW|focused DIR"))?;
                 out.automation_request = Some(move_pane_request(&window, &direction)?);
             }
+            "--nudge-pane" => {
+                let window = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--nudge-pane WINDOW|focused DX DY"))?;
+                let dx = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--nudge-pane WINDOW|focused DX DY"))?;
+                let dy = args
+                    .next()
+                    .ok_or_else(|| anyhow!("--nudge-pane WINDOW|focused DX DY"))?;
+                out.automation_request = Some(nudge_pane_request(&window, &dx, &dy)?);
+            }
             "--resize-pane" => {
                 let window = args
                     .next()
@@ -1021,6 +1033,7 @@ PANE CONTROL
   --close-pane WINDOW         Close pane; last pane returns to empty workspace
   --layout columns|rows|grid       Change tiling axis/grid
   --move-pane WINDOW DIR      DIR: left/right/up/down/first/last
+  --nudge-pane WINDOW DX DY   Nudge floating pane by cell delta
   --resize-pane WINDOW N      N: grow/shrink/+N/-N
   --balance-panes             Equalize pane weights
   --rename-pane WINDOW TITLE  Set pane display title
@@ -1373,6 +1386,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --layout columns|rows|grid          switch layout axis
 \
              --move-pane WINDOW DIR         left/right/up/down/first/last
+\
+             --nudge-pane WINDOW DX DY      nudge floating pane by cell delta
 \
              --resize-pane WINDOW AMOUNT    grow/shrink/+N/-N pane weight
 \
@@ -5650,6 +5665,7 @@ fn completion_words() -> &'static [&'static str] {
             "--shortcuts",
             "--shortcuts-json",
             "--read-text-json",
+            "--nudge-pane",
             "--wait-output-json-ms",
         ]);
         words.sort_unstable();
@@ -10423,6 +10439,7 @@ mod tests {
         assert!(bash.contains("quickstart"), "{bash}");
         assert!(bash.contains("spawn"), "{bash}");
         assert!(bash.contains("nudge"), "{bash}");
+        assert!(bash.contains("--nudge-pane"), "{bash}");
         assert!(bash.contains("--panes-json"), "{bash}");
         assert!(bash.contains("--remote"), "{bash}");
         assert!(bash.contains("--launch-first"), "{bash}");
