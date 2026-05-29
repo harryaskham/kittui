@@ -226,6 +226,9 @@ pub enum NativePaneCommand {
         dx: i16,
         dy: i16,
     },
+    ResetOffset {
+        window: String,
+    },
     Resize {
         window: String,
         delta: i16,
@@ -680,6 +683,19 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
             "NUDGE_QUEUED",
         );
     }
+    if let Some(rest) = cmd.strip_prefix("RESET_PANE_OFFSET ") {
+        let window = rest.trim();
+        if window.is_empty() || window.split_whitespace().count() != 1 {
+            return "ERR RESET_PANE_OFFSET expects <window|focused>\n".to_string();
+        }
+        return queue_native_pane_command(
+            pending,
+            window,
+            "RESET_PANE_OFFSET requires window",
+            |arg| NativePaneCommand::ResetOffset { window: arg },
+            "RESET_OFFSET_QUEUED",
+        );
+    }
     if let Some(rest) = cmd.strip_prefix("RESIZE_PANE ") {
         let Some((window, amount)) = rest.trim().split_once(' ') else {
             return "ERR RESIZE_PANE requires window and amount\n".to_string();
@@ -826,7 +842,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows|grid> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | RESERVE_CHROME_JSON <json> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows|grid> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | NUDGE_PANE <window|focused> <dx> <dy> | RESET_PANE_OFFSET <window|focused> | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | RESERVE_CHROME_JSON <json> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | HELP\n"
             .to_string(),
     }
 }
@@ -898,6 +914,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "NUDGE_PANE <window|focused> <dx> <dy>",
             "control",
             "nudge a floating pane by cell deltas",
+        ),
+        (
+            "RESET_PANE_OFFSET <window|focused>",
+            "control",
+            "reset a floating pane to its generated position",
         ),
         (
             "SPLIT_PANE <window|focused> <columns|rows|grid> <cmd>",
@@ -3333,6 +3354,10 @@ mod tests {
             native_spawn_queue_reply("NUDGE_PANE focused 3 -2", &pending)
                 .starts_with("NUDGE_QUEUED")
         );
+        assert!(
+            native_spawn_queue_reply("RESET_PANE_OFFSET focused", &pending)
+                .starts_with("RESET_OFFSET_QUEUED")
+        );
         assert!(native_spawn_queue_reply("RESIZE_PANE focused +2", &pending)
             .starts_with("RESIZE_QUEUED"));
         assert!(native_spawn_queue_reply("BALANCE_PANES", &pending).starts_with("BALANCE_QUEUED"));
@@ -3426,6 +3451,10 @@ mod tests {
         assert!(native_spawn_queue_reply("MOVE_PANE focused diagonal", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("NUDGE_PANE focused nope 1", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("NUDGE_PANE focused 0 0", &pending).contains("ERR"));
+        assert!(native_spawn_queue_reply("RESET_PANE_OFFSET", &pending).contains("ERR"));
+        assert!(
+            native_spawn_queue_reply("RESET_PANE_OFFSET focused extra", &pending).contains("ERR")
+        );
         assert!(native_spawn_queue_reply("RESIZE_PANE focused nope", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("RENAME_PANE native-2", &pending).contains("ERR"));
         assert!(native_spawn_queue_reply("SEND_TEXT focused", &pending).contains("ERR"));
@@ -3458,6 +3487,9 @@ mod tests {
                     window: "focused".to_string(),
                     dx: 3,
                     dy: -2,
+                },
+                NativePaneCommand::ResetOffset {
+                    window: "focused".to_string(),
                 },
                 NativePaneCommand::Resize {
                     window: "focused".to_string(),
@@ -4100,6 +4132,10 @@ mod tests {
             help.contains("NUDGE_PANE <window|focused> <dx> <dy>"),
             "{help}"
         );
+        assert!(
+            help.contains("RESET_PANE_OFFSET <window|focused>"),
+            "{help}"
+        );
         assert!(help.contains("RESIZE_PANE <window|focused>"), "{help}");
         assert!(help.contains("BALANCE_PANES"), "{help}");
         assert!(help.contains("RESTORE_SESSION_JSON <json>"), "{help}");
@@ -4171,6 +4207,14 @@ mod tests {
             .iter()
             .any(|entry| {
                 entry["command"] == "NUDGE_PANE <window|focused> <dx> <dy>"
+                    && entry["category"] == "control"
+            }));
+        assert!(help_json["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["command"] == "RESET_PANE_OFFSET <window|focused>"
                     && entry["category"] == "control"
             }));
         assert!(help_json["commands"]

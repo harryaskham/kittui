@@ -3385,6 +3385,13 @@ impl SurfaceHandle {
         ))
     }
 
+    /// Reset this pane's floating offset to the generated layout position.
+    pub fn reset_floating_offset(&self) -> Result<String> {
+        self.client.capabilities.ensure(Capability::ControlWindow)?;
+        self.client
+            .request_protocol(surface_token_request("RESET_PANE_OFFSET", &self.id))
+    }
+
     /// Lower this pane to the bottom of the stack/floating order.
     pub fn lower(&self) -> Result<String> {
         self.move_pane(MoveDirection::First)
@@ -6032,7 +6039,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..12 {
+            for _ in 0..13 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -6068,6 +6075,7 @@ mod tests {
         assert_eq!(surface.raise().unwrap().trim(), "OK");
         assert_eq!(surface.lower().unwrap().trim(), "OK");
         assert_eq!(surface.nudge(3, -2).unwrap().trim(), "OK");
+        assert_eq!(surface.reset_floating_offset().unwrap().trim(), "OK");
         let seen = server.join().unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(
@@ -6084,7 +6092,8 @@ mod tests {
                 "MOVE_PANE native-2 down",
                 "MOVE_PANE native-2 last",
                 "MOVE_PANE native-2 first",
-                "NUDGE_PANE native-2 3 -2"
+                "NUDGE_PANE native-2 3 -2",
+                "RESET_PANE_OFFSET native-2"
             ]
         );
     }
@@ -6128,6 +6137,10 @@ mod tests {
         ));
         assert!(matches!(
             client.surface("focused").nudge(1, 0),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.surface("focused").reset_floating_offset(),
             Err(Error::CapabilityDenied(Capability::ControlWindow))
         ));
     }
