@@ -492,6 +492,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         cols,
                         rows,
                         layout_axis,
+                        layout_mode,
                         &last_chrome_reservation,
                         &mut clear,
                     )? {
@@ -3773,6 +3774,7 @@ fn native_route_mouse_event(
     cols: u16,
     rows: u16,
     axis: NativePaneLayoutAxis,
+    mode: NativePaneLayoutMode,
     reservation: &crate::daemon::NativeChromeReservationConfig,
     clear: &mut bool,
 ) -> Result<bool> {
@@ -3780,7 +3782,8 @@ fn native_route_mouse_event(
     else {
         return Ok(false);
     };
-    let layouts = native_layouts_for_panes_with_reservation(cols, rows, panes, axis, reservation);
+    let layouts =
+        native_layouts_for_panes_display_mode(cols, rows, panes, *focused, axis, mode, reservation);
     let Some((idx, local_col, local_row)) = native_pane_at_host_cell(&layouts, col, row) else {
         if should_focus {
             if let Some(idx) = native_pane_chrome_at_host_cell(&layouts, col, row) {
@@ -7756,6 +7759,7 @@ mod native_pane_tests {
             80,
             24,
             NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Tiled,
             &reservation,
             &mut clear,
         )
@@ -7777,6 +7781,7 @@ mod native_pane_tests {
             80,
             24,
             NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Tiled,
             &reservation,
             &mut clear,
         )
@@ -7798,12 +7803,43 @@ mod native_pane_tests {
             80,
             24,
             NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Tiled,
             &reservation,
             &mut clear,
         )
         .unwrap());
         assert_eq!(focused, 0);
         assert!(clear);
+    }
+
+    #[test]
+    fn native_route_mouse_uses_fullscreen_layout_for_visible_pane() {
+        let mut panes = vec![
+            dummy_native_pane("native-1", "left", 1),
+            dummy_native_pane("native-2", "right", 1),
+        ];
+        let mut focused = 1usize;
+        let mut clear = false;
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+
+        assert!(native_route_mouse_event(
+            &InputEvent::MousePress {
+                col: 2,
+                row: 3,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Fullscreen,
+            &reservation,
+            &mut clear,
+        )
+        .unwrap());
+        assert_eq!(focused, 1);
     }
 
     #[test]
