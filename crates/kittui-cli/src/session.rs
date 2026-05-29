@@ -2162,7 +2162,7 @@ const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
 const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
 const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
 const NATIVE_STATUS_LINE_HINTS: &str =
-    " · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r reset · C-a e split · C-a x close · Ctrl-] exit";
+    " · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r/R reset · C-a e split · C-a x close · Ctrl-] exit";
 const NATIVE_STATUS_LINE_LOG_PREFIX: &str = " · log: ";
 
 fn native_status_line_text(
@@ -3193,8 +3193,11 @@ fn process_native_terminal_byte(
             b'd' | b'D' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
                 native_nudge_focused_pane(floating_offsets, panes, *focused, 1, 0, clear, dbg);
             }
-            b'r' | b'R' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
+            b'r' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
                 native_reset_focused_pane(floating_offsets, panes, *focused, clear, dbg);
+            }
+            b'R' if matches!(*layout_mode, NativePaneLayoutMode::Floating) => {
+                native_reset_all_floating_offsets_from_keyboard(floating_offsets, clear, dbg);
             }
             0x01 if !panes.is_empty() => {
                 native_send_pane_bytes_logged(&mut panes[*focused], "keyboard-byte", &[0x01], dbg);
@@ -4182,6 +4185,18 @@ fn native_reset_focused_pane(
     dbg.log(&native_keyboard_reset_offset_log_line(&pane.window));
 }
 
+fn native_reset_all_floating_offsets_from_keyboard(
+    floating_offsets: &mut HashMap<String, NativeFloatingPaneOffset>,
+    clear: &mut bool,
+    dbg: &Debugger,
+) {
+    let reset_count = native_reset_all_floating_offsets(floating_offsets);
+    if reset_count > 0 {
+        *clear = true;
+    }
+    dbg.log(&native_keyboard_reset_all_offsets_log_line(reset_count));
+}
+
 fn native_update_floating_drag(
     event_name: &str,
     col: u16,
@@ -4783,6 +4798,15 @@ fn native_keyboard_reset_offset_log_line(window: &str) -> String {
         String::with_capacity("native terminal keyboard reset offset: ".len() + window.len());
     out.push_str("native terminal keyboard reset offset: ");
     out.push_str(window);
+    out
+}
+
+fn native_keyboard_reset_all_offsets_log_line(reset_count: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("native terminal keyboard reset all offsets: ".len() + 20);
+    out.push_str("native terminal keyboard reset all offsets: ");
+    let _ = write!(out, "{reset_count}");
     out
 }
 
@@ -7785,7 +7809,7 @@ mod native_pane_tests {
         let footer = native_status_line_text(1, "floating", Some("native-1"), "/tmp/kittwm.log");
         assert_eq!(
             footer,
-            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r reset · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
+            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r/R reset · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
         );
         assert_eq!(footer.capacity(), footer.len());
 
@@ -9003,6 +9027,29 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_keyboard_reset_all_removes_every_floating_offset() {
+        let mut offsets = HashMap::from([
+            (
+                "native-1".to_string(),
+                NativeFloatingPaneOffset { dx: 4, dy: -3 },
+            ),
+            (
+                "native-2".to_string(),
+                NativeFloatingPaneOffset { dx: -1, dy: 2 },
+            ),
+        ]);
+        let mut clear = false;
+        let dbg = Debugger::open();
+        native_reset_all_floating_offsets_from_keyboard(&mut offsets, &mut clear, &dbg);
+        assert!(clear);
+        assert!(offsets.is_empty());
+        assert_eq!(
+            native_keyboard_reset_all_offsets_log_line(2),
+            "native terminal keyboard reset all offsets: 2"
+        );
+    }
+
+    #[test]
     fn native_prefix_wasd_nudges_in_floating_mode() {
         let mut panes = vec![dummy_native_pane("native-1", "float", 1)];
         let mut focused = 0usize;
@@ -9108,6 +9155,80 @@ mod native_pane_tests {
         .unwrap());
         assert!(!prefix);
         assert!(!offsets.contains_key("native-1"));
+    }
+
+    #[test]
+    fn native_prefix_shift_r_resets_all_floating_offsets() {
+        let mut panes = vec![
+            dummy_native_pane("native-1", "left", 1),
+            dummy_native_pane("native-2", "right", 1),
+        ];
+        let mut focused = 0usize;
+        let mut layout_axis = NativePaneLayoutAxis::Columns;
+        let mut layout_mode = NativePaneLayoutMode::Floating;
+        let mut offsets = HashMap::from([
+            (
+                "native-1".to_string(),
+                NativeFloatingPaneOffset { dx: 1, dy: 0 },
+            ),
+            (
+                "native-2".to_string(),
+                NativeFloatingPaneOffset { dx: -2, dy: 3 },
+            ),
+        ]);
+        let mut prefix = false;
+        let mut clear = false;
+        let mut help_overlay = false;
+        let mut ctrl_c_guard = NativeCtrlCExitGuard::default();
+        let mut quit_overlay = QuitConfirmOverlay::default();
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        let dbg = Debugger::open();
+
+        assert!(!process_native_terminal_byte(
+            0x01,
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert!(prefix);
+
+        assert!(!process_native_terminal_byte(
+            b'R',
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert!(!prefix);
+        assert!(clear);
+        assert!(offsets.is_empty());
     }
 
     #[test]

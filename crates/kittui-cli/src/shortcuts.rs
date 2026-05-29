@@ -74,6 +74,11 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
         description: "reset focused floating pane position",
     },
     NativeShortcut {
+        id: "reset_all_floating_panes",
+        keys: "C-a R",
+        description: "reset all floating pane positions",
+    },
+    NativeShortcut {
         id: "focus_next",
         keys: "C-a Tab / C-a n",
         description: "focus next pane",
@@ -131,6 +136,7 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a w/a/s/d        nudge focused floating pane",
     "C-a { / C-a }      lower/raise focused floating pane",
     "C-a r              reset focused floating pane position",
+    "C-a R              reset all floating pane positions",
     "C-a Tab / C-a n    focus next pane",
     "C-a p              focus previous pane",
     "C-a x              close pane (last pane returns to empty workspace)",
@@ -185,6 +191,7 @@ mod tests {
         assert!(text.contains("C-a w/a/s/d"));
         assert!(text.contains("C-a { / C-a }"));
         assert!(text.contains("C-a r"));
+        assert!(text.contains("C-a R"));
         assert!(text.ends_with('\n'));
     }
 
@@ -218,5 +225,10 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry["id"] == "reset_floating_pane"));
+        assert!(value["shortcuts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == "reset_all_floating_panes"));
     }
 }
