@@ -14596,11 +14596,7 @@ impl LauncherOverlay {
         if overlay_row_visible(4, terminal_rows) {
             write!(handle, "\x1b[4;2H├{}┤", "─".repeat(width))?;
         }
-        let query_line = if width > 8 {
-            format!(" query: {}", truncate_cells(&self.query, width - 8))
-        } else {
-            truncate_cells(&self.query, width)
-        };
+        let query_line = launcher_overlay_query_line(&self.query, width);
         if overlay_row_visible(5, terminal_rows) {
             write!(handle, "\x1b[5;2H│{:<width$}│", query_line, width = width)?;
         }
@@ -14635,6 +14631,18 @@ impl LauncherOverlay {
             write!(handle, "\x1b[17;2H└{}┘", "─".repeat(width))?;
         }
         Ok(())
+    }
+}
+
+fn launcher_overlay_query_line(query: &str, width: usize) -> String {
+    if width > 8 {
+        let visible = truncate_cells(query, width - 8);
+        let mut line = String::with_capacity(" query: ".len() + visible.len());
+        line.push_str(" query: ");
+        line.push_str(&visible);
+        line
+    } else {
+        truncate_cells(query, width)
     }
 }
 
@@ -15557,6 +15565,15 @@ mod launcher_overlay_tests {
         assert!(!row.contains(&"window-title-with-pathological-length-".repeat(2)));
         assert_eq!(picker_entry_row_text(0, 0, "anything", 1), "…");
         assert_eq!(picker_entry_row_text(0, 0, "anything", 0), "");
+    }
+
+    #[test]
+    fn launcher_overlay_query_line_builds_directly() {
+        assert_eq!(launcher_overlay_query_line("term", 20), " query: term");
+        assert_eq!(launcher_overlay_query_line("abcdef", 4), "abc…");
+        let long = launcher_overlay_query_line(&"x".repeat(10_000), 12);
+        assert_eq!(long.chars().count(), 12);
+        assert!(long.ends_with('…'));
     }
 
     #[test]
