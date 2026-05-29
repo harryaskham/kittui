@@ -861,9 +861,25 @@ mod tests {
         assert_eq!(args.effective_backend(), Backend::App);
     }
 
+    fn huge_browser_url() -> String {
+        let path = "path/".repeat(10_000);
+        let mut url = String::with_capacity("HTTPS://example.com/".len() + path.len());
+        url.push_str("HTTPS://example.com/");
+        url.push_str(&path);
+        url
+    }
+
+    #[test]
+    fn huge_browser_url_builds_directly() {
+        let url = huge_browser_url();
+        assert!(url.starts_with("HTTPS://example.com/path/path/"));
+        assert!(url.ends_with("path/"));
+        assert_eq!(url.capacity(), url.len());
+    }
+
     #[test]
     fn browser_target_detection_uses_bounded_prefix_matching() {
-        let huge_url = format!("HTTPS://example.com/{}", "path/".repeat(10_000));
+        let huge_url = huge_browser_url();
         assert!(looks_like_browser_target(&huge_url));
         assert!(looks_like_browser_target("DATA:text/plain,hello"));
         assert!(looks_like_browser_target("About:blank"));
