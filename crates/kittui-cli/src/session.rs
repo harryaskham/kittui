@@ -4144,6 +4144,8 @@ fn native_pane_statuses(
                 title: native_pane_display_title(pane),
                 focused: idx == focused,
                 weight: pane.weight,
+                stack_index: Some(idx.min(u16::MAX as usize) as u16),
+                stack_top: Some(idx + 1 == panes.len()),
                 pid: pane.pid,
                 command: Some(pane.command.clone()),
                 x: layout.map(|l| l.x),
@@ -6540,6 +6542,8 @@ mod native_pane_tests {
             title: "shell".to_string(),
             focused: true,
             weight: 1,
+            stack_index: Some(0),
+            stack_top: Some(true),
             pid: Some(42),
             command: Some("sh".to_string()),
             x: Some(0),
@@ -11786,6 +11790,8 @@ mod native_pane_tests {
         assert_eq!(statuses[1].window, "native-2");
         assert_eq!(statuses[1].title, "editor");
         assert_eq!(statuses[1].weight, 3);
+        assert_eq!(statuses[1].stack_index, Some(1));
+        assert_eq!(statuses[1].stack_top, Some(true));
         assert_eq!(statuses[1].pid, Some(202));
         assert_eq!(statuses[1].command.as_deref(), Some("editor-cmd"));
         let layout = layouts[1];

@@ -2140,6 +2140,12 @@ pub struct NativePaneDetail {
     pub focused: bool,
     /// Layout weight.
     pub weight: u16,
+    /// Zero-based visual stack index; larger values are above smaller values.
+    #[serde(default)]
+    pub stack_index: Option<u16>,
+    /// Whether this pane is currently topmost in the visual stack.
+    #[serde(default)]
+    pub stack_top: Option<bool>,
     /// Process id, if known.
     #[serde(default)]
     pub pid: Option<u32>,
@@ -2267,6 +2273,16 @@ impl NativePaneDetail {
     /// App/content bounds as `(x, y, cols, rows)` when geometry is available.
     pub fn app_bounds(&self) -> Option<(u16, u16, u16, u16)> {
         Some((self.app_x?, self.app_y?, self.app_cols?, self.app_rows?))
+    }
+
+    /// Zero-based visual stack index when reported.
+    pub fn stack_index(&self) -> Option<u16> {
+        self.stack_index
+    }
+
+    /// Whether this pane is reported as topmost in the current visual stack.
+    pub fn is_stack_top(&self) -> bool {
+        self.stack_top.unwrap_or(false)
     }
 
     /// Cursor position as `(col, row)` when reported.
@@ -4498,6 +4514,8 @@ mod tests {
                 "title": "shell",
                 "focused": true,
                 "weight": 2,
+                "stack_index": 3,
+                "stack_top": true,
                 "pid": 123,
                 "command": "/bin/sh",
                 "x": 0,
@@ -4536,6 +4554,8 @@ mod tests {
         let pane = &panes.panes_detail[0];
         assert_eq!(pane.cursor_col, Some(4));
         assert_eq!(pane.mouse_sgr, Some(true));
+        assert_eq!(pane.stack_index(), Some(3));
+        assert!(pane.is_stack_top());
         assert_eq!(pane.bounds(), Some((0, 0, 80, 24)));
         assert_eq!(pane.app_bounds(), Some((0, 1, 80, 23)));
         assert_eq!(pane.cursor_position(), Some((4, 5)));
@@ -6350,6 +6370,8 @@ mod tests {
             title: "shell".to_string(),
             focused: true,
             weight: 1,
+            stack_index: Some(0),
+            stack_top: Some(true),
             pid: Some(999999),
             command: Some("zsh".to_string()),
             x: None,

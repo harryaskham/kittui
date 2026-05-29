@@ -145,6 +145,10 @@ pub struct NativePaneStatus {
     pub focused: bool,
     pub weight: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_index: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_top: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
@@ -1983,10 +1987,14 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} app_cursor={} mouse={} layout={} title={:?}",
+            "  window={} focused={} weight={} stack={} top={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} app_cursor={} mouse={} layout={} title={:?}",
             pane.window,
             pane.focused,
             pane.weight,
+            pane.stack_index
+                .map(|stack| stack.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            native_pane_bool_label(pane.stack_top),
             pane.pid
                 .map(|pid| pid.to_string())
                 .unwrap_or_else(|| "-".to_string()),
@@ -3524,6 +3532,8 @@ mod tests {
             title: window.to_string(),
             focused,
             weight,
+            stack_index: None,
+            stack_top: None,
             pid: None,
             command: Some("/bin/sh".to_string()),
             x: None,
@@ -3865,6 +3875,8 @@ mod tests {
             title: "shell".to_string(),
             focused: true,
             weight: 1,
+            stack_index: Some(0),
+            stack_top: Some(true),
             pid: None,
             command: None,
             x: None,
@@ -3913,6 +3925,8 @@ mod tests {
             title: "shell".to_string(),
             focused: true,
             weight: 1,
+            stack_index: Some(0),
+            stack_top: Some(true),
             pid: None,
             command: None,
             x: None,
@@ -4397,6 +4411,8 @@ mod tests {
                 title: "shell".to_string(),
                 focused: false,
                 weight: 1,
+                stack_index: Some(0),
+                stack_top: Some(false),
                 pid: Some(101),
                 command: Some("/bin/sh".to_string()),
                 x: Some(0),
@@ -4425,6 +4441,8 @@ mod tests {
                 title: "htop".to_string(),
                 focused: true,
                 weight: 3,
+                stack_index: Some(1),
+                stack_top: Some(true),
                 pid: Some(202),
                 command: Some("htop".to_string()),
                 x: Some(40),
@@ -4457,11 +4475,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on app_cursor=on mouse=basic,button-motion,sgr layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 stack=0 top=off pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on app_cursor=on mouse=basic,button-motion,sgr layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off app_cursor=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 stack=1 top=on pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off app_cursor=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let chrome_json: serde_json::Value =
@@ -4482,6 +4500,8 @@ mod tests {
         assert_eq!(status_json["chrome"]["tilable_rows"], 23);
         assert_eq!(status_json["focused_pane"]["window"], "native-2");
         assert_eq!(status_json["focused_pane"]["weight"], 3);
+        assert_eq!(status_json["focused_pane"]["stack_index"], 1);
+        assert_eq!(status_json["focused_pane"]["stack_top"], true);
         assert_eq!(status_json["focused_pane"]["pid"], 202);
         assert_eq!(status_json["focused_pane"]["command"], "htop");
         assert_eq!(status_json["focused_pane"]["app_cols"], 80);
@@ -4503,6 +4523,8 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["window"], "native-2");
         assert_eq!(panes_json["panes_detail"][1]["focused"], true);
         assert_eq!(panes_json["panes_detail"][1]["weight"], 3);
+        assert_eq!(panes_json["panes_detail"][1]["stack_index"], 1);
+        assert_eq!(panes_json["panes_detail"][1]["stack_top"], true);
         assert_eq!(panes_json["panes_detail"][1]["x"], 40);
         assert_eq!(panes_json["panes_detail"][1]["app_cols"], 80);
         assert_eq!(panes_json["panes_detail"][1]["cursor_col"], 12);
