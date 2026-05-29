@@ -2848,10 +2848,7 @@ fn process_native_terminal_byte(
                     let new_focus = next_native_focus(*focused, panes.len());
                     native_set_focus(panes, focused, new_focus)?;
                     *clear = true;
-                    dbg.log(&format!(
-                        "native terminal focus: {}",
-                        panes[*focused].window
-                    ));
+                    dbg.log(&native_keyboard_focus_log_line(&panes[*focused].window));
                 }
             }
             b'x' | b'X' => {
@@ -4435,6 +4432,13 @@ fn native_forwarded_host_sequence_log_line(window: &str, bytes: usize) -> String
     out.push_str(window);
     out.push_str(" bytes=");
     let _ = write!(out, "{bytes}");
+    out
+}
+
+fn native_keyboard_focus_log_line(window: &str) -> String {
+    let mut out = String::with_capacity("native terminal focus: ".len() + window.len());
+    out.push_str("native terminal focus: ");
+    out.push_str(window);
     out
 }
 
@@ -10673,6 +10677,13 @@ mod native_pane_tests {
             "native terminal forwarded host sequence: window=native-2 bytes=128"
         );
         assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_keyboard_focus_log_line_builds_directly() {
+        let line = native_keyboard_focus_log_line("native-3");
+        assert_eq!(line, "native terminal focus: native-3");
+        assert_eq!(line.capacity(), line.len());
     }
 
     #[test]
