@@ -2962,6 +2962,35 @@ impl NonblockingStdinGuard {
     }
 }
 
+fn kittwm_record_default_out_dir(ts: u64) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("/tmp/kittwm-record-".len() + 20);
+    out.push_str("/tmp/kittwm-record-");
+    let _ = write!(out, "{ts}");
+    out
+}
+
+fn kittwm_record_frame_path(out_dir: &str, frame: u32, window: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(out_dir.len() + "/frame--win.png".len() + 5 + 20);
+    out.push_str(out_dir);
+    out.push_str("/frame-");
+    let _ = write!(out, "{frame:05}");
+    out.push_str("-win");
+    let _ = write!(out, "{window}");
+    out.push_str(".png");
+    out
+}
+
+fn kittwm_record_apng_path(out_dir: &str) -> String {
+    let mut out = String::with_capacity(out_dir.len() + "/kittwm.apng".len());
+    out.push_str(out_dir);
+    out.push_str("/kittwm.apng");
+    out
+}
+
 #[cfg(all(target_os = "macos", feature = "quartz"))]
 fn record_cmd(cli: &Cli) -> Result<()> {
     use kittui_quartz::QuartzServer;
@@ -2974,7 +3003,7 @@ fn record_cmd(cli: &Cli) -> Result<()> {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        format!("/tmp/kittwm-record-{ts}")
+        kittwm_record_default_out_dir(ts)
     });
     std::fs::create_dir_all(&out_dir)?;
 
@@ -3015,7 +3044,7 @@ fn record_cmd(cli: &Cli) -> Result<()> {
                 }
             } else {
                 let png = kittui_render_cpu::encode_png(&pm);
-                let path = format!("{out_dir}/frame-{:05}-win{}.png", i, j);
+                let path = kittwm_record_frame_path(&out_dir, i, j);
                 std::fs::write(&path, png)?;
             }
         }
@@ -3033,7 +3062,7 @@ fn record_cmd(cli: &Cli) -> Result<()> {
         apng_frames.retain(|p| p.width() == w && p.height() == h);
         let delays: Vec<u32> = vec![delay_ms; apng_frames.len()];
         let bytes = kittui_render_cpu::encode_apng(&apng_frames, &delays, 0);
-        let path = format!("{out_dir}/kittwm.apng");
+        let path = kittwm_record_apng_path(&out_dir);
         std::fs::write(&path, bytes)?;
         eprintln!("  wrote APNG: {path}");
     }
@@ -10521,6 +10550,21 @@ mod tests {
             }
         }
         std::env::remove_var("KITTWM_INFO_COLS");
+    }
+
+    #[test]
+    fn record_paths_build_directly() {
+        let dir = kittwm_record_default_out_dir(12345);
+        assert_eq!(dir, "/tmp/kittwm-record-12345");
+        assert!(dir.capacity() >= dir.len());
+
+        let frame = kittwm_record_frame_path(&dir, 7, 3);
+        assert_eq!(frame, "/tmp/kittwm-record-12345/frame-00007-win3.png");
+        assert!(frame.capacity() >= frame.len());
+
+        let apng = kittwm_record_apng_path(&dir);
+        assert_eq!(apng, "/tmp/kittwm-record-12345/kittwm.apng");
+        assert_eq!(apng.capacity(), apng.len());
     }
 
     #[test]
