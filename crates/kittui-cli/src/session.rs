@@ -7141,6 +7141,17 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn launcher_action_status_line_builds_directly() {
+        let selection = LauncherSelection {
+            kind: LauncherKind::Shell,
+            command: "echo hi".to_string(),
+        };
+        let line = launcher_action_status_line(&selection);
+        assert_eq!(line, "launcher.launch shell:echo hi");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn launcher_overlay_selected_log_line_builds_directly() {
         let line = launcher_overlay_selected_log_line(LauncherKind::Path, "htop", 99);
         assert_eq!(
@@ -12648,6 +12659,17 @@ fn split_launcher_overlay_opened_log_line(query: &str) -> String {
     out
 }
 
+fn launcher_action_status_line(selection: &LauncherSelection) -> String {
+    let kind = selection.kind_name();
+    let mut out =
+        String::with_capacity("launcher.launch :".len() + kind.len() + selection.command.len());
+    out.push_str("launcher.launch ");
+    out.push_str(kind);
+    out.push(':');
+    out.push_str(&selection.command);
+    out
+}
+
 fn launcher_overlay_selected_log_line(kind: LauncherKind, command: &str, pid: u32) -> String {
     use std::fmt::Write as _;
 
@@ -12922,11 +12944,7 @@ pub fn run_loop_with<S: XServer>(
                             Some(sel) => match launch_selection(&sel) {
                                 Ok(pid) => {
                                     last_launch_pid = Some(pid);
-                                    last_keymap_action = Some(format!(
-                                        "launcher.launch {}:{}",
-                                        sel.kind_name(),
-                                        sel.command
-                                    ));
+                                    last_keymap_action = Some(launcher_action_status_line(&sel));
                                     dbg.log(&launcher_overlay_selected_log_line(
                                         sel.kind,
                                         &sel.command,
