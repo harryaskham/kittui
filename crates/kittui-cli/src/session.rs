@@ -10027,6 +10027,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn picker_mac_window_entry_builds_directly() {
+        let entry = picker_mac_window_entry("Safari", "Docs");
+        assert_eq!(entry, "mac: Safari — Docs");
+        assert!(entry.capacity() >= entry.len());
+    }
+
+    #[test]
     fn graphical_launcher_and_picker_overlay_scenes_expose_selection_rows() {
         let launcher = LauncherOverlay {
             active: true,
@@ -14868,6 +14875,15 @@ impl QuitConfirmOverlay {
     }
 }
 
+fn picker_mac_window_entry(owner_name: &str, title: &str) -> String {
+    let mut entry = String::with_capacity("mac:  — ".len() + owner_name.len() + title.len());
+    entry.push_str("mac: ");
+    entry.push_str(owner_name);
+    entry.push_str(" — ");
+    entry.push_str(title);
+    entry
+}
+
 impl PickerOverlay {
     fn open(&mut self) {
         self.active = true;
@@ -14885,7 +14901,7 @@ impl PickerOverlay {
                 .take(8)
             {
                 self.entries
-                    .push(format!("mac: {} — {}", w.owner_name, w.title));
+                    .push(picker_mac_window_entry(&w.owner_name, &w.title));
             }
         }
     }
