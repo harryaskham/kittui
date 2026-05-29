@@ -1571,7 +1571,9 @@ fn friendly_unknown_command_error(command: &str) -> anyhow::Error {
         msg.push_str("\n\nDid you mean?\n  kittwm ");
         msg.push_str(suggestion);
     }
-    msg.push_str("\n\nStart here:\n  kittwm quickstart\n  kittwm --help\n  kittwm help topics\n");
+    msg.push_str(
+        "\n\nStart here:\n  kittwm quickstart\n  kittwm examples\n  kittwm cheat\n  kittwm --help\n  kittwm help topics\n",
+    );
     anyhow!(msg)
 }
 
@@ -8821,6 +8823,8 @@ mod tests {
         assert!(err.contains("Did you mean?"), "{err}");
         assert!(err.contains("kittwm panes"), "{err}");
         assert!(err.contains("kittwm quickstart"), "{err}");
+        assert!(err.contains("kittwm examples"), "{err}");
+        assert!(err.contains("kittwm cheat"), "{err}");
         assert!(err.contains("kittwm help topics"), "{err}");
     }
 
