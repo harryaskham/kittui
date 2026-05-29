@@ -678,9 +678,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                     &last_chrome_reservation,
                                 )?;
                                 clear = true;
-                                dbg.log(&format!(
-                                    "native terminal socket split: target={window} axis={} command={command}",
-                                    axis.label()
+                                dbg.log(&native_socket_split_log_line(
+                                    &window,
+                                    axis.label(),
+                                    &command,
                                 ));
                             }
                             Err(err) => dbg.log(&native_spawn_failure_log_line(&command, &err)),
@@ -4163,6 +4164,22 @@ fn native_socket_rename_log_line(window: &str, title: &str) -> String {
     out.push_str(window);
     out.push_str(" -> ");
     out.push_str(title);
+    out
+}
+
+fn native_socket_split_log_line(window: &str, axis: &str, command: &str) -> String {
+    let mut out = String::with_capacity(
+        "native terminal socket split: target= axis= command=".len()
+            + window.len()
+            + axis.len()
+            + command.len(),
+    );
+    out.push_str("native terminal socket split: target=");
+    out.push_str(window);
+    out.push_str(" axis=");
+    out.push_str(axis);
+    out.push_str(" command=");
+    out.push_str(command);
     out
 }
 
@@ -10192,6 +10209,22 @@ mod native_pane_tests {
         assert_eq!(
             line.capacity(),
             "native terminal socket rename:  -> ".len() + "native-1".len() + "editor".len()
+        );
+    }
+
+    #[test]
+    fn native_socket_split_log_line_builds_directly() {
+        let line = native_socket_split_log_line("native-1", "rows", "zsh -l");
+        assert_eq!(
+            line,
+            "native terminal socket split: target=native-1 axis=rows command=zsh -l"
+        );
+        assert_eq!(
+            line.capacity(),
+            "native terminal socket split: target= axis= command=".len()
+                + "native-1".len()
+                + "rows".len()
+                + "zsh -l".len()
         );
     }
 
