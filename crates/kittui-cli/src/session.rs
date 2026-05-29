@@ -6567,6 +6567,17 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn keymap_reload_failed_log_line_builds_directly() {
+        let err = anyhow!("missing keymap");
+        let line = keymap_reload_failed_log_line(&err);
+        assert_eq!(
+            line,
+            "keymap reload failed, keeping previous keymap: missing keymap"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11347,6 +11358,16 @@ fn compose_error_log_line(message: &str) -> String {
     out
 }
 
+fn keymap_reload_failed_log_line(err: &dyn std::fmt::Display) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("keymap reload failed, keeping previous keymap: ".len() + 80);
+    out.push_str("keymap reload failed, keeping previous keymap: ");
+    let _ = write!(out, "{err}");
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11698,7 +11719,7 @@ pub fn run_loop_with<S: XServer>(
                                         }
                                         Err(e) => {
                                             let msg = config_state.reload_err(&e.to_string());
-                                            dbg.log(&format!("keymap reload failed, keeping previous keymap: {e}"));
+                                            dbg.log(&keymap_reload_failed_log_line(&e));
                                             msg
                                         }
                                     };
