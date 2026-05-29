@@ -7127,6 +7127,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn picker_select_status_line_builds_directly() {
+        let line = picker_select_status_line("window native-1");
+        assert_eq!(line, "picker.select window native-1");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn picker_selected_log_line_builds_directly() {
         let line = picker_selected_log_line("window native-1");
         assert_eq!(line, "picker selected window native-1");
@@ -12670,6 +12677,13 @@ fn layout_action_log_line(message: &str) -> String {
     out
 }
 
+fn picker_select_status_line(label: &str) -> String {
+    let mut out = String::with_capacity("picker.select ".len() + label.len());
+    out.push_str("picker.select ");
+    out.push_str(label);
+    out
+}
+
 fn picker_selected_log_line(label: &str) -> String {
     let mut out = String::with_capacity("picker selected ".len() + label.len());
     out.push_str("picker selected ");
@@ -12964,10 +12978,8 @@ pub fn run_loop_with<S: XServer>(
                         continue;
                     }
                     OverlayEvent::Launch => {
-                        last_keymap_action = Some(format!(
-                            "picker.select {}",
-                            picker_overlay.selection_label()
-                        ));
+                        last_keymap_action =
+                            Some(picker_select_status_line(&picker_overlay.selection_label()));
                         dbg.log(&picker_selected_log_line(&picker_overlay.selection_label()));
                         picker_overlay.active = false;
                         continue;
