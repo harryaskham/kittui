@@ -8289,7 +8289,7 @@ fn write_duplicate_action_labels(
 fn remote_apps_cmd(cli: &Cli, host: &str) -> Result<()> {
     if cli.apps_scene_json || cli.apps_kitty {
         return Err(anyhow!(
-            "remote apps currently supports text/json/first/launch-first; run `ssh {host} kittwm apps-kitty` when remote kittwm is installed"
+            "remote apps currently supports text/json/first/launch-first/json launch-first; run `ssh {host} kittwm apps-kitty` when remote kittwm is installed"
         ));
     }
     let limit = cli.apps_limit.unwrap_or(50);
@@ -8369,16 +8369,19 @@ enum RemoteAppsMode {
     Json,
     First,
     LaunchFirst,
+    LaunchFirstJson,
 }
 
 impl RemoteAppsMode {
     fn requests_graphical_forwarding(self) -> bool {
-        matches!(self, Self::LaunchFirst)
+        matches!(self, Self::LaunchFirst | Self::LaunchFirstJson)
     }
 }
 
 fn remote_apps_mode(cli: &Cli) -> RemoteAppsMode {
-    if cli.apps_launch_first {
+    if cli.apps_launch_first && cli.json {
+        RemoteAppsMode::LaunchFirstJson
+    } else if cli.apps_launch_first {
         RemoteAppsMode::LaunchFirst
     } else if cli.apps_first {
         RemoteAppsMode::First
@@ -8407,6 +8410,7 @@ fn remote_apps_env(
                 RemoteAppsMode::Json => "json",
                 RemoteAppsMode::First => "first",
                 RemoteAppsMode::LaunchFirst => "launch-first",
+                RemoteAppsMode::LaunchFirstJson => "launch-first-json",
             }
             .to_string(),
         ),
@@ -8694,7 +8698,7 @@ case "$mode" in
         label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
         printf '%s:%s\n' "$kind" "$label"
         ;;
-    launch-first)
+    launch-first|launch-first-json)
         candidate=$(kittwm_remote_candidates | head -n 1)
         [ -n "$candidate" ] || { echo "ERR no remote app candidates matched"; exit 1; }
         kind=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $1}')
@@ -8743,7 +8747,11 @@ case "$mode" in
             launch_pid=$!
             launch_method="path"
         fi
-        printf 'kittwm remote apps: launched pid=%s kind=%s method=%s name=%s host=%s\n' "$launch_pid" "$kind" "$launch_method" "$label" "$host"
+        if [ "$mode" = "launch-first-json" ]; then
+            printf '{"host":%s,"mode":"launch-first","filter":%s,"kind":%s,"method":%s,"name":%s,"pid":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$launch_method" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(printf '%s' "$launch_pid" | json_escape)"
+        else
+            printf 'kittwm remote apps: launched pid=%s kind=%s method=%s name=%s host=%s\n' "$launch_pid" "$kind" "$launch_method" "$label" "$host"
+        fi
         ;;
     *)
         printf 'kittwm remote apps\n==================\nhost: %s\nmode: shell-path-macos-linux-desktop\n' "$host"
@@ -12094,6 +12102,28 @@ mod tests {
         assert!(env.contains(&("KITTWM_REMOTE_LIMIT".to_string(), "7".to_string())));
         assert!(env.contains(&("KITTWM_REMOTE_MODE".to_string(), "launch-first".to_string())));
         assert!(remote_apps_mode(&cli).requests_graphical_forwarding());
+        let json_launch_cli = Cli {
+            apps: true,
+            apps_launch_first: true,
+            json: true,
+            apps_filter: Some("Visual Studio Code".to_string()),
+            apps_limit: Some(7),
+            ..Cli::default()
+        };
+        assert_eq!(
+            remote_apps_mode(&json_launch_cli),
+            RemoteAppsMode::LaunchFirstJson
+        );
+        assert!(remote_apps_env(
+            json_launch_cli.apps_filter.as_deref(),
+            7,
+            remote_apps_mode(&json_launch_cli)
+        )
+        .contains(&(
+            "KITTWM_REMOTE_MODE".to_string(),
+            "launch-first-json".to_string()
+        )));
+        assert!(remote_apps_mode(&json_launch_cli).requests_graphical_forwarding());
         let args = pooled_ssh_args_with_forwarding(
             "host.example",
             &remote_apps_env(cli.apps_filter.as_deref(), 7, remote_apps_mode(&cli)),
@@ -12169,6 +12199,10 @@ mod tests {
             "{script}"
         );
         assert!(script.contains("method=%s"), "{script}");
+        assert!(script.contains("launch-first-json"), "{script}");
+        assert!(script.contains("\"mode\":\"launch-first\""), "{script}");
+        assert!(script.contains("\"method\":"), "{script}");
+        assert!(script.contains("\"pid\":"), "{script}");
         assert!(script.contains("gtk-launch/gio failed"), "{script}");
         assert!(script.contains("index(tolower($0), q)"), "{script}");
         assert!(
