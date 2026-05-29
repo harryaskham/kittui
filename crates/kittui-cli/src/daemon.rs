@@ -4110,9 +4110,9 @@ mod tests {
 
     #[test]
     fn native_spawn_queue_wait_text_does_not_block_ping() {
-        let p = tmp_sock().with_file_name(format!(
-            "kittwm-native-concurrent-{}.sock",
-            std::process::id()
+        let p = tmp_sock().with_file_name(test_socket_filename(
+            "kittwm-native-concurrent",
+            std::process::id(),
         ));
         let _ = std::fs::remove_file(&p);
         let queue = NativeSpawnQueue::bind(p).unwrap();
