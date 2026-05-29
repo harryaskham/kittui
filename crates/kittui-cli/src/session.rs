@@ -11105,7 +11105,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_footer_status_scene_label_is_bounded() {
-        let long_status = format!("log: {}", "x".repeat(10_000));
+        let long_status = native_footer_test_long_status(10_000);
         let scene = native_footer_status_scene(CellSize::new(8, 16), 80, &long_status);
         let label = scene.layers[0].label.as_deref().unwrap_or_default();
         assert!(label.starts_with("status-bar-backdrop:log: "), "{label}");
@@ -11115,6 +11115,20 @@ mod native_pane_tests {
                 <= "status-bar-backdrop:".chars().count() + NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS
         );
         assert!(!label.contains(&"x".repeat(256)), "{label}");
+    }
+
+    #[test]
+    fn native_footer_test_long_status_builds_directly() {
+        let status = native_footer_test_long_status(4);
+        assert_eq!(status, "log: xxxx");
+        assert!(status.capacity() >= status.len());
+    }
+
+    fn native_footer_test_long_status(x_count: usize) -> String {
+        let mut status = String::with_capacity("log: ".len() + x_count);
+        status.push_str("log: ");
+        status.extend(std::iter::repeat_n('x', x_count));
+        status
     }
 
     #[test]
