@@ -881,10 +881,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         let bracketed = panes[idx].app.bracketed_paste_enabled();
                         let payload = native_paste_payload(&bytes, bracketed);
                         match panes[idx].app.send_bytes(&payload) {
-                            Ok(()) => dbg.log(&format!(
-                                "native terminal socket paste bytes: {window} bytes={} bracketed={}",
+                            Ok(()) => dbg.log(&native_socket_paste_bytes_log_line(
+                                &window,
                                 bytes.len(),
-                                bracketed
+                                bracketed,
                             )),
                             Err(err) => dbg.log(&native_socket_input_failure_log_line(
                                 &window,
@@ -4260,6 +4260,21 @@ fn native_socket_send_browser_key_log_line(window: &str, key: &str) -> String {
     out.push_str(window);
     out.push_str(" key=");
     out.push_str(key);
+    out
+}
+
+fn native_socket_paste_bytes_log_line(window: &str, bytes: usize, bracketed: bool) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal socket paste bytes:  bytes= bracketed=".len() + window.len() + 25,
+    );
+    out.push_str("native terminal socket paste bytes: ");
+    out.push_str(window);
+    out.push_str(" bytes=");
+    let _ = write!(out, "{bytes}");
+    out.push_str(" bracketed=");
+    out.push_str(if bracketed { "true" } else { "false" });
     out
 }
 
@@ -10367,6 +10382,16 @@ mod native_pane_tests {
                 + "native-browser".len()
                 + "back".len()
         );
+    }
+
+    #[test]
+    fn native_socket_paste_bytes_log_line_builds_directly() {
+        let line = native_socket_paste_bytes_log_line("native-1", 42, true);
+        assert_eq!(
+            line,
+            "native terminal socket paste bytes: native-1 bytes=42 bracketed=true"
+        );
+        assert!(line.capacity() >= line.len());
     }
 
     #[test]
