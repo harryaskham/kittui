@@ -111,6 +111,27 @@ struct PaneRegistry {
     focused: Option<u32>,
 }
 
+fn u32_decimal_len(mut value: u32) -> usize {
+    let mut len = 1;
+    while value >= 10 {
+        value /= 10;
+        len += 1;
+    }
+    len
+}
+
+fn tracked_pane_window(pane_id: u32) -> String {
+    let mut window = String::with_capacity("daemon-".len() + u32_decimal_len(pane_id));
+    write!(window, "daemon-{pane_id}").expect("write to string");
+    window
+}
+
+fn tracked_pane_layout(pane_id: u32) -> String {
+    let mut layout = String::with_capacity("tile:".len() + u32_decimal_len(pane_id));
+    write!(layout, "tile:{pane_id}").expect("write to string");
+    layout
+}
+
 impl PaneRegistry {
     fn track_spawn(&mut self, pid: u32, argv: &str) -> TrackedPane {
         self.next_id = self.next_id.saturating_add(1).max(1);
@@ -121,10 +142,10 @@ impl PaneRegistry {
         self.focused = Some(pane_id);
         let pane = TrackedPane {
             pane_id,
-            window: format!("daemon-{pane_id}"),
+            window: tracked_pane_window(pane_id),
             pid,
             argv: argv.to_string(),
-            layout: format!("tile:{pane_id}"),
+            layout: tracked_pane_layout(pane_id),
             focused: true,
         };
         self.panes.push(pane.clone());
@@ -3339,6 +3360,22 @@ mod tests {
         // Give the accept thread a moment.
         std::thread::sleep(Duration::from_millis(50));
         assert!(server.quit_requested());
+    }
+
+    #[test]
+    fn tracked_pane_labels_build_directly() {
+        assert_eq!(u32_decimal_len(0), 1);
+        assert_eq!(u32_decimal_len(9), 1);
+        assert_eq!(u32_decimal_len(10), 2);
+        assert_eq!(u32_decimal_len(123), 3);
+
+        let window = tracked_pane_window(42);
+        assert_eq!(window, "daemon-42");
+        assert_eq!(window.capacity(), window.len());
+
+        let layout = tracked_pane_layout(42);
+        assert_eq!(layout, "tile:42");
+        assert_eq!(layout.capacity(), layout.len());
     }
 
     #[test]
