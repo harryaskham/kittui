@@ -8403,6 +8403,11 @@ kittwm_remote_desktop_field_matches() {
         exit 1;
     }'
 }
+kittwm_remote_desktop_localized_values() {
+    key=$1
+    desktop=$2
+    awk -F= -v key="$key" '$1 ~ "^" key "\\[[^]]+\\]$" { print substr($0, index($0, "=") + 1) }' "$desktop" 2>/dev/null | tr '\n' ';'
+}
 kittwm_remote_list_linux_desktop_apps() {
     for root in /usr/share/applications /usr/local/share/applications "$HOME/.local/share/applications"; do
         [ -d "$root" ] || continue
@@ -8417,12 +8422,15 @@ kittwm_remote_list_linux_desktop_apps() {
             [ -n "$try_exec" ] && ! command -v "$try_exec" >/dev/null 2>&1 && continue
             id=$(basename "$desktop" .desktop)
             name=$(awk -F= '$1 == "Name" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
+            localized_names=$(kittwm_remote_desktop_localized_values Name "$desktop")
             generic_name=$(awk -F= '$1 == "GenericName" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
+            localized_generic_names=$(kittwm_remote_desktop_localized_values GenericName "$desktop")
             keywords=$(awk -F= '$1 == "Keywords" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
+            localized_keywords=$(kittwm_remote_desktop_localized_values Keywords "$desktop")
             categories=$(awk -F= '$1 == "Categories" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             exec_line=$(awk -F= '$1 == "Exec" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             [ -n "$name" ] || name="$id"
-            [ -n "$id" ] && printf 'desktop\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$exec_line" "$desktop" "$generic_name" "$keywords" "$categories"
+            [ -n "$id" ] && printf 'desktop\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$exec_line" "$desktop" "$generic_name" "$keywords" "$categories" "$localized_names" "$localized_generic_names" "$localized_keywords"
         done
     done
 }
@@ -11641,6 +11649,13 @@ mod tests {
         assert!(script.contains("gtk-launch"), "{script}");
         assert!(script.contains("gio launch"), "{script}");
         assert!(script.contains("$1 == \"Name\""), "{script}");
+        assert!(
+            script.contains("kittwm_remote_desktop_localized_values"),
+            "{script}"
+        );
+        assert!(script.contains("localized_names="), "{script}");
+        assert!(script.contains("localized_generic_names="), "{script}");
+        assert!(script.contains("localized_keywords="), "{script}");
         assert!(script.contains("$1 == \"GenericName\""), "{script}");
         assert!(script.contains("$1 == \"Keywords\""), "{script}");
         assert!(script.contains("$1 == \"Categories\""), "{script}");
