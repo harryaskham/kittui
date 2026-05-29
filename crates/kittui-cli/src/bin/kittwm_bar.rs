@@ -140,7 +140,7 @@ fn main() -> ExitCode {
 }
 
 fn kittwm_bar_usage() -> &'static str {
-    "usage: kittwm-bar [--json|--scene-json|--kitty] [--reserve|--release]\n\nRenders the kittwm top bar from the live KITTWM_SOCKET when available, or an offline fallback otherwise.\n\nOptions:\n  --json              Print the bar model as JSON\n  --scene-json        Print the kittui scene JSON\n  --kitty, --graphics Render the bar through kitty graphics\n  --reserve           Reserve the top chrome row through the kittwm socket\n  --release           Clear the current chrome reservation\n  -h, --help          Show this help text"
+    "usage: kittwm-bar [--json|--scene-json|--kitty] [--reserve|--release]\n\nRenders the kittwm top bar from the live KITTWM_SOCKET when available, or an offline fallback otherwise.\n\nOptions:\n  --json              Print the bar model as JSON\n  --scene-json        Print the kittui scene JSON\n  --kitty, --graphics Render the bar through kitty graphics\n  --reserve           Reserve the top chrome row through the kittwm socket\n  --release           Clear the current chrome reservation\n  -h, --help          Show this help text\n\nExamples:\n  kittwm-bar\n  kittwm-bar --json\n  kittwm-bar --kitty\n  kittwm-bar --reserve --kitty\n  kittwm-bar --release"
 }
 
 fn parse_options(args: impl IntoIterator<Item = String>) -> Result<BarOptions, String> {
@@ -543,6 +543,17 @@ mod tests {
         assert!(usage.starts_with("usage: kittwm-bar"), "{usage}");
         assert!(usage.contains("--scene-json"), "{usage}");
         assert!(usage.contains("--reserve"), "{usage}");
+    }
+
+    #[test]
+    fn help_text_lists_copyable_examples() {
+        let usage = kittwm_bar_usage();
+        assert!(usage.contains("Examples:"), "{usage}");
+        assert!(usage.contains("kittwm-bar\n"), "{usage}");
+        assert!(usage.contains("kittwm-bar --json"), "{usage}");
+        assert!(usage.contains("kittwm-bar --kitty"), "{usage}");
+        assert!(usage.contains("kittwm-bar --reserve --kitty"), "{usage}");
+        assert!(usage.contains("kittwm-bar --release"), "{usage}");
     }
 
     #[test]
