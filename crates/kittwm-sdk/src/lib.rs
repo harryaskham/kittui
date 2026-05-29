@@ -2310,6 +2310,26 @@ impl NativePaneDetail {
         self.title_draggable.unwrap_or(false)
     }
 
+    /// Host-cell coordinate suitable for starting a title-row drag, when available.
+    ///
+    /// Returns one-based `(col, row)` coordinates for the title row. The column is
+    /// clamped inside the pane and biased right of the focus/drag markers so SDK
+    /// automations can begin a drag without hand-computing chrome geometry.
+    pub fn title_drag_cell(&self) -> Option<(u16, u16)> {
+        if !self.is_title_draggable() {
+            return None;
+        }
+        let (x, y, cols, rows) = self.bounds()?;
+        if cols == 0 || rows == 0 {
+            return None;
+        }
+        let local_col = cols.saturating_sub(1).min(3);
+        Some((
+            x.saturating_add(local_col).saturating_add(1),
+            y.saturating_add(1),
+        ))
+    }
+
     /// Cursor position as `(col, row)` when reported.
     pub fn cursor_position(&self) -> Option<(u16, u16)> {
         Some((self.cursor_col?, self.cursor_row?))
@@ -4714,6 +4734,7 @@ mod tests {
         assert!(pane.is_stack_top());
         assert_eq!(pane.floating_offset(), Some((4, -2)));
         assert!(pane.is_title_draggable());
+        assert_eq!(pane.title_drag_cell(), Some((4, 1)));
         assert_eq!(pane.bounds(), Some((0, 0, 80, 24)));
         assert_eq!(pane.app_bounds(), Some((0, 1, 80, 23)));
         assert_eq!(pane.cursor_position(), Some((4, 5)));
@@ -4728,6 +4749,55 @@ mod tests {
         assert!(pane.has_transport_diagnostics());
         assert_eq!(pane.dirty_frame.as_ref().unwrap().changed_fraction, 0.25);
         assert_eq!(pane.transport.as_ref().unwrap()["selected"], "file");
+    }
+
+    #[test]
+    fn native_pane_title_drag_cell_requires_affordance_and_geometry() {
+        let base = NativePaneDetail {
+            window: "native-1".to_string(),
+            title: "shell".to_string(),
+            focused: true,
+            weight: 1,
+            stack_index: Some(0),
+            stack_top: Some(true),
+            floating_dx: Some(0),
+            floating_dy: Some(0),
+            title_draggable: Some(true),
+            pid: None,
+            command: None,
+            x: Some(10),
+            y: Some(4),
+            cols: Some(20),
+            rows: Some(6),
+            app_x: None,
+            app_y: None,
+            app_cols: None,
+            app_rows: None,
+            cursor_col: None,
+            cursor_row: None,
+            cursor_visible: None,
+            bracketed_paste: None,
+            application_cursor_keys: None,
+            mouse_reporting: None,
+            mouse_button_motion: None,
+            mouse_all_motion: None,
+            mouse_sgr: None,
+            dirty_frame: None,
+            transport: None,
+        };
+        assert_eq!(base.title_drag_cell(), Some((14, 5)));
+
+        let mut tiny = base.clone();
+        tiny.cols = Some(1);
+        assert_eq!(tiny.title_drag_cell(), Some((11, 5)));
+
+        let mut not_draggable = base.clone();
+        not_draggable.title_draggable = Some(false);
+        assert_eq!(not_draggable.title_drag_cell(), None);
+
+        let mut missing_geometry = base;
+        missing_geometry.x = None;
+        assert_eq!(missing_geometry.title_drag_cell(), None);
     }
 
     #[test]
