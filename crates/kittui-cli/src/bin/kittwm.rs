@@ -1084,7 +1084,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|graphical|wayland|kittwm|desktop|list|apps|launch|open|run|windows|displays|terminal|shell|ssh]
+  remote HOST [help|doctor|status|check|x11|graphical|wayland|kittwm|desktop|list|apps|app|launch|open|run|windows|displays|terminal|shell|ssh]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1477,10 +1477,14 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST list       list remote app candidates\n\
              kittwm remote HOST list apps firefox\n\
                                            list remote app matches using a natural alias\n\
+             kittwm remote HOST list app firefox\n\
+                                           singular alias for remote HOST list apps\n\
              kittwm remote HOST list windows firefox\n\
                                            list remote windows matching a query\n\
              kittwm remote HOST apps firefox\n\
                                            list remote app matches using a positional query\n\
+             kittwm remote HOST app firefox\n\
+                                           singular alias for remote HOST apps\n\
              kittwm remote HOST launch firefox\n\
                                            shortest alias for launching the first remote app match\n\
              kittwm remote HOST open firefox\n\
@@ -1587,10 +1591,12 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST desktop           alias for remote HOST kittwm\n\
              remote HOST list              list remote app candidates\n\
              remote HOST list apps QUERY    list remote app matches with a natural alias\n\
+             remote HOST list app QUERY     singular alias for remote HOST list apps\n\
              remote HOST list windows QUERY list remote windows matching a query\n\
              remote HOST list displays QUERY\n\
                                             list remote displays matching a query\n\
              remote HOST apps QUERY         list remote app matches with a positional query\n\
+             remote HOST app QUERY          singular alias for remote HOST apps\n\
              remote HOST launch QUERY       shortest alias for remote app launch\n\
              remote HOST open QUERY         natural alias for remote app launch\n\
              remote HOST run QUERY          natural alias for remote app launch\n\
@@ -4931,6 +4937,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "list remote app matches with a positional query",
         },
         LocalCommandEntry {
+            command: "remote HOST app QUERY",
+            category: "remote",
+            description: "singular alias for remote app matches",
+        },
+        LocalCommandEntry {
             command: "remote HOST launch QUERY",
             category: "remote",
             description: "shortest alias for remote app launch",
@@ -5742,6 +5753,7 @@ fn completion_words() -> &'static [&'static str] {
             "forwarding",
             "list",
             "apps",
+            "app",
             "launch",
             "open",
             "run",
@@ -10688,6 +10700,7 @@ mod tests {
         assert!(bash.contains("forwarding"), "{bash}");
         assert!(bash.contains("open"), "{bash}");
         assert!(bash.contains("run"), "{bash}");
+        assert!(bash.contains("app"), "{bash}");
 
         let zsh = completions_text("zsh").unwrap();
         assert!(zsh.contains("#compdef kittwm"), "{zsh}");
@@ -10701,6 +10714,7 @@ mod tests {
         assert!(zsh.contains("forwarding"), "{zsh}");
         assert!(zsh.contains("open"), "{zsh}");
         assert!(zsh.contains("run"), "{zsh}");
+        assert!(zsh.contains("app"), "{zsh}");
 
         let fish = completions_text("fish").unwrap();
         assert!(fish.contains("complete -c kittwm"), "{fish}");
@@ -10715,6 +10729,7 @@ mod tests {
         assert!(fish.contains("forwarding"), "{fish}");
         assert!(fish.contains("open"), "{fish}");
         assert!(fish.contains("run"), "{fish}");
+        assert!(fish.contains("app"), "{fish}");
         assert_eq!(fish, fish_completions_text());
         assert_eq!(fish.capacity(), fish.len());
         assert!(std::ptr::eq(completion_words(), completion_words()));
@@ -10823,6 +10838,9 @@ mod tests {
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST apps QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST app QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST launch QUERY" && entry["category"] == "remote"
@@ -11622,6 +11640,18 @@ mod tests {
         assert_eq!(app_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(app_query.apps_first);
 
+        let mut singular_app_query = Cli::default();
+        singular_app_query.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut singular_app_query,
+            "app",
+            &args(&["fire", "fox", "--first"]),
+        )
+        .unwrap();
+        assert!(singular_app_query.apps);
+        assert_eq!(singular_app_query.apps_filter.as_deref(), Some("fire fox"));
+        assert!(singular_app_query.apps_first);
+
         let mut doctor = Cli::default();
         doctor.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut doctor, "doctor", &args(&["--json"])).unwrap();
@@ -11673,6 +11703,12 @@ mod tests {
         parse_remote_alias_action(&mut list_apps, "list", &args(&["apps", "terminal"])).unwrap();
         assert!(list_apps.apps);
         assert_eq!(list_apps.apps_filter.as_deref(), Some("terminal"));
+
+        let mut list_app = Cli::default();
+        list_app.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut list_app, "list", &args(&["app", "terminal"])).unwrap();
+        assert!(list_app.apps);
+        assert_eq!(list_app.apps_filter.as_deref(), Some("terminal"));
 
         let mut list_windows = Cli::default();
         list_windows.remote_host = Some("buildbox".to_string());
