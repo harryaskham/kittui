@@ -3784,9 +3784,14 @@ fn native_route_mouse_event(
     };
     let layouts =
         native_layouts_for_panes_display_mode(cols, rows, panes, *focused, axis, mode, reservation);
-    let Some((idx, local_col, local_row)) = native_pane_at_host_cell(&layouts, col, row) else {
+    let topmost_first = matches!(mode, NativePaneLayoutMode::Floating);
+    let Some((idx, local_col, local_row)) =
+        native_pane_at_host_cell_ordered(&layouts, col, row, topmost_first)
+    else {
         if should_focus {
-            if let Some(idx) = native_pane_chrome_at_host_cell(&layouts, col, row) {
+            if let Some(idx) =
+                native_pane_chrome_at_host_cell_ordered(&layouts, col, row, topmost_first)
+            {
                 native_set_focus(panes, focused, idx)?;
                 *clear = true;
             }
@@ -3845,38 +3850,67 @@ fn native_mouse_event_name_and_position(
     }
 }
 
+#[cfg(test)]
 fn native_pane_chrome_at_host_cell(
     layouts: &[NativePaneLayout],
     host_col: u16,
     host_row: u16,
 ) -> Option<usize> {
-    let col0 = host_col.checked_sub(1)?;
-    let row0 = host_row.checked_sub(1)?;
-    layouts.iter().enumerate().find_map(|(idx, layout)| {
-        let within_cols = col0 >= layout.x && col0 < layout.x.saturating_add(layout.cols);
-        let within_rows = row0 >= layout.y && row0 < layout.y.saturating_add(layout.rows);
-        (within_cols && within_rows).then_some(idx)
-    })
+    native_pane_chrome_at_host_cell_ordered(layouts, host_col, host_row, false)
 }
 
+fn native_pane_chrome_at_host_cell_ordered(
+    layouts: &[NativePaneLayout],
+    host_col: u16,
+    host_row: u16,
+    topmost_first: bool,
+) -> Option<usize> {
+    let col0 = host_col.checked_sub(1)?;
+    let row0 = host_row.checked_sub(1)?;
+    let hit = |layout: &NativePaneLayout| {
+        let within_cols = col0 >= layout.x && col0 < layout.x.saturating_add(layout.cols);
+        let within_rows = row0 >= layout.y && row0 < layout.y.saturating_add(layout.rows);
+        within_cols && within_rows
+    };
+    if topmost_first {
+        (0..layouts.len()).rev().find(|idx| hit(&layouts[*idx]))
+    } else {
+        layouts.iter().position(hit)
+    }
+}
+
+#[cfg(test)]
 fn native_pane_at_host_cell(
     layouts: &[NativePaneLayout],
     host_col: u16,
     host_row: u16,
 ) -> Option<(usize, u16, u16)> {
+    native_pane_at_host_cell_ordered(layouts, host_col, host_row, false)
+}
+
+fn native_pane_at_host_cell_ordered(
+    layouts: &[NativePaneLayout],
+    host_col: u16,
+    host_row: u16,
+    topmost_first: bool,
+) -> Option<(usize, u16, u16)> {
     let col0 = host_col.checked_sub(1)?;
     let row0 = host_row.checked_sub(1)?;
-    layouts.iter().enumerate().find_map(|(idx, layout)| {
+    let hit = |idx: usize| {
+        let layout = layouts.get(idx)?;
         let within_cols =
             col0 >= layout.app_x && col0 < layout.app_x.saturating_add(layout.app_cols);
         let within_rows =
             row0 >= layout.app_y && row0 < layout.app_y.saturating_add(layout.app_rows);
-        if within_cols && within_rows {
-            Some((idx, col0 - layout.app_x + 1, row0 - layout.app_y + 1))
-        } else {
-            None
-        }
-    })
+        within_cols.then_some(())?;
+        within_rows.then_some(())?;
+        Some((idx, col0 - layout.app_x + 1, row0 - layout.app_y + 1))
+    };
+    if topmost_first {
+        (0..layouts.len()).rev().find_map(hit)
+    } else {
+        (0..layouts.len()).find_map(hit)
+    }
 }
 
 fn native_surface_pointer_events(event: &str, col: u16, row: u16) -> Vec<SurfacePointerEvent> {
@@ -7840,6 +7874,57 @@ mod native_pane_tests {
         )
         .unwrap());
         assert_eq!(focused, 1);
+    }
+
+    #[test]
+    fn native_route_mouse_uses_topmost_floating_pane_for_overlap() {
+        let mut panes = vec![
+            dummy_native_pane("native-1", "bottom", 1),
+            dummy_native_pane("native-2", "top", 1),
+        ];
+        let mut focused = 0usize;
+        let mut clear = false;
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        let layouts = native_layouts_for_panes_display_mode(
+            80,
+            24,
+            &panes,
+            focused,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+        );
+        let top = layouts[1];
+        let host_col = top.app_x + 1;
+        let host_row = top.app_y + 1;
+        assert_eq!(
+            native_pane_at_host_cell_ordered(&layouts, host_col, host_row, false).map(|hit| hit.0),
+            Some(0)
+        );
+        assert_eq!(
+            native_pane_at_host_cell_ordered(&layouts, host_col, host_row, true).map(|hit| hit.0),
+            Some(1)
+        );
+
+        assert!(native_route_mouse_event(
+            &InputEvent::MousePress {
+                col: host_col,
+                row: host_row,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+            &mut clear,
+        )
+        .unwrap());
+        assert_eq!(focused, 1);
+        assert!(clear);
     }
 
     #[test]
