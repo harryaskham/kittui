@@ -431,7 +431,7 @@ fn parse_args() -> Result<Cli> {
             }
             "focus" | "close" | "layout" | "move" | "raise" | "lower" | "nudge"
             | "reset-position" | "reset-offset" | "reset-positions" | "reset-offsets"
-            | "resize" | "balance" | "rename" => {
+            | "resize" | "balance" | "reset-weights" | "reset-weight" | "rename" => {
                 out.automation_request = Some(parse_pane_control_alias(a.as_str(), args.by_ref())?);
                 break;
             }
@@ -877,7 +877,9 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--resize-pane WINDOW|focused AMOUNT"))?;
                 out.automation_request = Some(resize_pane_request(&window, &amount)?);
             }
-            "--balance-panes" => out.automation_request = Some("BALANCE_PANES".to_string()),
+            "--balance-panes" | "--reset-pane-weights" => {
+                out.automation_request = Some("BALANCE_PANES".to_string())
+            }
             "--rename-pane" => {
                 let window = args
                     .next()
@@ -1038,6 +1040,7 @@ PANE CONTROL
   reset-positions             Reset all floating panes to generated positions
   resize [WINDOW] AMOUNT      Alias for --resize-pane (default focused)
   balance                     Alias for --balance-panes
+  reset-weights               Alias for --balance-panes
   rename WINDOW TITLE         Alias for --rename-pane
   --spawn-pty CMD             Spawn a terminal pane
   --focus-pane WINDOW         Focus pane by id, or use focused
@@ -1050,6 +1053,7 @@ PANE CONTROL
   --reset-all-pane-offsets    Reset every floating pane offset
   --resize-pane WINDOW N      N: grow/shrink/+N/-N
   --balance-panes             Equalize pane weights
+  --reset-pane-weights        Alias for --balance-panes
   --rename-pane WINDOW TITLE  Set pane display title
 
 INPUT AND AUTOMATION
@@ -1393,6 +1397,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 \
              balance                        equalize weights
 \
+             reset-weights                  reset pane weights
+\
              rename WINDOW TITLE            set display title
 \
              --focus-pane WINDOW            focus window or focused token
@@ -1414,6 +1420,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --resize-pane WINDOW AMOUNT    grow/shrink/+N/-N pane weight
 \
              --balance-panes                equalize weights
+\
+             --reset-pane-weights           reset pane weights
 \
              --rename-pane WINDOW TITLE     set display title
 \
@@ -2206,7 +2214,7 @@ fn parse_pane_control_alias(alias: &str, mut args: impl Iterator<Item = String>)
             };
             resize_pane_request(&window, &amount)?
         }
-        "balance" => "BALANCE_PANES".to_string(),
+        "balance" | "reset-weights" | "reset-weight" => "BALANCE_PANES".to_string(),
         "rename" => {
             let window = next().ok_or_else(|| anyhow!("kittwm rename WINDOW TITLE"))?;
             let title = next().ok_or_else(|| anyhow!("kittwm rename WINDOW TITLE"))?;
@@ -4832,6 +4840,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "equalize pane weights",
         },
         LocalCommandEntry {
+            command: "reset-weights",
+            category: "panes",
+            description: "reset pane weights",
+        },
+        LocalCommandEntry {
             command: "rename WINDOW TITLE",
             category: "panes",
             description: "set pane title",
@@ -5734,6 +5747,7 @@ fn completion_words() -> &'static [&'static str] {
             "--nudge-pane",
             "--reset-pane-offset",
             "--reset-all-pane-offsets",
+            "--reset-pane-weights",
             "--wait-output-json-ms",
         ]);
         words.sort_unstable();
@@ -10636,6 +10650,7 @@ mod tests {
         assert!(bash.contains("--nudge-pane"), "{bash}");
         assert!(bash.contains("--reset-pane-offset"), "{bash}");
         assert!(bash.contains("--reset-all-pane-offsets"), "{bash}");
+        assert!(bash.contains("--reset-pane-weights"), "{bash}");
         assert!(bash.contains("--panes-json"), "{bash}");
         assert!(bash.contains("--remote"), "{bash}");
         assert!(bash.contains("--launch-first"), "{bash}");
@@ -14013,6 +14028,7 @@ END
         assert!(text.contains("nudge [WINDOW] DX DY"), "{text}");
         assert!(text.contains("reset-position [WINDOW]"), "{text}");
         assert!(text.contains("reset-positions"), "{text}");
+        assert!(text.contains("reset-weights"), "{text}");
         assert!(text.contains("--wait-output-json-ms"), "{text}");
         assert!(
             text.contains(
@@ -14147,6 +14163,7 @@ END
         );
         assert!(text.contains("SPLIT_PANE"), "{text}");
         assert!(text.contains("--balance-panes"), "{text}");
+        assert!(text.contains("--reset-pane-weights"), "{text}");
         assert!(!text.contains("--probe-kitty"), "{text}");
     }
 
@@ -14157,6 +14174,7 @@ END
         assert!(text.contains("kittwm split focused columns htop"), "{text}");
         assert!(text.contains("kittwm focus next"), "{text}");
         assert!(text.contains("kittwm balance"), "{text}");
+        assert!(text.contains("reset-weights"), "{text}");
     }
 
     #[test]
@@ -14400,6 +14418,14 @@ END
             "BALANCE_PANES"
         );
         assert_eq!(
+            parse_pane_control_alias("reset-weights", Vec::<String>::new().into_iter()).unwrap(),
+            "BALANCE_PANES"
+        );
+        assert_eq!(
+            parse_pane_control_alias("reset-weight", Vec::<String>::new().into_iter()).unwrap(),
+            "BALANCE_PANES"
+        );
+        assert_eq!(
             parse_pane_control_alias("rename", args(&["native-2", "Editor"]).into_iter()).unwrap(),
             "RENAME_PANE native-2 Editor"
         );
@@ -14409,6 +14435,7 @@ END
     fn pane_control_aliases_reject_bad_inputs() {
         assert!(parse_pane_control_alias("focus", Vec::<String>::new().into_iter()).is_err());
         assert!(parse_pane_control_alias("balance", args(&["extra"]).into_iter()).is_err());
+        assert!(parse_pane_control_alias("reset-weights", args(&["extra"]).into_iter()).is_err());
         assert!(parse_pane_control_alias("layout", args(&["diagonal"]).into_iter()).is_err());
         assert!(parse_pane_control_alias("nudge", args(&["0", "0"]).into_iter()).is_err());
         assert!(
