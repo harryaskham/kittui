@@ -8089,8 +8089,9 @@ kittwm_remote_list_linux_desktop_apps() {
         find "$root" -name '*.desktop' -type f 2>/dev/null | while IFS= read -r desktop; do
             id=$(basename "$desktop" .desktop)
             name=$(awk -F= '$1 == "Name" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
+            exec_line=$(awk -F= '$1 == "Exec" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             [ -n "$name" ] || name="$id"
-            [ -n "$id" ] && printf 'desktop\t%s\t%s\n' "$id" "$name"
+            [ -n "$id" ] && printf 'desktop\t%s\t%s\t%s\n' "$id" "$name" "$exec_line"
         done
     done
 }
@@ -8139,11 +8140,18 @@ case "$mode" in
         kind=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $1}')
         name=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
         label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
+        exec_line=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $4}')
         if [ "$kind" = "macos" ]; then
             open -a "$name" >/dev/null 2>&1 &
         elif [ "$kind" = "desktop" ]; then
-            command -v gtk-launch >/dev/null 2>&1 || { echo "ERR gtk-launch is required for Linux desktop entry launch"; exit 1; }
-            gtk-launch "$name" >/dev/null 2>&1 &
+            if command -v gtk-launch >/dev/null 2>&1; then
+                gtk-launch "$name" >/dev/null 2>&1 &
+            elif [ -n "$exec_line" ]; then
+                desktop_exec=$(printf '%s\n' "$exec_line" | sed -E 's/[[:space:]]+%[fFuUdDnNickvm]//g; s/%[fFuUdDnNickvm]//g')
+                sh -lc "$desktop_exec" >/dev/null 2>&1 &
+            else
+                echo "ERR gtk-launch is required for Linux desktop entry launch without Exec fallback"; exit 1
+            fi
         else
             "$name" >/dev/null 2>&1 &
         fi
@@ -11089,6 +11097,8 @@ mod tests {
         assert!(script.contains("open -a"), "{script}");
         assert!(script.contains("gtk-launch"), "{script}");
         assert!(script.contains("$1 == \"Name\""), "{script}");
+        assert!(script.contains("$1 == \"Exec\""), "{script}");
+        assert!(script.contains("desktop_exec="), "{script}");
         assert!(script.contains("index(tolower($0), q)"), "{script}");
         assert!(script.contains("\"macos_apps\":"), "{script}");
         assert!(script.contains("\"linux_desktop_apps\":"), "{script}");
