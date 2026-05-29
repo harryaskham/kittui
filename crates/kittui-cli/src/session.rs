@@ -3024,10 +3024,9 @@ fn native_launch_terminal_pane(
     native_set_focus(panes, focused, new_focus)?;
     resize_native_panes_for_layout_with_reservation(panes, cols, rows, axis, reservation)?;
     *clear = true;
-    dbg.log(&format!(
-        "native terminal launch: {} panes={}",
-        panes[*focused].window,
-        panes.len()
+    dbg.log(&native_launch_log_line(
+        &panes[*focused].window,
+        panes.len(),
     ));
     Ok(())
 }
@@ -4465,6 +4464,18 @@ fn native_resize_weight_log_line(direction: &str, window: &str, weight: u16) -> 
     out.push_str(window);
     out.push_str(" weight=");
     let _ = write!(out, "{weight}");
+    out
+}
+
+fn native_launch_log_line(window: &str, panes: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("native terminal launch:  panes=".len() + window.len() + 20);
+    out.push_str("native terminal launch: ");
+    out.push_str(window);
+    out.push_str(" panes=");
+    let _ = write!(out, "{panes}");
     out
 }
 
@@ -10811,6 +10822,13 @@ mod native_pane_tests {
         let shrink = native_resize_weight_log_line("shrink", "native-2", 1);
         assert_eq!(shrink, "native terminal resize shrink: native-2 weight=1");
         assert!(shrink.capacity() >= shrink.len());
+    }
+
+    #[test]
+    fn native_launch_log_line_builds_directly() {
+        let line = native_launch_log_line("native-1", 2);
+        assert_eq!(line, "native terminal launch: native-1 panes=2");
+        assert!(line.capacity() >= line.len());
     }
 
     #[test]
