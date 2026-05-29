@@ -5278,6 +5278,13 @@ fn native_toast_colors(message: &str) -> InlineChipColors {
 
 const NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS: usize = 96;
 
+fn native_footer_status_backdrop_label(status_label: &str) -> String {
+    let mut label = String::with_capacity("status-bar-backdrop:".len() + status_label.len());
+    label.push_str("status-bar-backdrop:");
+    label.push_str(status_label);
+    label
+}
+
 fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str) -> Scene {
     let colors = native_glass_chrome_colors();
     let cols = cols.max(1);
@@ -5291,7 +5298,7 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
     ];
     let status_label = bounded_ellipsis(status_text, NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS);
     let mut layers = vec![Layer::new(
-        format!("status-bar-backdrop:{status_label}"),
+        native_footer_status_backdrop_label(&status_label),
         Node::Rect {
             rect,
             fill: Paint::Solid {
@@ -9127,6 +9134,13 @@ mod native_pane_tests {
         assert_eq!(error.fill, base.fill);
         assert_eq!(error.fg, base.fg);
         assert_ne!(error.border, base.border);
+    }
+
+    #[test]
+    fn native_footer_status_backdrop_label_builds_directly() {
+        let label = native_footer_status_backdrop_label("footer");
+        assert_eq!(label, "status-bar-backdrop:footer");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
