@@ -714,9 +714,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             &last_chrome_reservation,
                         )?;
                         clear = true;
-                        dbg.log(&format!(
-                            "native terminal socket move: {window} {direction} -> {to}"
-                        ));
+                        dbg.log(&native_socket_move_log_line(&window, &direction, to));
                     }
                 }
                 crate::daemon::NativePaneCommand::Resize { window, delta } => {
@@ -4180,6 +4178,21 @@ fn native_socket_split_log_line(window: &str, axis: &str, command: &str) -> Stri
     out.push_str(axis);
     out.push_str(" command=");
     out.push_str(command);
+    out
+}
+
+fn native_socket_move_log_line(window: &str, direction: &str, to: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal socket move:   -> ".len() + window.len() + direction.len() + 20,
+    );
+    out.push_str("native terminal socket move: ");
+    out.push_str(window);
+    out.push(' ');
+    out.push_str(direction);
+    out.push_str(" -> ");
+    let _ = write!(out, "{to}");
     out
 }
 
@@ -10226,6 +10239,13 @@ mod native_pane_tests {
                 + "rows".len()
                 + "zsh -l".len()
         );
+    }
+
+    #[test]
+    fn native_socket_move_log_line_builds_directly() {
+        let line = native_socket_move_log_line("native-2", "right", 3);
+        assert_eq!(line, "native terminal socket move: native-2 right -> 3");
+        assert!(line.capacity() >= line.len());
     }
 
     #[test]
