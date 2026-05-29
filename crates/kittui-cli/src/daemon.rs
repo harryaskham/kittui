@@ -5438,7 +5438,7 @@ fn spawn_reply(argv: &str, path: &Path, panes: &SharedPanes) -> String {
     }
     let next_window = panes
         .lock()
-        .map(|p| format!("daemon-{}", p.next_id.saturating_add(1).max(1)))
+        .map(|p| tracked_pane_window(p.next_id.saturating_add(1).max(1)))
         .unwrap_or_else(|_| "daemon-unknown".to_string());
     match std::process::Command::new("/bin/sh")
         .arg("-lc")
