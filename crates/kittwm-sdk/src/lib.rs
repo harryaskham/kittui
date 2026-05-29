@@ -2158,6 +2158,9 @@ pub struct NativePaneDetail {
     /// Floating-pane y offset from the generated floating layout.
     #[serde(default)]
     pub floating_dy: Option<i16>,
+    /// Whether this pane has a non-zero floating offset.
+    #[serde(default)]
+    pub floating_moved: Option<bool>,
     /// Whether the pane title row is a window-manager drag handle.
     #[serde(default)]
     pub title_draggable: Option<bool>,
@@ -2313,7 +2316,9 @@ impl NativePaneDetail {
 
     /// Whether this pane has a non-zero floating offset.
     pub fn has_floating_offset(&self) -> bool {
-        matches!(self.floating_offset(), Some((dx, dy)) if dx != 0 || dy != 0)
+        self.floating_moved.unwrap_or_else(
+            || matches!(self.floating_offset(), Some((dx, dy)) if dx != 0 || dy != 0),
+        )
     }
 
     /// Whether the pane title row is reported as a window-manager drag handle.
@@ -4773,6 +4778,7 @@ mod tests {
                 "stack_top": true,
                 "floating_dx": 4,
                 "floating_dy": -2,
+                "floating_moved": true,
                 "title_draggable": true,
                 "title_drag_col": 6,
                 "title_drag_row": 2,
@@ -4832,6 +4838,7 @@ mod tests {
         assert_eq!(pane.stack_index(), Some(3));
         assert!(pane.is_stack_top());
         assert_eq!(pane.floating_offset(), Some((4, -2)));
+        assert_eq!(pane.floating_moved, Some(true));
         assert!(pane.has_floating_offset());
         assert!(pane.is_title_draggable());
         assert_eq!(pane.title_drag_cell(), Some((6, 2)));
@@ -4960,8 +4967,8 @@ mod tests {
               "focus": "native-1",
               "layout": "floating",
               "panes_detail": [
-                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"floating_dx":0,"floating_dy":0},
-                {"window":"native-2","title":"editor","focused":false,"weight":1,"stack_index":1,"title_draggable":true,"floating_dx":7,"floating_dy":-1}
+                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":false},
+                {"window":"native-2","title":"editor","focused":false,"weight":1,"stack_index":1,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":true}
               ]
             }"#,
         )
