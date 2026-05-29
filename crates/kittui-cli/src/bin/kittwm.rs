@@ -4147,7 +4147,9 @@ fn commands_text() -> String {
             let _ = writeln!(out, "  {:28} {}", entry.command, entry.description);
         }
     }
-    out.push_str("\nFor socket verbs from a running WM: kittwm --help-json\n");
+    out.push_str(
+        "\nFor socket verbs from a running WM: kittwm --help-json\nDaily workflows: kittwm examples | kittwm cheat | kittwm help topics\n",
+    );
     out
 }
 
@@ -8923,6 +8925,10 @@ mod tests {
         assert!(text.contains("LIFECYCLE"), "{text}");
         assert_eq!(text.matches("\nHELP\n").count(), 1, "{text}");
         assert_eq!(text.matches("\nDIAGNOSTICS\n").count(), 1, "{text}");
+        assert!(
+            text.contains("Daily workflows: kittwm examples | kittwm cheat | kittwm help topics"),
+            "{text}"
+        );
         assert!(text.contains("spawn CMD [ARGS...]"), "{text}");
         assert!(
             text.contains("split [WINDOW] columns|rows|grid CMD [ARGS...]"),
