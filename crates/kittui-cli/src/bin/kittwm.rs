@@ -8079,12 +8079,14 @@ kittwm_remote_list_linux_desktop_apps() {
         [ -d "$root" ] || continue
         find "$root" -name '*.desktop' -type f 2>/dev/null | while IFS= read -r desktop; do
             id=$(basename "$desktop" .desktop)
-            [ -n "$id" ] && printf 'desktop\t%s\n' "$id"
+            name=$(awk -F= '$1 == "Name" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
+            [ -n "$name" ] || name="$id"
+            [ -n "$id" ] && printf 'desktop\t%s\t%s\n' "$id" "$name"
         done
     done
 }
 kittwm_remote_candidates() {
-    { kittwm_remote_list_path_commands; kittwm_remote_list_macos_apps; kittwm_remote_list_linux_desktop_apps; } | awk -F '\t' -v q="${KITTWM_REMOTE_QUERY:-}" 'BEGIN { q=tolower(q) } !seen[$1 FS $2]++ && (q == "" || index(tolower($2), q))'
+    { kittwm_remote_list_path_commands; kittwm_remote_list_macos_apps; kittwm_remote_list_linux_desktop_apps; } | awk -F '\t' -v q="${KITTWM_REMOTE_QUERY:-}" 'BEGIN { q=tolower(q) } !seen[$1 FS $2]++ && (q == "" || index(tolower($0), q))'
 }
 limit=${KITTWM_REMOTE_LIMIT:-50}
 mode=${KITTWM_REMOTE_MODE:-list}
@@ -8107,7 +8109,7 @@ case "$mode" in
         done
         printf '],"linux_desktop_apps":['
         first=1
-        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print $2 }' | head -n "$limit" | while IFS= read -r app; do
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print ($3 != "" ? $3 : $2) }' | head -n "$limit" | while IFS= read -r app; do
             [ $first -eq 1 ] || printf ','
             first=0
             printf '%s' "$app" | json_escape
@@ -8119,13 +8121,15 @@ case "$mode" in
         [ -n "$candidate" ] || { echo "ERR no remote app candidates matched"; exit 1; }
         kind=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $1}')
         name=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
-        printf '%s:%s\n' "$kind" "$name"
+        label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
+        printf '%s:%s\n' "$kind" "$label"
         ;;
     launch-first)
         candidate=$(kittwm_remote_candidates | head -n 1)
         [ -n "$candidate" ] || { echo "ERR no remote app candidates matched"; exit 1; }
         kind=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $1}')
         name=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
+        label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
         if [ "$kind" = "macos" ]; then
             open -a "$name" >/dev/null 2>&1 &
         elif [ "$kind" = "desktop" ]; then
@@ -8134,7 +8138,7 @@ case "$mode" in
         else
             "$name" >/dev/null 2>&1 &
         fi
-        printf 'kittwm remote apps: launched pid=%s kind=%s name=%s host=%s\n' "$!" "$kind" "$name" "$host"
+        printf 'kittwm remote apps: launched pid=%s kind=%s name=%s host=%s\n' "$!" "$kind" "$label" "$host"
         ;;
     *)
         printf 'kittwm remote apps\n==================\nhost: %s\nmode: shell-path-or-macos\n' "$host"
@@ -8144,7 +8148,7 @@ case "$mode" in
         printf 'macOS applications (first %s):\n' "$limit"
         kittwm_remote_candidates | awk -F '\t' '$1 == "macos" { print "  "$2 }' | head -n "$limit"
         printf 'Linux desktop entries (first %s):\n' "$limit"
-        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print "  "$2 }' | head -n "$limit"
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { label=($3 != "" ? $3 : $2); print "  "label" ("$2")" }' | head -n "$limit"
         ;;
 esac
 "#
@@ -11067,6 +11071,8 @@ mod tests {
         );
         assert!(script.contains("open -a"), "{script}");
         assert!(script.contains("gtk-launch"), "{script}");
+        assert!(script.contains("$1 == \"Name\""), "{script}");
+        assert!(script.contains("index(tolower($0), q)"), "{script}");
         assert!(script.contains("\"macos_apps\":"), "{script}");
         assert!(script.contains("\"linux_desktop_apps\":"), "{script}");
     }
