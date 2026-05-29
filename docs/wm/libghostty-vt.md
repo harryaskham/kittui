@@ -84,7 +84,7 @@ The `--scroll top` option is useful for long command output such as `kittwm help
 
 A Ghostty-rendered PNG is not automatically proof. Review the image before closing the bead. If it only shows a command/test log, classify it as validation-only; if it shows blank, wrapped, errored, stale, or otherwise broken kittwm output, treat it as regression evidence and keep the bead open or file a follow-up. The close-time evidence contract and local summary checker live in [`../kittwm-evidence.md`](../kittwm-evidence.md).
 
-`kittui-ghostty --pty-timelapse-command COMMAND --out-dir DIR` captures a PTY command once, replays the captured VT bytes into libghostty-vt in line-sized chunks, and emits `frame-*.png` plus `manifest.json` for deterministic command-output timelapses.
+`kittui-ghostty --pty-timelapse-command COMMAND --out-dir DIR` captures a PTY command once, replays the captured VT bytes into libghostty-vt in line-sized chunks, and emits `frame-*.png` plus `manifest.json` for deterministic command-output timelapses. Timelapse and sampled manifests include `kitty_placements` per frame so SPP/kitty-graphics proof runs can distinguish real graphics placements from text-only captures.
 
 The `--montage PATH` option works with `--timelapse-demo` and `--pty-timelapse-command` to stitch a representative set of emitted frames into one PNG directly from the Rust CLI. The montage includes frame/cursor labels so preview evidence remains readable outside the output directory. This keeps preview evidence generation self-contained.
 

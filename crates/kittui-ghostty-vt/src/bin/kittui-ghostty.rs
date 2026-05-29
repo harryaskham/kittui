@@ -38,6 +38,14 @@ enum ScrollMode {
     Bottom,
 }
 
+struct FrameRecord {
+    index: usize,
+    path: PathBuf,
+    cursor_x: u16,
+    cursor_y: u16,
+    kitty_placements: usize,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = parse_args()?;
     if args.timelapse_demo {
@@ -174,7 +182,13 @@ fn render_pty_sampled_command(args: &Args, command: &str) -> anyhow::Result<()> 
         let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
         let path = args.out_dir.join(format!("frame-{idx:03}.png"));
         std::fs::write(&path, png)?;
-        frames.push((idx, path, snapshot.cursor_x, snapshot.cursor_y));
+        frames.push(FrameRecord {
+            index: idx,
+            path,
+            cursor_x: snapshot.cursor_x,
+            cursor_y: snapshot.cursor_y,
+            kitty_placements: snapshot.kitty_placements.len(),
+        });
         idx += 1;
         if status.is_some() {
             break;
@@ -213,7 +227,13 @@ fn render_timelapse_chunks(args: &Args, chunks: Vec<&[u8]>) -> anyhow::Result<()
         let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
         let path = args.out_dir.join(format!("frame-{idx:03}.png"));
         std::fs::write(&path, png)?;
-        frames.push((idx, path, snapshot.cursor_x, snapshot.cursor_y));
+        frames.push(FrameRecord {
+            index: idx,
+            path,
+            cursor_x: snapshot.cursor_x,
+            cursor_y: snapshot.cursor_y,
+            kitty_placements: snapshot.kitty_placements.len(),
+        });
     }
     write_manifest(&args.out_dir, &frames)?;
     if let Some(path) = &args.montage {
@@ -691,14 +711,17 @@ fn timelapse_demo_steps() -> &'static [&'static [u8]] {
     ]
 }
 
-fn write_montage(path: &Path, frames: &[(usize, PathBuf, u16, u16)]) -> anyhow::Result<()> {
+fn write_montage(path: &Path, frames: &[FrameRecord]) -> anyhow::Result<()> {
     let selected = montage_frame_indices(frames.len());
     let mut entries = Vec::new();
     for idx in selected {
-        let (frame_idx, frame_path, cursor_x, cursor_y) = &frames[idx];
-        let bytes = std::fs::read(frame_path)?;
+        let frame = &frames[idx];
+        let bytes = std::fs::read(&frame.path)?;
         let image = image::load_from_memory(&bytes)?.to_rgba8();
-        let label = format!("frame-{frame_idx:03}.png cursor={cursor_x},{cursor_y}");
+        let label = format!(
+            "frame-{:03}.png cursor={},{} kitty_placements={}",
+            frame.index, frame.cursor_x, frame.cursor_y, frame.kitty_placements
+        );
         entries.push((label, image));
     }
     if entries.is_empty() {
@@ -778,13 +801,17 @@ fn montage_frame_indices(len: usize) -> Vec<usize> {
     ]
 }
 
-fn write_manifest(out_dir: &Path, frames: &[(usize, PathBuf, u16, u16)]) -> anyhow::Result<()> {
+fn write_manifest(out_dir: &Path, frames: &[FrameRecord]) -> anyhow::Result<()> {
     let files = frames
         .iter()
-        .map(|(idx, path, cursor_x, cursor_y)| {
+        .map(|frame| {
             format!(
-                "{{\"index\":{idx},\"path\":{:?},\"cursor_x\":{cursor_x},\"cursor_y\":{cursor_y}}}",
-                path.display().to_string()
+                "{{\"index\":{},\"path\":{:?},\"cursor_x\":{},\"cursor_y\":{},\"kitty_placements\":{}}}",
+                frame.index,
+                frame.path.display().to_string(),
+                frame.cursor_x,
+                frame.cursor_y,
+                frame.kitty_placements
             )
         })
         .collect::<Vec<_>>()
@@ -810,6 +837,28 @@ mod tests {
         assert!(env.contains(&("KITTWM_NATIVE_CHROME_RENDERER", "terminal")));
         assert!(env.contains(&("KITTWM_STARTUP_TERMINAL", "0")));
         assert!(env.contains(&("TERM_PROGRAM", "kittui-ghostty-proof")));
+    }
+
+    #[test]
+    fn frame_manifest_includes_kitty_placement_count() {
+        let dir = std::env::temp_dir().join(format!(
+            "kittui-ghostty-manifest-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let frame_path = dir.join("frame-000.png");
+        let frame = FrameRecord {
+            index: 0,
+            path: frame_path,
+            cursor_x: 2,
+            cursor_y: 3,
+            kitty_placements: 4,
+        };
+        write_manifest(&dir, &[frame]).unwrap();
+        let manifest = std::fs::read_to_string(dir.join("manifest.json")).unwrap();
+        assert!(manifest.contains("\"kitty_placements\":4"), "{manifest}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
