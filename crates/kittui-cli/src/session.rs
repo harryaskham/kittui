@@ -5090,7 +5090,7 @@ fn native_pane_title_status_scene(
     let cell_w = cell_size.width_px.max(1) as f32;
     let chip_h = (cell_size.height_px.max(1) as f32 - 4.0).max(6.0);
     let mut layers = vec![Layer::new(
-        format!("pane-{idx}-title-strip:{}", pane.text),
+        native_pane_title_strip_label(idx, &pane.text),
         Node::Rect {
             rect,
             fill: Paint::Solid {
