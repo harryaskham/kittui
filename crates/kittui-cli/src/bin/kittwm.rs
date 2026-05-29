@@ -2943,6 +2943,7 @@ wayland_display=${WAYLAND_DISPLAY:-}
 graphical=${KITTWM_REMOTE_DOCTOR_GRAPHICAL:-0}
 size=$(stty size 2>/dev/null || true)
 kittwm_path=$(command -v kittwm 2>/dev/null || true)
+waypipe_path=$(command -v waypipe 2>/dev/null || true)
 json_string() {
     printf '%s' "$1" | awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
 }
@@ -2959,8 +2960,8 @@ else
     kittwm_startup_check="kittwm not found"
 fi
 if [ "${KITTWM_REMOTE_DOCTOR_JSON:-0}" = "1" ]; then
-    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"graphical_check":%s,"display":%s,"wayland_display":%s,"x11_forwarding_available":%s,"kittwm_available":%s,"kittwm_healthy":%s,"kittwm_path":%s,"startup_check":%s}\n' \
-        "$(json_string "$host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ "$graphical" = "1" ] && printf true || printf false)" "$(json_string "$display")" "$(json_string "$wayland_display")" "$([ -n "$display" ] && printf true || printf false)" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$kittwm_healthy" "$(json_string "$kittwm_path")" "$(json_string "$kittwm_startup_check")"
+    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"graphical_check":%s,"display":%s,"wayland_display":%s,"x11_forwarding_available":%s,"waypipe_available":%s,"waypipe_path":%s,"kittwm_available":%s,"kittwm_healthy":%s,"kittwm_path":%s,"startup_check":%s}\n' \
+        "$(json_string "$host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ "$graphical" = "1" ] && printf true || printf false)" "$(json_string "$display")" "$(json_string "$wayland_display")" "$([ -n "$display" ] && printf true || printf false)" "$([ -n "$waypipe_path" ] && printf true || printf false)" "$(json_string "$waypipe_path")" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$kittwm_healthy" "$(json_string "$kittwm_path")" "$(json_string "$kittwm_startup_check")"
     exit 0
 fi
 printf 'kittwm remote doctor\n=====================\n'
@@ -2977,6 +2978,11 @@ if [ "$graphical" = "1" ]; then
         printf 'X11 forwarding : available\n'
     else
         printf 'X11 forwarding : unavailable; check ssh -Y, sshd X11Forwarding, and local X server\n'
+    fi
+    if [ -n "$waypipe_path" ]; then
+        printf 'waypipe        : %s\n' "$waypipe_path"
+    else
+        printf 'waypipe        : not found\n'
     fi
 fi
 if [ -n "$kittwm_path" ]; then
@@ -11600,6 +11606,9 @@ mod tests {
         assert!(script.contains("startup_check"), "{script}");
         assert!(script.contains("DISPLAY"), "{script}");
         assert!(script.contains("x11_forwarding_available"), "{script}");
+        assert!(script.contains("command -v waypipe"), "{script}");
+        assert!(script.contains("waypipe_available"), "{script}");
+        assert!(script.contains("waypipe_path"), "{script}");
         assert!(script.contains("kittwm remote %s kittwm"), "{script}");
         assert!(script.contains("kittwm remote %s list"), "{script}");
         assert!(
