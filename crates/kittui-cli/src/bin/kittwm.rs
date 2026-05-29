@@ -5062,6 +5062,8 @@ fn format_info_output(
     chrome: &serde_json::Value,
     panes: &serde_json::Value,
 ) -> String {
+    use std::fmt::Write as _;
+
     let workspace =
         kittwm_scene_workspace_from(chrome.get("workspace").or_else(|| status.get("workspace")));
     let top_bar_rows = chrome
@@ -5094,10 +5096,30 @@ fn format_info_output(
         .or_else(|| status.get("panes_detail"))
         .and_then(serde_json::Value::as_array);
 
-    let mut out = format!(
-        "kittwm info\n  socket: {}\n  workspace: {workspace}\n  chrome: top_bar_rows={top_bar_rows} tilable_rows={tilable_rows}\n  panes: {pane_count} focus={focus} layout={layout}\n",
-        socket.display()
+    let socket = socket.display().to_string();
+    let mut out = String::with_capacity(
+        "kittwm info\n  socket: \n  workspace: \n  chrome: top_bar_rows= tilable_rows=\n  panes:  focus= layout=\n".len()
+            + socket.len()
+            + workspace.len()
+            + focus.len()
+            + layout.len()
+            + 48,
     );
+    out.push_str("kittwm info\n  socket: ");
+    out.push_str(&socket);
+    out.push_str("\n  workspace: ");
+    out.push_str(&workspace);
+    out.push_str("\n  chrome: top_bar_rows=");
+    let _ = write!(out, "{top_bar_rows}");
+    out.push_str(" tilable_rows=");
+    let _ = write!(out, "{tilable_rows}");
+    out.push_str("\n  panes: ");
+    let _ = write!(out, "{pane_count}");
+    out.push_str(" focus=");
+    out.push_str(focus);
+    out.push_str(" layout=");
+    out.push_str(layout);
+    out.push('\n');
     if let Some(details) = pane_details {
         if !details.is_empty() {
             out.push_str("\nPanes\n");
@@ -11006,6 +11028,7 @@ mod tests {
         );
         assert!(text.contains("* native-2  editor"), "{text}");
         assert!(text.contains("kittwm --spawn-pty 'htop'"), "{text}");
+        assert!(text.capacity() >= text.len());
 
         let scene = info_scene(
             std::path::Path::new("/tmp/kittwm-test.sock"),
