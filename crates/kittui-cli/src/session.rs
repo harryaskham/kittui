@@ -1024,9 +1024,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             last_resized_layouts = layouts.clone();
             clear = true;
             if should_log_resize_failures(resize_failures) {
-                dbg.log(&format!(
-                    "native layout resize completed with resize_failures={resize_failures}"
-                ));
+                dbg.log(&native_layout_resize_completed_log_line(resize_failures));
             }
         }
         let stdout = io::stdout();
@@ -4415,6 +4413,16 @@ fn native_chrome_reservation_changed_log_line(
     let _ = write!(out, "{}", reservation.gap_rows);
     out.push_str(" owner=");
     out.push_str(owner);
+    out
+}
+
+fn native_layout_resize_completed_log_line(resize_failures: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("native layout resize completed with resize_failures=".len() + 20);
+    out.push_str("native layout resize completed with resize_failures=");
+    let _ = write!(out, "{resize_failures}");
     out
 }
 
@@ -10601,6 +10609,16 @@ mod native_pane_tests {
         assert_eq!(
             line,
             "native chrome reservation changed: top=1 bottom=2 left=3 right=4 gap=5x6 owner=kittwm-bar"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_layout_resize_completed_log_line_builds_directly() {
+        let line = native_layout_resize_completed_log_line(2);
+        assert_eq!(
+            line,
+            "native layout resize completed with resize_failures=2"
         );
         assert!(line.capacity() >= line.len());
     }
