@@ -5650,9 +5650,9 @@ fn native_toast_scene(
             },
         ),
         Layer::new(
-            format!(
-                "toast-text:{}",
-                clip_and_pad(trimmed, toast_cols.saturating_sub(4) as usize).trim()
+            native_toast_label(
+                "toast-text:",
+                clip_and_pad(trimmed, toast_cols.saturating_sub(4) as usize).trim(),
             ),
             Node::Group {
                 opacity: 1.0,
@@ -10283,9 +10283,13 @@ mod native_pane_tests {
 
     #[test]
     fn native_toast_label_builds_directly() {
-        let label = native_toast_label("toast-backdrop:", "launcher.error boom");
-        assert_eq!(label, "toast-backdrop:launcher.error boom");
-        assert!(label.capacity() >= label.len());
+        let backdrop = native_toast_label("toast-backdrop:", "launcher.error boom");
+        assert_eq!(backdrop, "toast-backdrop:launcher.error boom");
+        assert!(backdrop.capacity() >= backdrop.len());
+
+        let text = native_toast_label("toast-text:", "launcher.error boom");
+        assert_eq!(text, "toast-text:launcher.error boom");
+        assert!(text.capacity() >= text.len());
     }
 
     #[test]
