@@ -440,8 +440,8 @@ fn parse_args() -> Result<Cli> {
                 out.display = Some(args.next().ok_or_else(|| anyhow!("--display DISPLAY"))?);
             }
             "--limit" => {
-                let v = args.next().ok_or_else(|| anyhow!("--limit N"))?;
-                out.apps_limit = Some(v.parse().map_err(|_| anyhow!("--limit expects integer"))?);
+                let v = args.next().ok_or_else(missing_limit_error)?;
+                out.apps_limit = Some(parse_limit_value(&v)?);
             }
             "--filter" => {
                 out.apps_filter = Some(args.next().ok_or_else(|| anyhow!("--filter QUERY"))?);
@@ -1640,6 +1640,18 @@ fn lifecycle_alias_mode(alias: &str) -> Result<Mode> {
         "stop" => Ok(Mode::Kill),
         other => Err(anyhow!("unknown lifecycle alias {other:?}")),
     }
+}
+
+fn parse_limit_value(value: &str) -> Result<usize> {
+    value.parse().map_err(|_| limit_parse_error(value))
+}
+
+fn missing_limit_error() -> anyhow::Error {
+    anyhow!("--limit requires an integer\ntry: kittwm apps --limit 10\nhelp: kittwm help apps")
+}
+
+fn limit_parse_error(value: &str) -> anyhow::Error {
+    anyhow!("--limit expects integer, got {value:?}\ntry: kittwm apps --limit 10\nhelp: kittwm help apps")
 }
 
 fn debug_log_path() -> String {
@@ -8819,6 +8831,19 @@ mod tests {
         assert_eq!(lifecycle_alias_mode("start").unwrap(), Mode::Session);
         assert_eq!(lifecycle_alias_mode("stop").unwrap(), Mode::Kill);
         assert!(lifecycle_alias_mode("restart").is_err());
+    }
+
+    #[test]
+    fn app_limit_errors_are_actionable() {
+        assert_eq!(parse_limit_value("3").unwrap(), 3);
+        let err = parse_limit_value("nope").unwrap_err().to_string();
+        assert!(err.contains("--limit expects integer"), "{err}");
+        assert!(err.contains("got \"nope\""), "{err}");
+        assert!(err.contains("try: kittwm apps --limit 10"), "{err}");
+        assert!(err.contains("help: kittwm help apps"), "{err}");
+        let missing = missing_limit_error().to_string();
+        assert!(missing.contains("--limit requires an integer"), "{missing}");
+        assert!(missing.contains("try: kittwm apps --limit 10"), "{missing}");
     }
 
     #[test]
