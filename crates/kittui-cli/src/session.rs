@@ -6502,6 +6502,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn ctrl_c_debounce_log_line_builds_directly() {
+        let line = ctrl_c_debounce_log_line(3);
+        assert_eq!(line, "ctrl-c press #3 within debounce window");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11203,6 +11210,16 @@ fn run_loop_entry_log_line(fps: u32, launch_on_f12: bool, launcher_overlay: bool
     out
 }
 
+fn ctrl_c_debounce_log_line(count: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("ctrl-c press # within debounce window".len() + 3);
+    out.push_str("ctrl-c press #");
+    let _ = write!(out, "{count}");
+    out.push_str(" within debounce window");
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11584,7 +11601,7 @@ pub fn run_loop_with<S: XServer>(
                 InputEvent::Char { ch: 'c', mods } if mods.ctrl && !mods.alt
             ) {
                 let count = ctrl_c_guard.record_press(Instant::now());
-                dbg.log(&format!("ctrl-c press #{count} within debounce window"));
+                dbg.log(&ctrl_c_debounce_log_line(count));
                 if count >= CTRL_C_TRIGGER {
                     dbg.log("ctrl-c triple-press opened quit confirmation");
                     ctrl_c_guard.clear();
