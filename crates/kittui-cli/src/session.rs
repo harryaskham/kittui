@@ -5465,6 +5465,16 @@ fn rgba_with_alpha(color: Rgba, alpha: u8) -> Rgba {
 }
 
 #[cfg(test)]
+fn native_help_overlay_key_chip_label(idx: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut label = String::with_capacity("help-overlay-key-chip-".len() + 20);
+    label.push_str("help-overlay-key-chip-");
+    let _ = write!(label, "{idx}");
+    label
+}
+
+#[cfg(test)]
 fn native_help_overlay_scene(
     cell_size: CellSize,
     cols: u16,
@@ -5539,7 +5549,7 @@ fn native_help_overlay_scene(
         if keyish && chip_y < rect.height {
             let bounded_chip_h = chip_h.min((rect.height - chip_y).max(1.0));
             layers.push(Layer::new(
-                format!("help-overlay-key-chip-{idx}"),
+                native_help_overlay_key_chip_label(idx),
                 Node::Rect {
                     rect: PxRect::new(chip_x, chip_y, chip_w, bounded_chip_h),
                     fill: Paint::Solid {
@@ -9343,6 +9353,13 @@ mod native_pane_tests {
             }
             node => panic!("expected empty workspace backdrop rect, got {node:?}"),
         }
+    }
+
+    #[test]
+    fn native_help_overlay_key_chip_label_builds_directly() {
+        let label = native_help_overlay_key_chip_label(3);
+        assert_eq!(label, "help-overlay-key-chip-3");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
