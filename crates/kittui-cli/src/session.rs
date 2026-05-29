@@ -1046,10 +1046,9 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             let sequences = pane.app.take_host_sequences();
             if !sequences.is_empty() {
                 frame_out.write_all(&sequences)?;
-                dbg.log(&format!(
-                    "native terminal forwarded host sequence: window={} bytes={}",
-                    pane.window,
-                    sequences.len()
+                dbg.log(&native_forwarded_host_sequence_log_line(
+                    &pane.window,
+                    sequences.len(),
                 ));
             }
         }
@@ -4423,6 +4422,19 @@ fn native_layout_resize_completed_log_line(resize_failures: usize) -> String {
         String::with_capacity("native layout resize completed with resize_failures=".len() + 20);
     out.push_str("native layout resize completed with resize_failures=");
     let _ = write!(out, "{resize_failures}");
+    out
+}
+
+fn native_forwarded_host_sequence_log_line(window: &str, bytes: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal forwarded host sequence: window= bytes=".len() + window.len() + 20,
+    );
+    out.push_str("native terminal forwarded host sequence: window=");
+    out.push_str(window);
+    out.push_str(" bytes=");
+    let _ = write!(out, "{bytes}");
     out
 }
 
@@ -10649,6 +10661,16 @@ mod native_pane_tests {
         assert_eq!(
             line,
             "native layout resize completed with resize_failures=2"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_forwarded_host_sequence_log_line_builds_directly() {
+        let line = native_forwarded_host_sequence_log_line("native-2", 128);
+        assert_eq!(
+            line,
+            "native terminal forwarded host sequence: window=native-2 bytes=128"
         );
         assert!(line.capacity() >= line.len());
     }
