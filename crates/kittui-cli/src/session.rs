@@ -2154,7 +2154,7 @@ const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
 const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
 const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
 const NATIVE_STATUS_LINE_HINTS: &str =
-    " · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r reset · C-a e split · C-a x close · Ctrl-] exit";
+    " · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r reset · C-a e split · C-a x close · Ctrl-] exit";
 const NATIVE_STATUS_LINE_LOG_PREFIX: &str = " · log: ";
 
 fn native_status_line_text(
@@ -3023,6 +3023,16 @@ fn process_native_terminal_byte(
                     native_set_focus(panes, focused, new_focus)?;
                     *clear = true;
                     dbg.log(&native_keyboard_focus_log_line(&panes[*focused].window));
+                }
+            }
+            b'p' | b'P' => {
+                if !panes.is_empty() {
+                    let new_focus = prev_native_focus(*focused, panes.len());
+                    native_set_focus(panes, focused, new_focus)?;
+                    *clear = true;
+                    dbg.log(&native_keyboard_focus_prev_log_line(
+                        &panes[*focused].window,
+                    ));
                 }
             }
             b'x' | b'X' => {
@@ -4638,6 +4648,14 @@ fn native_socket_focus_next_log_line(window: &str) -> String {
 fn native_socket_focus_prev_log_line(window: &str) -> String {
     let mut out = String::with_capacity("native terminal socket focus prev: ".len() + window.len());
     out.push_str("native terminal socket focus prev: ");
+    out.push_str(window);
+    out
+}
+
+fn native_keyboard_focus_prev_log_line(window: &str) -> String {
+    let mut out =
+        String::with_capacity("native terminal keyboard focus prev: ".len() + window.len());
+    out.push_str("native terminal keyboard focus prev: ");
     out.push_str(window);
     out
 }
@@ -7727,7 +7745,7 @@ mod native_pane_tests {
         let footer = native_status_line_text(1, "floating", Some("native-1"), "/tmp/kittwm.log");
         assert_eq!(
             footer,
-            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r reset · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
+            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r reset · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
         );
         assert_eq!(footer.capacity(), footer.len());
 
@@ -9023,6 +9041,73 @@ mod native_pane_tests {
         .unwrap());
         assert!(!prefix);
         assert!(!offsets.contains_key("native-1"));
+    }
+
+    #[test]
+    fn native_prefix_p_focuses_previous_pane() {
+        let mut panes = vec![
+            dummy_native_pane("native-1", "one", 1),
+            dummy_native_pane("native-2", "two", 1),
+            dummy_native_pane("native-3", "three", 1),
+        ];
+        let mut focused = 0usize;
+        let mut layout_axis = NativePaneLayoutAxis::Columns;
+        let mut layout_mode = NativePaneLayoutMode::Tiled;
+        let mut offsets = HashMap::new();
+        let mut prefix = false;
+        let mut clear = false;
+        let mut help_overlay = false;
+        let mut ctrl_c_guard = NativeCtrlCExitGuard::default();
+        let mut quit_overlay = QuitConfirmOverlay::default();
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        let dbg = Debugger::open();
+
+        assert!(!process_native_terminal_byte(
+            0x01,
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert!(!process_native_terminal_byte(
+            b'p',
+            &mut prefix,
+            &mut panes,
+            &mut focused,
+            &mut layout_axis,
+            &mut layout_mode,
+            &mut offsets,
+            "sh",
+            "/tmp/kittwm.sock",
+            80,
+            24,
+            &reservation,
+            &mut clear,
+            &mut help_overlay,
+            &mut ctrl_c_guard,
+            &mut quit_overlay,
+            &dbg,
+        )
+        .unwrap());
+        assert_eq!(focused, 2);
+        assert!(clear);
+        assert_eq!(
+            native_keyboard_focus_prev_log_line("native-3"),
+            "native terminal keyboard focus prev: native-3"
+        );
     }
 
     #[test]

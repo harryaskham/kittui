@@ -75,8 +75,13 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
     },
     NativeShortcut {
         id: "focus_next",
-        keys: "C-a Tab",
+        keys: "C-a Tab / C-a n",
         description: "focus next pane",
+    },
+    NativeShortcut {
+        id: "focus_prev",
+        keys: "C-a p",
+        description: "focus previous pane",
     },
     NativeShortcut {
         id: "close_pane",
@@ -126,7 +131,8 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a w/a/s/d        nudge focused floating pane",
     "C-a { / C-a }      lower/raise focused floating pane",
     "C-a r              reset focused floating pane position",
-    "C-a Tab            focus next pane",
+    "C-a Tab / C-a n    focus next pane",
+    "C-a p              focus previous pane",
     "C-a x              close pane (last pane returns to empty workspace)",
     "C-a +/-            resize focused pane",
     "C-a [ / C-a ]      move focused pane",
@@ -175,6 +181,7 @@ mod tests {
         let text = render_native_shortcuts();
         assert!(text.contains("kittwm shortcuts"));
         assert!(text.contains(NATIVE_SHORTCUT_COMMAND_HINTS[0]));
+        assert!(text.contains("C-a p"));
         assert!(text.contains("C-a w/a/s/d"));
         assert!(text.contains("C-a { / C-a }"));
         assert!(text.contains("C-a r"));
@@ -191,6 +198,11 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry["id"] == "launch_terminal"));
+        assert!(value["shortcuts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == "focus_prev"));
         assert!(value["shortcuts"]
             .as_array()
             .unwrap()
