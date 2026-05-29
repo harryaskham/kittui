@@ -12145,16 +12145,18 @@ mod tests {
                 .iter()
                 .filter_map(|layer| layer.label.as_deref())
                 .collect::<Vec<_>>();
+            let backdrop_prefix =
+                daily_help_test_label_prefix("kittwm-daily-help-backdrop:", kind, ":");
             assert!(
                 labels
                     .iter()
-                    .any(|label| label.starts_with(&format!("kittwm-daily-help-backdrop:{kind}:"))),
+                    .any(|label| label.starts_with(&backdrop_prefix)),
                 "{kind}: {labels:?}"
             );
+            let heading_prefix =
+                daily_help_test_label_prefix("kittwm-daily-help-heading:", kind, ":");
             assert!(
-                labels
-                    .iter()
-                    .any(|label| label.contains(&format!("kittwm-daily-help-heading:{kind}:"))),
+                labels.iter().any(|label| label.contains(&heading_prefix)),
                 "{kind}: {labels:?}"
             );
             assert!(
@@ -12162,6 +12164,21 @@ mod tests {
                 "{kind}: {labels:?}"
             );
         }
+    }
+
+    #[test]
+    fn daily_help_test_label_prefix_builds_directly() {
+        let prefix = daily_help_test_label_prefix("kittwm-daily-help-backdrop:", "quickstart", ":");
+        assert_eq!(prefix, "kittwm-daily-help-backdrop:quickstart:");
+        assert!(prefix.capacity() >= prefix.len());
+    }
+
+    fn daily_help_test_label_prefix(prefix: &str, kind: &str, suffix: &str) -> String {
+        let mut label = String::with_capacity(prefix.len() + kind.len() + suffix.len());
+        label.push_str(prefix);
+        label.push_str(kind);
+        label.push_str(suffix);
+        label
     }
 
     #[test]
