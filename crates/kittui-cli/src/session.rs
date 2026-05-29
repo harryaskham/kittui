@@ -6644,6 +6644,16 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn toggle_action_log_line_builds_directly() {
+        let line = toggle_action_log_line("toggle.float -> floating window=native-1");
+        assert_eq!(
+            line,
+            "toggle action: toggle.float -> floating window=native-1"
+        );
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11490,6 +11500,13 @@ fn swap_action_log_line(message: &str) -> String {
     out
 }
 
+fn toggle_action_log_line(message: &str) -> String {
+    let mut out = String::with_capacity("toggle action: ".len() + message.len());
+    out.push_str("toggle action: ");
+    out.push_str(message);
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11805,7 +11822,7 @@ pub fn run_loop_with<S: XServer>(
                                         Err(e) => format!("{msg} error={e}"),
                                     };
                                     last_keymap_action = Some(msg.clone());
-                                    dbg.log(&format!("toggle action: {msg}"));
+                                    dbg.log(&toggle_action_log_line(&msg));
                                 }
                                 Action::FullscreenToggle => {
                                     let msg = toggle_state.apply(&action);
@@ -11817,7 +11834,7 @@ pub fn run_loop_with<S: XServer>(
                                         Err(e) => format!("{msg} error={e}"),
                                     };
                                     last_keymap_action = Some(msg.clone());
-                                    dbg.log(&format!("toggle action: {msg}"));
+                                    dbg.log(&toggle_action_log_line(&msg));
                                 }
                                 Action::ToggleSplit | Action::BalanceWindows => {
                                     let msg = layout_state.apply(&action);
