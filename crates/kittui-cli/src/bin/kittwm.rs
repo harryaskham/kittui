@@ -1398,7 +1398,11 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
         "events" | "event" => Ok("kittwm help events\n\
              ==================\n\n\
              --events                       stream bounded EVENTS output\n\
-             --events-ms MS                 stream EVENTS for explicit timeout\n\n\
+             --events-ms MS                 stream EVENTS for explicit timeout\n\
+             kittwm-terminal --events-ms 1000\n\
+                                            first-party text event helper\n\
+             kittwm-terminal --events-scene-json 1000\n\
+                                            first-party event card JSON\n\n\
              EVENTS starts with status, then pane/focus/layout/input/frame,\n\
              semantic, and surface side-effect event envelopes, ending with END.\n"),
         "apps" | "app" => Ok("kittwm help apps\n\
@@ -11486,6 +11490,17 @@ END
             "{text}"
         );
         assert!(text.contains("--semantic-snapshot WINDOW"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_events_mentions_terminal_helper_examples() {
+        let text = help_topic_text("events").unwrap();
+        assert!(text.contains("kittwm-terminal --events-ms 1000"), "{text}");
+        assert!(
+            text.contains("kittwm-terminal --events-scene-json 1000"),
+            "{text}"
+        );
+        assert!(text.contains("--events-ms MS"), "{text}");
     }
 
     #[test]
