@@ -1811,21 +1811,35 @@ fn ensure_empty_remote_help_args(rest: &[String], apply: impl FnOnce()) -> Resul
 }
 
 fn remote_terminal_alias_args(host: &str, rest: &[String]) -> Vec<String> {
-    let mut args = Vec::with_capacity(rest.len() + 2);
+    let mut args = Vec::with_capacity(rest.len() + 4);
     args.push("--remote".to_string());
     args.push(host.to_string());
+    if !remote_alias_args_include_title(rest) {
+        args.push("--title".to_string());
+        args.push(host.to_string());
+    }
     args.extend(rest.iter().cloned());
     args
 }
 
 fn remote_kittwm_alias_args(host: &str, rest: &[String]) -> Vec<String> {
-    let mut args = Vec::with_capacity(rest.len() + 4);
+    let mut args = Vec::with_capacity(rest.len() + 6);
     args.push("--remote".to_string());
     args.push(host.to_string());
+    if !remote_alias_args_include_title(rest) {
+        args.push("--title".to_string());
+        args.push(host.to_string());
+    }
     args.push("--".to_string());
     args.push("kittwm".to_string());
     args.extend(rest.iter().cloned());
     args
+}
+
+fn remote_alias_args_include_title(rest: &[String]) -> bool {
+    rest.iter()
+        .take_while(|arg| arg.as_str() != "--")
+        .any(|arg| arg == "--title")
 }
 
 fn parse_remote_doctor_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
@@ -11270,6 +11284,8 @@ mod tests {
                 &[
                     "--remote".to_string(),
                     "buildbox".to_string(),
+                    "--title".to_string(),
+                    "buildbox".to_string(),
                     "htop".to_string()
                 ][..]
             )
@@ -11280,7 +11296,14 @@ mod tests {
         parse_remote_alias_action(&mut shell, "shell", &[]).unwrap();
         assert_eq!(
             shell.remote_terminal_args.as_deref(),
-            Some(&["--remote".to_string(), "buildbox".to_string()][..])
+            Some(
+                &[
+                    "--remote".to_string(),
+                    "buildbox".to_string(),
+                    "--title".to_string(),
+                    "buildbox".to_string()
+                ][..]
+            )
         );
 
         let mut remote_kittwm = Cli::default();
@@ -11292,6 +11315,8 @@ mod tests {
             Some(
                 &[
                     "--remote".to_string(),
+                    "buildbox".to_string(),
+                    "--title".to_string(),
                     "buildbox".to_string(),
                     "--".to_string(),
                     "kittwm".to_string(),
