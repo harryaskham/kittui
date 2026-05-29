@@ -1286,6 +1286,10 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              events   bounded event streams and typed SDK event helpers\n\
              apps     app discovery and launch helpers\n\
              log      debug log path and tailing workflows\n\n\
+             Daily guides:\n\
+             kittwm quickstart    first-run daily-driver checklist\n\
+             kittwm examples      copy-paste workflows\n\
+             kittwm cheat         compact keys and commands\n\n\
              Usage: kittwm help <topic>\n"),
         "start" | "startup" => Ok("kittwm help start\n\
              =================\n\n\
@@ -8805,6 +8809,15 @@ mod tests {
         let text = help_topic_text("topics").unwrap();
         assert!(text.contains("log      debug log path"), "{text}");
         assert!(known_help_topics().contains(&"log"));
+    }
+
+    #[test]
+    fn help_topics_mentions_daily_guides() {
+        let text = help_topic_text("topics").unwrap();
+        assert!(text.contains("Daily guides:"), "{text}");
+        assert!(text.contains("kittwm quickstart"), "{text}");
+        assert!(text.contains("kittwm examples"), "{text}");
+        assert!(text.contains("kittwm cheat"), "{text}");
     }
 
     #[test]
