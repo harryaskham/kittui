@@ -8224,6 +8224,8 @@ kittwm_remote_list_linux_desktop_apps() {
     for root in /usr/share/applications /usr/local/share/applications "$HOME/.local/share/applications"; do
         [ -d "$root" ] || continue
         find "$root" -name '*.desktop' -type f 2>/dev/null | while IFS= read -r desktop; do
+            hidden=$(awk -F= '$1 == "Hidden" || $1 == "NoDisplay" { v=tolower($2); if (v == "true" || v == "1") { print "1"; exit } }' "$desktop" 2>/dev/null)
+            [ "$hidden" = "1" ] && continue
             id=$(basename "$desktop" .desktop)
             name=$(awk -F= '$1 == "Name" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             exec_line=$(awk -F= '$1 == "Exec" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
@@ -11348,6 +11350,8 @@ mod tests {
         assert!(script.contains("gtk-launch"), "{script}");
         assert!(script.contains("$1 == \"Name\""), "{script}");
         assert!(script.contains("$1 == \"Exec\""), "{script}");
+        assert!(script.contains("$1 == \"Hidden\""), "{script}");
+        assert!(script.contains("$1 == \"NoDisplay\""), "{script}");
         assert!(script.contains("desktop_exec="), "{script}");
         assert!(script.contains("gtk-launch failed"), "{script}");
         assert!(script.contains("index(tolower($0), q)"), "{script}");
