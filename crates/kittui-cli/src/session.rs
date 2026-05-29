@@ -9739,6 +9739,14 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_overlay_panel_row_label_builds_directly() {
+        let label =
+            graphical_overlay_panel_row_label("launcher-overlay", 1, "2. [shell] kittwm-terminal");
+        assert_eq!(label, "launcher-overlay-row-1:2. [shell] kittwm-terminal");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
     fn graphical_launcher_and_picker_overlay_scenes_expose_selection_rows() {
         let launcher = LauncherOverlay {
             active: true,
@@ -14663,6 +14671,17 @@ fn launcher_overlay_query_line(query: &str, width: usize) -> String {
 }
 
 #[cfg(test)]
+fn graphical_overlay_panel_row_label(id: &str, idx: usize, row: &str) -> String {
+    let mut label = String::with_capacity(id.len() + "-row-:".len() + 20 + row.len());
+    label.push_str(id);
+    label.push_str("-row-");
+    let _ = write!(label, "{idx}");
+    label.push(':');
+    label.push_str(row);
+    label
+}
+
+#[cfg(test)]
 fn graphical_overlay_panel_scene(
     id: &str,
     title: &str,
@@ -14706,7 +14725,7 @@ fn graphical_overlay_panel_scene(
         let y = row_h * (idx as f32 + 2.0);
         let selected_row = idx == selected.min(rows.len().saturating_sub(1));
         layers.push(Layer::new(
-            format!("{id}-row-{idx}:{row}"),
+            graphical_overlay_panel_row_label(id, idx, row),
             Node::Rect {
                 rect: PxRect::new(
                     8.0,
