@@ -1051,7 +1051,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|list|apps|launch|windows|displays|terminal|shell|ssh]
+  remote HOST [help|doctor|status|check|kittwm|desktop|list|apps|launch|windows|displays|terminal|shell|ssh]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1417,6 +1417,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST help       host-specific SSH quick reference\n\
              kittwm remote HOST status     check remote kittwm availability\n\
              kittwm remote HOST            friendly alias for remote doctor\n\
+             kittwm remote HOST kittwm     open remote kittwm in a pooled SSH pane\n\
+             kittwm remote HOST desktop    alias for remote HOST kittwm\n\
              kittwm remote HOST list       list remote app candidates\n\
              kittwm remote HOST list apps firefox\n\
                                            list remote app matches using a natural alias\n\
@@ -1517,6 +1519,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              ================\n\n\
              apps                           list launch candidates\n\
              remote HOST                    check remote kittwm availability\n\
+             remote HOST kittwm            open remote kittwm in a pooled SSH pane\n\
+             remote HOST desktop           alias for remote HOST kittwm\n\
              remote HOST list              list remote app candidates\n\
              remote HOST list apps QUERY    list remote app matches with a natural alias\n\
              remote HOST list windows QUERY list remote windows matching a query\n\
@@ -1763,6 +1767,13 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
         }
         "list" | "ls" => parse_remote_list_alias(out, rest),
         "launch" | "open" | "run" => parse_remote_launch_alias(out, rest),
+        "kittwm" | "desktop" => {
+            out.remote_terminal_args = Some(remote_kittwm_alias_args(
+                out.remote_host.as_deref().unwrap_or("HOST"),
+                rest,
+            ));
+            Ok(())
+        }
         "windows" | "window" => parse_remote_listing_alias(out, RemoteListingKind::Windows, rest),
         "displays" | "display" => parse_remote_listing_alias(out, RemoteListingKind::Displays, rest),
         "terminal" | "term" | "shell" | "ssh" => {
@@ -1780,7 +1791,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             parse_remote_doctor_flags(out, &flags)
         }
         other => Err(anyhow!(
-            "unknown remote action {other:?}\ntry: kittwm remote HOST help | doctor | status | list | apps | launch | windows | displays | terminal | shell\nhelp: kittwm help ssh"
+            "unknown remote action {other:?}\ntry: kittwm remote HOST help | doctor | status | kittwm | list | apps | launch | windows | displays | terminal | shell\nhelp: kittwm help ssh"
         )),
     }
 }
@@ -1799,6 +1810,16 @@ fn remote_terminal_alias_args(host: &str, rest: &[String]) -> Vec<String> {
     let mut args = Vec::with_capacity(rest.len() + 2);
     args.push("--remote".to_string());
     args.push(host.to_string());
+    args.extend(rest.iter().cloned());
+    args
+}
+
+fn remote_kittwm_alias_args(host: &str, rest: &[String]) -> Vec<String> {
+    let mut args = Vec::with_capacity(rest.len() + 4);
+    args.push("--remote".to_string());
+    args.push(host.to_string());
+    args.push("--".to_string());
+    args.push("kittwm".to_string());
     args.extend(rest.iter().cloned());
     args
 }
@@ -2759,6 +2780,8 @@ fn remote_help_cmd(host: &str) -> Result<()> {
     println!("====================");
     println!("If remote kittwm is installed and healthy:");
     println!("  ssh {host} kittwm");
+    println!("  kittwm remote {host} kittwm");
+    println!("  kittwm remote {host} desktop");
     println!("  ssh {host} kittwm doctor");
     println!();
     println!("Local kittwm pooled-SSH helpers:");
@@ -2860,7 +2883,8 @@ else
     printf 'remote kittwm  : not found\n'
     printf 'suggestion     : use local kittwm pooled-SSH forwarding commands\n'
 fi
-printf 'local commands : kittwm remote %s list\n' "$host"
+printf 'local commands : kittwm remote %s kittwm\n' "$host"
+printf '               : kittwm remote %s list\n' "$host"
 printf '               : kittwm remote %s list apps firefox\n' "$host"
 printf '               : kittwm remote %s launch firefox\n' "$host"
 printf '               : kittwm remote %s list windows\n' "$host"
@@ -4608,6 +4632,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST status",
             category: "remote",
             description: "check remote kittwm availability",
+        },
+        LocalCommandEntry {
+            command: "remote HOST kittwm",
+            category: "remote",
+            description: "open remote kittwm in a pooled SSH terminal pane",
+        },
+        LocalCommandEntry {
+            command: "remote HOST desktop",
+            category: "remote",
+            description: "alias for remote HOST kittwm",
         },
         LocalCommandEntry {
             command: "remote HOST list",
@@ -11078,6 +11112,24 @@ mod tests {
             Some(&["--remote".to_string(), "buildbox".to_string()][..])
         );
 
+        let mut remote_kittwm = Cli::default();
+        remote_kittwm.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut remote_kittwm, "kittwm", &args(&["--workspace", "ops"]))
+            .unwrap();
+        assert_eq!(
+            remote_kittwm.remote_terminal_args.as_deref(),
+            Some(
+                &[
+                    "--remote".to_string(),
+                    "buildbox".to_string(),
+                    "--".to_string(),
+                    "kittwm".to_string(),
+                    "--workspace".to_string(),
+                    "ops".to_string()
+                ][..]
+            )
+        );
+
         let mut launch = Cli::default();
         launch.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut launch, "launch", &args(&["fire", "fox"])).unwrap();
@@ -11093,6 +11145,7 @@ mod tests {
         assert!(script.contains("kittwm doctor --json"), "{script}");
         assert!(script.contains("kittwm_healthy"), "{script}");
         assert!(script.contains("startup_check"), "{script}");
+        assert!(script.contains("kittwm remote %s kittwm"), "{script}");
         assert!(script.contains("kittwm remote %s list"), "{script}");
         assert!(
             script.contains("kittwm remote %s launch firefox"),
