@@ -2330,6 +2330,24 @@ impl NativePaneDetail {
         ))
     }
 
+    /// Host-cell start/end coordinates for dragging a title row by a delta.
+    ///
+    /// The returned cells are one-based `(col, row)` pairs suitable for UI
+    /// automation paths that inject host-level pointer drags. End coordinates are
+    /// saturated at the terminal-cell minimum/maximum instead of wrapping.
+    pub fn title_drag_cells_by(
+        &self,
+        delta_cols: i32,
+        delta_rows: i32,
+    ) -> Option<((u16, u16), (u16, u16))> {
+        let start = self.title_drag_cell()?;
+        let end = (
+            add_signed_host_cell_delta(start.0, delta_cols),
+            add_signed_host_cell_delta(start.1, delta_rows),
+        );
+        Some((start, end))
+    }
+
     /// Cursor position as `(col, row)` when reported.
     pub fn cursor_position(&self) -> Option<(u16, u16)> {
         Some((self.cursor_col?, self.cursor_row?))
@@ -2594,6 +2612,10 @@ impl PanesStatus {
             .iter()
             .filter(|pane| pane.is_title_draggable())
     }
+}
+
+fn add_signed_host_cell_delta(value: u16, delta: i32) -> u16 {
+    (i64::from(value) + i64::from(delta)).clamp(1, i64::from(u16::MAX)) as u16
 }
 
 fn normalized_workspace_str(value: Option<&str>) -> Option<&str> {
@@ -4735,6 +4757,7 @@ mod tests {
         assert_eq!(pane.floating_offset(), Some((4, -2)));
         assert!(pane.is_title_draggable());
         assert_eq!(pane.title_drag_cell(), Some((4, 1)));
+        assert_eq!(pane.title_drag_cells_by(5, 2), Some(((4, 1), (9, 3))));
         assert_eq!(pane.bounds(), Some((0, 0, 80, 24)));
         assert_eq!(pane.app_bounds(), Some((0, 1, 80, 23)));
         assert_eq!(pane.cursor_position(), Some((4, 5)));
@@ -4786,6 +4809,12 @@ mod tests {
             transport: None,
         };
         assert_eq!(base.title_drag_cell(), Some((14, 5)));
+        assert_eq!(base.title_drag_cells_by(7, -3), Some(((14, 5), (21, 2))));
+        assert_eq!(base.title_drag_cells_by(-99, -99), Some(((14, 5), (1, 1))));
+        assert_eq!(
+            base.title_drag_cells_by(i32::MAX, i32::MAX),
+            Some(((14, 5), (u16::MAX, u16::MAX)))
+        );
 
         let mut tiny = base.clone();
         tiny.cols = Some(1);
