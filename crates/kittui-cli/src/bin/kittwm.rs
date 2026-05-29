@@ -1053,7 +1053,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|kittwm|desktop|list|apps|launch|windows|displays|terminal|shell|ssh]
+  remote HOST [help|doctor|status|check|x11|graphical|kittwm|desktop|list|apps|launch|windows|displays|terminal|shell|ssh]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1422,6 +1422,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST status     check remote kittwm availability\n\
              kittwm remote HOST status --x11\n\
                                            check trusted X11 forwarding for remote app launch\n\
+             kittwm remote HOST x11        short alias for the graphical forwarding check\n\
+             kittwm remote HOST graphical  alias for remote HOST x11\n\
              kittwm remote HOST            friendly alias for remote doctor\n\
              kittwm remote HOST kittwm     open remote kittwm in a pooled SSH pane\n\
              kittwm remote HOST desktop    alias for remote HOST kittwm\n\
@@ -1526,6 +1528,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              apps                           list launch candidates\n\
              remote HOST                    check remote kittwm availability\n\
              remote HOST status --x11      check graphical forwarding for app launch\n\
+             remote HOST x11               short alias for graphical forwarding check\n\
+             remote HOST graphical         alias for remote HOST x11\n\
              remote HOST kittwm            open remote kittwm in a pooled SSH pane\n\
              remote HOST desktop           alias for remote HOST kittwm\n\
              remote HOST list              list remote app candidates\n\
@@ -1765,6 +1769,11 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             out.doctor = true;
             parse_remote_doctor_flags(out, rest)
         }
+        "x11" | "graphical" | "forwarding" => {
+            out.doctor = true;
+            out.remote_doctor_graphical = true;
+            parse_remote_doctor_flags(out, rest)
+        }
         "help" | "usage" => ensure_empty_remote_help_args(rest, || {
             out.remote_help = true;
         }),
@@ -1798,7 +1807,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             parse_remote_doctor_flags(out, &flags)
         }
         other => Err(anyhow!(
-            "unknown remote action {other:?}\ntry: kittwm remote HOST help | doctor | status | kittwm | list | apps | launch | windows | displays | terminal | shell\nhelp: kittwm help ssh"
+            "unknown remote action {other:?}\ntry: kittwm remote HOST help | doctor | status | x11 | kittwm | list | apps | launch | windows | displays | terminal | shell\nhelp: kittwm help ssh"
         )),
     }
 }
@@ -2834,6 +2843,8 @@ fn remote_help_cmd(host: &str) -> Result<()> {
     println!("Local kittwm pooled-SSH helpers:");
     println!("  kittwm remote {host} status");
     println!("  kittwm remote {host} status --x11");
+    println!("  kittwm remote {host} x11");
+    println!("  kittwm remote {host} graphical");
     println!("  kittwm remote {host} doctor");
     println!("  kittwm remote {host} list");
     println!("  kittwm remote {host} list apps firefox");
@@ -4765,6 +4776,16 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "check remote kittwm availability",
         },
         LocalCommandEntry {
+            command: "remote HOST x11",
+            category: "remote",
+            description: "check trusted X11 forwarding for remote app launch",
+        },
+        LocalCommandEntry {
+            command: "remote HOST graphical",
+            category: "remote",
+            description: "alias for remote HOST x11",
+        },
+        LocalCommandEntry {
             command: "remote HOST kittwm",
             category: "remote",
             description: "open remote kittwm in a pooled SSH terminal pane",
@@ -5595,6 +5616,8 @@ fn completion_words() -> &'static [&'static str] {
             "doctor",
             "status",
             "check",
+            "x11",
+            "graphical",
             "list",
             "apps",
             "launch",
@@ -10393,6 +10416,8 @@ mod tests {
         assert!(bash.contains("--launch-first"), "{bash}");
         assert!(bash.contains("kittwm"), "{bash}");
         assert!(bash.contains("desktop"), "{bash}");
+        assert!(bash.contains("x11"), "{bash}");
+        assert!(bash.contains("graphical"), "{bash}");
 
         let zsh = completions_text("zsh").unwrap();
         assert!(zsh.contains("#compdef kittwm"), "{zsh}");
@@ -10400,6 +10425,7 @@ mod tests {
         assert!(zsh.contains("nudge"), "{zsh}");
         assert!(zsh.contains("--remote"), "{zsh}");
         assert!(zsh.contains("desktop"), "{zsh}");
+        assert!(zsh.contains("x11"), "{zsh}");
 
         let fish = completions_text("fish").unwrap();
         assert!(fish.contains("complete -c kittwm"), "{fish}");
@@ -10408,6 +10434,7 @@ mod tests {
         assert!(fish.contains("--remote"), "{fish}");
         assert!(fish.contains("kittwm"), "{fish}");
         assert!(fish.contains("desktop"), "{fish}");
+        assert!(fish.contains("x11"), "{fish}");
         assert_eq!(fish, fish_completions_text());
         assert_eq!(fish.capacity(), fish.len());
         assert!(std::ptr::eq(completion_words(), completion_words()));
@@ -11275,6 +11302,13 @@ mod tests {
         parse_remote_alias_action(&mut x11_status, "status", &args(&["--x11"])).unwrap();
         assert!(x11_status.doctor);
         assert!(x11_status.remote_doctor_graphical);
+
+        let mut x11_alias = Cli::default();
+        x11_alias.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut x11_alias, "x11", &args(&["--json"])).unwrap();
+        assert!(x11_alias.doctor);
+        assert!(x11_alias.json);
+        assert!(x11_alias.remote_doctor_graphical);
 
         let mut help = Cli::default();
         help.remote_host = Some("buildbox".to_string());
