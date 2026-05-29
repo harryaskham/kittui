@@ -2537,6 +2537,23 @@ impl PanesStatus {
     pub fn tilable_rows(&self) -> Option<u16> {
         self.chrome.as_ref().and_then(|chrome| chrome.tilable_rows)
     }
+
+    /// Focused pane detail, preferring explicit pane flags and falling back to the focus id.
+    pub fn focused_pane(&self) -> Option<&NativePaneDetail> {
+        focused_pane_from_details(&self.panes_detail, Some(self.focus.as_str()))
+    }
+
+    /// Topmost pane detail, using `stack_top` when reported or the largest stack index.
+    pub fn topmost_pane(&self) -> Option<&NativePaneDetail> {
+        topmost_pane_from_details(&self.panes_detail)
+    }
+
+    /// Panes whose title row is reported as a window-manager drag handle.
+    pub fn title_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.is_title_draggable())
+    }
 }
 
 fn normalized_workspace_str(value: Option<&str>) -> Option<&str> {
@@ -2599,6 +2616,45 @@ impl Status {
     pub fn tilable_rows(&self) -> Option<u16> {
         self.chrome.as_ref().and_then(|chrome| chrome.tilable_rows)
     }
+
+    /// Focused pane detail, preferring the top-level `focused_pane` field.
+    pub fn focused_pane(&self) -> Option<&NativePaneDetail> {
+        self.focused_pane
+            .as_ref()
+            .or_else(|| focused_pane_from_details(&self.panes_detail, self.focus.as_deref()))
+    }
+
+    /// Topmost pane detail, using `stack_top` when reported or the largest stack index.
+    pub fn topmost_pane(&self) -> Option<&NativePaneDetail> {
+        topmost_pane_from_details(&self.panes_detail)
+    }
+
+    /// Panes whose title row is reported as a window-manager drag handle.
+    pub fn title_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.is_title_draggable())
+    }
+}
+
+fn focused_pane_from_details<'a>(
+    panes: &'a [NativePaneDetail],
+    focus: Option<&str>,
+) -> Option<&'a NativePaneDetail> {
+    panes
+        .iter()
+        .find(|pane| pane.focused)
+        .or_else(|| focus.and_then(|focus| panes.iter().find(|pane| pane.window == focus)))
+}
+
+fn topmost_pane_from_details(panes: &[NativePaneDetail]) -> Option<&NativePaneDetail> {
+    panes.iter().find(|pane| pane.is_stack_top()).or_else(|| {
+        panes
+            .iter()
+            .filter_map(|pane| pane.stack_index.map(|idx| (idx, pane)))
+            .max_by_key(|(idx, _)| *idx)
+            .map(|(_, pane)| pane)
+    })
 }
 
 /// Native app discovery catalog returned by `APPS_JSON`.
@@ -4589,6 +4645,9 @@ mod tests {
         assert_eq!(panes.top_bar_rows(), 1);
         assert_eq!(panes.tilable_rows(), Some(23));
         assert!(panes.chrome_reservation().unwrap().is_reported());
+        assert_eq!(panes.focused_pane().unwrap().window, "native-1");
+        assert_eq!(panes.topmost_pane().unwrap().window, "native-1");
+        assert_eq!(panes.title_draggable_panes().count(), 1);
         let pane = &panes.panes_detail[0];
         assert_eq!(pane.cursor_col, Some(4));
         assert_eq!(pane.mouse_sgr, Some(true));
@@ -4623,7 +4682,36 @@ mod tests {
         assert_eq!(status.tilable_rows(), None);
         assert!(status.chrome_reservation().is_none());
         assert!(status.focused_pane.is_none());
+        assert!(status.focused_pane().is_none());
+        assert!(status.topmost_pane().is_none());
+        assert_eq!(status.title_draggable_panes().count(), 0);
         assert!(status.panes_detail.is_empty());
+    }
+
+    #[test]
+    fn status_pane_state_accessors_use_details_and_fallbacks() {
+        let status: Status = serde_json::from_str(
+            r#"{
+              "pending": 0,
+              "panes": 2,
+              "focus": "native-2",
+              "layout": "floating",
+              "panes_detail": [
+                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true},
+                {"window":"native-2","title":"editor","focused":false,"weight":1,"stack_index":1,"title_draggable":true}
+              ]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(status.focused_pane().unwrap().window, "native-2");
+        assert_eq!(status.topmost_pane().unwrap().window, "native-2");
+        assert_eq!(
+            status
+                .title_draggable_panes()
+                .map(|pane| pane.window.as_str())
+                .collect::<Vec<_>>(),
+            vec!["native-1", "native-2"]
+        );
     }
 
     #[test]
