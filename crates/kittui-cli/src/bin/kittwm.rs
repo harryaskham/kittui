@@ -8203,11 +8203,33 @@ kittwm_remote_filter() {
     fi
 }
 if command -v kittwm >/dev/null 2>&1; then
-    case "$kind" in
-        displays) kittwm --list-displays | kittwm_remote_filter ;;
-        *) kittwm --list-windows | kittwm_remote_filter ;;
-    esac
-    exit 0
+    kittwm_err=$(mktemp "${TMPDIR:-/tmp}/kittwm-remote-list.XXXXXX" 2>/dev/null || printf '')
+    if [ -n "$kittwm_err" ]; then
+        case "$kind" in
+            displays) kittwm_out=$(kittwm --list-displays 2>"$kittwm_err") ;;
+            *) kittwm_out=$(kittwm --list-windows 2>"$kittwm_err") ;;
+        esac
+        kittwm_status=$?
+        if [ $kittwm_status -eq 0 ]; then
+            rm -f "$kittwm_err"
+            printf '%s\n' "$kittwm_out" | kittwm_remote_filter
+            exit 0
+        fi
+        cat "$kittwm_err" >&2
+        rm -f "$kittwm_err"
+    else
+        case "$kind" in
+            displays) kittwm_out=$(kittwm --list-displays 2>&1) ;;
+            *) kittwm_out=$(kittwm --list-windows 2>&1) ;;
+        esac
+        kittwm_status=$?
+        if [ $kittwm_status -eq 0 ]; then
+            printf '%s\n' "$kittwm_out" | kittwm_remote_filter
+            exit 0
+        fi
+        printf '%s\n' "$kittwm_out" >&2
+    fi
+    printf 'WARN remote kittwm %s listing failed; falling back to platform discovery on %s\n' "$kind" "$host" >&2
 fi
 case "$kind" in
     displays)
@@ -11141,6 +11163,11 @@ mod tests {
         let script = remote_listing_script();
         assert!(script.contains("kittwm --list-windows"), "{script}");
         assert!(script.contains("kittwm --list-displays"), "{script}");
+        assert!(script.contains("kittwm_status"), "{script}");
+        assert!(
+            script.contains("WARN remote kittwm %s listing failed; falling back"),
+            "{script}"
+        );
         assert!(script.contains("KITTWM_REMOTE_QUERY"), "{script}");
         assert!(script.contains("kittwm_remote_filter"), "{script}");
         assert!(script.contains("wmctrl"), "{script}");
