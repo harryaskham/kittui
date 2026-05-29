@@ -3266,7 +3266,8 @@ mod tests {
 
     #[test]
     fn quit_sets_flag() {
-        let p = std::env::temp_dir().join(format!("kittwm-test-quit-{}.sock", std::process::id()));
+        let p =
+            std::env::temp_dir().join(test_socket_filename("kittwm-test-quit", std::process::id()));
         let _ = std::fs::remove_file(&p);
         let server = DaemonServer::bind(p.clone()).unwrap();
         let reply = client_request(server.path(), "QUIT").unwrap();
