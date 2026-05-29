@@ -3248,6 +3248,17 @@ impl Kittwm {
         self.request_protocol("BALANCE_PANES")
     }
 
+    /// Reset every floating pane offset to generated layout positions.
+    pub fn reset_all_positions(&self) -> Result<String> {
+        self.capabilities.ensure(Capability::ControlWindow)?;
+        self.request_protocol("RESET_ALL_PANE_OFFSETS")
+    }
+
+    /// Alias for [`Kittwm::reset_all_positions`].
+    pub fn reset_all_floating_offsets(&self) -> Result<String> {
+        self.reset_all_positions()
+    }
+
     /// Fetch a bounded batch of native JSON-lines events.
     pub fn events_ms(&self, ms: u64) -> Result<Vec<KittwmEvent>> {
         self.capabilities.ensure(Capability::SubscribeEvents)?;
@@ -6106,7 +6117,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
             let mut seen = Vec::new();
-            for _ in 0..14 {
+            for _ in 0..16 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = String::new();
                 BufReader::new(stream.try_clone().unwrap())
@@ -6132,6 +6143,8 @@ mod tests {
             "OK"
         );
         assert_eq!(client.balance_panes().unwrap().trim(), "OK");
+        assert_eq!(client.reset_all_positions().unwrap().trim(), "OK");
+        assert_eq!(client.reset_all_floating_offsets().unwrap().trim(), "OK");
         let surface = client.surface("native-2");
         assert_eq!(surface.rename(" Editor Pane ").unwrap().trim(), "OK");
         assert_eq!(
@@ -6155,6 +6168,8 @@ mod tests {
                 "LAYOUT grid",
                 "SPLIT_PANE focused rows htop --tree",
                 "BALANCE_PANES",
+                "RESET_ALL_PANE_OFFSETS",
+                "RESET_ALL_PANE_OFFSETS",
                 "RENAME_PANE native-2 Editor Pane",
                 "MOVE_PANE native-2 first",
                 "MOVE_PANE native-2 down",
@@ -6190,6 +6205,14 @@ mod tests {
         ));
         assert!(matches!(
             client.layout(LayoutMode::Rows),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.reset_all_positions(),
+            Err(Error::CapabilityDenied(Capability::ControlWindow))
+        ));
+        assert!(matches!(
+            client.reset_all_floating_offsets(),
             Err(Error::CapabilityDenied(Capability::ControlWindow))
         ));
         assert!(matches!(

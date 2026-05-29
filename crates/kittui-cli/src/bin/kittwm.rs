@@ -430,7 +430,8 @@ fn parse_args() -> Result<Cli> {
                 break;
             }
             "focus" | "close" | "layout" | "move" | "raise" | "lower" | "nudge"
-            | "reset-position" | "reset-offset" | "resize" | "balance" | "rename" => {
+            | "reset-position" | "reset-offset" | "reset-positions" | "reset-offsets"
+            | "resize" | "balance" | "rename" => {
                 out.automation_request = Some(parse_pane_control_alias(a.as_str(), args.by_ref())?);
                 break;
             }
@@ -864,6 +865,9 @@ fn parse_args() -> Result<Cli> {
                     .ok_or_else(|| anyhow!("--reset-pane-offset WINDOW|focused"))?;
                 out.automation_request = Some(reset_pane_offset_request(&window)?);
             }
+            "--reset-all-pane-offsets" => {
+                out.automation_request = Some("RESET_ALL_PANE_OFFSETS".to_string());
+            }
             "--resize-pane" => {
                 let window = args
                     .next()
@@ -1031,6 +1035,7 @@ PANE CONTROL
   lower [WINDOW]              Lower pane to bottom of floating/stack order
   nudge [WINDOW] DX DY        Nudge floating pane by cell delta
   reset-position [WINDOW]     Reset floating pane to generated position
+  reset-positions             Reset all floating panes to generated positions
   resize [WINDOW] AMOUNT      Alias for --resize-pane (default focused)
   balance                     Alias for --balance-panes
   rename WINDOW TITLE         Alias for --rename-pane
@@ -1042,6 +1047,7 @@ PANE CONTROL
   --move-pane WINDOW DIR      DIR: left/right/up/down/first/last
   --nudge-pane WINDOW DX DY   Nudge floating pane by cell delta
   --reset-pane-offset WINDOW  Reset floating pane offset
+  --reset-all-pane-offsets    Reset every floating pane offset
   --resize-pane WINDOW N      N: grow/shrink/+N/-N
   --balance-panes             Equalize pane weights
   --rename-pane WINDOW TITLE  Set pane display title
@@ -1381,6 +1387,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 \
              reset-position [WINDOW]        reset floating pane offset
 \
+             reset-positions                reset all floating pane offsets
+\
              resize [WINDOW] AMOUNT         resize pane weight (default focused)
 \
              balance                        equalize weights
@@ -1400,6 +1408,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --nudge-pane WINDOW DX DY      nudge floating pane by cell delta
 \
              --reset-pane-offset WINDOW     reset floating pane offset
+\
+             --reset-all-pane-offsets       reset all floating pane offsets
 \
              --resize-pane WINDOW AMOUNT    grow/shrink/+N/-N pane weight
 \
@@ -2184,6 +2194,7 @@ fn parse_pane_control_alias(alias: &str, mut args: impl Iterator<Item = String>)
             let window = next().unwrap_or_else(|| "focused".to_string());
             reset_pane_offset_request(&window)?
         }
+        "reset-positions" | "reset-offsets" => "RESET_ALL_PANE_OFFSETS".to_string(),
         "resize" => {
             let first = next().ok_or_else(|| anyhow!("kittwm resize [WINDOW] AMOUNT"))?;
             let second = next();
@@ -4802,6 +4813,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "reset floating pane position",
         },
         LocalCommandEntry {
+            command: "reset-positions",
+            category: "panes",
+            description: "reset all floating pane positions",
+        },
+        LocalCommandEntry {
             command: "resize [WINDOW] N",
             category: "panes",
             description: "resize pane weight",
@@ -5707,6 +5723,7 @@ fn completion_words() -> &'static [&'static str] {
             "--read-text-json",
             "--nudge-pane",
             "--reset-pane-offset",
+            "--reset-all-pane-offsets",
             "--wait-output-json-ms",
         ]);
         words.sort_unstable();
@@ -10562,6 +10579,7 @@ mod tests {
         assert!(bash.contains("nudge"), "{bash}");
         assert!(bash.contains("--nudge-pane"), "{bash}");
         assert!(bash.contains("--reset-pane-offset"), "{bash}");
+        assert!(bash.contains("--reset-all-pane-offsets"), "{bash}");
         assert!(bash.contains("--panes-json"), "{bash}");
         assert!(bash.contains("--remote"), "{bash}");
         assert!(bash.contains("--launch-first"), "{bash}");
@@ -13894,6 +13912,7 @@ END
         assert!(text.contains("--spawn-pty CMD"), "{text}");
         assert!(text.contains("nudge [WINDOW] DX DY"), "{text}");
         assert!(text.contains("reset-position [WINDOW]"), "{text}");
+        assert!(text.contains("reset-positions"), "{text}");
         assert!(text.contains("--wait-output-json-ms"), "{text}");
         assert!(
             text.contains(
@@ -14267,6 +14286,10 @@ END
         assert_eq!(
             parse_pane_control_alias("reset-offset", args(&["native-2"]).into_iter()).unwrap(),
             "RESET_PANE_OFFSET native-2"
+        );
+        assert_eq!(
+            parse_pane_control_alias("reset-positions", Vec::<String>::new().into_iter()).unwrap(),
+            "RESET_ALL_PANE_OFFSETS"
         );
         assert_eq!(
             parse_pane_control_alias("resize", args(&["native-2", "+2"]).into_iter()).unwrap(),

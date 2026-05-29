@@ -764,6 +764,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         dbg.log(&native_socket_reset_offset_log_line(&window));
                     }
                 }
+                crate::daemon::NativePaneCommand::ResetAllOffsets => {
+                    let reset_count = native_reset_all_floating_offsets(&mut floating_offsets);
+                    if reset_count > 0 {
+                        clear = true;
+                    }
+                    dbg.log(&native_socket_reset_all_offsets_log_line(reset_count));
+                }
                 crate::daemon::NativePaneCommand::Resize { window, delta } => {
                     if let Some(idx) = native_target_pane_index(&panes, focused, &window) {
                         panes[idx].weight = native_adjust_weight(panes[idx].weight, delta);
@@ -4135,6 +4142,14 @@ fn native_reset_floating_offset(
     floating_offsets.remove(window);
 }
 
+fn native_reset_all_floating_offsets(
+    floating_offsets: &mut HashMap<String, NativeFloatingPaneOffset>,
+) -> usize {
+    let reset_count = floating_offsets.len();
+    floating_offsets.clear();
+    reset_count
+}
+
 fn native_nudge_focused_pane(
     floating_offsets: &mut HashMap<String, NativeFloatingPaneOffset>,
     panes: &[NativePane],
@@ -4751,6 +4766,15 @@ fn native_socket_reset_offset_log_line(window: &str) -> String {
         String::with_capacity("native terminal socket reset offset: ".len() + window.len());
     out.push_str("native terminal socket reset offset: ");
     out.push_str(window);
+    out
+}
+
+fn native_socket_reset_all_offsets_log_line(reset_count: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("native terminal socket reset all offsets: ".len() + 20);
+    out.push_str("native terminal socket reset all offsets: ");
+    let _ = write!(out, "{reset_count}");
     out
 }
 
@@ -8922,6 +8946,19 @@ mod native_pane_tests {
         assert_eq!(
             native_socket_reset_offset_log_line("focused"),
             "native terminal socket reset offset: focused"
+        );
+    }
+
+    #[test]
+    fn native_reset_all_floating_offsets_clears_every_stored_offset() {
+        let mut offsets = HashMap::new();
+        native_nudge_floating_offset(&mut offsets, "native-1", 5, -2);
+        native_nudge_floating_offset(&mut offsets, "native-2", -1, 3);
+        assert_eq!(native_reset_all_floating_offsets(&mut offsets), 2);
+        assert!(offsets.is_empty());
+        assert_eq!(
+            native_socket_reset_all_offsets_log_line(2),
+            "native terminal socket reset all offsets: 2"
         );
     }
 
