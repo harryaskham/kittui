@@ -6560,6 +6560,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn compose_error_log_line_builds_directly() {
+        let line = compose_error_log_line("capture denied");
+        assert_eq!(line, "compose err: capture denied");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11333,6 +11340,13 @@ fn raw_frame_count_log_line(frame: u64, frames: usize) -> String {
     out
 }
 
+fn compose_error_log_line(message: &str) -> String {
+    let mut out = String::with_capacity("compose err: ".len() + message.len());
+    out.push_str("compose err: ");
+    out.push_str(message);
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -12075,7 +12089,7 @@ pub fn run_loop_with<S: XServer>(
                 let msg = e.to_string();
                 let error_key = raw_compositor_error_key(&msg, &dbg.path_display());
                 if should_write_raw_compositor_error(last_error_key.as_deref(), &error_key) {
-                    dbg.log(&format!("compose err: {msg}"));
+                    dbg.log(&compose_error_log_line(&msg));
                     let stdout = io::stdout();
                     let mut handle = stdout.lock();
                     let error_text = raw_compositor_error_text(&msg);
