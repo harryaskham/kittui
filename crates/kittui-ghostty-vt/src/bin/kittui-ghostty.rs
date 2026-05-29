@@ -1,7 +1,9 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use image::{imageops, Rgba, RgbaImage};
 use kittui_ghostty_vt::{render_snapshot_preview_png, GhosttyVtTerminal, PreviewOptions};
@@ -21,8 +23,11 @@ struct Args {
     pty_command: Option<String>,
     kittwm_proof_command: Option<String>,
     pty_timelapse_command: Option<String>,
+    pty_sampled_command: Option<String>,
     pty_input: Option<String>,
     pty_input_delay_ms: u64,
+    sample_ms: u64,
+    max_ms: u64,
     scroll: ScrollMode,
 }
 
@@ -40,6 +45,9 @@ fn main() -> anyhow::Result<()> {
     }
     if let Some(command) = &args.pty_timelapse_command {
         return render_pty_timelapse_command(&args, command);
+    }
+    if let Some(command) = &args.pty_sampled_command {
+        return render_pty_sampled_command(&args, command);
     }
 
     let input = input_bytes(&args)?;
@@ -67,9 +75,129 @@ fn render_timelapse_demo(args: &Args) -> anyhow::Result<()> {
 }
 
 fn render_pty_timelapse_command(args: &Args, command: &str) -> anyhow::Result<()> {
-    let bytes = pty_command_bytes(command, args.cols, args.rows)?;
+    let pty_input = args
+        .pty_input
+        .as_deref()
+        .map(decode_pty_input)
+        .transpose()?;
+    let bytes = pty_command_bytes_with_input(
+        command,
+        args.cols,
+        args.rows,
+        pty_input.as_deref(),
+        args.pty_input_delay_ms,
+    )?;
     let chunks = line_chunks(&bytes, args.chunk_lines);
     render_timelapse_chunks(args, chunks)
+}
+
+fn render_pty_sampled_command(args: &Args, command: &str) -> anyhow::Result<()> {
+    std::fs::create_dir_all(&args.out_dir)?;
+    let pty_input = args
+        .pty_input
+        .as_deref()
+        .map(decode_pty_input)
+        .transpose()?;
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize {
+        rows: args.rows,
+        cols: args.cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    })?;
+    let mut cmd = CommandBuilder::new("sh");
+    cmd.arg("-c");
+    cmd.arg(command);
+    if let Ok(cwd) = std::env::current_dir() {
+        cmd.cwd(cwd.as_os_str());
+    }
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLUMNS", args.cols.to_string());
+    cmd.env("LINES", args.rows.to_string());
+    let mut reader = pair.master.try_clone_reader()?;
+    let mut writer = if pty_input.is_some() {
+        Some(pair.master.take_writer()?)
+    } else {
+        None
+    };
+    let mut child = pair.slave.spawn_command(cmd)?;
+    drop(pair.slave);
+
+    let (bytes_tx, bytes_rx) = mpsc::channel::<Vec<u8>>();
+    let reader_handle = thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if bytes_tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    let mut terminal = GhosttyVtTerminal::new(args.cols, args.rows, 1_000)?;
+    let mut frames = Vec::new();
+    let started = Instant::now();
+    let sample = Duration::from_millis(args.sample_ms.max(1));
+    let max_duration = Duration::from_millis(args.max_ms.max(args.sample_ms.max(1)));
+    let mut input_sent = false;
+    let mut status: Option<u32> = None;
+    let mut idx = 0usize;
+    loop {
+        match bytes_rx.recv_timeout(sample) {
+            Ok(bytes) => terminal.write(&bytes),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {}
+        }
+        while let Ok(bytes) = bytes_rx.try_recv() {
+            terminal.write(&bytes);
+        }
+        if !input_sent && started.elapsed() >= Duration::from_millis(args.pty_input_delay_ms) {
+            if let (Some(input), Some(writer)) = (pty_input.as_deref(), writer.as_mut()) {
+                writer.write_all(input)?;
+                writer.flush()?;
+            }
+            input_sent = true;
+        }
+        if status.is_none() {
+            if let Some(exit) = child.try_wait()? {
+                status = Some(exit.exit_code());
+            }
+        }
+        let snapshot = terminal.render_snapshot()?;
+        let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
+        let path = args.out_dir.join(format!("frame-{idx:03}.png"));
+        std::fs::write(&path, png)?;
+        frames.push((idx, path, snapshot.cursor_x, snapshot.cursor_y));
+        idx += 1;
+        if status.is_some() {
+            break;
+        }
+        if started.elapsed() >= max_duration {
+            let _ = child.kill();
+            status = child.wait().ok().map(|status| status.exit_code());
+            while let Ok(bytes) = bytes_rx.try_recv() {
+                terminal.write(&bytes);
+            }
+            break;
+        }
+    }
+    drop(bytes_rx);
+    let _ = reader_handle.join();
+    write_manifest(&args.out_dir, &frames)?;
+    if let Some(path) = &args.montage {
+        write_montage(path, &frames)?;
+    }
+    println!(
+        "kittui-ghostty wrote {} sampled frames to {} (status={:?})",
+        frames.len(),
+        args.out_dir.display(),
+        status
+    );
+    Ok(())
 }
 
 fn render_timelapse_chunks(args: &Args, chunks: Vec<&[u8]>) -> anyhow::Result<()> {
@@ -109,8 +237,11 @@ fn parse_args() -> anyhow::Result<Args> {
     let mut pty_command = None;
     let mut kittwm_proof_command = None;
     let mut pty_timelapse_command = None;
+    let mut pty_sampled_command = None;
     let mut pty_input = None;
     let mut pty_input_delay_ms = 100u64;
+    let mut sample_ms = 250u64;
+    let mut max_ms = 10_000u64;
     let mut scroll = ScrollMode::Current;
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
@@ -181,6 +312,12 @@ fn parse_args() -> anyhow::Result<Args> {
                         .ok_or_else(|| anyhow::anyhow!("--pty-timelapse-command COMMAND"))?,
                 );
             }
+            "--pty-sampled-command" => {
+                pty_sampled_command = Some(
+                    iter.next()
+                        .ok_or_else(|| anyhow::anyhow!("--pty-sampled-command COMMAND"))?,
+                );
+            }
             "--pty-input" => {
                 pty_input = Some(
                     iter.next()
@@ -191,6 +328,18 @@ fn parse_args() -> anyhow::Result<Args> {
                 pty_input_delay_ms = iter
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--pty-input-delay-ms N"))?
+                    .parse()?;
+            }
+            "--sample-ms" => {
+                sample_ms = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--sample-ms N"))?
+                    .parse()?;
+            }
+            "--max-ms" => {
+                max_ms = iter
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--max-ms N"))?
                     .parse()?;
             }
             "--scroll" => {
@@ -220,8 +369,11 @@ fn parse_args() -> anyhow::Result<Args> {
         pty_command,
         kittwm_proof_command,
         pty_timelapse_command,
+        pty_sampled_command,
         pty_input,
         pty_input_delay_ms,
+        sample_ms,
+        max_ms,
         scroll,
     })
 }
@@ -231,13 +383,14 @@ fn input_bytes(args: &Args) -> anyhow::Result<Vec<u8>> {
         args.command.is_some(),
         args.pty_command.is_some(),
         args.kittwm_proof_command.is_some(),
+        args.pty_sampled_command.is_some(),
     ]
     .into_iter()
     .filter(|enabled| *enabled)
     .count();
     if command_modes > 1 {
         anyhow::bail!(
-            "--command, --pty-command, and --kittwm-proof-command are mutually exclusive"
+            "--command, --pty-command, --kittwm-proof-command, and --pty-sampled-command are mutually exclusive"
         );
     }
     let pty_input = args
@@ -291,10 +444,6 @@ fn command_bytes(command: &str) -> anyhow::Result<Vec<u8>> {
         bytes.extend_from_slice(format!("\n[exit {:?}]\n", output.status.code()).as_bytes());
     }
     Ok(bytes)
-}
-
-fn pty_command_bytes(command: &str, cols: u16, rows: u16) -> anyhow::Result<Vec<u8>> {
-    pty_command_bytes_with_input(command, cols, rows, None, 0)
 }
 
 fn pty_command_bytes_with_input(
@@ -464,7 +613,8 @@ fn print_help() {
            kittui-ghostty --command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --pty-command COMMAND [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
            kittui-ghostty --kittwm-proof-command COMMAND [--pty-input TEXT] [--out PATH] [--cols N] [--rows N] [--scroll top|bottom|current]\n\
-           kittui-ghostty --pty-timelapse-command COMMAND [--out-dir DIR] [--montage PATH] [--cols N] [--rows N] [--chunk-lines N]\n\
+           kittui-ghostty --pty-timelapse-command COMMAND [--pty-input TEXT] [--out-dir DIR] [--montage PATH] [--cols N] [--rows N] [--chunk-lines N]\n\
+           kittui-ghostty --pty-sampled-command COMMAND [--pty-input TEXT] [--sample-ms N] [--max-ms N] [--out-dir DIR] [--montage PATH] [--cols N] [--rows N]\n\
            kittui-ghostty --timelapse-demo [--out-dir DIR] [--montage PATH] [--cols N] [--rows N]\n\n\
          Reads VT bytes from stdin. If stdin is empty or --demo is passed, renders demo content.\n\
          --command/-c runs COMMAND through sh -c and renders stdout/stderr.\n\

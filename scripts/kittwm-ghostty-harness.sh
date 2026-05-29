@@ -9,6 +9,7 @@ Usage:
   scripts/kittwm-ghostty-harness.sh --mode headless -- COMMAND...
   scripts/kittwm-ghostty-harness.sh --mode proof -- COMMAND...
   scripts/kittwm-ghostty-harness.sh --mode timelapse -- COMMAND...
+  scripts/kittwm-ghostty-harness.sh --mode sampled -- COMMAND...
   scripts/kittwm-ghostty-harness.sh --mode app -- COMMAND...
   scripts/kittwm-ghostty-harness.sh --mode kittem -- KITtem-ARGS...
 
@@ -17,7 +18,13 @@ Options:
   --out-dir DIR     Artifact directory (default: /tmp/kittwm-ghostty-harness-$PID)
   --cols N          Terminal columns for libghostty-vt/kittwm proof modes (default: 100)
   --rows N          Terminal rows for libghostty-vt/kittwm proof modes (default: 28)
+  --chunk-lines N   Lines per frame in timelapse mode (default: 1)
+  --sample-ms N     Milliseconds between frames in sampled mode (default: 250)
+  --max-ms N        Maximum sampled-mode runtime before killing child (default: 10000)
   --scroll MODE     top | bottom | current for PNG preview modes (default: current)
+  --pty-input TEXT  Input to send to PTY command in headless/proof/timelapse modes (escapes: \n \r \t \e \xHH)
+  --pty-input-delay-ms N
+                   Delay before sending --pty-input (default: 100)
   --app-name NAME   macOS application name for --mode app (default: Ghostty)
   --keep-app        Do not ask Ghostty.app to quit after --mode app capture
   --help            Show this help
@@ -28,6 +35,8 @@ Modes:
   proof      Like headless, but uses kittui-ghostty --kittwm-proof-command with
              kittwm-friendly renderer environment for screenshot evidence.
   timelapse  Run COMMAND once in a PTY and emit frame-*.png plus manifest.json.
+  sampled    Run COMMAND in a PTY and sample live VT state every --sample-ms, so
+             alternate-screen TUIs can be captured before they exit.
   app        Best-effort macOS Ghostty.app smoke: launch Ghostty.app with COMMAND,
              capture a desktop screenshot, and write a manifest. Requires macOS
              GUI permissions; use as manual/interactive evidence only.
@@ -47,8 +56,12 @@ out_dir="/tmp/kittwm-ghostty-harness-$$"
 cols=100
 rows=28
 scroll=current
+chunk_lines=1
+sample_ms=250
+max_ms=10000
 app_name=Ghostty
 keep_app=0
+pty_input=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -68,8 +81,28 @@ while [[ $# -gt 0 ]]; do
       rows="${2:?--rows requires a value}"
       shift 2
       ;;
+    --chunk-lines)
+      chunk_lines="${2:?--chunk-lines requires a value}"
+      shift 2
+      ;;
+    --sample-ms)
+      sample_ms="${2:?--sample-ms requires a value}"
+      shift 2
+      ;;
+    --max-ms)
+      max_ms="${2:?--max-ms requires a value}"
+      shift 2
+      ;;
     --scroll)
       scroll="${2:?--scroll requires a value}"
+      shift 2
+      ;;
+    --pty-input)
+      pty_input+=(--pty-input "${2:?--pty-input requires a value}")
+      shift 2
+      ;;
+    --pty-input-delay-ms)
+      pty_input+=(--pty-input-delay-ms "${2:?--pty-input-delay-ms requires a value}")
       shift 2
       ;;
     --app-name)
@@ -149,7 +182,7 @@ case "$mode" in
   headless)
     frame="$out_dir/frame.png"
     set +e
-    run_cargo_ghostty --pty-command "$command_text" --out "$frame" --cols "$cols" --rows "$rows" --scroll "$scroll"
+    run_cargo_ghostty --pty-command "$command_text" "${pty_input[@]}" --out "$frame" --cols "$cols" --rows "$rows" --scroll "$scroll"
     status=$?
     set -e
     write_manifest "$status" "headless-libghostty-vt" '["frame.png","kittui-ghostty.stdout.txt","kittui-ghostty.stderr.txt"]'
@@ -158,7 +191,7 @@ case "$mode" in
   proof)
     frame="$out_dir/proof.png"
     set +e
-    run_cargo_ghostty --kittwm-proof-command "$command_text" --out "$frame" --cols "$cols" --rows "$rows" --scroll "$scroll"
+    run_cargo_ghostty --kittwm-proof-command "$command_text" "${pty_input[@]}" --out "$frame" --cols "$cols" --rows "$rows" --scroll "$scroll"
     status=$?
     set -e
     write_manifest "$status" "kittwm-proof-libghostty-vt" '["proof.png","kittui-ghostty.stdout.txt","kittui-ghostty.stderr.txt"]'
@@ -167,10 +200,19 @@ case "$mode" in
   timelapse)
     frames_dir="$out_dir/timelapse"
     set +e
-    run_cargo_ghostty --pty-timelapse-command "$command_text" --out-dir "$frames_dir" --cols "$cols" --rows "$rows"
+    run_cargo_ghostty --pty-timelapse-command "$command_text" "${pty_input[@]}" --out-dir "$frames_dir" --cols "$cols" --rows "$rows" --chunk-lines "$chunk_lines"
     status=$?
     set -e
     write_manifest "$status" "pty-timelapse-libghostty-vt" '["timelapse/","kittui-ghostty.stdout.txt","kittui-ghostty.stderr.txt"]'
+    exit "$status"
+    ;;
+  sampled)
+    frames_dir="$out_dir/sampled"
+    set +e
+    run_cargo_ghostty --pty-sampled-command "$command_text" "${pty_input[@]}" --out-dir "$frames_dir" --cols "$cols" --rows "$rows" --sample-ms "$sample_ms" --max-ms "$max_ms"
+    status=$?
+    set -e
+    write_manifest "$status" "pty-sampled-libghostty-vt" '["sampled/","kittui-ghostty.stdout.txt","kittui-ghostty.stderr.txt"]'
     exit "$status"
     ;;
   app)

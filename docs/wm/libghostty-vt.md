@@ -125,3 +125,20 @@ As with all kittwm evidence, generated screenshots must be reviewed before they
 are treated as visual proof. If the image only shows command/test logs, classify
 it as `VALIDATION_ONLY`; if it reveals blank, wrapped, stale, or otherwise broken
 output, keep the bead open or file a follow-up.
+
+## kittwm spec smoke scenarios
+
+After the harness is available, run the bounded kittwm spec smoke wrapper to
+produce a consistent artifact set for basic user-facing checks:
+
+```bash
+scripts/kittwm-ghostty-spec-smoke.sh --out-dir /tmp/kittwm-spec-smoke
+```
+
+It captures `kittwm --help`, `kittwm --shortcuts`, and a short sampled
+first-launch `kittwm` run using a unique `KITTWM_SOCKET`. The sampled mode
+captures live VT state at intervals, which preserves alternate-screen TUI frames
+before the process exits. Review the generated `summary.md` and PNGs before
+closing a visual bead. In particular, the first-launch scenario should show the
+empty workspace top bar and shortcut hint; blank or near-blank frames are a
+failure signal, not proof.
