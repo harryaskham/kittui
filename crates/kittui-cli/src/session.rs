@@ -2119,7 +2119,7 @@ fn native_pane_status_chip_text(pane: &NativePane) -> String {
     }
     out.push_str(" · frame:");
     if let Some(metrics) = pane.dirty_frame.as_ref() {
-        if metrics.skipped_upload {
+        if metrics.is_clean() {
             out.push_str("clean");
         } else {
             out.push_str(&metrics.changed_tiles.to_string());
@@ -2372,6 +2372,10 @@ impl NativeDirtyFrameMetrics {
             changed_fraction: diff.changed_fraction(),
             skipped_upload,
         }
+    }
+
+    fn is_clean(&self) -> bool {
+        self.skipped_upload || self.changed_tiles == 0
     }
 }
 
@@ -10196,6 +10200,16 @@ mod native_pane_tests {
             resized_chip.contains(" · wt:3 · pid:1234"),
             "{resized_chip}"
         );
+
+        pane.dirty_frame = Some(NativeDirtyFrameMetrics {
+            changed_tiles: 0,
+            total_tiles: 9,
+            changed_fraction: 0.0,
+            skipped_upload: false,
+        });
+        let clean_chip = native_pane_status_chip_text(&pane);
+        assert!(clean_chip.ends_with(" · frame:clean"), "{clean_chip}");
+        assert!(pane.dirty_frame.as_ref().unwrap().is_clean());
     }
 
     #[test]
