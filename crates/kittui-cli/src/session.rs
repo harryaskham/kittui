@@ -6764,6 +6764,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn picker_selected_log_line_builds_directly() {
+        let line = picker_selected_log_line("window native-1");
+        assert_eq!(line, "picker selected window native-1");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn launcher_overlay_launch_failed_log_line_builds_directly() {
         let err = anyhow!("spawn denied");
         let line = launcher_overlay_launch_failed_log_line(&err);
@@ -11905,6 +11912,13 @@ fn layout_action_log_line(message: &str) -> String {
     out
 }
 
+fn picker_selected_log_line(label: &str) -> String {
+    let mut out = String::with_capacity("picker selected ".len() + label.len());
+    out.push_str("picker selected ");
+    out.push_str(label);
+    out
+}
+
 fn launcher_overlay_launch_failed_log_line(err: &dyn std::fmt::Display) -> String {
     use std::fmt::Write as _;
 
@@ -12130,10 +12144,7 @@ pub fn run_loop_with<S: XServer>(
                             "picker.select {}",
                             picker_overlay.selection_label()
                         ));
-                        dbg.log(&format!(
-                            "picker selected {}",
-                            picker_overlay.selection_label()
-                        ));
+                        dbg.log(&picker_selected_log_line(&picker_overlay.selection_label()));
                         picker_overlay.active = false;
                         continue;
                     }
