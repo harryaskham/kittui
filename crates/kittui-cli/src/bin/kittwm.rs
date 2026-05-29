@@ -1364,7 +1364,9 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              Open kittwm in one terminal, then watch it from another:\n\n\
              kittwm log path              print the active log path\n\
              kittwm log tail              print recent log lines\n\
-             kittwm log tail -f           follow the log, like tail -f\n"),
+             kittwm log tail -f           follow the log, like tail -f\n\
+             KITTUI_WM_LOG=/tmp/demo.log kittwm\n\
+                                           start with a per-session log file\n"),
         "input" => Ok("kittwm help input\n\
              =================\n\n\
              type [WINDOW] TEXT             short alias for --send-text\n\
@@ -8742,6 +8744,16 @@ mod tests {
         let help = help_topic_text("log").unwrap();
         assert!(help.contains("/tmp/kittui-wm.log"), "{help}");
         assert!(help.contains("kittwm log tail -f"), "{help}");
+    }
+
+    #[test]
+    fn log_help_mentions_custom_log_path_example() {
+        let help = help_topic_text("log").unwrap();
+        assert!(
+            help.contains("KITTUI_WM_LOG=/tmp/demo.log kittwm"),
+            "{help}"
+        );
+        assert!(help.contains("per-session log file"), "{help}");
     }
 
     #[test]
