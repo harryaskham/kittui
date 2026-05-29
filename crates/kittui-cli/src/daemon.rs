@@ -164,6 +164,14 @@ fn tab_i16_pair_arg(first: &str, second: i16, third: i16) -> String {
     arg
 }
 
+fn space_pair_arg(first: &str, second: &str) -> String {
+    let mut arg = String::with_capacity(first.len() + 1 + second.len());
+    arg.push_str(first);
+    arg.push(' ');
+    arg.push_str(second);
+    arg
+}
+
 impl PaneRegistry {
     fn track_spawn(&mut self, pid: u32, argv: &str) -> TrackedPane {
         self.next_id = self.next_id.saturating_add(1).max(1);
@@ -2364,7 +2372,7 @@ fn native_spawn_wait_ms_reply(
     }
     native_spawn_wait_reply(
         pending,
-        &format!("{} {}", target.trim(), needle.trim()),
+        &space_pair_arg(target.trim(), needle.trim()),
         Duration::from_millis(ms),
         verb,
         include_scrollback,
@@ -3541,6 +3549,13 @@ mod tests {
         let negative = tab_i16_arg("native-1", -12);
         assert_eq!(negative, "native-1\t-12");
         assert_eq!(negative.capacity(), negative.len());
+    }
+
+    #[test]
+    fn space_pair_arg_builds_wait_target_needle_arg_directly() {
+        let arg = space_pair_arg("focused", "second line");
+        assert_eq!(arg, "focused second line");
+        assert_eq!(arg.capacity(), arg.len());
     }
 
     #[test]
