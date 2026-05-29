@@ -1136,6 +1136,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 &panes,
                 focused,
                 &layouts,
+                &floating_offsets,
                 &sock,
                 dbg.path_display(),
                 layout_mode.label(layout_axis),
@@ -1402,6 +1403,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             &panes,
             focused,
             &layouts,
+            &floating_offsets,
             &sock,
             dbg.path_display(),
             layout_mode.label(layout_axis),
@@ -2014,6 +2016,7 @@ fn native_shell_view(
     panes: &[NativePane],
     focused: usize,
     layouts: &[NativePaneLayout],
+    floating_offsets: &HashMap<String, NativeFloatingPaneOffset>,
     sock: &str,
     log_path: &str,
     layout_label: &str,
@@ -2027,12 +2030,16 @@ fn native_shell_view(
         .filter_map(|(idx, pane)| {
             let layout = layouts.get(idx).copied()?;
             let is_focused = idx == focused;
+            let floating_moved = floating_offsets
+                .get(&pane.window)
+                .is_some_and(|offset| *offset != NativeFloatingPaneOffset::default());
             let text = native_pane_title_text(
                 pane,
                 layout,
                 is_focused,
                 native_title_drag_affordance_enabled(layout_label),
                 idx + 1 == panes.len(),
+                floating_moved,
             );
             let cache_key = native_pane_title_key_from_text(&text, layout, is_focused);
             Some(NativePaneChrome {
@@ -5173,6 +5180,8 @@ const NATIVE_UNFOCUSED_PANE_TITLE_MARKER: &str = " ";
 const NATIVE_FLOATING_PANE_DRAG_MARKER: &str = "≡";
 const NATIVE_FLOATING_PANE_TOP_MARKER: &str = "▲";
 const NATIVE_FLOATING_PANE_NOT_TOP_MARKER: &str = " ";
+const NATIVE_FLOATING_PANE_MOVED_MARKER: &str = "●";
+const NATIVE_FLOATING_PANE_NOT_MOVED_MARKER: &str = " ";
 
 fn native_title_drag_affordance_enabled(layout_label: &str) -> bool {
     layout_label.trim().eq_ignore_ascii_case("floating")
@@ -5184,6 +5193,7 @@ fn native_pane_title_text(
     focused: bool,
     drag_affordance: bool,
     stack_top: bool,
+    floating_moved: bool,
 ) -> String {
     let width = layout.cols as usize;
     let mut out = String::with_capacity(width);
@@ -5213,6 +5223,16 @@ fn native_pane_title_text(
                 NATIVE_FLOATING_PANE_TOP_MARKER
             } else {
                 NATIVE_FLOATING_PANE_NOT_TOP_MARKER
+            },
+        );
+        native_pane_title_push(
+            &mut out,
+            &mut count,
+            width,
+            if floating_moved {
+                NATIVE_FLOATING_PANE_MOVED_MARKER
+            } else {
+                NATIVE_FLOATING_PANE_NOT_MOVED_MARKER
             },
         );
     }
@@ -10186,6 +10206,7 @@ mod native_pane_tests {
             true,
             false,
             true,
+            false,
         );
         assert_eq!(text, "▶ native-1 title");
         assert_eq!(text.chars().count(), 16);
@@ -10207,6 +10228,7 @@ mod native_pane_tests {
                 true,
                 false,
                 true,
+                false,
             ),
             ""
         );
@@ -10226,8 +10248,9 @@ mod native_pane_tests {
             true,
             true,
             true,
+            true,
         );
-        assert_eq!(floating_text, "▶≡▲ native-1 tit");
+        assert_eq!(floating_text, "▶≡▲● native-1 ti");
         assert_eq!(floating_text.chars().count(), 16);
         let lower_floating_text = native_pane_title_text(
             &pane,
@@ -10244,8 +10267,9 @@ mod native_pane_tests {
             true,
             true,
             false,
+            false,
         );
-        assert_eq!(lower_floating_text, "▶≡  native-1 tit");
+        assert_eq!(lower_floating_text, "▶≡   native-1 ti");
         assert!(native_title_drag_affordance_enabled("floating"));
         assert!(!native_title_drag_affordance_enabled("columns"));
     }
@@ -11735,6 +11759,7 @@ mod native_pane_tests {
             &[],
             0,
             &[],
+            &HashMap::new(),
             "/tmp/kittwm.sock",
             "/tmp/kittwm.log",
             "columns",
@@ -11973,6 +11998,7 @@ mod native_pane_tests {
             &[pane],
             0,
             &[layout],
+            &HashMap::new(),
             "/tmp/kittwm.sock",
             "/tmp/kittwm.log",
             "columns",
@@ -12002,6 +12028,7 @@ mod native_pane_tests {
             &[pane],
             0,
             &[layout],
+            &HashMap::new(),
             "/tmp/kittwm.sock",
             "/tmp/kittwm.log",
             "columns",
@@ -12009,6 +12036,43 @@ mod native_pane_tests {
             false,
         );
         assert_eq!(view.panes[0].text_snapshot, "");
+    }
+
+    #[test]
+    fn native_shell_view_marks_moved_floating_pane_title() {
+        let pane = dummy_native_pane("native-1", "sh", 1);
+        let layout = NativePaneLayout {
+            x: 0,
+            y: 1,
+            cols: 16,
+            rows: 5,
+            app_x: 0,
+            app_y: 2,
+            app_cols: 16,
+            app_rows: 3,
+        };
+        let offsets = HashMap::from([(
+            "native-1".to_string(),
+            NativeFloatingPaneOffset { dx: 2, dy: -1 },
+        )]);
+        let view = native_shell_view(
+            80,
+            10,
+            &[pane],
+            0,
+            &[layout],
+            &offsets,
+            "/tmp/kittwm.sock",
+            "/tmp/kittwm.log",
+            "floating",
+            false,
+            false,
+        );
+        assert!(
+            view.panes[0].text.starts_with("▶≡▲● native-1"),
+            "{}",
+            view.panes[0].text
+        );
     }
 
     #[test]
