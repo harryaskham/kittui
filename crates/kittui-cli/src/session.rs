@@ -932,9 +932,12 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 native_mouse_event_payload(&event, col, row, modes)
                             {
                                 match panes[idx].app.send_bytes(&payload) {
-                                    Ok(()) => dbg.log(&format!(
-                                        "native terminal socket send mouse: {window} event={event} col={col} row={row} bytes={}",
-                                        payload.len()
+                                    Ok(()) => dbg.log(&native_socket_send_mouse_log_line(
+                                        &window,
+                                        &event,
+                                        col,
+                                        row,
+                                        payload.len(),
                                     )),
                                     Err(err) => dbg.log(&native_socket_input_failure_log_line(
                                         &window,
@@ -4275,6 +4278,34 @@ fn native_socket_paste_bytes_log_line(window: &str, bytes: usize, bracketed: boo
     let _ = write!(out, "{bytes}");
     out.push_str(" bracketed=");
     out.push_str(if bracketed { "true" } else { "false" });
+    out
+}
+
+fn native_socket_send_mouse_log_line(
+    window: &str,
+    event: &str,
+    col: u16,
+    row: u16,
+    bytes: usize,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal socket send mouse:  event= col= row= bytes=".len()
+            + window.len()
+            + event.len()
+            + 40,
+    );
+    out.push_str("native terminal socket send mouse: ");
+    out.push_str(window);
+    out.push_str(" event=");
+    out.push_str(event);
+    out.push_str(" col=");
+    let _ = write!(out, "{col}");
+    out.push_str(" row=");
+    let _ = write!(out, "{row}");
+    out.push_str(" bytes=");
+    let _ = write!(out, "{bytes}");
     out
 }
 
@@ -10390,6 +10421,16 @@ mod native_pane_tests {
         assert_eq!(
             line,
             "native terminal socket paste bytes: native-1 bytes=42 bracketed=true"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_socket_send_mouse_log_line_builds_directly() {
+        let line = native_socket_send_mouse_log_line("native-1", "press-left", 7, 9, 6);
+        assert_eq!(
+            line,
+            "native terminal socket send mouse: native-1 event=press-left col=7 row=9 bytes=6"
         );
         assert!(line.capacity() >= line.len());
     }
