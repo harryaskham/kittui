@@ -15251,13 +15251,13 @@ impl LayoutState {
                 } else {
                     "vertical"
                 };
-                format!("toggle.split -> {}", self.label())
+                layout_state_action_label("toggle.split", &self.label())
             }
             Action::BalanceWindows => {
                 self.balances += 1;
-                format!("balance.windows -> {}", self.label())
+                layout_state_action_label("balance.windows", &self.label())
             }
-            other => format!("layout ignored action {other}"),
+            other => layout_state_ignored_action_label(other),
         }
     }
 
@@ -15269,6 +15269,21 @@ impl LayoutState {
         let _ = write!(label, "{}", self.balances);
         label
     }
+}
+
+fn layout_state_action_label(action: &str, label: &str) -> String {
+    let mut out = String::with_capacity(action.len() + " -> ".len() + label.len());
+    out.push_str(action);
+    out.push_str(" -> ");
+    out.push_str(label);
+    out
+}
+
+fn layout_state_ignored_action_label(action: &Action) -> String {
+    let mut out = String::with_capacity("layout ignored action ".len() + 32);
+    out.push_str("layout ignored action ");
+    let _ = write!(out, "{action}");
+    out
 }
 
 fn rebuild_tiled_layout<S: XServer>(
