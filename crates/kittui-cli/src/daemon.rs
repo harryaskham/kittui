@@ -3248,7 +3248,8 @@ mod tests {
 
     #[test]
     fn standalone_daemon_help_json_lists_commands() {
-        let p = std::env::temp_dir().join(format!("kittwm-test-help-{}.sock", std::process::id()));
+        let p =
+            std::env::temp_dir().join(test_socket_filename("kittwm-test-help", std::process::id()));
         let _ = std::fs::remove_file(&p);
         let server = DaemonServer::bind(p.clone()).unwrap();
         let help = client_request(server.path(), "HELP").unwrap();
