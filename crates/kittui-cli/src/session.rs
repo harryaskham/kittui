@@ -6858,6 +6858,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn launcher_overlay_opened_log_line_builds_directly() {
+        let line = launcher_overlay_opened_log_line("term");
+        assert_eq!(line, "launcher overlay opened query=\"term\"");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn launcher_overlay_selected_log_line_builds_directly() {
         let line = launcher_overlay_selected_log_line(LauncherKind::Path, "htop", 99);
         assert_eq!(
@@ -12151,6 +12158,15 @@ fn launcher_overlay_launch_failed_log_line(err: &dyn std::fmt::Display) -> Strin
     out
 }
 
+fn launcher_overlay_opened_log_line(query: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("launcher overlay opened query=".len() + query.len() + 2);
+    out.push_str("launcher overlay opened query=");
+    let _ = write!(out, "{query:?}");
+    out
+}
+
 fn launcher_overlay_selected_log_line(kind: LauncherKind, command: &str, pid: u32) -> String {
     use std::fmt::Write as _;
 
@@ -12460,9 +12476,8 @@ pub fn run_loop_with<S: XServer>(
                                     if opts.launcher_overlay {
                                         launcher_overlay.open_from_env();
                                         last_keymap_action = Some("launcher.open".to_string());
-                                        dbg.log(&format!(
-                                            "launcher overlay opened query={:?}",
-                                            launcher_overlay.query
+                                        dbg.log(&launcher_overlay_opened_log_line(
+                                            &launcher_overlay.query,
                                         ));
                                     } else {
                                         let selection = launcher_selection();
