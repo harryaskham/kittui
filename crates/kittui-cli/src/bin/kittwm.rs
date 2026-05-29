@@ -12500,6 +12500,20 @@ mod tests {
     }
 
     #[test]
+    fn keymap_duplicate_test_alternate_key_builds_directly() {
+        let key = keymap_duplicate_test_alternate_key("C-a");
+        assert_eq!(key, "C-a-other");
+        assert!(key.capacity() >= key.len());
+    }
+
+    fn keymap_duplicate_test_alternate_key(base: &str) -> String {
+        let mut key = String::with_capacity(base.len() + "-other".len());
+        key.push_str(base);
+        key.push_str("-other");
+        key
+    }
+
+    #[test]
     fn keymap_duplicate_count_uses_chord_identity() {
         let large_key = "pathologically-long-key-name-".repeat(128);
         let chord = vec![kittui_cli::keymap::KeySpec {
@@ -12528,7 +12542,7 @@ mod tests {
                             alt: false,
                             shift: false,
                         },
-                        key: format!("{large_key}-other"),
+                        key: keymap_duplicate_test_alternate_key(&large_key),
                     }],
                     action: kittui_cli::keymap::Action::WorkspaceNext,
                 },
