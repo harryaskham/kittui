@@ -226,27 +226,21 @@ fn parse_args() -> Result<Cli> {
             "help" => {
                 out.help_topic = Some(args.next().unwrap_or_else(|| "topics".to_string()));
                 if let Some(extra) = args.next() {
-                    return Err(anyhow!(
-                        "kittwm help accepts at most one topic, got {extra:?}"
-                    ));
+                    return Err(extra_help_topic_error("help", &extra));
                 }
                 break;
             }
             "help-scene-json" => {
                 out.help_scene_topic = Some(args.next().unwrap_or_else(|| "topics".to_string()));
                 if let Some(extra) = args.next() {
-                    return Err(anyhow!(
-                        "kittwm help-scene-json accepts at most one topic, got {extra:?}"
-                    ));
+                    return Err(extra_help_topic_error("help-scene-json", &extra));
                 }
                 break;
             }
             "help-kitty" | "help-graphics" => {
                 out.help_kitty_topic = Some(args.next().unwrap_or_else(|| "topics".to_string()));
                 if let Some(extra) = args.next() {
-                    return Err(anyhow!(
-                        "kittwm help-kitty accepts at most one topic, got {extra:?}"
-                    ));
+                    return Err(extra_help_topic_error("help-kitty", &extra));
                 }
                 break;
             }
@@ -1574,6 +1568,12 @@ fn friendly_unknown_command_error(command: &str) -> anyhow::Error {
         "\n\nStart here:\n  kittwm quickstart\n  kittwm examples\n  kittwm cheat\n  kittwm --help\n  kittwm help topics\n",
     );
     anyhow!(msg)
+}
+
+fn extra_help_topic_error(command: &str, extra: &str) -> anyhow::Error {
+    anyhow!(
+        "kittwm {command} accepts at most one topic, got {extra:?}\ntry: kittwm {command} panes\nhelp: kittwm help topics"
+    )
 }
 
 fn friendly_unknown_help_topic_error(topic: &str) -> anyhow::Error {
@@ -8864,6 +8864,15 @@ mod tests {
         assert!(err.contains("kittwm examples"), "{err}");
         assert!(err.contains("kittwm cheat"), "{err}");
         assert!(err.contains("kittwm help topics"), "{err}");
+    }
+
+    #[test]
+    fn extra_help_topic_errors_are_actionable() {
+        let err = extra_help_topic_error("help", "extra").to_string();
+        assert!(err.contains("accepts at most one topic"), "{err}");
+        assert!(err.contains("got \"extra\""), "{err}");
+        assert!(err.contains("try: kittwm help panes"), "{err}");
+        assert!(err.contains("help: kittwm help topics"), "{err}");
     }
 
     #[test]
