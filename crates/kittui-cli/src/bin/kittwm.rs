@@ -2191,7 +2191,7 @@ fn main() -> ExitCode {
     match std::panic::catch_unwind(real_main) {
         Ok(Ok(())) => ExitCode::SUCCESS,
         Ok(Err(e)) => {
-            let message = format!("fatal error: {e:#}");
+            let message = fatal_error_log_line(&e);
             log_kittwm_process_event(&message);
             eprintln!("kittwm: {e}");
             ExitCode::from(1)
@@ -2203,6 +2203,15 @@ fn main() -> ExitCode {
             ExitCode::from(101)
         }
     }
+}
+
+fn fatal_error_log_line(error: &anyhow::Error) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("fatal error: ".len() + 96);
+    out.push_str("fatal error: ");
+    let _ = write!(out, "{error:#}");
+    out
 }
 
 fn panic_log_line(message: &str) -> String {
@@ -9588,6 +9597,14 @@ mod tests {
             &"failed printing to stdout: os error 32".to_string()
         ));
         assert!(!panic_payload_is_broken_pipe(&"unrelated panic"));
+    }
+
+    #[test]
+    fn fatal_error_log_line_builds_directly() {
+        let err = anyhow!("synthetic failure");
+        let line = fatal_error_log_line(&err);
+        assert_eq!(line, "fatal error: synthetic failure");
+        assert!(line.capacity() >= line.len());
     }
 
     #[test]
