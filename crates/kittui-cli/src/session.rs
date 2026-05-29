@@ -9814,6 +9814,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_launcher_overlay_title_builds_directly() {
+        let title = graphical_launcher_overlay_title("term");
+        assert_eq!(title, "kittwm launcher query=term");
+        assert!(title.capacity() >= title.len());
+    }
+
+    #[test]
     fn graphical_overlay_panel_heading_label_builds_directly() {
         let label = graphical_overlay_panel_heading_label("launcher-overlay");
         assert_eq!(label, "launcher-overlay-heading");
@@ -14933,6 +14940,14 @@ fn graphical_overlay_panel_scene(
 }
 
 #[cfg(test)]
+fn graphical_launcher_overlay_title(query: &str) -> String {
+    let mut title = String::with_capacity("kittwm launcher query=".len() + query.len());
+    title.push_str("kittwm launcher query=");
+    title.push_str(query);
+    title
+}
+
+#[cfg(test)]
 fn launcher_overlay_scene_for_candidates(
     overlay: &LauncherOverlay,
     candidates: &[LauncherSelection],
@@ -14950,9 +14965,10 @@ fn launcher_overlay_scene_for_candidates(
             )
         })
         .collect::<Vec<_>>();
+    let title = graphical_launcher_overlay_title(&overlay.query);
     graphical_overlay_panel_scene(
         "launcher-overlay",
-        &format!("kittwm launcher query={}", overlay.query),
+        &title,
         &rows,
         overlay.selected,
         cell_size,
