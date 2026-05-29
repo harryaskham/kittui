@@ -755,9 +755,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     if let Some(idx) = native_pane_index(&panes, &window) {
                         panes[idx].display_title = Some(title.clone());
                         clear = true;
-                        dbg.log(&format!(
-                            "native terminal socket rename: {window} -> {title}"
-                        ));
+                        dbg.log(&native_socket_rename_log_line(&window, &title));
                     }
                 }
                 crate::daemon::NativePaneCommand::RestoreSession(restore) => {
@@ -4154,6 +4152,17 @@ fn native_socket_layout_log_line(axis: &str) -> String {
     let mut out = String::with_capacity("native terminal socket layout: ".len() + axis.len());
     out.push_str("native terminal socket layout: ");
     out.push_str(axis);
+    out
+}
+
+fn native_socket_rename_log_line(window: &str, title: &str) -> String {
+    let mut out = String::with_capacity(
+        "native terminal socket rename:  -> ".len() + window.len() + title.len(),
+    );
+    out.push_str("native terminal socket rename: ");
+    out.push_str(window);
+    out.push_str(" -> ");
+    out.push_str(title);
     out
 }
 
@@ -10173,6 +10182,16 @@ mod native_pane_tests {
         assert_eq!(
             line.capacity(),
             "native terminal socket layout: ".len() + "columns".len()
+        );
+    }
+
+    #[test]
+    fn native_socket_rename_log_line_builds_directly() {
+        let line = native_socket_rename_log_line("native-1", "editor");
+        assert_eq!(line, "native terminal socket rename: native-1 -> editor");
+        assert_eq!(
+            line.capacity(),
+            "native terminal socket rename:  -> ".len() + "native-1".len() + "editor".len()
         );
     }
 
