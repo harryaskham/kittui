@@ -649,10 +649,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             &last_chrome_reservation,
                         )?;
                         clear = true;
-                        dbg.log(&format!(
-                            "native terminal socket layout: {}",
-                            layout_axis.label()
-                        ));
+                        dbg.log(&native_socket_layout_log_line(layout_axis.label()));
                     }
                 }
                 crate::daemon::NativePaneCommand::SplitPane {
@@ -4150,6 +4147,13 @@ fn native_socket_close_log_line(window: &str) -> String {
     let mut out = String::with_capacity("native terminal socket close: ".len() + window.len());
     out.push_str("native terminal socket close: ");
     out.push_str(window);
+    out
+}
+
+fn native_socket_layout_log_line(axis: &str) -> String {
+    let mut out = String::with_capacity("native terminal socket layout: ".len() + axis.len());
+    out.push_str("native terminal socket layout: ");
+    out.push_str(axis);
     out
 }
 
@@ -10159,6 +10163,16 @@ mod native_pane_tests {
         assert_eq!(
             line.capacity(),
             "native terminal socket close: ".len() + "native-4".len()
+        );
+    }
+
+    #[test]
+    fn native_socket_layout_log_line_builds_directly() {
+        let line = native_socket_layout_log_line("columns");
+        assert_eq!(line, "native terminal socket layout: columns");
+        assert_eq!(
+            line.capacity(),
+            "native terminal socket layout: ".len() + "columns".len()
         );
     }
 
