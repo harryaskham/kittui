@@ -1371,7 +1371,14 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --paste-file WINDOW PATH|-     paste bytes with bracketed-paste support\n\
              --semantic-action WINDOW COMPONENT ACTION JSON\n\
                                             invoke semantic action\n\
-             --semantic-focus WINDOW COMPONENT request semantic focus\n"),
+             --semantic-focus WINDOW COMPONENT request semantic focus\n\
+             kittwm line focused 'echo ready'\n\
+                                            send a command line to focused pane\n\
+             kittwm paste focused 'multi-line text'\n\
+                                            bracketed-paste text into focused pane\n\
+             kittwm key focused ctrl-c      send an interrupt key\n\
+             kittwm --semantic-action focused button-1 press '{}'\n\
+                                            invoke a semantic component action\n"),
         "inspect" | "inspection" => Ok("kittwm help inspect\n\
              ===================\n\n\
              status                         daemon STATUS (alias for --status)\n\
@@ -11507,6 +11514,21 @@ END
         );
         assert!(text.contains("--semantic-action"), "{text}");
         assert!(!text.contains("--save-session"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_input_mentions_copyable_examples() {
+        let text = help_topic_text("input").unwrap();
+        assert!(text.contains("kittwm line focused 'echo ready'"), "{text}");
+        assert!(
+            text.contains("kittwm paste focused 'multi-line text'"),
+            "{text}"
+        );
+        assert!(text.contains("kittwm key focused ctrl-c"), "{text}");
+        assert!(
+            text.contains("kittwm --semantic-action focused button-1 press '{}'"),
+            "{text}"
+        );
     }
 
     #[test]
