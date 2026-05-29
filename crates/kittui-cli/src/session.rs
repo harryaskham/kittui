@@ -5354,6 +5354,13 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
     }
 }
 
+fn native_empty_workspace_action_chip_label(idx: usize) -> String {
+    let mut label = String::with_capacity("empty-workspace-action-chip-".len() + 20);
+    label.push_str("empty-workspace-action-chip-");
+    let _ = write!(label, "{idx}");
+    label
+}
+
 #[allow(dead_code)]
 fn native_empty_workspace_scene(
     cell_size: CellSize,
@@ -5419,7 +5426,7 @@ fn native_empty_workspace_scene(
     ];
     for idx in 0..3 {
         layers.push(Layer::new(
-            format!("empty-workspace-action-chip-{idx}"),
+            native_empty_workspace_action_chip_label(idx),
             Node::Rect {
                 rect: PxRect::new(
                     (chip_x0 + idx as f32 * (chip_w + chip_gap))
@@ -9244,6 +9251,13 @@ mod native_pane_tests {
                 <= "status-bar-backdrop:".chars().count() + NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS
         );
         assert!(!label.contains(&"x".repeat(256)), "{label}");
+    }
+
+    #[test]
+    fn native_empty_workspace_action_chip_label_builds_directly() {
+        let label = native_empty_workspace_action_chip_label(7);
+        assert_eq!(label, "empty-workspace-action-chip-7");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
