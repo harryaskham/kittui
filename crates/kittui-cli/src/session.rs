@@ -3058,11 +3058,7 @@ fn native_split_focused(
         native_set_focus(panes, focused, new_focus)?;
         resize_native_panes_for_layout_with_reservation(panes, cols, rows, axis, reservation)?;
         *clear = true;
-        dbg.log(&format!(
-            "native terminal split {:?}: panes={}",
-            axis,
-            panes.len()
-        ));
+        dbg.log(&native_split_log_line(axis, panes.len()));
     }
     Ok(())
 }
@@ -4475,6 +4471,22 @@ fn native_launch_log_line(window: &str, panes: usize) -> String {
     out.push_str("native terminal launch: ");
     out.push_str(window);
     out.push_str(" panes=");
+    let _ = write!(out, "{panes}");
+    out
+}
+
+fn native_split_log_line(axis: NativePaneLayoutAxis, panes: usize) -> String {
+    use std::fmt::Write as _;
+
+    let axis = match axis {
+        NativePaneLayoutAxis::Columns => "Columns",
+        NativePaneLayoutAxis::Rows => "Rows",
+        NativePaneLayoutAxis::Grid => "Grid",
+    };
+    let mut out = String::with_capacity("native terminal split : panes=".len() + axis.len() + 20);
+    out.push_str("native terminal split ");
+    out.push_str(axis);
+    out.push_str(": panes=");
     let _ = write!(out, "{panes}");
     out
 }
@@ -10843,6 +10855,13 @@ mod native_pane_tests {
     fn native_launch_log_line_builds_directly() {
         let line = native_launch_log_line("native-1", 2);
         assert_eq!(line, "native terminal launch: native-1 panes=2");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_split_log_line_builds_directly() {
+        let line = native_split_log_line(NativePaneLayoutAxis::Rows, 3);
+        assert_eq!(line, "native terminal split Rows: panes=3");
         assert!(line.capacity() >= line.len());
     }
 
