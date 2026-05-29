@@ -249,6 +249,7 @@ fn help_text() -> String {
     "kittwm-terminal — first-party terminal client for kittwm\n\n\
 Usage:\n  kittwm-terminal [--replace|--new-window] [--title TITLE] [--command CMD]\n  kittwm-terminal [--replace|--new-window] [--title TITLE] -- PROGRAM [ARGS...]\n  kittwm-terminal --status\n  kittwm-terminal --status-scene-json\n  kittwm-terminal --status-kitty\n  kittwm-terminal --events-ms MS\n  kittwm-terminal --events-scene-json MS\n  kittwm-terminal --events-kitty MS\n\n\
 Options:\n  --replace              Replace the currently focused pane (default)\n  --new-window           Spawn a new kittwm native pane\n  --title TITLE          Set the terminal surface title\n  --command CMD, -c CMD  Run CMD through the configured shell\n  --status               Print typed SDK status/pane detail\n  --status-scene-json    Emit the status card as kittui Scene JSON\n  --status-kitty         Render the status card with kitty graphics\n  --events-ms MS         Print a bounded event batch\n  --events-scene-json MS Emit the event batch as kittui Scene JSON\n  --events-kitty MS      Render the event batch with kitty graphics\n  --help, -h             Show this help text\n\n\
+Examples:\n  kittwm-terminal\n  kittwm-terminal --title logs -- tail -f /tmp/app.log\n  kittwm-terminal --replace --command 'zsh -l'\n  kittwm-terminal --status\n  kittwm-terminal --events-ms 1000\n\n\
 Connects through KITTWM_SOCKET/KITTWM_DISPLAY using kittwm-sdk and asks the\n\
 running kittwm instance to spawn or replace a native terminal surface.\n\
 --status prints typed SDK status/pane detail; --status-scene-json and\n\
@@ -1039,5 +1040,22 @@ mod tests {
         assert!(err.contains("--command CMD, -c CMD"), "{err}");
         assert!(err.contains("--events-scene-json MS"), "{err}");
         assert!(err.contains("--help, -h"), "{err}");
+    }
+
+    #[test]
+    fn help_text_lists_copyable_examples() {
+        let help = help_text();
+        assert!(help.contains("Examples:"), "{help}");
+        assert!(help.contains("kittwm-terminal\n"), "{help}");
+        assert!(
+            help.contains("kittwm-terminal --title logs -- tail -f /tmp/app.log"),
+            "{help}"
+        );
+        assert!(
+            help.contains("kittwm-terminal --replace --command 'zsh -l'"),
+            "{help}"
+        );
+        assert!(help.contains("kittwm-terminal --status"), "{help}");
+        assert!(help.contains("kittwm-terminal --events-ms 1000"), "{help}");
     }
 }
