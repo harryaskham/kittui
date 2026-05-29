@@ -8342,6 +8342,13 @@ case "$mode" in
             first=0
             printf '%s' "$app" | json_escape
         done
+        printf '],"linux_desktop_ids":['
+        first=1
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print $2 }' | head -n "$limit" | while IFS= read -r id; do
+            [ $first -eq 1 ] || printf ','
+            first=0
+            printf '%s' "$id" | json_escape
+        done
         printf '],"linux_desktop_apps":['
         first=1
         kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print ($3 != "" ? $3 : $2) }' | head -n "$limit" | while IFS= read -r app; do
@@ -11472,6 +11479,7 @@ mod tests {
             "{script}"
         );
         assert!(script.contains("\"macos_apps\":"), "{script}");
+        assert!(script.contains("\"linux_desktop_ids\":"), "{script}");
         assert!(script.contains("\"linux_desktop_apps\":"), "{script}");
     }
 
