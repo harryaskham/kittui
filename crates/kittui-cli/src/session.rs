@@ -7007,6 +7007,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_footer_test_long_action_builds_directly() {
+        let action = raw_footer_test_long_action(4);
+        assert_eq!(action, " — action=xxxx");
+        assert!(action.capacity() >= action.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_key_reuses_precomputed_state_labels() {
         let key = raw_compositor_footer_key(
             24,
@@ -7027,7 +7034,7 @@ mod native_pane_tests {
             "row=24;ws=dev;panes=split;layout=columns;cfg=cfg;focus=focus;swap=swap;mode=normal;windows=2;launch= — last launch pid=12345;keymap= — action=launch;quit=q to quit"
         );
 
-        let long_action = format!(" — action={}", "x".repeat(10_000));
+        let long_action = raw_footer_test_long_action(10_000);
         let bounded = raw_compositor_footer_key(
             24,
             "dev",
@@ -7044,6 +7051,13 @@ mod native_pane_tests {
         );
         assert!(bounded.contains('…'), "{bounded}");
         assert!(!bounded.contains(&"x".repeat(128)), "{bounded}");
+    }
+
+    fn raw_footer_test_long_action(len: usize) -> String {
+        let mut action = String::with_capacity(" — action=".len() + len);
+        action.push_str(" — action=");
+        action.extend(std::iter::repeat_n('x', len));
+        action
     }
 
     #[test]
