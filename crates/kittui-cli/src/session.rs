@@ -11955,6 +11955,22 @@ mod native_pane_tests {
         assert!(!should_flush_compositor_frame(false));
     }
 
+    fn huge_raw_frame_title(suffix: char) -> String {
+        let prefix = "title-".repeat(10_000);
+        let mut title = String::with_capacity(prefix.len() + suffix.len_utf8());
+        title.push_str(&prefix);
+        title.push(suffix);
+        title
+    }
+
+    #[test]
+    fn huge_raw_frame_title_builds_directly() {
+        let title = huge_raw_frame_title('A');
+        assert!(title.starts_with("title-title-"));
+        assert!(title.ends_with('A'));
+        assert_eq!(title.capacity(), title.len());
+    }
+
     #[test]
     fn raw_frame_chrome_key_changes_when_visual_chrome_changes() {
         let footprint = CellRect::new(1, 2, 10, 4);
@@ -12005,8 +12021,8 @@ mod native_pane_tests {
                 CellRect::new(2, 2, 10, 4),
             )
         );
-        let huge_a = format!("{}A", "title-".repeat(10_000));
-        let huge_b = format!("{}B", "title-".repeat(10_000));
+        let huge_a = huge_raw_frame_title('A');
+        let huge_b = huge_raw_frame_title('B');
         let key_a = raw_frame_chrome_key(
             &huge_a,
             true,
