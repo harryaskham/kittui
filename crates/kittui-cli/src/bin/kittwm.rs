@@ -1467,6 +1467,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST status     check remote kittwm availability\n\
              kittwm remote HOST status --x11\n\
                                            check trusted X11 forwarding for remote app launch\n\
+             kittwm remote HOST status --wayland\n\
+                                           alias for the graphical forwarding check\n\
              kittwm remote HOST x11        short alias for the graphical forwarding check\n\
              kittwm remote HOST gui        alias for remote HOST x11\n\
              kittwm remote HOST graphical  alias for remote HOST x11\n\
@@ -1591,6 +1593,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              apps                           list launch candidates\n\
              remote HOST                    check remote kittwm availability\n\
              remote HOST status --x11      check graphical forwarding for app launch\n\
+             remote HOST status --wayland  alias for graphical forwarding check\n\
              remote HOST x11               short alias for graphical forwarding check\n\
              remote HOST gui               alias for remote HOST x11\n\
              remote HOST graphical         alias for remote HOST x11\n\
@@ -1939,10 +1942,12 @@ fn parse_remote_doctor_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
     for flag in flags {
         match flag.as_str() {
             "--json" => out.json = true,
-            "--x11" | "--gui" | "--graphical" | "--forwarding" => out.remote_doctor_graphical = true,
+            "--x11" | "--gui" | "--graphical" | "--wayland" | "--forwarding" => {
+                out.remote_doctor_graphical = true
+            }
             other => {
                 return Err(anyhow!(
-                    "unknown remote doctor flag {other:?}\ntry: kittwm remote HOST doctor --json | --x11\nhelp: kittwm help ssh"
+                    "unknown remote doctor flag {other:?}\ntry: kittwm remote HOST doctor --json | --x11 | --wayland\nhelp: kittwm help ssh"
                 ))
             }
         }
@@ -5806,7 +5811,9 @@ fn completion_words() -> &'static [&'static str] {
             "--first",
             "--launch-first",
             "--x11",
+            "--gui",
             "--graphical",
+            "--wayland",
             "help",
             "doctor",
             "status",
@@ -10765,6 +10772,8 @@ mod tests {
         assert!(bash.contains("--panes-json"), "{bash}");
         assert!(bash.contains("--remote"), "{bash}");
         assert!(bash.contains("--launch-first"), "{bash}");
+        assert!(bash.contains("--gui"), "{bash}");
+        assert!(bash.contains("--wayland"), "{bash}");
         assert!(bash.contains("kittwm"), "{bash}");
         assert!(bash.contains("desktop"), "{bash}");
         assert!(bash.contains("x11"), "{bash}");
@@ -10786,6 +10795,8 @@ mod tests {
         assert!(zsh.contains("nudge"), "{zsh}");
         assert!(zsh.contains("reset-position"), "{zsh}");
         assert!(zsh.contains("--remote"), "{zsh}");
+        assert!(zsh.contains("--gui"), "{zsh}");
+        assert!(zsh.contains("--wayland"), "{zsh}");
         assert!(zsh.contains("desktop"), "{zsh}");
         assert!(zsh.contains("x11"), "{zsh}");
         assert!(zsh.contains("gui"), "{zsh}");
@@ -10805,6 +10816,8 @@ mod tests {
         assert!(fish.contains("nudge"), "{fish}");
         assert!(fish.contains("reset-position"), "{fish}");
         assert!(fish.contains("--remote"), "{fish}");
+        assert!(fish.contains("--gui"), "{fish}");
+        assert!(fish.contains("--wayland"), "{fish}");
         assert!(fish.contains("kittwm"), "{fish}");
         assert!(fish.contains("desktop"), "{fish}");
         assert!(fish.contains("x11"), "{fish}");
@@ -11780,6 +11793,12 @@ mod tests {
         parse_remote_alias_action(&mut x11_status, "status", &args(&["--x11"])).unwrap();
         assert!(x11_status.doctor);
         assert!(x11_status.remote_doctor_graphical);
+
+        let mut wayland_status = Cli::default();
+        wayland_status.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut wayland_status, "status", &args(&["--wayland"])).unwrap();
+        assert!(wayland_status.doctor);
+        assert!(wayland_status.remote_doctor_graphical);
 
         let mut x11_alias = Cli::default();
         x11_alias.remote_host = Some("buildbox".to_string());
