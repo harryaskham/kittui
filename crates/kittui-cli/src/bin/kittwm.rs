@@ -8500,6 +8500,37 @@ kittwm_remote_filter() {
         cat
     fi
 }
+kittwm_remote_sway_outputs_python() {
+    python3 -c 'import json,sys
+for output in json.load(sys.stdin):
+    mode = output.get("current_mode") or {}
+    print("  {name} {make} {model} {width}x{height} active={active}".format(
+        name=output.get("name") or "?",
+        make=output.get("make") or "",
+        model=output.get("model") or "",
+        width=mode.get("width") or 0,
+        height=mode.get("height") or 0,
+        active=str(bool(output.get("active", False))).lower(),
+    ))'
+}
+kittwm_remote_sway_tree_python() {
+    python3 -c 'import json,sys
+root = json.load(sys.stdin)
+def walk(node):
+    if not isinstance(node, dict):
+        return
+    if node.get("type") == "con" and (node.get("app_id") is not None or node.get("window") is not None):
+        props = node.get("window_properties") or {}
+        print("  {id} {app}  {name}".format(
+            id=node.get("id") or 0,
+            app=node.get("app_id") or props.get("class") or "?",
+            name=node.get("name") or "",
+        ))
+    for key in ("nodes", "floating_nodes"):
+        for child in node.get(key) or []:
+            walk(child)
+walk(root)'
+}
 if command -v kittwm >/dev/null 2>&1; then
     kittwm_err=$(mktemp "${TMPDIR:-/tmp}/kittwm-remote-list.XXXXXX" 2>/dev/null || printf '')
     if [ -n "$kittwm_err" ]; then
@@ -8535,12 +8566,14 @@ case "$kind" in
         [ -z "$query" ] || printf 'filter: %s\n' "$query"
         if command -v swaymsg >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
             swaymsg -t get_outputs 2>/dev/null | jq -r '.[] | "  " + (.name // "?") + " " + (.make // "") + " " + (.model // "") + " " + ((.current_mode.width // 0)|tostring) + "x" + ((.current_mode.height // 0)|tostring) + " active=" + ((.active // false)|tostring)' | kittwm_remote_filter
+        elif command -v swaymsg >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+            swaymsg -t get_outputs 2>/dev/null | kittwm_remote_sway_outputs_python | kittwm_remote_filter
         elif command -v xrandr >/dev/null 2>&1; then
             (xrandr --listmonitors 2>/dev/null || xrandr --query 2>/dev/null | awk '/ connected/{print "  "$0}') | kittwm_remote_filter
         elif command -v system_profiler >/dev/null 2>&1; then
             system_profiler SPDisplaysDataType 2>/dev/null | awk '/^[[:space:]]*(Resolution|Main Display|Online|Display Type):/{print "  "$0}' | kittwm_remote_filter
         else
-            printf '  capability unavailable: install remote kittwm, swaymsg+jq, xrandr, or system_profiler\n'
+            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, xrandr, or system_profiler\n'
         fi
         ;;
     *)
@@ -8548,6 +8581,8 @@ case "$kind" in
         [ -z "$query" ] || printf 'filter: %s\n' "$query"
         if command -v swaymsg >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
             swaymsg -t get_tree 2>/dev/null | jq -r '.. | objects | select((.type? == "con") and ((.app_id? != null) or (.window? != null))) | "  " + ((.id // 0)|tostring) + " " + (.app_id // .window_properties.class // "?") + "  " + (.name // "")' | kittwm_remote_filter
+        elif command -v swaymsg >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+            swaymsg -t get_tree 2>/dev/null | kittwm_remote_sway_tree_python | kittwm_remote_filter
         elif command -v wmctrl >/dev/null 2>&1; then
             wmctrl -l | kittwm_remote_filter
         elif command -v xdotool >/dev/null 2>&1; then
@@ -8555,7 +8590,7 @@ case "$kind" in
         elif command -v osascript >/dev/null 2>&1; then
             osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /' | kittwm_remote_filter
         else
-            printf '  capability unavailable: install remote kittwm, swaymsg+jq, wmctrl, xdotool, or enable macOS osascript accessibility\n'
+            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, wmctrl, xdotool, or enable macOS osascript accessibility\n'
         fi
         ;;
 esac
@@ -11600,6 +11635,16 @@ mod tests {
         assert!(script.contains("kittwm_remote_filter"), "{script}");
         assert!(script.contains("swaymsg"), "{script}");
         assert!(script.contains("jq"), "{script}");
+        assert!(script.contains("python3"), "{script}");
+        assert!(
+            script.contains("kittwm_remote_sway_outputs_python"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm_remote_sway_tree_python"),
+            "{script}"
+        );
+        assert!(script.contains("swaymsg+python3"), "{script}");
         assert!(script.contains("wmctrl"), "{script}");
         assert!(script.contains("xrandr"), "{script}");
         assert!(script.contains("system_profiler"), "{script}");
