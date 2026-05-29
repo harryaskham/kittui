@@ -2321,6 +2321,16 @@ impl NativePaneDetail {
         )
     }
 
+    /// Whether this pane has a non-default live layout weight.
+    pub fn has_non_default_weight(&self) -> bool {
+        self.weight > 1
+    }
+
+    /// Alias for [`NativePaneDetail::has_non_default_weight`].
+    pub fn is_resized(&self) -> bool {
+        self.has_non_default_weight()
+    }
+
     /// Whether the pane title row is reported as a window-manager drag handle.
     pub fn is_title_draggable(&self) -> bool {
         self.title_draggable.unwrap_or(false)
@@ -2643,6 +2653,13 @@ impl PanesStatus {
             .iter()
             .filter(|pane| pane.has_floating_offset())
     }
+
+    /// Panes with non-default layout weights.
+    pub fn resized_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.has_non_default_weight())
+    }
 }
 
 fn add_signed_host_cell_delta(value: u16, delta: i32) -> u16 {
@@ -2774,6 +2791,13 @@ impl Status {
         self.panes_detail
             .iter()
             .filter(|pane| pane.has_floating_offset())
+    }
+
+    /// Panes with non-default layout weights.
+    pub fn resized_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.has_non_default_weight())
     }
 }
 
@@ -4849,6 +4873,8 @@ mod tests {
         assert_eq!(pane.mouse_sgr, Some(true));
         assert_eq!(pane.stack_index(), Some(3));
         assert!(pane.is_stack_top());
+        assert!(pane.has_non_default_weight());
+        assert!(pane.is_resized());
         assert_eq!(pane.floating_offset(), Some((4, -2)));
         assert_eq!(pane.floating_moved, Some(true));
         assert!(pane.has_floating_offset());
@@ -4878,6 +4904,8 @@ mod tests {
         assert_eq!(pane.title, "");
         assert!(!pane.focused);
         assert_eq!(pane.weight, 0);
+        assert!(!pane.has_non_default_weight());
+        assert!(!pane.is_resized());
         assert_eq!(pane.bounds(), None);
         assert_eq!(pane.app_bounds(), None);
         assert_eq!(pane.floating_offset(), None);
@@ -4980,7 +5008,7 @@ mod tests {
               "layout": "floating",
               "panes_detail": [
                 {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":false},
-                {"window":"native-2","title":"editor","focused":false,"weight":1,"stack_index":1,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":true}
+                {"window":"native-2","title":"editor","focused":false,"weight":3,"stack_index":1,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":true}
               ]
             }"#,
         )
@@ -4998,6 +5026,13 @@ mod tests {
         assert_eq!(
             status
                 .moved_floating_panes()
+                .map(|pane| pane.window.as_str())
+                .collect::<Vec<_>>(),
+            vec!["native-2"]
+        );
+        assert_eq!(
+            status
+                .resized_panes()
                 .map(|pane| pane.window.as_str())
                 .collect::<Vec<_>>(),
             vec!["native-2"]
