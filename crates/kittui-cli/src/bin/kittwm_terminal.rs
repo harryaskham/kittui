@@ -647,13 +647,21 @@ fn remote_terminal_command(
         "-o".to_string(),
         "ControlPersist=10m".to_string(),
         "-o".to_string(),
-        format!("ControlPath={}", control_path.display()),
+        ssh_control_path_arg(&control_path),
         host.to_string(),
     ];
     if command_explicit {
         argv.extend(["sh".to_string(), "-lc".to_string(), command.to_string()]);
     }
     Ok(shell_words(&argv))
+}
+
+fn ssh_control_path_arg(path: &std::path::Path) -> String {
+    let path = path.display().to_string();
+    let mut out = String::with_capacity("ControlPath=".len() + path.len());
+    out.push_str("ControlPath=");
+    out.push_str(&path);
+    out
 }
 
 fn remote_terminal_control_path() -> std::io::Result<std::path::PathBuf> {
@@ -757,6 +765,14 @@ mod tests {
         let command = login_shell_command("/bin/zsh".to_string());
         assert_eq!(command, "/bin/zsh -l");
         assert_eq!(command.capacity(), command.len());
+    }
+
+    #[test]
+    fn ssh_control_path_arg_builds_directly() {
+        let path = std::path::PathBuf::from("/tmp/kittwm-ssh/%C");
+        let arg = ssh_control_path_arg(&path);
+        assert_eq!(arg, "ControlPath=/tmp/kittwm-ssh/%C");
+        assert_eq!(arg.capacity(), arg.len());
     }
 
     #[test]
@@ -938,6 +954,13 @@ mod tests {
                     title: "shell".to_string(),
                     focused: false,
                     weight: 1,
+                    stack_index: None,
+                    stack_top: None,
+                    floating_dx: None,
+                    floating_dy: None,
+                    title_draggable: None,
+                    title_drag_col: None,
+                    title_drag_row: None,
                     pid: None,
                     command: None,
                     x: None,
