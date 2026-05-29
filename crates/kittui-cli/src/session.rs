@@ -2034,7 +2034,12 @@ fn native_shell_view(
         panes: pane_chrome,
         footer: NativeFooterChrome {
             row: native_footer_row(rows),
-            text: native_status_line_text(panes.len(), layout_label, log_path),
+            text: native_status_line_text(
+                panes.len(),
+                layout_label,
+                panes.get(focused).map(|pane| pane.window.as_str()),
+                log_path,
+            ),
         },
         help_overlay,
     }
@@ -2124,22 +2129,31 @@ fn terminal_visible_width(x: u16, desired: u16, cols: u16) -> Option<usize> {
 const NATIVE_STATUS_LOG_PATH_MAX_CHARS: usize = 96;
 const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
 const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
+const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
 const NATIVE_STATUS_LINE_HINTS: &str =
     " · C-a ? help · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit";
 const NATIVE_STATUS_LINE_LOG_PREFIX: &str = " · log: ";
 
-fn native_status_line_text(panes: usize, layout_label: &str, log_path: &str) -> String {
+fn native_status_line_text(
+    panes: usize,
+    layout_label: &str,
+    focused_window: Option<&str>,
+    log_path: &str,
+) -> String {
     if panes == 0 {
         String::new()
     } else {
         let log_path = bounded_ellipsis(log_path, NATIVE_STATUS_LOG_PATH_MAX_CHARS);
         let mode = native_status_layout_label(layout_label);
         let pane_count = panes.to_string();
+        let focused_window = native_status_focused_window_label(focused_window);
         let mut out = String::with_capacity(
             NATIVE_STATUS_LINE_PREFIX.len()
                 + mode.len()
                 + NATIVE_STATUS_LINE_PANES_PREFIX.len()
                 + pane_count.len()
+                + NATIVE_STATUS_LINE_FOCUS_PREFIX.len()
+                + focused_window.len()
                 + NATIVE_STATUS_LINE_HINTS.len()
                 + NATIVE_STATUS_LINE_LOG_PREFIX.len()
                 + log_path.len(),
@@ -2148,6 +2162,8 @@ fn native_status_line_text(panes: usize, layout_label: &str, log_path: &str) -> 
         out.push_str(&mode);
         out.push_str(NATIVE_STATUS_LINE_PANES_PREFIX);
         out.push_str(&pane_count);
+        out.push_str(NATIVE_STATUS_LINE_FOCUS_PREFIX);
+        out.push_str(&focused_window);
         out.push_str(NATIVE_STATUS_LINE_HINTS);
         out.push_str(NATIVE_STATUS_LINE_LOG_PREFIX);
         out.push_str(&log_path);
@@ -2162,6 +2178,15 @@ fn native_status_layout_label(layout_label: &str) -> String {
     } else {
         bounded_ellipsis(trimmed, 32)
     }
+}
+
+fn native_status_focused_window_label(focused_window: Option<&str>) -> String {
+    let trimmed = focused_window
+        .map(str::trim)
+        .filter(|window| !window.is_empty());
+    trimmed
+        .map(|window| bounded_ellipsis(window, 32))
+        .unwrap_or_else(|| "-".to_string())
 }
 
 fn native_footer_visible_text(text: &str, cols: u16) -> String {
@@ -7410,16 +7435,23 @@ mod native_pane_tests {
 
     #[test]
     fn native_footer_visible_text_clips_huge_log_paths_to_terminal_width() {
-        assert_eq!(native_status_line_text(0, "columns", "/tmp/kittwm.log"), "");
-        let footer = native_status_line_text(1, "floating", "/tmp/kittwm.log");
+        assert_eq!(
+            native_status_line_text(0, "columns", None, "/tmp/kittwm.log"),
+            ""
+        );
+        let footer = native_status_line_text(1, "floating", Some("native-1"), "/tmp/kittwm.log");
         assert_eq!(
             footer,
-            " mode:floating · panes:1 · C-a ? help · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
+            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
         );
         assert_eq!(footer.capacity(), footer.len());
 
-        let huge_footer =
-            native_status_line_text(1, "floating", &format!("/tmp/{}", "x".repeat(10_000)));
+        let huge_footer = native_status_line_text(
+            1,
+            "floating",
+            Some("native-1"),
+            &format!("/tmp/{}", "x".repeat(10_000)),
+        );
         assert!(huge_footer.contains('…'), "{huge_footer:?}");
         assert!(
             !huge_footer.contains(&"x".repeat(128)),
