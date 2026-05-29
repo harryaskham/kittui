@@ -2025,6 +2025,7 @@ fn native_shell_view(
                 layout,
                 is_focused,
                 native_title_drag_affordance_enabled(layout_label),
+                idx + 1 == panes.len(),
             );
             let cache_key = native_pane_title_key_from_text(&text, layout, is_focused);
             Some(NativePaneChrome {
@@ -5121,6 +5122,8 @@ fn reap_exited_native_panes(
 const NATIVE_FOCUSED_PANE_TITLE_MARKER: &str = "▶";
 const NATIVE_UNFOCUSED_PANE_TITLE_MARKER: &str = " ";
 const NATIVE_FLOATING_PANE_DRAG_MARKER: &str = "≡";
+const NATIVE_FLOATING_PANE_TOP_MARKER: &str = "▲";
+const NATIVE_FLOATING_PANE_NOT_TOP_MARKER: &str = " ";
 
 fn native_title_drag_affordance_enabled(layout_label: &str) -> bool {
     layout_label.trim().eq_ignore_ascii_case("floating")
@@ -5131,6 +5134,7 @@ fn native_pane_title_text(
     layout: NativePaneLayout,
     focused: bool,
     drag_affordance: bool,
+    stack_top: bool,
 ) -> String {
     let width = layout.cols as usize;
     let mut out = String::with_capacity(width);
@@ -5151,6 +5155,16 @@ fn native_pane_title_text(
             &mut count,
             width,
             NATIVE_FLOATING_PANE_DRAG_MARKER,
+        );
+        native_pane_title_push(
+            &mut out,
+            &mut count,
+            width,
+            if stack_top {
+                NATIVE_FLOATING_PANE_TOP_MARKER
+            } else {
+                NATIVE_FLOATING_PANE_NOT_TOP_MARKER
+            },
         );
     }
     native_pane_title_push(&mut out, &mut count, width, " ");
@@ -9997,6 +10011,7 @@ mod native_pane_tests {
             },
             true,
             false,
+            true,
         );
         assert_eq!(text, "▶ native-1 title");
         assert_eq!(text.chars().count(), 16);
@@ -10017,6 +10032,7 @@ mod native_pane_tests {
                 },
                 true,
                 false,
+                true,
             ),
             ""
         );
@@ -10035,9 +10051,27 @@ mod native_pane_tests {
             },
             true,
             true,
+            true,
         );
-        assert_eq!(floating_text, "▶≡ native-1 titl");
+        assert_eq!(floating_text, "▶≡▲ native-1 tit");
         assert_eq!(floating_text.chars().count(), 16);
+        let lower_floating_text = native_pane_title_text(
+            &pane,
+            NativePaneLayout {
+                x: 0,
+                y: 0,
+                cols: 16,
+                rows: 4,
+                app_x: 0,
+                app_y: 1,
+                app_cols: 16,
+                app_rows: 3,
+            },
+            true,
+            true,
+            false,
+        );
+        assert_eq!(lower_floating_text, "▶≡  native-1 tit");
         assert!(native_title_drag_affordance_enabled("floating"));
         assert!(!native_title_drag_affordance_enabled("columns"));
     }
