@@ -157,6 +157,7 @@ struct Cli {
     session_kitty: bool,
     semantic_publish: Option<(String, String)>,
     automation_request: Option<String>,
+    remote_terminal_args: Option<Vec<String>>,
     socket: Option<String>,
     display: Option<String>,
 }
@@ -1409,6 +1410,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST            friendly alias for remote doctor\n\
              kittwm remote HOST apps --filter firefox --launch-first\n\
                                            friendly alias for remote app launch\n\
+             kittwm remote HOST terminal -- htop\n\
+                                           friendly alias for kittwm-terminal --remote HOST -- htop\n\
              kittwm doctor --remote HOST\n\
                                            check remote kittwm availability and suggested path\n\
              kittwm-terminal --remote HOST --title HOST\n\
@@ -1734,10 +1737,13 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
         "displays" | "display" => ensure_no_remote_alias_rest(action, rest, || {
             out.list_displays = true;
         }),
-        "terminal" | "term" => Err(anyhow!(
-            "remote terminal panes use kittwm-terminal\ntry: kittwm-terminal --remote {}\nhelp: kittwm help ssh",
-            out.remote_host.as_deref().unwrap_or("HOST")
-        )),
+        "terminal" | "term" => {
+            out.remote_terminal_args = Some(remote_terminal_alias_args(
+                out.remote_host.as_deref().unwrap_or("HOST"),
+                rest,
+            ));
+            Ok(())
+        }
         flag if flag.starts_with('-') => {
             out.doctor = true;
             let mut flags = Vec::with_capacity(rest.len() + 1);
@@ -1746,9 +1752,17 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             parse_remote_doctor_flags(out, &flags)
         }
         other => Err(anyhow!(
-            "unknown remote action {other:?}\ntry: kittwm remote HOST doctor | apps | windows | displays\nhelp: kittwm help ssh"
+            "unknown remote action {other:?}\ntry: kittwm remote HOST doctor | apps | windows | displays | terminal\nhelp: kittwm help ssh"
         )),
     }
+}
+
+fn remote_terminal_alias_args(host: &str, rest: &[String]) -> Vec<String> {
+    let mut args = Vec::with_capacity(rest.len() + 2);
+    args.push("--remote".to_string());
+    args.push(host.to_string());
+    args.extend(rest.iter().cloned());
+    args
 }
 
 fn parse_remote_doctor_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
@@ -2110,6 +2124,9 @@ fn real_main() -> Result<()> {
     }
 
     // Inspection flags run cooked, never enter raw mode.
+    if let Some(args) = &cli.remote_terminal_args {
+        return remote_terminal_alias_cmd(args);
+    }
     if cli.doctor || cli.doctor_scene_json || cli.doctor_kitty {
         if let Some(host) = cli.remote_host.as_deref() {
             return remote_doctor_cmd(host, cli.json, cli.doctor_scene_json || cli.doctor_kitty);
@@ -2569,6 +2586,18 @@ fn write_stdout_or_ignore_broken_pipe(bytes: &[u8]) -> Result<()> {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
         Err(err) => Err(err.into()),
+    }
+}
+
+fn remote_terminal_alias_cmd(args: &[String]) -> Result<()> {
+    let status = std::process::Command::new("kittwm-terminal")
+        .args(args)
+        .status()
+        .map_err(|e| anyhow!("run kittwm-terminal {:?}: {e}", args))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!("kittwm-terminal {:?} exited with {status}", args))
     }
 }
 
@@ -4370,6 +4399,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST apps --filter QUERY --launch-first",
             category: "remote",
             description: "friendly alias for remote app launch",
+        },
+        LocalCommandEntry {
+            command: "remote HOST terminal -- CMD",
+            category: "remote",
+            description: "friendly alias for remote terminal pane",
         },
         LocalCommandEntry {
             command: "apps --remote HOST",
@@ -9623,6 +9657,7 @@ mod tests {
         assert!(text.contains("kittwm remote HOST"), "{text}");
         assert!(text.contains("kittwm apps --remote HOST"), "{text}");
         assert!(text.contains("kittwm doctor --remote HOST"), "{text}");
+        assert!(text.contains("kittwm remote HOST terminal"), "{text}");
         assert!(text.contains("kittwm-terminal --remote HOST"), "{text}");
         assert!(text.contains("ControlMaster=auto"), "{text}");
     }
@@ -9806,6 +9841,9 @@ mod tests {
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "doctor --remote HOST" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST terminal -- CMD" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "kittwm-terminal --remote HOST" && entry["category"] == "remote"
@@ -10539,6 +10577,21 @@ mod tests {
         windows.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut windows, "windows", &[]).unwrap();
         assert!(windows.list_windows);
+
+        let mut terminal = Cli::default();
+        terminal.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut terminal, "terminal", &args(&["--", "htop"])).unwrap();
+        assert_eq!(
+            terminal.remote_terminal_args.as_deref(),
+            Some(
+                &[
+                    "--remote".to_string(),
+                    "buildbox".to_string(),
+                    "--".to_string(),
+                    "htop".to_string()
+                ][..]
+            )
+        );
     }
 
     #[test]
