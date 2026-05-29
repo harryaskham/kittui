@@ -6491,6 +6491,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_footer_fps_label_builds_directly() {
+        let fps = raw_compositor_footer_fps_label(59.6);
+        assert_eq!(fps, "60");
+        assert!(fps.capacity() >= fps.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_text_clips_to_terminal_width() {
         let text = raw_compositor_footer_text(
             123,
@@ -12492,6 +12499,14 @@ fn raw_compositor_footer_key(
     )
 }
 
+fn raw_compositor_footer_fps_label(fps: f32) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(8);
+    let _ = write!(out, "{fps:.0}");
+    out
+}
+
 fn raw_compositor_footer_text(
     frame: u64,
     workspace: &str,
@@ -12540,9 +12555,9 @@ fn raw_compositor_footer_text(
     push_footer!(" — ");
     push_footer!(&window_count.to_string());
     push_footer!(" windows — ");
-    push_footer!(&format!("{live_fps:.0}"));
+    push_footer!(&raw_compositor_footer_fps_label(live_fps));
     push_footer!(" fps (peak ");
-    push_footer!(&format!("{peak_fps:.0}"));
+    push_footer!(&raw_compositor_footer_fps_label(peak_fps));
     push_footer!(", cap ");
     push_footer!(&cap_fps.to_string());
     push_footer!(")");
