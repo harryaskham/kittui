@@ -6747,6 +6747,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn keymap_action_log_line_builds_directly() {
+        let line = keymap_action_log_line("C-a Enter", "launch");
+        assert_eq!(line, "keymap action: C-a Enter -> launch");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn keymap_unbound_prefix_log_line_builds_directly() {
         let line = keymap_unbound_prefix_log_line(&"C-x");
         assert_eq!(line, "keymap unbound prefix chord: C-x");
@@ -12043,6 +12050,15 @@ fn keymap_prefix_entered_log_line(spec: &dyn std::fmt::Display) -> String {
     out
 }
 
+fn keymap_action_log_line(chord: &str, action: &str) -> String {
+    let mut out = String::with_capacity("keymap action:  -> ".len() + chord.len() + action.len());
+    out.push_str("keymap action: ");
+    out.push_str(chord);
+    out.push_str(" -> ");
+    out.push_str(action);
+    out
+}
+
 fn keymap_unbound_prefix_log_line(spec: &dyn std::fmt::Display) -> String {
     use std::fmt::Write as _;
 
@@ -12468,9 +12484,9 @@ pub fn run_loop_with<S: XServer>(
                         if let Some(action) = keymap.action_for_chord(&chord).cloned() {
                             let action_name = action.to_string();
                             last_keymap_action = Some(action_name.clone());
-                            dbg.log(&format!(
-                                "keymap action: {} -> {action_name}",
-                                crate::keymap::chord_string(&chord)
+                            dbg.log(&keymap_action_log_line(
+                                &crate::keymap::chord_string(&chord),
+                                &action_name,
                             ));
                             match action {
                                 Action::PickerOpen => {
