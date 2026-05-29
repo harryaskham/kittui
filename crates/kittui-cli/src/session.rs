@@ -15143,13 +15143,13 @@ impl ToggleState {
         match action {
             Action::FullscreenToggle => {
                 self.fullscreen = !self.fullscreen;
-                format!("fullscreen.toggle -> {}", self.label())
+                toggle_state_action_label("fullscreen.toggle", &self.label())
             }
             Action::FloatToggle => {
                 self.floating = !self.floating;
-                format!("float.toggle -> {}", self.label())
+                toggle_state_action_label("float.toggle", &self.label())
             }
-            other => format!("toggle ignored action {other}"),
+            other => toggle_state_ignored_action_label(other),
         }
     }
 
@@ -15161,6 +15161,21 @@ impl ToggleState {
         label.push_str(if self.floating { "true" } else { "false" });
         label
     }
+}
+
+fn toggle_state_action_label(action: &str, label: &str) -> String {
+    let mut out = String::with_capacity(action.len() + " -> ".len() + label.len());
+    out.push_str(action);
+    out.push_str(" -> ");
+    out.push_str(label);
+    out
+}
+
+fn toggle_state_ignored_action_label(action: &Action) -> String {
+    let mut out = String::with_capacity("toggle ignored action ".len() + 32);
+    out.push_str("toggle ignored action ");
+    let _ = write!(out, "{action}");
+    out
 }
 
 #[cfg(test)]
