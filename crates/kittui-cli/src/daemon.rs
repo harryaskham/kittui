@@ -348,14 +348,43 @@ pub struct NativeSpawnQueue {
     accept_thread: Option<JoinHandle<()>>,
 }
 
+fn active_socket_collision_message(path: &Path, owner: &str) -> String {
+    let socket = path.display().to_string();
+    let mut message = String::with_capacity(
+        "another  is already listening on \nhelp: inspect the active session with `kittwm --socket  --status` or `kittwm --socket  --panes`\nhelp: stop it with `kittwm stop` for the default socket, or `kittwm --socket  stop` for this path\nhelp: start a separate session with `KITTWM_SOCKET=/tmp/kittwm-<name>.sock kittwm`\nnote: stale socket files are removed automatically; this socket answered PING".len()
+            + owner.len()
+            + socket.len() * 4,
+    );
+    message.push_str("another ");
+    message.push_str(owner);
+    message.push_str(" is already listening on ");
+    message.push_str(&socket);
+    message.push_str("\nhelp: inspect the active session with `kittwm --socket ");
+    message.push_str(&socket);
+    message.push_str(" --status` or `kittwm --socket ");
+    message.push_str(&socket);
+    message.push_str(" --panes`");
+    message.push_str(
+        "\nhelp: stop it with `kittwm stop` for the default socket, or `kittwm --socket ",
+    );
+    message.push_str(&socket);
+    message.push_str(" stop` for this path");
+    message.push_str(
+        "\nhelp: start a separate session with `KITTWM_SOCKET=/tmp/kittwm-<name>.sock kittwm`",
+    );
+    message.push_str(
+        "\nnote: stale socket files are removed automatically; this socket answered PING",
+    );
+    message
+}
+
 fn cleanup_stale_socket_for_bind(path: &Path, owner: &str) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
     match client_request(path, "PING") {
-        Ok(reply) if reply.trim() == "PONG" => Err(anyhow!(
-            "another {owner} is already listening on {}",
-            path.display()
+        Ok(reply) if reply.trim() == "PONG" => Err(anyhow::Error::msg(
+            active_socket_collision_message(path, owner),
         )),
         _ => std::fs::remove_file(path)
             .map_err(|e| anyhow!("remove stale {owner} socket {}: {e}", path.display())),
@@ -5022,13 +5051,52 @@ mod tests {
     }
 
     #[test]
+    fn active_socket_collision_message_is_actionable() {
+        let p = std::env::temp_dir().join(test_socket_filename(
+            "kittwm-test-collision-help",
+            std::process::id(),
+        ));
+        let message = active_socket_collision_message(&p, "native spawn queue");
+        let socket = p.display().to_string();
+        assert!(message.contains("already listening"), "{message}");
+        assert!(
+            message.contains(&format!("kittwm --socket {socket} --status")),
+            "{message}"
+        );
+        assert!(
+            message.contains(&format!("kittwm --socket {socket} --panes")),
+            "{message}"
+        );
+        assert!(message.contains("kittwm stop"), "{message}");
+        assert!(
+            message.contains(&format!("kittwm --socket {socket} stop")),
+            "{message}"
+        );
+        assert!(
+            message.contains("KITTWM_SOCKET=/tmp/kittwm-<name>.sock kittwm"),
+            "{message}"
+        );
+        assert!(
+            message.contains("stale socket files are removed automatically"),
+            "{message}"
+        );
+        assert_eq!(message.capacity(), message.len());
+    }
+
+    #[test]
     fn double_bind_detects_existing_daemon() {
         let p =
             std::env::temp_dir().join(test_socket_filename("kittwm-test-dup", std::process::id()));
         let _ = std::fs::remove_file(&p);
         let _a = DaemonServer::bind(p.clone()).unwrap();
         let err = DaemonServer::bind(p.clone()).unwrap_err();
-        assert!(err.to_string().contains("already listening"), "{err}");
+        let message = err.to_string();
+        assert!(message.contains("already listening"), "{message}");
+        assert!(message.contains("kittwm stop"), "{message}");
+        assert!(
+            message.contains("stale socket files are removed automatically"),
+            "{message}"
+        );
     }
 }
 
