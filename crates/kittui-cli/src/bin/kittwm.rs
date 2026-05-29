@@ -1299,7 +1299,12 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              Ctrl-A t                       toggle floating mode\n\
              Ctrl-A f                       toggle fullscreen\n\
              Ctrl-A e                       toggle current split vertical/horizontal\n\
-             Ctrl-]                         exit kittwm\n"),
+             Ctrl-]                         exit kittwm\n\
+             KITTWM_WORKSPACE=dev kittwm    start with a named workspace\n\
+             KITTWM_NATIVE_RENDERER=kitty kittwm\n\
+                                            start with kitty graphics renderer\n\
+             KITTWM_NATIVE_CHROME_RENDERER=affordance-scene kittwm\n\
+                                            start with kittui scene chrome\n"),
         "panes" | "pane" => Ok("kittwm help panes
 \
              =================
@@ -11570,6 +11575,20 @@ END
         assert!(shortcuts
             .iter()
             .any(|entry| entry["id"] == "toggle_split" && entry["keys"] == "C-a e"));
+    }
+
+    #[test]
+    fn help_topic_start_mentions_copyable_examples() {
+        let text = help_topic_text("start").unwrap();
+        assert!(text.contains("KITTWM_WORKSPACE=dev kittwm"), "{text}");
+        assert!(
+            text.contains("KITTWM_NATIVE_RENDERER=kitty kittwm"),
+            "{text}"
+        );
+        assert!(
+            text.contains("KITTWM_NATIVE_CHROME_RENDERER=affordance-scene kittwm"),
+            "{text}"
+        );
     }
 
     #[test]
