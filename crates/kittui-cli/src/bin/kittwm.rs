@@ -8631,7 +8631,7 @@ case "$kind" in
         elif command -v swaymsg >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
             swaymsg -t get_tree 2>/dev/null | kittwm_remote_sway_tree_python | kittwm_remote_filter
         elif command -v wmctrl >/dev/null 2>&1; then
-            wmctrl -l | kittwm_remote_filter
+            wmctrl -lx 2>/dev/null | kittwm_remote_filter || wmctrl -l | kittwm_remote_filter
         elif command -v xdotool >/dev/null 2>&1; then
             xdotool search --onlyvisible --name '.*' 2>/dev/null | while IFS= read -r id; do
                 class=$(xdotool getwindowclassname "$id" 2>/dev/null || printf '?')
@@ -11730,7 +11730,7 @@ mod tests {
             "{script}"
         );
         assert!(script.contains("swaymsg+python3"), "{script}");
-        assert!(script.contains("wmctrl"), "{script}");
+        assert!(script.contains("wmctrl -lx"), "{script}");
         assert!(script.contains("getwindowclassname"), "{script}");
         assert!(script.contains("xrandr"), "{script}");
         assert!(script.contains("system_profiler"), "{script}");
