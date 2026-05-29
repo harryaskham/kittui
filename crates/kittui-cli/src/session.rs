@@ -6816,6 +6816,16 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn launcher_overlay_selected_log_line_builds_directly() {
+        let line = launcher_overlay_selected_log_line(LauncherKind::Path, "htop", 99);
+        assert_eq!(
+            line,
+            "launcher overlay selected Path \"htop\" spawned pid=99"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn keymap_launcher_selected_log_line_builds_directly() {
         let line = keymap_launcher_selected_log_line(LauncherKind::Shell, "echo hi", 42);
         assert_eq!(
@@ -12049,6 +12059,21 @@ fn launcher_overlay_launch_failed_log_line(err: &dyn std::fmt::Display) -> Strin
     out
 }
 
+fn launcher_overlay_selected_log_line(kind: LauncherKind, command: &str, pid: u32) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "launcher overlay selected  \"\" spawned pid=".len() + command.len() + 32,
+    );
+    out.push_str("launcher overlay selected ");
+    let _ = write!(out, "{kind:?}");
+    out.push(' ');
+    let _ = write!(out, "{command:?}");
+    out.push_str(" spawned pid=");
+    let _ = write!(out, "{pid}");
+    out
+}
+
 fn keymap_launcher_selected_log_line(kind: LauncherKind, command: &str, pid: u32) -> String {
     use std::fmt::Write as _;
 
@@ -12292,9 +12317,10 @@ pub fn run_loop_with<S: XServer>(
                                         sel.kind_name(),
                                         sel.command
                                     ));
-                                    dbg.log(&format!(
-                                        "launcher overlay selected {:?} {:?} spawned pid={pid}",
-                                        sel.kind, sel.command
+                                    dbg.log(&launcher_overlay_selected_log_line(
+                                        sel.kind,
+                                        &sel.command,
+                                        pid,
                                     ));
                                 }
                                 Err(e) => {
