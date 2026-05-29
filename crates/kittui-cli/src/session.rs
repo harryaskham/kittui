@@ -9760,6 +9760,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_overlay_panel_backdrop_label_builds_directly() {
+        let label = graphical_overlay_panel_backdrop_label("launcher-overlay", "kittwm launcher");
+        assert_eq!(label, "launcher-overlay-backdrop:kittwm launcher");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
     fn graphical_overlay_panel_footer_label_builds_directly() {
         let label = graphical_overlay_panel_footer_label("launcher-overlay");
         assert_eq!(label, "launcher-overlay-footer-hints");
@@ -14713,6 +14720,15 @@ fn launcher_overlay_query_line(query: &str, width: usize) -> String {
 }
 
 #[cfg(test)]
+fn graphical_overlay_panel_backdrop_label(id: &str, title: &str) -> String {
+    let mut label = String::with_capacity(id.len() + "-backdrop:".len() + title.len());
+    label.push_str(id);
+    label.push_str("-backdrop:");
+    label.push_str(title);
+    label
+}
+
+#[cfg(test)]
 fn graphical_overlay_panel_row_label(id: &str, idx: usize, row: &str) -> String {
     let mut label = String::with_capacity(id.len() + "-row-:".len() + 20 + row.len());
     label.push_str(id);
@@ -14746,7 +14762,7 @@ fn graphical_overlay_panel_scene(
     let row_h = cell_size.height_px.max(1) as f32;
     let mut layers = vec![
         Layer::new(
-            format!("{id}-backdrop:{title}"),
+            graphical_overlay_panel_backdrop_label(id, title),
             Node::Rect {
                 rect,
                 fill: Paint::Solid { color: colors.fill },
