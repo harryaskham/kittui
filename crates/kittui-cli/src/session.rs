@@ -14253,15 +14253,15 @@ impl WorkspaceState {
             Action::WorkspaceNew => {
                 self.count += 1;
                 self.current = self.count - 1;
-                format!("workspace.new -> {}", self.label())
+                workspace_state_action_label("workspace.new", &self.label())
             }
             Action::WorkspaceNext => {
                 self.current = (self.current + 1) % self.count;
-                format!("workspace.next -> {}", self.label())
+                workspace_state_action_label("workspace.next", &self.label())
             }
             Action::WorkspacePrev => {
                 self.current = (self.current + self.count - 1) % self.count;
-                format!("workspace.prev -> {}", self.label())
+                workspace_state_action_label("workspace.prev", &self.label())
             }
             Action::WorkspaceSwitch(target) => {
                 let target = (*target).max(1);
@@ -14269,9 +14269,9 @@ impl WorkspaceState {
                     self.count = target;
                 }
                 self.current = target - 1;
-                format!("workspace.switch.{target} -> {}", self.label())
+                workspace_state_switch_action_label(target, &self.label())
             }
-            other => format!("workspace ignored action {other}"),
+            other => workspace_state_ignored_action_label(other),
         }
     }
 
@@ -14287,6 +14287,30 @@ impl WorkspaceState {
     fn active_label(&self) -> String {
         (self.current + 1).to_string()
     }
+}
+
+fn workspace_state_action_label(action: &str, label: &str) -> String {
+    let mut out = String::with_capacity(action.len() + " -> ".len() + label.len());
+    out.push_str(action);
+    out.push_str(" -> ");
+    out.push_str(label);
+    out
+}
+
+fn workspace_state_switch_action_label(target: usize, label: &str) -> String {
+    let mut out = String::with_capacity("workspace.switch. -> ".len() + 20 + label.len());
+    out.push_str("workspace.switch.");
+    let _ = write!(out, "{target}");
+    out.push_str(" -> ");
+    out.push_str(label);
+    out
+}
+
+fn workspace_state_ignored_action_label(action: &Action) -> String {
+    let mut out = String::with_capacity("workspace ignored action ".len() + 32);
+    out.push_str("workspace ignored action ");
+    let _ = write!(out, "{action}");
+    out
 }
 
 fn publish_workspace_label_for_status(label: &str) {
