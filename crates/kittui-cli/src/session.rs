@@ -6585,6 +6585,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn config_action_log_line_builds_directly() {
+        let line = config_action_log_line("config.reload.ok#1");
+        assert_eq!(line, "config action: config.reload.ok#1");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11382,6 +11389,13 @@ fn keymap_reload_failed_log_line(err: &dyn std::fmt::Display) -> String {
     out
 }
 
+fn config_action_log_line(message: &str) -> String {
+    let mut out = String::with_capacity("config action: ".len() + message.len());
+    out.push_str("config action: ");
+    out.push_str(message);
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11738,7 +11752,7 @@ pub fn run_loop_with<S: XServer>(
                                         }
                                     };
                                     last_keymap_action = Some(msg.clone());
-                                    dbg.log(&format!("config action: {msg}"));
+                                    dbg.log(&config_action_log_line(&msg));
                                 }
                                 Action::Quit => {
                                     quit = true;
