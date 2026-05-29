@@ -1422,8 +1422,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            shortest alias for launching the first remote app match\n\
              kittwm remote HOST apps firefox --launch-first\n\
                                            explicit remote app launch path\n\
-             kittwm remote HOST terminal -- htop\n\
-                                           friendly alias for kittwm-terminal --remote HOST -- htop\n\
+             kittwm remote HOST terminal htop\n\
+                                           shortest alias for kittwm-terminal --remote HOST htop\n\
              kittwm doctor --remote HOST\n\
                                            check remote kittwm availability and suggested path\n\
              kittwm-terminal --remote HOST --title HOST\n\
@@ -2789,7 +2789,7 @@ printf '               : kittwm remote %s list apps firefox\n' "$host"
 printf '               : kittwm remote %s launch firefox\n' "$host"
 printf '               : kittwm remote %s list windows\n' "$host"
 printf '               : kittwm remote %s list displays\n' "$host"
-printf '               : kittwm remote %s terminal -- htop\n' "$host"
+printf '               : kittwm remote %s terminal htop\n' "$host"
 "#
 }
 
@@ -4558,7 +4558,7 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "explicit alias for remote app launch",
         },
         LocalCommandEntry {
-            command: "remote HOST terminal -- CMD",
+            command: "remote HOST terminal CMD",
             category: "remote",
             description: "friendly alias for remote terminal pane",
         },
@@ -5468,12 +5468,12 @@ fn quickstart_text() -> &'static str {
    kittwm --restore-session session.json
 
 7. Work across SSH hosts
-   kittwm doctor --remote buildbox
-   kittwm apps --remote buildbox --filter firefox --launch-first
-   kittwm --list-windows --remote buildbox
-   kittwm --list-displays --remote buildbox
-   kittwm-terminal --remote buildbox --title buildbox
-   kittwm-terminal --remote buildbox -- htop
+   kittwm remote buildbox
+   kittwm remote buildbox list apps firefox
+   kittwm remote buildbox launch firefox
+   kittwm remote buildbox list windows firefox
+   kittwm remote buildbox list displays retina
+   kittwm remote buildbox terminal htop
 
 8. Try first-party helpers when you need richer views
    kittwm-launch --browser https://example.com
@@ -5567,12 +5567,12 @@ FIRST-PARTY HELPERS
   kittwm-browser --semantic-snapshot https://example.com
 
 SSH / REMOTE HOSTS
-  kittwm doctor --remote buildbox
-  kittwm apps --remote buildbox --filter firefox --launch-first
-  kittwm --list-windows --remote buildbox
-  kittwm --list-displays --remote buildbox
-  kittwm-terminal --remote buildbox --title buildbox
-  kittwm-terminal --remote buildbox -- htop
+  kittwm remote buildbox
+  kittwm remote buildbox list apps firefox
+  kittwm remote buildbox launch firefox
+  kittwm remote buildbox list windows firefox
+  kittwm remote buildbox list displays retina
+  kittwm remote buildbox terminal htop
 
 HELP
   kittwm quickstart
@@ -5621,7 +5621,7 @@ HELPERS
 SSH
   kittwm doctor --remote HOST   kittwm apps --remote HOST
   kittwm --list-windows --remote HOST
-  kittwm-terminal --remote HOST -- htop
+  kittwm remote HOST terminal htop
 
 MORE
   kittwm quickstart         kittwm examples    kittwm help panes
@@ -10039,7 +10039,7 @@ mod tests {
             entry["command"] == "doctor --remote HOST" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
-            entry["command"] == "remote HOST terminal -- CMD" && entry["category"] == "remote"
+            entry["command"] == "remote HOST terminal CMD" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "kittwm-terminal --remote HOST" && entry["category"] == "remote"
@@ -10806,14 +10806,13 @@ mod tests {
 
         let mut terminal = Cli::default();
         terminal.remote_host = Some("buildbox".to_string());
-        parse_remote_alias_action(&mut terminal, "terminal", &args(&["--", "htop"])).unwrap();
+        parse_remote_alias_action(&mut terminal, "terminal", &args(&["htop"])).unwrap();
         assert_eq!(
             terminal.remote_terminal_args.as_deref(),
             Some(
                 &[
                     "--remote".to_string(),
                     "buildbox".to_string(),
-                    "--".to_string(),
                     "htop".to_string()
                 ][..]
             )
@@ -10838,7 +10837,7 @@ mod tests {
             "{script}"
         );
         assert!(
-            script.contains("kittwm remote %s terminal -- htop"),
+            script.contains("kittwm remote %s terminal htop"),
             "{script}"
         );
         let args = pooled_ssh_args(
