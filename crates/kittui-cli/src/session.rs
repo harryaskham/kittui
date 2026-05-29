@@ -381,14 +381,14 @@ const MAX_NATIVE_TERMINAL_ROWS: u16 = 256;
 pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
     let dbg = Debugger::open();
     dbg.log("native terminal loop: enter");
-    let _raw_guard = RawMode::enter()?;
-    install_signal_restore();
-
     let (mut cols, mut rows) = native_terminal_size();
     let sock = crate::daemon::default_socket_path()
         .to_string_lossy()
         .to_string();
     let queue = crate::daemon::NativeSpawnQueue::bind(crate::daemon::default_socket_path())?;
+
+    let _raw_guard = RawMode::enter()?;
+    install_signal_restore();
     let kittwm_config = KittwmConfig::load_default().unwrap_or_default();
     let cmd = native_terminal_command(&kittwm_config);
     let mut last_chrome_reservation = queue.chrome_reservation();

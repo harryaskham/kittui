@@ -1891,23 +1891,54 @@ fn main() -> ExitCode {
     match std::panic::catch_unwind(real_main) {
         Ok(Ok(())) => ExitCode::SUCCESS,
         Ok(Err(e)) => {
+            let message = format!("fatal error: {e:#}");
+            log_kittwm_process_event(&message);
             eprintln!("kittwm: {e}");
             ExitCode::from(1)
         }
         Err(payload) if panic_payload_is_broken_pipe(payload.as_ref()) => ExitCode::SUCCESS,
-        Err(_) => ExitCode::from(101),
+        Err(payload) => {
+            log_kittwm_process_event(&format!(
+                "panic: {}",
+                panic_payload_message(payload.as_ref())
+            ));
+            ExitCode::from(101)
+        }
     }
 }
 
-fn panic_payload_is_broken_pipe(payload: &(dyn std::any::Any + Send)) -> bool {
-    let Some(message) = payload
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
         .downcast_ref::<&str>()
         .copied()
         .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-    else {
-        return false;
-    };
+        .unwrap_or("non-string panic payload")
+        .to_string()
+}
+
+fn panic_payload_is_broken_pipe(payload: &(dyn std::any::Any + Send)) -> bool {
+    let message = panic_payload_message(payload);
     message.contains("Broken pipe") || message.contains("os error 32")
+}
+
+fn log_kittwm_process_event(message: &str) {
+    let path = debug_log_path();
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    else {
+        return;
+    };
+    let _ = writeln!(file, "[{}] {}", kittwm_log_clock(), message);
+    let _ = file.flush();
+}
+
+fn kittwm_log_clock() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}.{:03}", now.as_secs(), now.subsec_millis())
 }
 
 fn real_main() -> Result<()> {
@@ -8590,6 +8621,32 @@ mod tests {
             &"failed printing to stdout: os error 32".to_string()
         ));
         assert!(!panic_payload_is_broken_pipe(&"unrelated panic"));
+    }
+
+    #[test]
+    fn panic_payload_message_reports_string_and_non_string_payloads() {
+        assert_eq!(panic_payload_message(&"boom"), "boom");
+        assert_eq!(
+            panic_payload_message(&"owned boom".to_string()),
+            "owned boom"
+        );
+        assert_eq!(panic_payload_message(&42usize), "non-string panic payload");
+    }
+
+    #[test]
+    fn kittwm_process_event_log_appends_timestamped_line() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "kittwm-process-event-{}-{}.log",
+            std::process::id(),
+            kittwm_log_clock().replace('.', "-")
+        ));
+        std::env::set_var("KITTUI_WM_LOG", &path);
+        log_kittwm_process_event("panic: synthetic crash");
+        let body = std::fs::read_to_string(&path).expect("read synthetic kittwm log");
+        assert!(body.contains("] panic: synthetic crash"));
+        let _ = std::fs::remove_file(&path);
+        std::env::remove_var("KITTUI_WM_LOG");
     }
 
     #[test]
