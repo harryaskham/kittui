@@ -9864,10 +9864,14 @@ mod tests {
         assert_eq!(help_topic_scene_rows(8), 12);
         assert_eq!(help_topic_scene_rows(usize::MAX), 30);
 
-        let text = (0..128)
-            .map(|idx| format!("kittwm help line {idx}"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let mut text = String::with_capacity(128 * "kittwm help line 000\n".len());
+        for idx in 0..128 {
+            if idx > 0 {
+                text.push('\n');
+            }
+            text.push_str("kittwm help line ");
+            let _ = write!(text, "{idx}");
+        }
         let scene = help_topic_scene_for_cols("stress", &text, 80);
         assert_eq!(scene.footprint.rows, 30);
     }
