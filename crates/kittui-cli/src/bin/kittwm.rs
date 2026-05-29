@@ -8210,8 +8210,16 @@ fn pooled_ssh_control_path(graphical_forwarding: bool) -> Result<std::path::Path
         })
         .unwrap_or_else(std::env::temp_dir);
     let dir = base.join("kittwm-ssh");
-    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| create_dir_context(&dir))?;
     Ok(dir.join(if graphical_forwarding { "%C-x11" } else { "%C" }))
+}
+
+fn create_dir_context(path: &std::path::Path) -> String {
+    let path = path.display().to_string();
+    let mut out = String::with_capacity("create ".len() + path.len());
+    out.push_str("create ");
+    out.push_str(&path);
+    out
 }
 
 fn shell_quote(value: &str) -> String {
@@ -11502,6 +11510,14 @@ mod tests {
         assert!(script.contains("wmctrl"), "{script}");
         assert!(script.contains("xrandr"), "{script}");
         assert!(script.contains("system_profiler"), "{script}");
+    }
+
+    #[test]
+    fn create_dir_context_builds_directly() {
+        let path = std::path::PathBuf::from("/tmp/kittwm-ssh");
+        let context = create_dir_context(&path);
+        assert_eq!(context, "create /tmp/kittwm-ssh");
+        assert_eq!(context.capacity(), context.len());
     }
 
     #[test]
