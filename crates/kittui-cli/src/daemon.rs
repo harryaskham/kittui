@@ -4982,7 +4982,8 @@ mod tests {
 
     #[test]
     fn double_bind_detects_existing_daemon() {
-        let p = std::env::temp_dir().join(format!("kittwm-test-dup-{}.sock", std::process::id()));
+        let p =
+            std::env::temp_dir().join(test_socket_filename("kittwm-test-dup", std::process::id()));
         let _ = std::fs::remove_file(&p);
         let _a = DaemonServer::bind(p.clone()).unwrap();
         let err = DaemonServer::bind(p.clone()).unwrap_err();
