@@ -922,9 +922,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                     }
                                 }
                             }
-                            dbg.log(&format!(
-                                "native terminal socket send mouse direct: {window} event={event} col={col} row={row} events={sent}/{}",
-                                events.len()
+                            dbg.log(&native_socket_send_mouse_direct_log_line(
+                                &window,
+                                &event,
+                                col,
+                                row,
+                                sent,
+                                events.len(),
                             ));
                         } else {
                             let modes = panes[idx].app.mouse_reporting_modes();
@@ -4306,6 +4310,37 @@ fn native_socket_send_mouse_log_line(
     let _ = write!(out, "{row}");
     out.push_str(" bytes=");
     let _ = write!(out, "{bytes}");
+    out
+}
+
+fn native_socket_send_mouse_direct_log_line(
+    window: &str,
+    event: &str,
+    col: u16,
+    row: u16,
+    sent: usize,
+    total: usize,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal socket send mouse direct:  event= col= row= events=/".len()
+            + window.len()
+            + event.len()
+            + 60,
+    );
+    out.push_str("native terminal socket send mouse direct: ");
+    out.push_str(window);
+    out.push_str(" event=");
+    out.push_str(event);
+    out.push_str(" col=");
+    let _ = write!(out, "{col}");
+    out.push_str(" row=");
+    let _ = write!(out, "{row}");
+    out.push_str(" events=");
+    let _ = write!(out, "{sent}");
+    out.push('/');
+    let _ = write!(out, "{total}");
     out
 }
 
@@ -10431,6 +10466,16 @@ mod native_pane_tests {
         assert_eq!(
             line,
             "native terminal socket send mouse: native-1 event=press-left col=7 row=9 bytes=6"
+        );
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_socket_send_mouse_direct_log_line_builds_directly() {
+        let line = native_socket_send_mouse_direct_log_line("native-1", "move-left", 7, 9, 2, 3);
+        assert_eq!(
+            line,
+            "native terminal socket send mouse direct: native-1 event=move-left col=7 row=9 events=2/3"
         );
         assert!(line.capacity() >= line.len());
     }
