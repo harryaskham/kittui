@@ -432,6 +432,8 @@ fn parse_args() -> Result<Cli> {
             "apps" => out.apps = true,
             "apps-scene-json" => out.apps_scene_json = true,
             "apps-kitty" | "apps-graphics" => out.apps_kitty = true,
+            "windows" => out.list_windows = true,
+            "displays" => out.list_displays = true,
             "native-terminal" => out.native_terminal = true,
             "native-browser" => out.native_browser = true,
             "--socket" => {
@@ -1038,6 +1040,10 @@ APPS AND LAUNCHING
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
                             uses remote kittwm when installed, else PATH fallback
+  windows --remote HOST       List remote windows via pooled SSH; delegates to
+                            remote kittwm when available, else best-effort fallback
+  displays --remote HOST      List remote displays via pooled SSH; delegates to
+                            remote kittwm when available, else best-effort fallback
   apps-kitty [--filter QUERY] [--limit N]
                             Render launcher candidates with kitty graphics
   --apps-json              App discovery catalog JSON
@@ -1455,6 +1461,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              apps --remote HOST             list remote candidates via pooled SSH\n\
              apps --remote HOST --filter QUERY --launch-first\n\
                                             launch first remote match; uses remote kittwm when present\n\
+             windows --remote HOST          list remote windows via pooled SSH\n\
+             displays --remote HOST         list remote displays via pooled SSH\n\
              --apps-json                    APPS_JSON catalog\n\
              --apps-first QUERY             first matching app candidate\n\
              --apps-launch-first QUERY      launch first matching candidate\n\
@@ -2098,9 +2106,15 @@ fn real_main() -> Result<()> {
         return apps_cmd(&cli);
     }
     if cli.list_windows {
+        if let Some(host) = cli.remote_host.as_deref() {
+            return remote_listing_cmd(RemoteListingKind::Windows, host);
+        }
         return list_windows_cmd();
     }
     if cli.list_displays {
+        if let Some(host) = cli.remote_host.as_deref() {
+            return remote_listing_cmd(RemoteListingKind::Displays, host);
+        }
         return list_displays_cmd();
     }
     if let Some(path) = &cli.save_session {
@@ -7290,19 +7304,63 @@ fn remote_apps_cmd(cli: &Cli, host: &str) -> Result<()> {
     }
     let limit = cli.apps_limit.unwrap_or(50);
     let mode = remote_apps_mode(cli);
-    let args = pooled_ssh_args(
+    run_pooled_ssh_script(
         host,
         &remote_apps_env(cli.apps_filter.as_deref(), limit, mode),
         remote_apps_script(),
-    )?;
+        "remote apps",
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoteListingKind {
+    Windows,
+    Displays,
+}
+
+impl RemoteListingKind {
+    fn env_value(self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::Displays => "displays",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Windows => "remote windows",
+            Self::Displays => "remote displays",
+        }
+    }
+}
+
+fn remote_listing_cmd(kind: RemoteListingKind, host: &str) -> Result<()> {
+    run_pooled_ssh_script(
+        host,
+        &[(
+            "KITTWM_REMOTE_KIND".to_string(),
+            kind.env_value().to_string(),
+        )],
+        remote_listing_script(),
+        kind.label(),
+    )
+}
+
+fn run_pooled_ssh_script(
+    host: &str,
+    env: &[(String, String)],
+    script: &str,
+    label: &str,
+) -> Result<()> {
+    let args = pooled_ssh_args(host, env, script)?;
     let status = std::process::Command::new("ssh")
         .args(&args)
         .status()
-        .map_err(|e| anyhow!("ssh remote apps {host}: {e}"))?;
+        .map_err(|e| anyhow!("ssh {label} {host}: {e}"))?;
     if status.success() {
         Ok(())
     } else {
-        Err(anyhow!("ssh remote apps {host} exited with {status}"))
+        Err(anyhow!("ssh {label} {host} exited with {status}"))
     }
 }
 
@@ -7461,6 +7519,42 @@ case "$mode" in
         if [ -n "${KITTWM_REMOTE_QUERY:-}" ]; then printf 'filter: %s\n' "$KITTWM_REMOTE_QUERY"; fi
         printf 'PATH commands (first %s):\n' "$limit"
         kittwm_remote_candidates | head -n "$limit" | sed 's/^/  /'
+        ;;
+esac
+"#
+}
+
+fn remote_listing_script() -> &'static str {
+    r#"kind=${KITTWM_REMOTE_KIND:-windows}
+host=$(hostname 2>/dev/null || printf unknown)
+if command -v kittwm >/dev/null 2>&1; then
+    case "$kind" in
+        displays) exec kittwm --list-displays ;;
+        *) exec kittwm --list-windows ;;
+    esac
+fi
+case "$kind" in
+    displays)
+        printf 'kittwm remote displays\n======================\nhost: %s\nmode: fallback\n' "$host"
+        if command -v xrandr >/dev/null 2>&1; then
+            xrandr --listmonitors 2>/dev/null || xrandr --query 2>/dev/null | awk '/ connected/{print "  "$0}'
+        elif command -v system_profiler >/dev/null 2>&1; then
+            system_profiler SPDisplaysDataType 2>/dev/null | awk '/^[[:space:]]*(Resolution|Main Display|Online|Display Type):/{print "  "$0}'
+        else
+            printf '  capability unavailable: install remote kittwm, xrandr, or system_profiler\n'
+        fi
+        ;;
+    *)
+        printf 'kittwm remote windows\n=====================\nhost: %s\nmode: fallback\n' "$host"
+        if command -v wmctrl >/dev/null 2>&1; then
+            wmctrl -l
+        elif command -v xdotool >/dev/null 2>&1; then
+            xdotool search --onlyvisible --name '.*' 2>/dev/null | while IFS= read -r id; do xdotool getwindowname "$id" 2>/dev/null | sed "s/^/$id  /"; done
+        elif command -v osascript >/dev/null 2>&1; then
+            osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /'
+        else
+            printf '  capability unavailable: install remote kittwm, wmctrl, xdotool, or enable macOS osascript accessibility\n'
+        fi
         ;;
 esac
 "#
@@ -10122,6 +10216,18 @@ mod tests {
             script.contains("kittwm_remote_list_path_commands"),
             "{script}"
         );
+    }
+
+    #[test]
+    fn remote_listing_modes_delegate_to_kittwm_or_platform_fallbacks() {
+        assert_eq!(RemoteListingKind::Windows.env_value(), "windows");
+        assert_eq!(RemoteListingKind::Displays.env_value(), "displays");
+        let script = remote_listing_script();
+        assert!(script.contains("kittwm --list-windows"), "{script}");
+        assert!(script.contains("kittwm --list-displays"), "{script}");
+        assert!(script.contains("wmctrl"), "{script}");
+        assert!(script.contains("xrandr"), "{script}");
+        assert!(script.contains("system_profiler"), "{script}");
     }
 
     #[test]
