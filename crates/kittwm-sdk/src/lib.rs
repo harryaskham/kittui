@@ -2720,6 +2720,11 @@ impl PanesStatus {
         self.focused_pane()?.is_frame_clean()
     }
 
+    /// Whether the focused pane's latest frame upload was skipped, when reported.
+    pub fn focused_frame_upload_skipped(&self) -> Option<bool> {
+        self.focused_pane()?.frame_upload_skipped()
+    }
+
     /// Dirty-frame changed tile count and total tile count for the focused pane.
     pub fn focused_frame_changed_tiles_ratio(&self) -> Option<(u32, u32)> {
         self.focused_pane()?.frame_changed_tiles_ratio()
@@ -2918,6 +2923,11 @@ impl Status {
     /// Whether the focused pane's latest dirty-frame metrics report a clean/skipped frame.
     pub fn focused_frame_is_clean(&self) -> Option<bool> {
         self.focused_pane()?.is_frame_clean()
+    }
+
+    /// Whether the focused pane's latest frame upload was skipped, when reported.
+    pub fn focused_frame_upload_skipped(&self) -> Option<bool> {
+        self.focused_pane()?.frame_upload_skipped()
     }
 
     /// Dirty-frame changed tile count and total tile count for the focused pane.
@@ -5034,6 +5044,7 @@ mod tests {
             Some(((6, 2), (11, 4)))
         );
         assert_eq!(panes.focused_frame_is_clean(), Some(false));
+        assert_eq!(panes.focused_frame_upload_skipped(), Some(false));
         assert_eq!(panes.focused_frame_changed_tiles_ratio(), Some((1, 4)));
         assert_eq!(panes.focused_frame_changed_fraction(), Some(0.25));
         assert_eq!(panes.clean_frame_panes().count(), 0);
@@ -5176,6 +5187,7 @@ mod tests {
         assert_eq!(status.focused_title_drag_cell(), None);
         assert_eq!(status.focused_title_drag_cells_by(1, 1), None);
         assert_eq!(status.focused_frame_is_clean(), None);
+        assert_eq!(status.focused_frame_upload_skipped(), None);
         assert_eq!(status.focused_frame_changed_tiles_ratio(), None);
         assert_eq!(status.focused_frame_changed_fraction(), None);
         assert_eq!(status.title_draggable_panes().count(), 0);
@@ -5229,6 +5241,7 @@ mod tests {
             Some(((4, 1), (7, 3)))
         );
         assert_eq!(status.focused_frame_is_clean(), Some(true));
+        assert_eq!(status.focused_frame_upload_skipped(), Some(true));
         assert_eq!(status.focused_frame_changed_tiles_ratio(), Some((0, 4)));
         assert_eq!(status.focused_frame_changed_fraction(), Some(0.0));
         assert_eq!(
