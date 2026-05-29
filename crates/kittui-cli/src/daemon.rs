@@ -4969,8 +4969,10 @@ mod tests {
 
     #[test]
     fn native_spawn_queue_bind_removes_stale_socket_file() {
-        let p =
-            std::env::temp_dir().join(format!("kittwm-native-stale-{}.sock", std::process::id()));
+        let p = std::env::temp_dir().join(test_socket_filename(
+            "kittwm-native-stale",
+            std::process::id(),
+        ));
         let _ = std::fs::remove_file(&p);
         std::fs::write(&p, b"not a socket").unwrap();
         let queue = NativeSpawnQueue::bind(p.clone()).unwrap();
