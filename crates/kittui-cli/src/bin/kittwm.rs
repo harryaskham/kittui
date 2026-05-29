@@ -951,47 +951,12 @@ fn apply_socket_target_flags(cli: &Cli) {
     }
 }
 
-fn kittwm_help_text() -> &'static str {
-    r#"kittwm — terminal-native window manager
-
-USAGE
-  kittwm                         Start the WM in this terminal (empty workspace + top bar)
-  kittwm start                   Explicit start alias for the same default session
-  kittwm stop                    Stop a socket daemon (alias for --kill)
-  kittwm --socket PATH COMMAND   Target a running WM socket for one command
-  kittwm --display :N COMMAND    Target a DISPLAY-like kittwm socket token
-  kittwm --help                  Show this overview
-  kittwm help <topic>            Show focused help (when available)
-  kittwm help-kitty [topic]      Render focused help with kitty graphics
-  kittwm info                    Show friendly running-WM overview
-  kittwm status-kitty            Render daemon status with kitty graphics
-  kittwm quickstart              Show first-run daily-driver checklist
-  kittwm quickstart-kitty        Render quickstart with kitty graphics
-  kittwm examples                Show copy-paste daily-driver workflows
-  kittwm examples-kitty          Render examples with kitty graphics
-  kittwm log path                Print debug log path
-  kittwm log tail -f             Follow debug log from another terminal
-  kittwm commands                Show grouped local CLI command catalog
-  kittwm commands-json           Show local CLI command catalog JSON
-  kittwm commands-scene-json     Emit local command catalog as a kittui Scene
-  kittwm commands-kitty          Render local command catalog with kitty graphics
-  kittwm architecture-json       Emit WM architecture/separation contract JSON
-  kittwm architecture-scene-json Emit architecture contract as a kittui Scene
-  kittwm architecture-kitty      Render architecture contract with kitty graphics
-  kittwm native-surfaces         Show first-party native surface coverage
-  kittwm native-surfaces-json    Emit first-party native surface coverage JSON
-  kittwm native-surfaces-scene-json Emit coverage as a kittui Scene
-  kittwm native-surfaces-kitty   Render coverage with kitty graphics
-  kittwm showcase-scene-json     Emit a representative graphical WM scene artifact
-  kittwm showcase-metrics-json   Emit scene/layer/pixel metrics for that artifact
-  kittwm showcase-composition-json Emit ordered app/chrome/overlay composition graph
-  kittwm tui-smoke-json          Emit terminal/TUI conformance smoke matrix
-  kittwm update [--status|--check] Self-update from GitHub release assets
-  kittwm mcp                     Expose shared update tools over MCP stdio
-  kittwm completions SHELL       Print shell completions (bash|zsh|fish)
-  kittwm cheat                   Show compact daily-driver cheat sheet
-  kittwm cheat-kitty             Render cheat sheet with kitty graphics
-
+fn kittwm_help_text() -> String {
+    let mut out = String::with_capacity(8192);
+    out.push_str("kittwm — terminal-native window manager\n\n");
+    out.push_str(&kittwm_help_command_tree_text());
+    out.push_str(
+        r#"
 DAILY DRIVER BASICS
   Quickstart:      kittwm quickstart
   Examples:        kittwm examples
@@ -1126,7 +1091,37 @@ FIRST-PARTY HELPERS
 
 For complete socket verbs: kittwm --help-json
 For interactive key chords: kittwm shortcuts
-"#
+"#,
+    );
+    out
+}
+
+fn kittwm_help_command_tree_text() -> String {
+    let entries = local_command_entries();
+    let mut out = String::with_capacity(entries.len().saturating_mul(64).saturating_add(256));
+    out.push_str("USAGE\n");
+    out.push_str("  kittwm                         Start the WM in this terminal (empty workspace + top bar)\n");
+    out.push_str("  kittwm --socket PATH COMMAND   Target a running WM socket for one command\n");
+    out.push_str("  kittwm --display :N COMMAND    Target a DISPLAY-like kittwm socket token\n");
+    out.push_str("  kittwm --help                  Show this overview\n");
+    out.push_str("\nCOMMAND TREE (derived from kittwm parser catalog)\n");
+    let mut categories = Vec::new();
+    for entry in entries {
+        if !categories.contains(&entry.category) {
+            categories.push(entry.category);
+        }
+    }
+    for category in categories {
+        out.push('\n');
+        for ch in category.chars() {
+            out.push(ch.to_ascii_uppercase());
+        }
+        out.push('\n');
+        for entry in entries.iter().filter(|entry| entry.category == category) {
+            let _ = writeln!(out, "  kittwm {:32} {}", entry.command, entry.description);
+        }
+    }
+    out
 }
 
 fn print_help() {
@@ -3824,12 +3819,12 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
         LocalCommandEntry {
             command: "start",
             category: "lifecycle",
-            description: "start the foreground terminal WM",
+            description: "explicit start alias for the same default foreground session",
         },
         LocalCommandEntry {
             command: "stop",
             category: "lifecycle",
-            description: "stop a socket daemon",
+            description: "stop a socket daemon (alias for --kill)",
         },
         LocalCommandEntry {
             command: "quickstart",
@@ -3899,12 +3894,12 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
         LocalCommandEntry {
             command: "commands-scene-json",
             category: "help",
-            description: "kittui scene local command catalog",
+            description: "emit local command catalog as a kittui Scene",
         },
         LocalCommandEntry {
             command: "commands-kitty",
             category: "help",
-            description: "kitty-graphics local command catalog",
+            description: "render local command catalog with kitty graphics",
         },
         LocalCommandEntry {
             command: "architecture-json",
@@ -3919,7 +3914,27 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
         LocalCommandEntry {
             command: "architecture-kitty",
             category: "diagnostics",
-            description: "WM architecture contract kitty graphics",
+            description: "render architecture contract with kitty graphics",
+        },
+        LocalCommandEntry {
+            command: "showcase-scene-json",
+            category: "diagnostics",
+            description: "representative graphical WM scene artifact",
+        },
+        LocalCommandEntry {
+            command: "showcase-metrics-json",
+            category: "diagnostics",
+            description: "scene/layer/pixel metrics for the showcase artifact",
+        },
+        LocalCommandEntry {
+            command: "showcase-composition-json",
+            category: "diagnostics",
+            description: "ordered app/chrome/overlay composition graph",
+        },
+        LocalCommandEntry {
+            command: "tui-smoke-json",
+            category: "diagnostics",
+            description: "terminal/TUI conformance smoke matrix",
         },
         LocalCommandEntry {
             command: "native-surfaces",
@@ -3954,7 +3969,7 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
         LocalCommandEntry {
             command: "mcp",
             category: "lifecycle",
-            description: "serve shared update tools over MCP stdio",
+            description: "expose shared update tools over MCP stdio",
         },
         LocalCommandEntry {
             command: "help <topic>",
@@ -3979,7 +3994,27 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
         LocalCommandEntry {
             command: "help-kitty [topic]",
             category: "help",
-            description: "focused topic help kitty graphics",
+            description: "render focused topic help with kitty graphics",
+        },
+        LocalCommandEntry {
+            command: "shortcuts",
+            category: "help",
+            description: "interactive key chord list",
+        },
+        LocalCommandEntry {
+            command: "shortcuts-json",
+            category: "help",
+            description: "interactive key chord list JSON",
+        },
+        LocalCommandEntry {
+            command: "shortcuts-scene-json",
+            category: "help",
+            description: "interactive key chord list kittui scene",
+        },
+        LocalCommandEntry {
+            command: "shortcuts-kitty",
+            category: "help",
+            description: "render shortcut list with kitty graphics",
         },
         LocalCommandEntry {
             command: "info",
@@ -3999,7 +4034,7 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
         LocalCommandEntry {
             command: "status-kitty",
             category: "inspect",
-            description: "daemon status kitty graphics",
+            description: "render daemon status with kitty graphics",
         },
         LocalCommandEntry {
             command: "chrome-scene-json",
@@ -12112,6 +12147,24 @@ END
         assert!(text.contains("kittwm showcase-metrics-json"), "{text}");
         assert!(text.contains("kittwm showcase-composition-json"), "{text}");
         assert!(text.contains("kittwm tui-smoke-json"), "{text}");
+    }
+
+    #[test]
+    fn kittwm_help_command_tree_is_derived_from_catalog() {
+        let tree = kittwm_help_command_tree_text();
+        assert!(
+            tree.contains("COMMAND TREE (derived from kittwm parser catalog)"),
+            "{tree}"
+        );
+        for entry in local_command_entries() {
+            let needle = format!("kittwm {}", entry.command);
+            assert!(tree.contains(&needle), "missing {needle:?}: {tree}");
+            assert!(
+                tree.contains(entry.description),
+                "missing description {:?}: {tree}",
+                entry.description
+            );
+        }
     }
 
     #[test]
