@@ -4802,7 +4802,7 @@ fn completions_text(shell: &str) -> Result<String> {
         "zsh" => Ok(zsh_completions_text()),
         "fish" => Ok(fish_completions_text()),
         other => Err(anyhow!(
-            "unsupported completion shell {other:?}; expected bash, zsh, or fish"
+            "unsupported completion shell {other:?}; expected bash, zsh, or fish\ntry: kittwm completions bash\nhelp: kittwm help completions"
         )),
     }
 }
@@ -8924,7 +8924,10 @@ mod tests {
         assert_eq!(fish, fish_completions_text());
         assert_eq!(fish.capacity(), fish.len());
         assert!(std::ptr::eq(completion_words(), completion_words()));
-        assert!(completions_text("powershell").is_err());
+        let err = completions_text("powershell").unwrap_err().to_string();
+        assert!(err.contains("expected bash, zsh, or fish"), "{err}");
+        assert!(err.contains("try: kittwm completions bash"), "{err}");
+        assert!(err.contains("help: kittwm help completions"), "{err}");
     }
 
     #[test]
