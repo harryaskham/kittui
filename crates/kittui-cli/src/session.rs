@@ -2122,7 +2122,9 @@ fn terminal_visible_width(x: u16, desired: u16, cols: u16) -> Option<usize> {
 }
 
 const NATIVE_STATUS_LOG_PATH_MAX_CHARS: usize = 96;
-const NATIVE_STATUS_LINE_PREFIX: &str = " C-a ? help · C-a g launcher · C-a Enter term · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · mode:";
+const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
+const NATIVE_STATUS_LINE_HINTS: &str =
+    " · C-a ? help · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit";
 const NATIVE_STATUS_LINE_LOG_PREFIX: &str = " · log: ";
 
 fn native_status_line_text(panes: usize, layout_label: &str, log_path: &str) -> String {
@@ -2134,11 +2136,13 @@ fn native_status_line_text(panes: usize, layout_label: &str, log_path: &str) -> 
         let mut out = String::with_capacity(
             NATIVE_STATUS_LINE_PREFIX.len()
                 + mode.len()
+                + NATIVE_STATUS_LINE_HINTS.len()
                 + NATIVE_STATUS_LINE_LOG_PREFIX.len()
                 + log_path.len(),
         );
         out.push_str(NATIVE_STATUS_LINE_PREFIX);
         out.push_str(&mode);
+        out.push_str(NATIVE_STATUS_LINE_HINTS);
         out.push_str(NATIVE_STATUS_LINE_LOG_PREFIX);
         out.push_str(&log_path);
         out
@@ -7382,7 +7386,7 @@ mod native_pane_tests {
         let footer = native_status_line_text(1, "floating", "/tmp/kittwm.log");
         assert_eq!(
             footer,
-            " C-a ? help · C-a g launcher · C-a Enter term · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · mode:floating · log: /tmp/kittwm.log"
+            " mode:floating · C-a ? help · C-a t float · C-a f full · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
         );
         assert_eq!(footer.capacity(), footer.len());
 
@@ -7396,8 +7400,10 @@ mod native_pane_tests {
         );
         let visible = native_footer_visible_text(&huge_footer, 24);
         assert_eq!(visible.chars().count(), 24);
-        assert!(visible.starts_with(" C-a ? help"), "{visible:?}");
+        assert!(visible.starts_with(" mode:floating"), "{visible:?}");
         assert!(!visible.contains(&"x".repeat(128)), "{}", visible.len());
+        let narrow = native_footer_visible_text(&footer, 16);
+        assert_eq!(narrow, " mode:floating ·");
         assert_eq!(native_footer_visible_text("short", 8), "short   ");
     }
 
