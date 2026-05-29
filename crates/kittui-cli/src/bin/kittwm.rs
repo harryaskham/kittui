@@ -4200,16 +4200,28 @@ fn move_pane_request(window: &str, direction: &str) -> Result<String> {
     Ok(out)
 }
 
+fn nudge_parse_context(axis: &str, raw: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("nudge  must be an i16: ".len() + axis.len() + raw.len() + 2);
+    out.push_str("nudge ");
+    out.push_str(axis);
+    out.push_str(" must be an i16: ");
+    let _ = write!(out, "{raw:?}");
+    out
+}
+
 fn nudge_pane_request(window: &str, dx: &str, dy: &str) -> Result<String> {
     let window = protocol_token(window, "window")?;
     let dx = dx
         .trim()
         .parse::<i16>()
-        .with_context(|| format!("nudge dx must be an i16: {dx:?}"))?;
+        .with_context(|| nudge_parse_context("dx", dx))?;
     let dy = dy
         .trim()
         .parse::<i16>()
-        .with_context(|| format!("nudge dy must be an i16: {dy:?}"))?;
+        .with_context(|| nudge_parse_context("dy", dy))?;
     if dx == 0 && dy == 0 {
         return Err(anyhow!("nudge delta must move at least one axis"));
     }
@@ -14080,6 +14092,14 @@ END
         let nudge_request = nudge_pane_request("focused", "3", "-2").unwrap();
         assert_eq!(nudge_request, "NUDGE_PANE focused 3 -2");
         assert!(nudge_request.capacity() >= nudge_request.len());
+        assert_eq!(
+            nudge_parse_context("dx", "bad"),
+            "nudge dx must be an i16: \"bad\""
+        );
+        assert_eq!(
+            nudge_parse_context("dy", " 100000 "),
+            "nudge dy must be an i16: \" 100000 \""
+        );
         let resize_request = resize_pane_request("focused", "+2").unwrap();
         assert_eq!(resize_request, "RESIZE_PANE focused +2");
         assert_eq!(resize_request.capacity(), resize_request.len());
