@@ -442,8 +442,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         &floating_offsets,
     );
     let mut last_resized_layouts = initial_layouts.clone();
-    let mut last_published_pane_statuses =
-        native_pane_statuses(&panes, focused, &initial_layouts, &floating_offsets);
+    let mut last_published_pane_statuses = native_pane_statuses(
+        &panes,
+        focused,
+        &initial_layouts,
+        &floating_offsets,
+        layout_mode,
+    );
     let mut last_published_layout = layout_mode.label(layout_axis).to_string();
     queue.update_panes(last_published_pane_statuses.clone());
     queue.update_layout(layout_mode.label(layout_axis));
@@ -1020,7 +1025,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             publish_native_pane_statuses_if_changed(
                 &queue,
                 &mut last_published_pane_statuses,
-                native_pane_statuses(&panes, focused, &layouts, &floating_offsets),
+                native_pane_statuses(&panes, focused, &layouts, &floating_offsets, layout_mode),
             );
             clear = true;
             dbg.log(&native_terminal_resized_log_line(
@@ -1114,7 +1119,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             publish_native_pane_statuses_if_changed(
                 &queue,
                 &mut last_published_pane_statuses,
-                native_pane_statuses(&panes, focused, &layouts, &floating_offsets),
+                native_pane_statuses(&panes, focused, &layouts, &floating_offsets, layout_mode),
             );
             if should_write_pure_terminal_frame(
                 &last_terminal_render,
@@ -1361,7 +1366,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         publish_native_pane_statuses_if_changed(
             &queue,
             &mut last_published_pane_statuses,
-            native_pane_statuses(&panes, focused, &layouts, &floating_offsets),
+            native_pane_statuses(&panes, focused, &layouts, &floating_offsets, layout_mode),
         );
         let shell_view = native_shell_view(
             cols,
@@ -4326,6 +4331,7 @@ fn native_pane_statuses(
     focused: usize,
     layouts: &[NativePaneLayout],
     floating_offsets: &HashMap<String, NativeFloatingPaneOffset>,
+    mode: NativePaneLayoutMode,
 ) -> Vec<crate::daemon::NativePaneStatus> {
     panes
         .iter()
@@ -4347,6 +4353,7 @@ fn native_pane_statuses(
                 stack_top: Some(idx + 1 == panes.len()),
                 floating_dx: Some(offset.dx),
                 floating_dy: Some(offset.dy),
+                title_draggable: Some(matches!(mode, NativePaneLayoutMode::Floating)),
                 pid: pane.pid,
                 command: Some(pane.command.clone()),
                 x: layout.map(|l| l.x),
@@ -6788,6 +6795,7 @@ mod native_pane_tests {
             stack_top: Some(true),
             floating_dx: Some(0),
             floating_dy: Some(0),
+            title_draggable: Some(false),
             pid: Some(42),
             command: Some("sh".to_string()),
             x: Some(0),
@@ -8032,7 +8040,13 @@ mod native_pane_tests {
             app_cols: 10,
             app_rows: 4,
         }];
-        let statuses = native_pane_statuses(&panes, 0, &layouts, &HashMap::new());
+        let statuses = native_pane_statuses(
+            &panes,
+            0,
+            &layouts,
+            &HashMap::new(),
+            NativePaneLayoutMode::Tiled,
+        );
         let dirty = statuses[0].dirty_frame.as_ref().unwrap();
         assert_eq!(dirty.changed_tiles, 2);
         assert_eq!(dirty.total_tiles, 4);
@@ -12225,7 +12239,13 @@ mod native_pane_tests {
             },
         ];
         let layouts = native_pane_layouts_weighted(80, 24, &[1, 3], NativePaneLayoutAxis::Columns);
-        let statuses = native_pane_statuses(&panes, 1, &layouts, &HashMap::new());
+        let statuses = native_pane_statuses(
+            &panes,
+            1,
+            &layouts,
+            &HashMap::new(),
+            NativePaneLayoutMode::Floating,
+        );
         assert_eq!(statuses.len(), 2);
         assert!(!statuses[0].focused);
         assert!(statuses[1].focused);
@@ -12234,6 +12254,8 @@ mod native_pane_tests {
         assert_eq!(statuses[1].weight, 3);
         assert_eq!(statuses[1].stack_index, Some(1));
         assert_eq!(statuses[1].stack_top, Some(true));
+        assert_eq!(statuses[1].title_draggable, Some(true));
+        assert_eq!(statuses[0].title_draggable, Some(true));
         assert_eq!(statuses[1].pid, Some(202));
         assert_eq!(statuses[1].command.as_deref(), Some("editor-cmd"));
         let layout = layouts[1];
