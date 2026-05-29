@@ -3503,7 +3503,7 @@ mod tests {
             ]
         });
         assert!(
-            native_spawn_queue_reply(&format!("RESTORE_SESSION_JSON {manifest}"), &pending)
+            native_spawn_queue_reply(&restore_session_json_request(&manifest), &pending)
                 .starts_with("RESTORE_SESSION_QUEUED")
         );
         assert!(native_spawn_queue_reply("LAYOUT diagonal", &pending).contains("ERR"));
