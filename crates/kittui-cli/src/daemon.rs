@@ -148,6 +148,13 @@ fn i16_decimal_len(value: i16) -> usize {
     }
 }
 
+fn tab_i16_arg(first: &str, second: i16) -> String {
+    let mut arg = String::with_capacity(first.len() + 1 + i16_decimal_len(second));
+    arg.push_str(first);
+    write!(arg, "\t{second}").expect("write to string");
+    arg
+}
+
 fn tab_i16_pair_arg(first: &str, second: i16, third: i16) -> String {
     let mut arg = String::with_capacity(
         first.len() + 1 + i16_decimal_len(second) + 1 + i16_decimal_len(third),
@@ -827,7 +834,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         }
         return queue_native_pane_command(
             pending,
-            &format!("{window}\t{delta}"),
+            &tab_i16_arg(window, delta),
             "RESIZE_PANE requires window and amount",
             |arg| {
                 let (window, delta) = arg.split_once('\t').unwrap_or((&arg, "0"));
@@ -3519,6 +3526,17 @@ mod tests {
         let arg = tab_pair_arg("focused", "last");
         assert_eq!(arg, "focused\tlast");
         assert_eq!(arg.capacity(), arg.len());
+    }
+
+    #[test]
+    fn tab_i16_arg_builds_resize_queue_arg_directly() {
+        let arg = tab_i16_arg("focused", 2);
+        assert_eq!(arg, "focused\t2");
+        assert_eq!(arg.capacity(), arg.len());
+
+        let negative = tab_i16_arg("native-1", -12);
+        assert_eq!(negative, "native-1\t-12");
+        assert_eq!(negative.capacity(), negative.len());
     }
 
     #[test]
