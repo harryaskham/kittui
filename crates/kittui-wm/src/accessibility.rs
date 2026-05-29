@@ -288,8 +288,15 @@ fn accessibility_component_role(role: &str) -> ComponentRole {
     {
         ComponentRole::Group
     } else {
-        ComponentRole::Custom(format!("accessibility.{role}"))
+        ComponentRole::Custom(accessibility_custom_role_label(role))
     }
+}
+
+fn accessibility_custom_role_label(role: &str) -> String {
+    let mut label = String::with_capacity("accessibility.".len() + role.len());
+    label.push_str("accessibility.");
+    label.push_str(role);
+    label
 }
 
 fn accessibility_value(node: &AccessibilityNode, role: &ComponentRole) -> Option<ComponentValue> {
@@ -477,6 +484,17 @@ fn payload_text(payload: &serde_json::Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accessibility_custom_role_label_builds_directly() {
+        let label = accessibility_custom_role_label("AXFancyWidget");
+        assert_eq!(label, "accessibility.AXFancyWidget");
+        assert!(label.capacity() >= label.len());
+        assert_eq!(
+            accessibility_component_role("AXFancyWidget"),
+            ComponentRole::Custom("accessibility.AXFancyWidget".to_string())
+        );
+    }
 
     #[test]
     fn accessibility_fallback_root_id_builds_directly() {
