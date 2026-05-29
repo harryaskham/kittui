@@ -5455,6 +5455,8 @@ mod tests {
     fn test_socket_path_builds_directly() {
         let path = test_socket_path("kwchrome", 1234);
         assert!(path.starts_with("/tmp/kwchrome-1234-"), "{path}");
+        let reserve = test_socket_path("kwreserve", 5678);
+        assert!(reserve.starts_with("/tmp/kwreserve-5678-"), "{reserve}");
         assert!(path.ends_with(".sock"), "{path}");
         assert!(path.capacity() >= path.len());
     }
@@ -5462,11 +5464,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn reserve_chrome_sends_typed_drawable_reservation_request() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwreserve-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwreserve", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
