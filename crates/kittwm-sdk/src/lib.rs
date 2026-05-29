@@ -5492,6 +5492,8 @@ mod tests {
         assert!(path.starts_with("/tmp/kwchrome-1234-"), "{path}");
         let reserve = test_socket_path("kwreserve", 5678);
         assert!(reserve.starts_with("/tmp/kwreserve-5678-"), "{reserve}");
+        let clip = test_socket_path("kwclip", 9012);
+        assert!(clip.starts_with("/tmp/kwclip-9012-"), "{clip}");
         assert!(path.ends_with(".sock"), "{path}");
         assert!(path.capacity() >= path.len());
     }
@@ -5535,11 +5537,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn clipboard_helper_sends_expected_socket_command() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwclip-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwclip", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
