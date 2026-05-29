@@ -3448,6 +3448,24 @@ mod tests {
     }
 
     #[test]
+    fn spawn_success_reply_builds_directly() {
+        let pane = TrackedPane {
+            pane_id: 7,
+            window: "daemon-7".to_string(),
+            pid: 42,
+            argv: "echo hello".to_string(),
+            layout: "tile:7".to_string(),
+            focused: true,
+        };
+        let reply = spawn_success_reply(&pane);
+        assert_eq!(
+            reply,
+            "SPAWNED pane=7 window=daemon-7 pid=42 layout=tile:7 focused=true argv=echo hello\n"
+        );
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
     fn spawn_command_returns_tracked_pane() {
         let p = std::env::temp_dir().join(test_socket_filename(
             "kittwm-test-spawn",
@@ -5468,6 +5486,36 @@ fn panes_json_reply(panes: &SharedPanes) -> String {
     )
 }
 
+fn bool_str(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn spawn_success_reply(pane: &TrackedPane) -> String {
+    let focused = bool_str(pane.focused);
+    let mut out = String::with_capacity(
+        "SPAWNED pane= window= pid= layout= focused= argv=\n".len()
+            + u32_decimal_len(pane.pane_id)
+            + pane.window.len()
+            + u32_decimal_len(pane.pid)
+            + pane.layout.len()
+            + focused.len()
+            + pane.argv.len(),
+    );
+    write!(
+        out,
+        "SPAWNED pane={} window={} pid={} layout={} focused={} argv=",
+        pane.pane_id, pane.window, pane.pid, pane.layout, focused
+    )
+    .expect("write to string");
+    out.push_str(&pane.argv);
+    out.push('\n');
+    out
+}
+
 fn spawn_reply(argv: &str, path: &Path, panes: &SharedPanes) -> String {
     if argv.trim().is_empty() {
         return "ERR SPAWN requires argv\n".to_string();
@@ -5492,10 +5540,7 @@ fn spawn_reply(argv: &str, path: &Path, panes: &SharedPanes) -> String {
         Ok(child) => match panes.lock() {
             Ok(mut registry) => {
                 let pane = registry.track_spawn(child.id(), argv);
-                format!(
-                    "SPAWNED pane={} window={} pid={} layout={} focused={} argv={argv}\n",
-                    pane.pane_id, pane.window, pane.pid, pane.layout, pane.focused
-                )
+                spawn_success_reply(&pane)
             }
             Err(_) => format!("ERR SPAWN registry poisoned after pid={}\n", child.id()),
         },
