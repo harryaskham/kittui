@@ -2161,6 +2161,12 @@ pub struct NativePaneDetail {
     /// Whether the pane title row is a window-manager drag handle.
     #[serde(default)]
     pub title_draggable: Option<bool>,
+    /// One-based host column suitable for starting a title-row drag.
+    #[serde(default)]
+    pub title_drag_col: Option<u16>,
+    /// One-based host row suitable for starting a title-row drag.
+    #[serde(default)]
+    pub title_drag_row: Option<u16>,
     /// Process id, if known.
     #[serde(default)]
     pub pid: Option<u32>,
@@ -2318,6 +2324,9 @@ impl NativePaneDetail {
     pub fn title_drag_cell(&self) -> Option<(u16, u16)> {
         if !self.is_title_draggable() {
             return None;
+        }
+        if let (Some(col), Some(row)) = (self.title_drag_col, self.title_drag_row) {
+            return Some((col, row));
         }
         let (x, y, cols, rows) = self.bounds()?;
         if cols == 0 || rows == 0 {
@@ -4707,6 +4716,8 @@ mod tests {
                 "floating_dx": 4,
                 "floating_dy": -2,
                 "title_draggable": true,
+                "title_drag_col": 6,
+                "title_drag_row": 2,
                 "pid": 123,
                 "command": "/bin/sh",
                 "x": 0,
@@ -4756,8 +4767,8 @@ mod tests {
         assert!(pane.is_stack_top());
         assert_eq!(pane.floating_offset(), Some((4, -2)));
         assert!(pane.is_title_draggable());
-        assert_eq!(pane.title_drag_cell(), Some((4, 1)));
-        assert_eq!(pane.title_drag_cells_by(5, 2), Some(((4, 1), (9, 3))));
+        assert_eq!(pane.title_drag_cell(), Some((6, 2)));
+        assert_eq!(pane.title_drag_cells_by(5, 2), Some(((6, 2), (11, 4))));
         assert_eq!(pane.bounds(), Some((0, 0, 80, 24)));
         assert_eq!(pane.app_bounds(), Some((0, 1, 80, 23)));
         assert_eq!(pane.cursor_position(), Some((4, 5)));
@@ -4786,6 +4797,8 @@ mod tests {
             floating_dx: Some(0),
             floating_dy: Some(0),
             title_draggable: Some(true),
+            title_drag_col: None,
+            title_drag_row: None,
             pid: None,
             command: None,
             x: Some(10),
@@ -4810,6 +4823,14 @@ mod tests {
         };
         assert_eq!(base.title_drag_cell(), Some((14, 5)));
         assert_eq!(base.title_drag_cells_by(7, -3), Some(((14, 5), (21, 2))));
+        let mut reported = base.clone();
+        reported.title_drag_col = Some(12);
+        reported.title_drag_row = Some(9);
+        assert_eq!(reported.title_drag_cell(), Some((12, 9)));
+        assert_eq!(
+            reported.title_drag_cells_by(2, -4),
+            Some(((12, 9), (14, 5)))
+        );
         assert_eq!(base.title_drag_cells_by(-99, -99), Some(((14, 5), (1, 1))));
         assert_eq!(
             base.title_drag_cells_by(i32::MAX, i32::MAX),
@@ -6699,6 +6720,8 @@ mod tests {
             floating_dx: Some(0),
             floating_dy: Some(0),
             title_draggable: Some(false),
+            title_drag_col: None,
+            title_drag_row: None,
             pid: Some(999999),
             command: Some("zsh".to_string()),
             x: None,

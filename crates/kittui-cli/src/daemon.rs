@@ -155,6 +155,10 @@ pub struct NativePaneStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title_draggable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_drag_col: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_drag_row: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
@@ -2003,7 +2007,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} stack={} top={} floating={},{} title_draggable={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} app_cursor={} mouse={} layout={} title={:?}",
+            "  window={} focused={} weight={} stack={} top={} floating={},{} title_draggable={} title_drag={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} app_cursor={} mouse={} layout={} title={:?}",
             pane.window,
             pane.focused,
             pane.weight,
@@ -2018,6 +2022,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
                 .map(|dy| dy.to_string())
                 .unwrap_or_else(|| "-".to_string()),
             native_pane_bool_label(pane.title_draggable),
+            native_pane_coord_label(pane.title_drag_col, pane.title_drag_row),
             pane.pid
                 .map(|pid| pid.to_string())
                 .unwrap_or_else(|| "-".to_string()),
@@ -2077,6 +2082,15 @@ fn native_pane_bool_label(value: Option<bool>) -> &'static str {
         Some(false) => "off",
         None => "-",
     }
+}
+
+fn native_pane_coord_label(col: Option<u16>, row: Option<u16>) -> String {
+    let (Some(col), Some(row)) = (col, row) else {
+        return "-".to_string();
+    };
+    let mut out = String::with_capacity(8);
+    let _ = write!(out, "{col},{row}");
+    out
 }
 
 fn native_pane_layout_label(pane: &NativePaneStatus) -> String {
@@ -3570,6 +3584,8 @@ mod tests {
             floating_dx: None,
             floating_dy: None,
             title_draggable: None,
+            title_drag_col: None,
+            title_drag_row: None,
             pid: None,
             command: Some("/bin/sh".to_string()),
             x: None,
@@ -3916,6 +3932,8 @@ mod tests {
             floating_dx: Some(0),
             floating_dy: Some(0),
             title_draggable: Some(false),
+            title_drag_col: None,
+            title_drag_row: None,
             pid: None,
             command: None,
             x: None,
@@ -3969,6 +3987,8 @@ mod tests {
             floating_dx: Some(0),
             floating_dy: Some(0),
             title_draggable: Some(false),
+            title_drag_col: None,
+            title_drag_row: None,
             pid: None,
             command: None,
             x: None,
@@ -4458,6 +4478,8 @@ mod tests {
                 floating_dx: Some(0),
                 floating_dy: Some(0),
                 title_draggable: Some(false),
+                title_drag_col: None,
+                title_drag_row: None,
                 pid: Some(101),
                 command: Some("/bin/sh".to_string()),
                 x: Some(0),
@@ -4491,6 +4513,8 @@ mod tests {
                 floating_dx: Some(3),
                 floating_dy: Some(-2),
                 title_draggable: Some(true),
+                title_drag_col: Some(44),
+                title_drag_row: Some(1),
                 pid: Some(202),
                 command: Some("htop".to_string()),
                 x: Some(40),
@@ -4523,11 +4547,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 stack=0 top=off floating=0,0 title_draggable=off pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on app_cursor=on mouse=basic,button-motion,sgr layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 stack=0 top=off floating=0,0 title_draggable=off title_drag=- pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on app_cursor=on mouse=basic,button-motion,sgr layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 stack=1 top=on floating=3,-2 title_draggable=on pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off app_cursor=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 stack=1 top=on floating=3,-2 title_draggable=on title_drag=44,1 pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off app_cursor=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let chrome_json: serde_json::Value =
@@ -4553,6 +4577,8 @@ mod tests {
         assert_eq!(status_json["focused_pane"]["floating_dx"], 3);
         assert_eq!(status_json["focused_pane"]["floating_dy"], -2);
         assert_eq!(status_json["focused_pane"]["title_draggable"], true);
+        assert_eq!(status_json["focused_pane"]["title_drag_col"], 44);
+        assert_eq!(status_json["focused_pane"]["title_drag_row"], 1);
         assert_eq!(status_json["focused_pane"]["pid"], 202);
         assert_eq!(status_json["focused_pane"]["command"], "htop");
         assert_eq!(status_json["focused_pane"]["app_cols"], 80);
@@ -4579,7 +4605,12 @@ mod tests {
         assert_eq!(panes_json["panes_detail"][1]["floating_dx"], 3);
         assert_eq!(panes_json["panes_detail"][1]["floating_dy"], -2);
         assert_eq!(panes_json["panes_detail"][1]["title_draggable"], true);
+        assert_eq!(panes_json["panes_detail"][1]["title_drag_col"], 44);
+        assert_eq!(panes_json["panes_detail"][1]["title_drag_row"], 1);
         assert_eq!(panes_json["panes_detail"][0]["title_draggable"], false);
+        assert!(panes_json["panes_detail"][0]
+            .get("title_drag_col")
+            .is_none());
         assert_eq!(panes_json["panes_detail"][1]["x"], 40);
         assert_eq!(panes_json["panes_detail"][1]["app_cols"], 80);
         assert_eq!(panes_json["panes_detail"][1]["cursor_col"], 12);

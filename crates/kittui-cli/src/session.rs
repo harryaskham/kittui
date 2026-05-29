@@ -4399,6 +4399,8 @@ fn native_pane_statuses(
                 .get(&pane.window)
                 .copied()
                 .unwrap_or_default();
+            let (title_drag_col, title_drag_row) =
+                native_status_title_drag_cell(layout, mode).unwrap_or((None, None));
             let (cursor_col, cursor_row) = pane.app.cursor_position();
             let mouse = pane.app.mouse_reporting_modes();
             crate::daemon::NativePaneStatus {
@@ -4411,6 +4413,8 @@ fn native_pane_statuses(
                 floating_dx: Some(offset.dx),
                 floating_dy: Some(offset.dy),
                 title_draggable: Some(matches!(mode, NativePaneLayoutMode::Floating)),
+                title_drag_col,
+                title_drag_row,
                 pid: pane.pid,
                 command: Some(pane.command.clone()),
                 x: layout.map(|l| l.x),
@@ -4443,6 +4447,24 @@ fn native_pane_statuses(
             }
         })
         .collect()
+}
+
+fn native_status_title_drag_cell(
+    layout: Option<NativePaneLayout>,
+    mode: NativePaneLayoutMode,
+) -> Option<(Option<u16>, Option<u16>)> {
+    if !matches!(mode, NativePaneLayoutMode::Floating) {
+        return Some((None, None));
+    }
+    let layout = layout?;
+    if layout.cols == 0 || layout.rows == 0 {
+        return Some((None, None));
+    }
+    let local_col = layout.cols.saturating_sub(1).min(3);
+    Some((
+        Some(layout.x.saturating_add(local_col).saturating_add(1)),
+        Some(layout.y.saturating_add(1)),
+    ))
 }
 
 fn next_native_focus(current: usize, count: usize) -> usize {
@@ -6860,6 +6882,8 @@ mod native_pane_tests {
             floating_dx: Some(0),
             floating_dy: Some(0),
             title_draggable: Some(false),
+            title_drag_col: None,
+            title_drag_row: None,
             pid: Some(42),
             command: Some("sh".to_string()),
             x: Some(0),
