@@ -1051,7 +1051,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|list|apps|launch|windows|displays|terminal|shell|ssh]
+  remote HOST [help|doctor|status|check|list|apps|launch|windows|displays|terminal|shell|ssh]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1415,6 +1415,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm --list-windows --remote HOST\n\
                                            list remote windows/displays when supported\n\
              kittwm remote HOST help       host-specific SSH quick reference\n\
+             kittwm remote HOST status     check remote kittwm availability\n\
              kittwm remote HOST            friendly alias for remote doctor\n\
              kittwm remote HOST list       list remote app candidates\n\
              kittwm remote HOST list apps firefox\n\
@@ -1749,7 +1750,7 @@ fn remote_alias_missing_host_error() -> anyhow::Error {
 
 fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Result<()> {
     match action {
-        "doctor" => {
+        "doctor" | "status" | "check" => {
             out.doctor = true;
             parse_remote_doctor_flags(out, rest)
         }
@@ -1779,7 +1780,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             parse_remote_doctor_flags(out, &flags)
         }
         other => Err(anyhow!(
-            "unknown remote action {other:?}\ntry: kittwm remote HOST help | doctor | list | apps | launch | windows | displays | terminal | shell\nhelp: kittwm help ssh"
+            "unknown remote action {other:?}\ntry: kittwm remote HOST help | doctor | status | list | apps | launch | windows | displays | terminal | shell\nhelp: kittwm help ssh"
         )),
     }
 }
@@ -2752,6 +2753,7 @@ fn remote_help_cmd(host: &str) -> Result<()> {
     println!("  ssh {host} kittwm doctor");
     println!();
     println!("Local kittwm pooled-SSH helpers:");
+    println!("  kittwm remote {host} status");
     println!("  kittwm remote {host} doctor");
     println!("  kittwm remote {host} list");
     println!("  kittwm remote {host} list apps firefox");
@@ -4582,6 +4584,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "host-specific SSH quick reference",
         },
         LocalCommandEntry {
+            command: "remote HOST status",
+            category: "remote",
+            description: "check remote kittwm availability",
+        },
+        LocalCommandEntry {
             command: "remote HOST list",
             category: "remote",
             description: "list remote app candidates",
@@ -5398,6 +5405,8 @@ fn completion_words() -> &'static [&'static str] {
             "--launch-first",
             "help",
             "doctor",
+            "status",
+            "check",
             "list",
             "apps",
             "launch",
@@ -10093,6 +10102,9 @@ mod tests {
             entry["command"] == "remote HOST help" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST status" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -10851,6 +10863,11 @@ mod tests {
         parse_remote_alias_action(&mut doctor, "doctor", &args(&["--json"])).unwrap();
         assert!(doctor.doctor);
         assert!(doctor.json);
+
+        let mut status = Cli::default();
+        status.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut status, "status", &[]).unwrap();
+        assert!(status.doctor);
 
         let mut help = Cli::default();
         help.remote_host = Some("buildbox".to_string());
