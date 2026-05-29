@@ -444,7 +444,7 @@ fn parse_args() -> Result<Cli> {
                 out.apps_limit = Some(parse_limit_value(&v)?);
             }
             "--filter" => {
-                out.apps_filter = Some(args.next().ok_or_else(|| anyhow!("--filter QUERY"))?);
+                out.apps_filter = Some(args.next().ok_or_else(missing_filter_error)?);
             }
             "--first" => out.apps_first = true,
             "--launch-first" => out.apps_launch_first = true,
@@ -1652,6 +1652,10 @@ fn missing_limit_error() -> anyhow::Error {
 
 fn limit_parse_error(value: &str) -> anyhow::Error {
     anyhow!("--limit expects integer, got {value:?}\ntry: kittwm apps --limit 10\nhelp: kittwm help apps")
+}
+
+fn missing_filter_error() -> anyhow::Error {
+    anyhow!("--filter requires a query\ntry: kittwm apps --filter terminal\nhelp: kittwm help apps")
 }
 
 fn debug_log_path() -> String {
@@ -8844,6 +8848,14 @@ mod tests {
         let missing = missing_limit_error().to_string();
         assert!(missing.contains("--limit requires an integer"), "{missing}");
         assert!(missing.contains("try: kittwm apps --limit 10"), "{missing}");
+    }
+
+    #[test]
+    fn app_filter_missing_query_error_is_actionable() {
+        let err = missing_filter_error().to_string();
+        assert!(err.contains("--filter requires a query"), "{err}");
+        assert!(err.contains("try: kittwm apps --filter terminal"), "{err}");
+        assert!(err.contains("help: kittwm help apps"), "{err}");
     }
 
     #[test]
