@@ -4890,6 +4890,9 @@ START
   KITTWM_WORKSPACE=dev kittwm
   KITTWM_STARTUP_TERMINAL=1 kittwm
 
+SHELL SETUP
+  kittwm completions bash >> ~/.bashrc
+
 INSPECT
   kittwm info
   kittwm status
@@ -10823,6 +10826,7 @@ mod tests {
     fn examples_are_copy_paste_daily_driver_commands() {
         let text = examples_text();
         for line in [
+            "kittwm completions bash >> ~/.bashrc",
             "kittwm info",
             "kittwm spawn htop",
             "kittwm line focused 'cargo test -p kittui-cli'",
