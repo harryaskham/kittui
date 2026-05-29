@@ -2825,9 +2825,21 @@ kittwm_path=$(command -v kittwm 2>/dev/null || true)
 json_string() {
     printf '%s' "$1" | awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
 }
+if [ -n "$kittwm_path" ]; then
+    if kittwm doctor --json >/dev/null 2>&1; then
+        kittwm_healthy=true
+        kittwm_startup_check="kittwm doctor --json succeeded"
+    else
+        kittwm_healthy=false
+        kittwm_startup_check="kittwm doctor --json failed"
+    fi
+else
+    kittwm_healthy=false
+    kittwm_startup_check="kittwm not found"
+fi
 if [ "${KITTWM_REMOTE_DOCTOR_JSON:-0}" = "1" ]; then
-    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"kittwm_available":%s,"kittwm_path":%s}\n' \
-        "$(json_string "$host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$(json_string "$kittwm_path")"
+    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"kittwm_available":%s,"kittwm_healthy":%s,"kittwm_path":%s,"startup_check":%s}\n' \
+        "$(json_string "$host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$kittwm_healthy" "$(json_string "$kittwm_path")" "$(json_string "$kittwm_startup_check")"
     exit 0
 fi
 printf 'kittwm remote doctor\n=====================\n'
@@ -2838,11 +2850,10 @@ printf 'SSH_TTY        : %s\n' "$ssh_tty"
 printf 'stty size      : %s\n' "${size:-unknown}"
 if [ -n "$kittwm_path" ]; then
     printf 'remote kittwm  : %s\n' "$kittwm_path"
-    if kittwm doctor --json >/dev/null 2>&1; then
-        printf 'startup check  : kittwm doctor --json succeeded\n'
+    printf 'startup check  : %s\n' "$kittwm_startup_check"
+    if [ "$kittwm_healthy" = "true" ]; then
         printf 'suggestion     : run kittwm on the remote for remote desktop/window context\n'
     else
-        printf 'startup check  : kittwm doctor --json failed\n'
         printf 'suggestion     : use local pooled-SSH forwarding until remote kittwm packaging is fixed\n'
     fi
 else
@@ -11080,6 +11091,8 @@ mod tests {
         let script = remote_doctor_script();
         assert!(script.contains("command -v kittwm"), "{script}");
         assert!(script.contains("kittwm doctor --json"), "{script}");
+        assert!(script.contains("kittwm_healthy"), "{script}");
+        assert!(script.contains("startup_check"), "{script}");
         assert!(script.contains("kittwm remote %s list"), "{script}");
         assert!(
             script.contains("kittwm remote %s launch firefox"),
