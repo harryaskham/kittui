@@ -3279,7 +3279,10 @@ mod tests {
 
     #[test]
     fn spawn_command_returns_tracked_pane() {
-        let p = std::env::temp_dir().join(format!("kittwm-test-spawn-{}.sock", std::process::id()));
+        let p = std::env::temp_dir().join(test_socket_filename(
+            "kittwm-test-spawn",
+            std::process::id(),
+        ));
         let _ = std::fs::remove_file(&p);
         let server = DaemonServer::bind(p.clone()).unwrap();
         let reply = client_request(server.path(), "SPAWN /bin/echo daemon-spawn-ok").unwrap();
