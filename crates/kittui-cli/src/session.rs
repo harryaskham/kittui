@@ -592,10 +592,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                         let new_focus = next_native_focus(focused, panes.len());
                         native_set_focus(&mut panes, &mut focused, new_focus)?;
                         clear = true;
-                        dbg.log(&format!(
-                            "native terminal socket focus next: {}",
-                            panes[focused].window
-                        ));
+                        dbg.log(&native_socket_focus_next_log_line(&panes[focused].window));
                     }
                 }
                 crate::daemon::NativePaneCommand::FocusPrev => {
@@ -4134,6 +4131,13 @@ fn native_socket_spawn_log_line(command: &str) -> String {
 fn native_socket_focus_log_line(window: &str) -> String {
     let mut out = String::with_capacity("native terminal socket focus: ".len() + window.len());
     out.push_str("native terminal socket focus: ");
+    out.push_str(window);
+    out
+}
+
+fn native_socket_focus_next_log_line(window: &str) -> String {
+    let mut out = String::with_capacity("native terminal socket focus next: ".len() + window.len());
+    out.push_str("native terminal socket focus next: ");
     out.push_str(window);
     out
 }
@@ -10114,6 +10118,16 @@ mod native_pane_tests {
         assert_eq!(
             line.capacity(),
             "native terminal socket focus: ".len() + "native-2".len()
+        );
+    }
+
+    #[test]
+    fn native_socket_focus_next_log_line_builds_directly() {
+        let line = native_socket_focus_next_log_line("native-3");
+        assert_eq!(line, "native terminal socket focus next: native-3");
+        assert_eq!(
+            line.capacity(),
+            "native terminal socket focus next: ".len() + "native-3".len()
         );
     }
 
