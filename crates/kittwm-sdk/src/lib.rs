@@ -5544,6 +5544,8 @@ mod tests {
         );
         let help = test_socket_path("kwhc", 7890);
         assert!(help.starts_with("/tmp/kwhc-7890-"), "{help}");
+        let replace = test_socket_path("kwreplace", 2468);
+        assert!(replace.starts_with("/tmp/kwreplace-2468-"), "{replace}");
         assert!(path.ends_with(".sock"), "{path}");
         assert!(path.capacity() >= path.len());
     }
@@ -5762,11 +5764,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn replace_current_closes_env_window_with_direct_request() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwreplace-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwreplace", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
