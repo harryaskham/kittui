@@ -1340,6 +1340,16 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              --balance-panes                equalize weights
 \
              --rename-pane WINDOW TITLE     set display title
+\
+             kittwm spawn htop              create a new PTY pane
+\
+             kittwm split focused columns htop
+\
+                                            split beside focused pane
+\
+             kittwm focus next              cycle focus forward
+\
+             kittwm balance                 equalize pane weights
 
 \
              Socket equivalents include SPAWN_PTY, SPLIT_PANE, FOCUS_PANE,
@@ -11544,6 +11554,15 @@ END
         assert!(text.contains("SPLIT_PANE"), "{text}");
         assert!(text.contains("--balance-panes"), "{text}");
         assert!(!text.contains("--probe-kitty"), "{text}");
+    }
+
+    #[test]
+    fn help_topic_panes_mentions_copyable_examples() {
+        let text = help_topic_text("panes").unwrap();
+        assert!(text.contains("kittwm spawn htop"), "{text}");
+        assert!(text.contains("kittwm split focused columns htop"), "{text}");
+        assert!(text.contains("kittwm focus next"), "{text}");
+        assert!(text.contains("kittwm balance"), "{text}");
     }
 
     #[test]
