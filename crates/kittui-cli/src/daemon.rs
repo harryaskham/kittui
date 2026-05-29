@@ -3223,8 +3223,10 @@ mod tests {
 
     #[test]
     fn status_includes_pid_and_uptime() {
-        let p =
-            std::env::temp_dir().join(format!("kittwm-test-status-{}.sock", std::process::id()));
+        let p = std::env::temp_dir().join(test_socket_filename(
+            "kittwm-test-status",
+            std::process::id(),
+        ));
         let _ = std::fs::remove_file(&p);
         let server = DaemonServer::bind(p.clone()).unwrap();
         std::thread::sleep(Duration::from_millis(50));
