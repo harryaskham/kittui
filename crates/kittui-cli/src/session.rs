@@ -6553,6 +6553,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_frame_count_log_line_builds_directly() {
+        let line = raw_frame_count_log_line(30, 2);
+        assert_eq!(line, "frame 30: 2 raw frames");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
@@ -11314,6 +11321,18 @@ fn key_event_log_line(key: &Key) -> String {
     out
 }
 
+fn raw_frame_count_log_line(frame: u64, frames: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("frame :  raw frames".len() + 40);
+    out.push_str("frame ");
+    let _ = write!(out, "{frame}");
+    out.push_str(": ");
+    let _ = write!(out, "{frames}");
+    out.push_str(" raw frames");
+    out
+}
+
 pub fn run_loop_with<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -11784,7 +11803,7 @@ pub fn run_loop_with<S: XServer>(
                 }
                 let last_window_count = frames.len();
                 if frame % 30 == 0 {
-                    dbg.log(&format!("frame {frame}: {} raw frames", frames.len()));
+                    dbg.log(&raw_frame_count_log_line(frame, frames.len()));
                 }
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
