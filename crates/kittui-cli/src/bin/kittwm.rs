@@ -1583,7 +1583,9 @@ fn friendly_unknown_help_topic_error(topic: &str) -> anyhow::Error {
         msg.push_str("\n\nDid you mean?\n  kittwm help ");
         msg.push_str(suggestion);
     }
-    msg.push_str("\n\nAvailable topics:\n  kittwm help topics\n  kittwm quickstart\n");
+    msg.push_str(
+        "\n\nAvailable topics:\n  kittwm help topics\n  kittwm help panes\n  kittwm help input\n  kittwm help inspect\n  kittwm help log\n  kittwm help completions\n  kittwm quickstart\n",
+    );
     anyhow!(msg)
 }
 
@@ -8829,6 +8831,10 @@ mod tests {
         assert!(err.contains("unknown kittwm help topic"), "{err}");
         assert!(err.contains("kittwm help panes"), "{err}");
         assert!(err.contains("kittwm help topics"), "{err}");
+        assert!(err.contains("kittwm help input"), "{err}");
+        assert!(err.contains("kittwm help inspect"), "{err}");
+        assert!(err.contains("kittwm help log"), "{err}");
+        assert!(err.contains("kittwm help completions"), "{err}");
     }
 
     #[test]
