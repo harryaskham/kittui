@@ -5686,6 +5686,15 @@ fn native_pane_title_strip_label(idx: usize, text: &str) -> String {
     label
 }
 
+fn native_pane_status_chip_label(idx: usize, status: &str) -> String {
+    let mut label = String::with_capacity("pane--status-chip:".len() + 20 + status.len());
+    label.push_str("pane-");
+    let _ = write!(label, "{idx}");
+    label.push_str("-status-chip:");
+    label.push_str(status);
+    label
+}
+
 fn native_pane_status_chip_rect(cols: u16, rect_width: f32, cell_w: f32, chip_h: f32) -> PxRect {
     let min_w = cell_w.max(1.0).min(rect_width.max(1.0));
     let right_pad = 4.0_f32.min((rect_width - min_w).max(0.0));
@@ -5782,7 +5791,7 @@ fn native_pane_border_scene(idx: usize, pane: &NativePaneChrome, cell_size: Cell
         },
     ));
     layers.push(Layer::new(
-        format!("pane-{idx}-status-chip:{}", pane.status),
+        native_pane_status_chip_label(idx, &pane.status),
         Node::Rect {
             rect: native_pane_status_chip_rect(cols, rect.width, cell_w, chip_h),
             fill: Paint::Solid {
@@ -8258,6 +8267,13 @@ mod native_pane_tests {
     fn native_pane_title_strip_label_builds_directly() {
         let label = native_pane_title_strip_label(7, "* native-7 editor");
         assert_eq!(label, "pane-7-title-strip:* native-7 editor");
+        assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
+    fn native_pane_status_chip_label_builds_directly() {
+        let label = native_pane_status_chip_label(7, "shell · pid:101");
+        assert_eq!(label, "pane-7-status-chip:shell · pid:101");
         assert!(label.capacity() >= label.len());
     }
 
