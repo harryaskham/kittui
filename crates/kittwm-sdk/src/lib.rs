@@ -2651,6 +2651,12 @@ impl PanesStatus {
             .map(NativePaneDetail::has_floating_offset)
     }
 
+    /// Whether the focused pane title row is reported as a window-manager drag handle.
+    pub fn focused_is_title_draggable(&self) -> Option<bool> {
+        self.focused_pane()
+            .map(NativePaneDetail::is_title_draggable)
+    }
+
     /// Panes whose title row is reported as a window-manager drag handle.
     pub fn title_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         self.panes_detail
@@ -2799,6 +2805,12 @@ impl Status {
     pub fn focused_is_moved(&self) -> Option<bool> {
         self.focused_pane()
             .map(NativePaneDetail::has_floating_offset)
+    }
+
+    /// Whether the focused pane title row is reported as a window-manager drag handle.
+    pub fn focused_is_title_draggable(&self) -> Option<bool> {
+        self.focused_pane()
+            .map(NativePaneDetail::is_title_draggable)
     }
 
     /// Panes whose title row is reported as a window-manager drag handle.
@@ -4884,6 +4896,7 @@ mod tests {
         assert_eq!(panes.focused_is_topmost(), Some(true));
         assert_eq!(panes.focused_is_resized(), Some(true));
         assert_eq!(panes.focused_is_moved(), Some(true));
+        assert_eq!(panes.focused_is_title_draggable(), Some(true));
         assert_eq!(panes.title_draggable_panes().count(), 1);
         assert_eq!(
             panes
@@ -5000,6 +5013,7 @@ mod tests {
         assert_eq!(status.focused_is_topmost(), None);
         assert_eq!(status.focused_is_resized(), None);
         assert_eq!(status.focused_is_moved(), None);
+        assert_eq!(status.focused_is_title_draggable(), None);
         assert_eq!(status.title_draggable_panes().count(), 0);
         assert!(status.panes_detail.is_empty());
     }
@@ -5044,6 +5058,7 @@ mod tests {
         assert_eq!(status.focused_is_topmost(), Some(false));
         assert_eq!(status.focused_is_resized(), Some(false));
         assert_eq!(status.focused_is_moved(), Some(false));
+        assert_eq!(status.focused_is_title_draggable(), Some(true));
         assert_eq!(
             status
                 .title_draggable_panes()
