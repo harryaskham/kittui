@@ -6982,6 +6982,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn frame_budget_blown_log_line_builds_directly() {
+        let line = frame_budget_blown_log_line(30, 42, 16);
+        assert_eq!(line, "frame 30 budget blown: 42 ms (target 16 ms)");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn compose_error_log_line_builds_directly() {
         let line = compose_error_log_line("capture denied");
         assert_eq!(line, "compose err: capture denied");
@@ -12433,6 +12440,20 @@ fn raw_frame_count_log_line(frame: u64, frames: usize) -> String {
     out
 }
 
+fn frame_budget_blown_log_line(frame: u64, elapsed_ms: u128, target_ms: u128) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("frame  budget blown:  ms (target  ms)".len() + 64);
+    out.push_str("frame ");
+    let _ = write!(out, "{frame}");
+    out.push_str(" budget blown: ");
+    let _ = write!(out, "{elapsed_ms}");
+    out.push_str(" ms (target ");
+    let _ = write!(out, "{target_ms}");
+    out.push_str(" ms)");
+    out
+}
+
 fn compose_error_log_line(message: &str) -> String {
     let mut out = String::with_capacity("compose err: ".len() + message.len());
     out.push_str("compose err: ");
@@ -13479,10 +13500,10 @@ pub fn run_loop_with<S: XServer>(
                 std::thread::sleep(frame_sleep_chunk(slack));
             }
         } else {
-            dbg.log(&format!(
-                "frame {frame} budget blown: {} ms (target {} ms)",
+            dbg.log(&frame_budget_blown_log_line(
+                frame,
                 elapsed.as_millis(),
-                current_frame_target.as_millis()
+                current_frame_target.as_millis(),
             ));
         }
 
