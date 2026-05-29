@@ -7076,6 +7076,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn launcher_f12_overlay_opened_log_line_builds_directly() {
+        let line = launcher_f12_overlay_opened_log_line("term");
+        assert_eq!(line, "launcher F12 opened overlay query=\"term\"");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn launcher_f12_selected_log_line_builds_directly() {
         let line = launcher_f12_selected_log_line(LauncherKind::MacOsApp, "Safari", 88);
         assert_eq!(
@@ -12527,6 +12534,16 @@ fn split_launcher_failed_log_line(err: &dyn std::fmt::Display) -> String {
     out
 }
 
+fn launcher_f12_overlay_opened_log_line(query: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("launcher F12 opened overlay query=".len() + query.len() + 2);
+    out.push_str("launcher F12 opened overlay query=");
+    let _ = write!(out, "{query:?}");
+    out
+}
+
 fn launcher_f12_selected_log_line(kind: LauncherKind, command: &str, pid: u32) -> String {
     use std::fmt::Write as _;
 
@@ -12988,9 +13005,8 @@ pub fn run_loop_with<S: XServer>(
                     if opts.launcher_overlay {
                         launcher_overlay.open_from_env();
                         last_keymap_action = Some("launcher.open".to_string());
-                        dbg.log(&format!(
-                            "launcher F12 opened overlay query={:?}",
-                            launcher_overlay.query
+                        dbg.log(&launcher_f12_overlay_opened_log_line(
+                            &launcher_overlay.query,
                         ));
                     } else {
                         let selection = launcher_selection();
