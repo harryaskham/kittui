@@ -3117,8 +3117,19 @@ fn native_move_focused(
         resize_native_panes_for_layout_with_reservation(panes, cols, rows, axis, reservation)?;
         *clear = true;
     }
-    dbg.log(&format!("native terminal move {direction} -> {focused}"));
+    dbg.log(&native_move_log_line(direction, *focused));
     Ok(())
+}
+
+fn native_move_log_line(direction: &str, focused: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity("native terminal move  -> ".len() + direction.len() + 20);
+    out.push_str("native terminal move ");
+    out.push_str(direction);
+    out.push_str(" -> ");
+    let _ = write!(out, "{focused}");
+    out
 }
 
 #[cfg(test)]
@@ -10008,6 +10019,13 @@ mod native_pane_tests {
         assert_eq!(native_restore_focus_target(3, Some(99)), Some(2));
         assert_eq!(native_restore_focus_target(3, None), Some(0));
         assert_eq!(native_restore_focus_target(0, Some(0)), None);
+    }
+
+    #[test]
+    fn native_move_log_line_builds_directly() {
+        let line = native_move_log_line("right", 2);
+        assert_eq!(line, "native terminal move right -> 2");
+        assert!(line.capacity() >= "native terminal move  -> ".len() + "right".len() + 20);
     }
 
     #[test]
