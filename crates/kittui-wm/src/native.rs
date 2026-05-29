@@ -4786,6 +4786,7 @@ fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as FmtWrite;
 
     #[test]
     fn ghostty_text_refresh_invalidates_png_cache_only_after_output() {
@@ -5255,13 +5256,29 @@ mod tests {
         assert!(state.text_snapshot().starts_with("RBD"));
     }
 
+    fn terminal_font_test_root(prefix: &str) -> String {
+        let pid = std::process::id();
+        let nanos = Instant::now().elapsed().as_nanos();
+        let mut name = String::with_capacity(prefix.len() + 1 + 20 + 1 + 39);
+        name.push_str(prefix);
+        name.push('-');
+        let _ = write!(name, "{pid}");
+        name.push('-');
+        let _ = write!(name, "{nanos}");
+        name
+    }
+
+    #[test]
+    fn terminal_font_test_root_builds_directly() {
+        let root = terminal_font_test_root("kittui-font-test");
+        assert!(root.starts_with("kittui-font-test-"), "{root}");
+        assert!(root.matches('-').count() >= 3, "{root}");
+        assert!(root.capacity() >= root.len());
+    }
+
     #[test]
     fn terminal_font_discovery_honors_env_and_fira_regular_names() {
-        let root = std::env::temp_dir().join(format!(
-            "kittui-font-test-{}-{}",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ));
+        let root = std::env::temp_dir().join(terminal_font_test_root("kittui-font-test"));
         let nested = root.join("share/fonts/truetype");
         std::fs::create_dir_all(&nested).unwrap();
         let fira = nested.join("FiraCode-Regular.ttf");
@@ -5283,11 +5300,7 @@ mod tests {
     fn terminal_font_roots_include_user_font_locations() {
         let old_home = std::env::var_os("HOME");
         let old_xdg = std::env::var_os("XDG_DATA_HOME");
-        let home = std::env::temp_dir().join(format!(
-            "kittui-font-home-{}-{}",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ));
+        let home = std::env::temp_dir().join(terminal_font_test_root("kittui-font-home"));
         let xdg = home.join("xdg-data");
         std::env::set_var("HOME", &home);
         std::env::set_var("XDG_DATA_HOME", &xdg);
@@ -5311,11 +5324,8 @@ mod tests {
 
     #[test]
     fn terminal_font_score_matches_spaced_fira_code_nerd_names() {
-        let root = std::env::temp_dir().join(format!(
-            "kittui-spaced-nerd-font-test-{}-{}",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ));
+        let root =
+            std::env::temp_dir().join(terminal_font_test_root("kittui-spaced-nerd-font-test"));
         std::fs::create_dir_all(&root).unwrap();
         let spaced = root.join("Fira Code Regular Nerd Font Complete Mono.otf");
         let hyphenated = root.join("Fira-Code-Regular-Nerd-Font.ttf");
@@ -5332,11 +5342,7 @@ mod tests {
 
     #[test]
     fn terminal_font_discovery_prefers_fira_code_nerd_font() {
-        let root = std::env::temp_dir().join(format!(
-            "kittui-nerd-font-test-{}-{}",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ));
+        let root = std::env::temp_dir().join(terminal_font_test_root("kittui-nerd-font-test"));
         let nested = root.join("share/fonts/truetype");
         std::fs::create_dir_all(&nested).unwrap();
         let regular = nested.join("FiraCode-Regular.ttf");
