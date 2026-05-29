@@ -5465,6 +5465,8 @@ fn completion_words() -> &'static [&'static str] {
             "list",
             "apps",
             "launch",
+            "kittwm",
+            "desktop",
             "windows",
             "displays",
             "terminal",
@@ -10186,16 +10188,21 @@ mod tests {
         assert!(bash.contains("--panes-json"), "{bash}");
         assert!(bash.contains("--remote"), "{bash}");
         assert!(bash.contains("--launch-first"), "{bash}");
+        assert!(bash.contains("kittwm"), "{bash}");
+        assert!(bash.contains("desktop"), "{bash}");
 
         let zsh = completions_text("zsh").unwrap();
         assert!(zsh.contains("#compdef kittwm"), "{zsh}");
         assert!(zsh.contains("commands-json"), "{zsh}");
         assert!(zsh.contains("--remote"), "{zsh}");
+        assert!(zsh.contains("desktop"), "{zsh}");
 
         let fish = completions_text("fish").unwrap();
         assert!(fish.contains("complete -c kittwm"), "{fish}");
         assert!(fish.contains("cheat"), "{fish}");
         assert!(fish.contains("--remote"), "{fish}");
+        assert!(fish.contains("kittwm"), "{fish}");
+        assert!(fish.contains("desktop"), "{fish}");
         assert_eq!(fish, fish_completions_text());
         assert_eq!(fish.capacity(), fish.len());
         assert!(std::ptr::eq(completion_words(), completion_words()));
