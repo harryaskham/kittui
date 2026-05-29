@@ -8432,8 +8432,17 @@ kittwm_remote_desktop_localized_values() {
     desktop=$2
     awk -F= -v key="$key" '$1 ~ "^" key "\\[[^]]+\\]$" { print substr($0, index($0, "=") + 1) }' "$desktop" 2>/dev/null | tr '\n' ';'
 }
+kittwm_remote_linux_desktop_roots() {
+    printf '%s\n' "${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    old_ifs=$IFS
+    IFS=:
+    for dir in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+        [ -n "$dir" ] && printf '%s\n' "$dir/applications"
+    done
+    IFS=$old_ifs
+}
 kittwm_remote_list_linux_desktop_apps() {
-    for root in /usr/share/applications /usr/local/share/applications "$HOME/.local/share/applications"; do
+    kittwm_remote_linux_desktop_roots | awk '!seen[$0]++' | while IFS= read -r root; do
         [ -d "$root" ] || continue
         find "$root" -name '*.desktop' -type f 2>/dev/null | while IFS= read -r desktop; do
             entry_type=$(awk -F= '$1 == "Type" { print tolower($2); exit }' "$desktop" 2>/dev/null)
@@ -11752,6 +11761,12 @@ mod tests {
             script.contains("kittwm_remote_list_linux_desktop_apps"),
             "{script}"
         );
+        assert!(
+            script.contains("kittwm_remote_linux_desktop_roots"),
+            "{script}"
+        );
+        assert!(script.contains("XDG_DATA_HOME"), "{script}");
+        assert!(script.contains("XDG_DATA_DIRS"), "{script}");
         assert!(script.contains("open -a"), "{script}");
         assert!(script.contains("gtk-launch"), "{script}");
         assert!(script.contains("gio launch"), "{script}");
