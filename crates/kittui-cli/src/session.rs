@@ -5606,9 +5606,9 @@ fn native_toast_scene(
         kittui_core::geom::PxRect::new(0.0, 0.0, cell_size.width_px.max(1) as f32, rect.height);
     let layers = vec![
         Layer::new(
-            format!(
-                "toast-backdrop:{}",
-                clip_and_pad(trimmed, toast_cols as usize).trim()
+            native_toast_label(
+                "toast-backdrop:",
+                clip_and_pad(trimmed, toast_cols as usize).trim(),
             ),
             Node::Rect {
                 rect,
@@ -5670,6 +5670,13 @@ fn native_toast_scene(
             animation: None,
         },
     ))
+}
+
+fn native_toast_label(prefix: &str, visible: &str) -> String {
+    let mut label = String::with_capacity(prefix.len() + visible.len());
+    label.push_str(prefix);
+    label.push_str(visible);
+    label
 }
 
 fn native_toast_message_cols(message: &str) -> u16 {
@@ -10265,6 +10272,13 @@ mod native_pane_tests {
         assert!(metrics["total_pixels"].as_u64().unwrap() > 0, "{metrics}");
         assert_eq!(metrics["cell_width_px"], native_cell_width_px());
         assert_eq!(metrics["cell_height_px"], native_cell_height_px());
+    }
+
+    #[test]
+    fn native_toast_label_builds_directly() {
+        let label = native_toast_label("toast-backdrop:", "launcher.error boom");
+        assert_eq!(label, "toast-backdrop:launcher.error boom");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
