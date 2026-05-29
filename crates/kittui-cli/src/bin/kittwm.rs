@@ -1936,13 +1936,18 @@ fn main() -> ExitCode {
         }
         Err(payload) if panic_payload_is_broken_pipe(payload.as_ref()) => ExitCode::SUCCESS,
         Err(payload) => {
-            log_kittwm_process_event(&format!(
-                "panic: {}",
-                panic_payload_message(payload.as_ref())
-            ));
+            let message = panic_log_line(&panic_payload_message(payload.as_ref()));
+            log_kittwm_process_event(&message);
             ExitCode::from(101)
         }
     }
+}
+
+fn panic_log_line(message: &str) -> String {
+    let mut out = String::with_capacity("panic: ".len() + message.len());
+    out.push_str("panic: ");
+    out.push_str(message);
+    out
 }
 
 fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
@@ -9070,6 +9075,13 @@ mod tests {
             &"failed printing to stdout: os error 32".to_string()
         ));
         assert!(!panic_payload_is_broken_pipe(&"unrelated panic"));
+    }
+
+    #[test]
+    fn panic_log_line_builds_directly() {
+        let line = panic_log_line("synthetic crash");
+        assert_eq!(line, "panic: synthetic crash");
+        assert_eq!(line.capacity(), line.len());
     }
 
     #[test]
