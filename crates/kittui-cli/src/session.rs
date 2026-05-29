@@ -16828,10 +16828,24 @@ mod launcher_overlay_tests {
         out
     }
 
+    fn launcher_path_test_temp_dir_name(pid: u32) -> String {
+        let mut name = String::with_capacity("kittwm-launcher-path-".len() + 20);
+        name.push_str("kittwm-launcher-path-");
+        let _ = write!(name, "{pid}");
+        name
+    }
+
+    #[test]
+    fn launcher_path_test_temp_dir_name_builds_directly() {
+        let name = launcher_path_test_temp_dir_name(1234);
+        assert_eq!(name, "kittwm-launcher-path-1234");
+        assert!(name.capacity() >= name.len());
+    }
+
     #[test]
     fn first_launcher_candidate_matches_path_case_insensitively_without_candidate_lowercase() {
         let _guard = ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!("kittwm-launcher-path-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(launcher_path_test_temp_dir_name(std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let cmd = dir.join("NeedleTool");
         std::fs::write(&cmd, b"#!/bin/sh\n").unwrap();
