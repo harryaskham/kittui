@@ -7181,6 +7181,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn action_windows_count_status_line_builds_directly() {
+        let line = action_windows_count_status_line("layout.balance -> axis=x balanced#1", 3);
+        assert_eq!(line, "layout.balance -> axis=x balanced#1 windows=3");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
     fn focus_action_log_line_builds_directly() {
         let line = focus_action_log_line("focus.right -> right#1 window=native-2");
         assert_eq!(line, "focus action: focus.right -> right#1 window=native-2");
@@ -12840,6 +12847,16 @@ fn action_window_fullscreen_status_line(message: &str, window_id: u32, fullscree
     out
 }
 
+fn action_windows_count_status_line(message: &str, count: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(message.len() + " windows=".len() + 20);
+    out.push_str(message);
+    out.push_str(" windows=");
+    let _ = write!(out, "{count}");
+    out
+}
+
 fn action_no_window_status_line(message: &str) -> String {
     let mut out = String::with_capacity(message.len() + " window=-".len());
     out.push_str(message);
@@ -13407,8 +13424,8 @@ pub fn run_loop_with<S: XServer>(
                                         &mut layout,
                                         &layout_state,
                                     ) {
-                                        Ok(count) => format!("{msg} windows={count}"),
-                                        Err(e) => format!("{msg} error={e}"),
+                                        Ok(count) => action_windows_count_status_line(&msg, count),
+                                        Err(e) => action_error_status_line(&msg, &e),
                                     };
                                     last_keymap_action = Some(msg.clone());
                                     dbg.log(&layout_action_log_line(&msg));
