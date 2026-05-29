@@ -5590,6 +5590,8 @@ mod tests {
         assert!(replace.starts_with("/tmp/kwreplace-2468-"), "{replace}");
         let browser = test_socket_path("kwb", 1357);
         assert!(browser.starts_with("/tmp/kwb-1357-"), "{browser}");
+        let session = test_socket_path("kwsession", 9753);
+        assert!(session.starts_with("/tmp/kwsession-9753-"), "{session}");
         assert!(path.ends_with(".sock"), "{path}");
         assert!(path.capacity() >= path.len());
     }
@@ -5894,11 +5896,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn session_helpers_send_expected_socket_commands() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwsession-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwsession", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
