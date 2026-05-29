@@ -5588,6 +5588,8 @@ mod tests {
         assert!(help.starts_with("/tmp/kwhc-7890-"), "{help}");
         let replace = test_socket_path("kwreplace", 2468);
         assert!(replace.starts_with("/tmp/kwreplace-2468-"), "{replace}");
+        let browser = test_socket_path("kwb", 1357);
+        assert!(browser.starts_with("/tmp/kwb-1357-"), "{browser}");
         assert!(path.ends_with(".sock"), "{path}");
         assert!(path.capacity() >= path.len());
     }
@@ -5844,11 +5846,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn spawn_surface_sends_browser_as_first_party_browser_app() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwb-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwb", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
