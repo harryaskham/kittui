@@ -6379,6 +6379,14 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn raw_compositor_footer_launch_note_builds_directly() {
+        let note = raw_compositor_footer_launch_note(Some(12345));
+        assert_eq!(note, " — last launch pid=12345");
+        assert!(note.capacity() >= note.len());
+        assert!(raw_compositor_footer_launch_note(None).is_empty());
+    }
+
+    #[test]
     fn raw_compositor_footer_key_reuses_precomputed_state_labels() {
         let key = raw_compositor_footer_key(
             24,
@@ -11808,9 +11816,7 @@ pub fn run_loop_with<S: XServer>(
                     picker_overlay.active,
                     terminal_rows,
                 );
-                let launch_note = last_launch_pid
-                    .map(|pid| format!(" — last launch pid={pid}"))
-                    .unwrap_or_default();
+                let launch_note = raw_compositor_footer_launch_note(last_launch_pid);
                 let keymap_note = if prefix_active {
                     " — keymap prefix".to_string()
                 } else {
@@ -12010,6 +12016,16 @@ fn frame_sleep_chunk(slack: Duration) -> Duration {
 }
 
 const RAW_COMPOSITOR_FOOTER_KEY_NOTE_MAX_CHARS: usize = 96;
+
+fn raw_compositor_footer_launch_note(last_launch_pid: Option<u32>) -> String {
+    let Some(pid) = last_launch_pid else {
+        return String::new();
+    };
+    let mut note = String::with_capacity(" — last launch pid=".len() + 10);
+    note.push_str(" — last launch pid=");
+    let _ = write!(note, "{pid}");
+    note
+}
 
 #[allow(clippy::too_many_arguments)]
 fn raw_compositor_footer_key(
