@@ -855,9 +855,10 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                                 "native terminal socket send browser key: {window} key={label}"
                             )),
                             Ok(false) => match panes[idx].app.send_bytes(&bytes) {
-                                Ok(()) => dbg.log(&format!(
-                                    "native terminal socket send key: {window} key={label} bytes={}",
-                                    bytes.len()
+                                Ok(()) => dbg.log(&native_socket_send_key_log_line(
+                                    &window,
+                                    &label,
+                                    bytes.len(),
                                 )),
                                 Err(err) => dbg.log(&native_socket_input_failure_log_line(
                                     &window,
@@ -4231,6 +4232,21 @@ fn native_socket_send_text_log_line(window: &str, bytes: usize) -> String {
     );
     out.push_str("native terminal socket send text: ");
     out.push_str(window);
+    out.push_str(" bytes=");
+    let _ = write!(out, "{bytes}");
+    out
+}
+
+fn native_socket_send_key_log_line(window: &str, key: &str, bytes: usize) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(
+        "native terminal socket send key:  key= bytes=".len() + window.len() + key.len() + 20,
+    );
+    out.push_str("native terminal socket send key: ");
+    out.push_str(window);
+    out.push_str(" key=");
+    out.push_str(key);
     out.push_str(" bytes=");
     let _ = write!(out, "{bytes}");
     out
@@ -10314,6 +10330,16 @@ mod native_pane_tests {
     fn native_socket_send_text_log_line_builds_directly() {
         let line = native_socket_send_text_log_line("native-1", 42);
         assert_eq!(line, "native terminal socket send text: native-1 bytes=42");
+        assert!(line.capacity() >= line.len());
+    }
+
+    #[test]
+    fn native_socket_send_key_log_line_builds_directly() {
+        let line = native_socket_send_key_log_line("native-1", "ctrl-c", 1);
+        assert_eq!(
+            line,
+            "native terminal socket send key: native-1 key=ctrl-c bytes=1"
+        );
         assert!(line.capacity() >= line.len());
     }
 
