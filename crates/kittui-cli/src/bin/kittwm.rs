@@ -157,6 +157,7 @@ struct Cli {
     session_kitty: bool,
     semantic_publish: Option<(String, String)>,
     automation_request: Option<String>,
+    remote_help: bool,
     remote_listing_filter: Option<String>,
     remote_terminal_args: Option<Vec<String>>,
     socket: Option<String>,
@@ -1050,7 +1051,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [doctor|list|apps|launch|windows|displays|terminal|shell|ssh]
+  remote HOST [help|doctor|list|apps|launch|windows|displays|terminal|shell|ssh]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1413,6 +1414,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            launch first remote app match through pooled SSH\n\
              kittwm --list-windows --remote HOST\n\
                                            list remote windows/displays when supported\n\
+             kittwm remote HOST help       host-specific SSH quick reference\n\
              kittwm remote HOST            friendly alias for remote doctor\n\
              kittwm remote HOST list       list remote app candidates\n\
              kittwm remote HOST list apps firefox\n\
@@ -1751,6 +1753,9 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             out.doctor = true;
             parse_remote_doctor_flags(out, rest)
         }
+        "help" | "usage" => ensure_empty_remote_help_args(rest, || {
+            out.remote_help = true;
+        }),
         "apps" | "app" => {
             out.apps = true;
             parse_remote_apps_flags(out, rest)
@@ -1774,9 +1779,19 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             parse_remote_doctor_flags(out, &flags)
         }
         other => Err(anyhow!(
-            "unknown remote action {other:?}\ntry: kittwm remote HOST doctor | list | apps | launch | windows | displays | terminal | shell\nhelp: kittwm help ssh"
+            "unknown remote action {other:?}\ntry: kittwm remote HOST help | doctor | list | apps | launch | windows | displays | terminal | shell\nhelp: kittwm help ssh"
         )),
     }
+}
+
+fn ensure_empty_remote_help_args(rest: &[String], apply: impl FnOnce()) -> Result<()> {
+    if let Some(extra) = rest.first() {
+        return Err(anyhow!(
+            "kittwm remote HOST help accepts no extra argument {extra:?}\ntry: kittwm remote HOST help"
+        ));
+    }
+    apply();
+    Ok(())
 }
 
 fn remote_terminal_alias_args(host: &str, rest: &[String]) -> Vec<String> {
@@ -2253,6 +2268,9 @@ fn real_main() -> Result<()> {
     }
 
     // Inspection flags run cooked, never enter raw mode.
+    if cli.remote_help {
+        return remote_help_cmd(cli.remote_host.as_deref().unwrap_or("HOST"));
+    }
     if let Some(args) = &cli.remote_terminal_args {
         return remote_terminal_alias_cmd(args);
     }
@@ -2724,6 +2742,28 @@ fn write_stdout_or_ignore_broken_pipe(bytes: &[u8]) -> Result<()> {
         Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
         Err(err) => Err(err.into()),
     }
+}
+
+fn remote_help_cmd(host: &str) -> Result<()> {
+    println!("kittwm remote {host} help");
+    println!("====================");
+    println!("If remote kittwm is installed and healthy:");
+    println!("  ssh {host} kittwm");
+    println!("  ssh {host} kittwm doctor");
+    println!();
+    println!("Local kittwm pooled-SSH helpers:");
+    println!("  kittwm remote {host} doctor");
+    println!("  kittwm remote {host} list");
+    println!("  kittwm remote {host} list apps firefox");
+    println!("  kittwm remote {host} launch firefox");
+    println!("  kittwm remote {host} list windows firefox");
+    println!("  kittwm remote {host} list displays retina");
+    println!("  kittwm remote {host} shell");
+    println!("  kittwm remote {host} ssh");
+    println!("  kittwm remote {host} terminal htop");
+    println!();
+    println!("Connections reuse ControlMaster=auto and ControlPersist=10m.");
+    Ok(())
 }
 
 fn remote_terminal_alias_cmd(args: &[String]) -> Result<()> {
@@ -4537,6 +4577,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "friendly alias for remote doctor",
         },
         LocalCommandEntry {
+            command: "remote HOST help",
+            category: "remote",
+            description: "host-specific SSH quick reference",
+        },
+        LocalCommandEntry {
             command: "remote HOST list",
             category: "remote",
             description: "list remote app candidates",
@@ -5351,6 +5396,7 @@ fn completion_words() -> &'static [&'static str] {
             "--limit",
             "--first",
             "--launch-first",
+            "help",
             "doctor",
             "list",
             "apps",
@@ -10044,6 +10090,9 @@ mod tests {
             .iter()
             .any(|entry| { entry["command"] == "remote HOST" && entry["category"] == "remote" }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST help" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -10802,6 +10851,11 @@ mod tests {
         parse_remote_alias_action(&mut doctor, "doctor", &args(&["--json"])).unwrap();
         assert!(doctor.doctor);
         assert!(doctor.json);
+
+        let mut help = Cli::default();
+        help.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut help, "help", &[]).unwrap();
+        assert!(help.remote_help);
 
         let mut windows = Cli::default();
         windows.remote_host = Some("buildbox".to_string());
