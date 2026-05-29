@@ -12064,15 +12064,34 @@ mod tests {
         assert!(examples_text().contains("kittwm --list-windows --remote"));
     }
 
+    fn daily_help_stress_text() -> String {
+        let heading = "heading-".repeat(1024);
+        let row = "row-".repeat(2048);
+        let mut text = String::with_capacity(
+            heading.len() + "kittwm ".len() + row.len() + "plain text".len() + 2,
+        );
+        text.push_str(&heading);
+        text.push('\n');
+        text.push_str("kittwm ");
+        text.push_str(&row);
+        text.push('\n');
+        text.push_str("plain text");
+        text
+    }
+
+    #[test]
+    fn daily_help_stress_text_builds_directly() {
+        let text = daily_help_stress_text();
+        assert!(text.starts_with("heading-heading-"));
+        assert!(text.contains("\nkittwm row-row-"));
+        assert!(text.ends_with("\nplain text"));
+        assert_eq!(text.capacity(), text.len());
+    }
+
     #[test]
     fn daily_help_scene_labels_clip_pathological_payloads() {
         let kind = "kind-".repeat(1024);
-        let text = format!(
-            "{}\n{}\n{}",
-            "heading-".repeat(1024),
-            "kittwm ".to_string() + &"row-".repeat(2048),
-            "plain text"
-        );
+        let text = daily_help_stress_text();
         let scene = daily_help_scene(&kind, &text);
         let labels = scene
             .layers
