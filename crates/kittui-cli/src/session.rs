@@ -10533,6 +10533,17 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_toast_test_stress_strings_build_directly() {
+        let prefixed = native_toast_test_prefixed_repeat("launcher.error ", 'x', 4);
+        assert_eq!(prefixed, "launcher.error xxxx");
+        assert!(prefixed.capacity() >= prefixed.len());
+
+        let suffixed = native_toast_test_repeat_suffixed('x', 4, "FAILED");
+        assert_eq!(suffixed, "xxxxFAILED");
+        assert!(suffixed.capacity() >= suffixed.len());
+    }
+
+    #[test]
     fn native_toast_label_builds_directly() {
         let backdrop = native_toast_label("toast-backdrop:", "launcher.error boom");
         assert_eq!(backdrop, "toast-backdrop:launcher.error boom");
@@ -10568,7 +10579,8 @@ mod native_pane_tests {
 
     #[test]
     fn native_toast_scene_saturates_long_message_width() {
-        let long = format!("launcher.error {}", "x".repeat(u16::MAX as usize + 4096));
+        let long =
+            native_toast_test_prefixed_repeat("launcher.error ", 'x', u16::MAX as usize + 4096);
         assert_eq!(native_toast_message_cols(&long), u16::MAX);
         let (_x, _y, scene) = native_toast_scene(CellSize::new(8, 16), 80, 24, &long).unwrap();
         assert_eq!(scene.footprint.cols, 76);
@@ -10592,11 +10604,11 @@ mod native_pane_tests {
         assert!(native_should_show_footer_toast("backend failed"));
         assert!(native_should_show_footer_toast("LAUNCHER.ERROR boom"));
         assert!(ascii_contains_any_ignore_case(
-            &format!("{}FAILED", "x".repeat(4096)),
+            &native_toast_test_repeat_suffixed('x', 4096, "FAILED"),
             NATIVE_TOAST_TRIGGER_KEYWORDS
         ));
         assert!(!ascii_contains_any_ignore_case(
-            &format!("{}healthy", "x".repeat(4096)),
+            &native_toast_test_repeat_suffixed('x', 4096, "healthy"),
             NATIVE_TOAST_TRIGGER_KEYWORDS
         ));
     }
@@ -10651,6 +10663,20 @@ mod native_pane_tests {
                 })
                 .collect::<Vec<_>>(),
         )
+    }
+
+    fn native_toast_test_prefixed_repeat(prefix: &str, ch: char, count: usize) -> String {
+        let mut out = String::with_capacity(prefix.len() + count * ch.len_utf8());
+        out.push_str(prefix);
+        out.extend(std::iter::repeat_n(ch, count));
+        out
+    }
+
+    fn native_toast_test_repeat_suffixed(ch: char, count: usize, suffix: &str) -> String {
+        let mut out = String::with_capacity(count * ch.len_utf8() + suffix.len());
+        out.extend(std::iter::repeat_n(ch, count));
+        out.push_str(suffix);
+        out
     }
 
     #[test]
