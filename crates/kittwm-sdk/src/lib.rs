@@ -5272,12 +5272,17 @@ mod tests {
             ("surface_clipboard_set", "surface_clipboard_set"),
             ("surface_notification", "surface_notification"),
         ] {
-            let event = KittwmEvent::parse_line(&format!(
-                r#"{{"kind":"{kind}","window":"native-1","detail":{{}}}}"#
-            ))
-            .unwrap();
+            let line = event_parser_test_event_line(kind);
+            let event = KittwmEvent::parse_line(&line).unwrap();
             assert_eq!(event.kind(), expected);
         }
+
+        let line = event_parser_test_event_line("surface_bell");
+        assert_eq!(
+            line,
+            r#"{"kind":"surface_bell","window":"native-1","detail":{}}"#
+        );
+        assert!(line.capacity() >= line.len());
 
         let title = KittwmEvent::parse_line(
             r#"{"kind":"surface_title_changed","window":"native-1","detail":{"title":"editor"}}"#,
@@ -5380,6 +5385,16 @@ mod tests {
         assert_eq!(iter.next().unwrap().kind(), "status");
         assert_eq!(iter.next().unwrap().kind(), "layout_changed");
         assert_eq!(iter.next(), None);
+    }
+
+    fn event_parser_test_event_line(kind: &str) -> String {
+        let mut line = String::with_capacity(
+            r#"{"kind":"","window":"native-1","detail":{}}"#.len() + kind.len(),
+        );
+        line.push_str(r#"{"kind":""#);
+        line.push_str(kind);
+        line.push_str(r#"","window":"native-1","detail":{}}"#);
+        line
     }
 
     #[cfg(unix)]
