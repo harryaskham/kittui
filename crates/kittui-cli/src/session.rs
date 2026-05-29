@@ -9980,6 +9980,17 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn graphical_launcher_overlay_candidate_row_builds_directly() {
+        let candidate = LauncherSelection {
+            kind: LauncherKind::Shell,
+            command: "kittwm-terminal".to_string(),
+        };
+        let row = graphical_launcher_overlay_candidate_row(1, &candidate);
+        assert_eq!(row, "2. [shell] kittwm-terminal");
+        assert!(row.capacity() >= row.len());
+    }
+
+    #[test]
     fn graphical_launcher_overlay_title_builds_directly() {
         let title = graphical_launcher_overlay_title("term");
         assert_eq!(title, "kittwm launcher query=term");
@@ -15220,6 +15231,18 @@ fn graphical_launcher_overlay_title(query: &str) -> String {
 }
 
 #[cfg(test)]
+fn graphical_launcher_overlay_candidate_row(idx: usize, candidate: &LauncherSelection) -> String {
+    let kind = candidate.kind_name();
+    let mut row = String::with_capacity(20 + ". [] ".len() + kind.len() + candidate.command.len());
+    let _ = write!(row, "{}", idx + 1);
+    row.push_str(". [");
+    row.push_str(kind);
+    row.push_str("] ");
+    row.push_str(&candidate.command);
+    row
+}
+
+#[cfg(test)]
 fn launcher_overlay_scene_for_candidates(
     overlay: &LauncherOverlay,
     candidates: &[LauncherSelection],
@@ -15228,14 +15251,7 @@ fn launcher_overlay_scene_for_candidates(
     let rows = candidates
         .iter()
         .enumerate()
-        .map(|(idx, candidate)| {
-            format!(
-                "{}. [{}] {}",
-                idx + 1,
-                candidate.kind_name(),
-                candidate.command
-            )
-        })
+        .map(|(idx, candidate)| graphical_launcher_overlay_candidate_row(idx, candidate))
         .collect::<Vec<_>>();
     let title = graphical_launcher_overlay_title(&overlay.query);
     graphical_overlay_panel_scene(
