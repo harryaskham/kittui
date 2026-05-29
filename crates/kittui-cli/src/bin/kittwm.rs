@@ -4916,6 +4916,13 @@ SESSION
   kittwm --save-session session.json
   kittwm --restore-session session.json
 
+FIRST-PARTY HELPERS
+  kittwm-launch --browser https://example.com
+  kittwm-terminal --events-ms 1000
+  kittwm-top --json
+  kittwm-bar --reserve --kitty
+  kittwm-browser --semantic-snapshot https://example.com
+
 HELP
   kittwm quickstart
   kittwm help topics
@@ -10775,6 +10782,11 @@ mod tests {
             "kittwm --wait-output-json-ms 10000 focused 'build finished'",
             "kittwm balance",
             "kittwm --save-session session.json",
+            "kittwm-launch --browser https://example.com",
+            "kittwm-terminal --events-ms 1000",
+            "kittwm-top --json",
+            "kittwm-bar --reserve --kitty",
+            "kittwm-browser --semantic-snapshot https://example.com",
             "kittwm help panes",
         ] {
             assert!(text.contains(line), "missing {line}: {text}");
