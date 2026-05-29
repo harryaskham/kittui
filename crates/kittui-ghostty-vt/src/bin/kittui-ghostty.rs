@@ -67,12 +67,13 @@ fn main() -> anyhow::Result<()> {
     let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
     std::fs::write(&args.out, png)?;
     println!(
-        "kittui-ghostty wrote {} ({}x{} cells, cursor={}, {}, inner_exit_status={})",
+        "kittui-ghostty wrote {} ({}x{} cells, cursor={}, {}, kitty_placements={}, inner_exit_status={})",
         args.out.display(),
         snapshot.cols,
         snapshot.rows,
         snapshot.cursor_x,
         snapshot.cursor_y,
+        snapshot.kitty_placements.len(),
         inner_exit_status
             .map(|code| code.to_string())
             .unwrap_or_else(|| "n/a".to_string())
