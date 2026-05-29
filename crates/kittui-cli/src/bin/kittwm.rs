@@ -5150,7 +5150,15 @@ fn quickstart_text() -> &'static str {
    kittwm --save-session session.json
    kittwm --restore-session session.json
 
-7. Try first-party helpers when you need richer views
+7. Work across SSH hosts
+   kittwm doctor --remote buildbox
+   kittwm apps --remote buildbox --filter firefox --launch-first
+   kittwm --list-windows --remote buildbox
+   kittwm --list-displays --remote buildbox
+   kittwm-terminal --remote buildbox --title buildbox
+   kittwm-terminal --remote buildbox -- htop
+
+8. Try first-party helpers when you need richer views
    kittwm-launch --browser https://example.com
    kittwm-terminal --events-ms 1000
    kittwm-top --json
@@ -5241,6 +5249,14 @@ FIRST-PARTY HELPERS
   kittwm-bar --reserve --kitty
   kittwm-browser --semantic-snapshot https://example.com
 
+SSH / REMOTE HOSTS
+  kittwm doctor --remote buildbox
+  kittwm apps --remote buildbox --filter firefox --launch-first
+  kittwm --list-windows --remote buildbox
+  kittwm --list-displays --remote buildbox
+  kittwm-terminal --remote buildbox --title buildbox
+  kittwm-terminal --remote buildbox -- htop
+
 HELP
   kittwm quickstart
   kittwm help topics
@@ -5284,6 +5300,11 @@ HELPERS
   kittwm-launch --browser URL   kittwm-terminal --events-ms 1000
   kittwm-top --json             kittwm-bar --reserve --kitty
   kittwm-browser --semantic-snapshot URL
+
+SSH
+  kittwm doctor --remote HOST   kittwm apps --remote HOST
+  kittwm --list-windows --remote HOST
+  kittwm-terminal --remote HOST -- htop
 
 MORE
   kittwm quickstart         kittwm examples    kittwm help panes
@@ -10753,6 +10774,17 @@ mod tests {
                 "{kind}: {labels:?}"
             );
         }
+    }
+
+    #[test]
+    fn daily_guides_include_ssh_remote_workflows() {
+        for text in [quickstart_text(), examples_text(), cheat_text()] {
+            assert!(text.contains("kittwm doctor --remote"), "{text}");
+            assert!(text.contains("kittwm apps --remote"), "{text}");
+            assert!(text.contains("kittwm-terminal --remote"), "{text}");
+        }
+        assert!(quickstart_text().contains("kittwm --list-displays --remote"));
+        assert!(examples_text().contains("kittwm --list-windows --remote"));
     }
 
     #[test]
