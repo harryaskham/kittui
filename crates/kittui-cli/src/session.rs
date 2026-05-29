@@ -5432,7 +5432,7 @@ fn write_native_graphical_top_bar_text_overlay<W: Write>(
         )?;
         workspace_cols = workspace_cols.saturating_add(label_cols);
     }
-    let clock_text = format!(" {clock} ");
+    let clock_text = native_graphical_top_bar_clock_text(&clock);
     if let Some(clock_col) = native_graphical_top_bar_clock_col(
         cols,
         workspace_cols,
@@ -5506,6 +5506,14 @@ fn native_top_bar_label_fits_cells(label: &str, max_label_cols: usize) -> bool {
 #[cfg(test)]
 fn native_graphical_top_bar_label_fits(cols: u16, used_cols: u16, label_cols: u16) -> bool {
     label_cols > 0 && used_cols.saturating_add(label_cols) <= cols
+}
+
+fn native_graphical_top_bar_clock_text(clock: &str) -> String {
+    let mut out = String::with_capacity(clock.len().saturating_add(2));
+    out.push(' ');
+    out.push_str(clock);
+    out.push(' ');
+    out
 }
 
 fn native_graphical_top_bar_clock_col(
@@ -6256,6 +6264,9 @@ mod native_pane_tests {
 
     #[test]
     fn graphical_top_bar_clock_col_avoids_workspace_overlap() {
+        let clock = native_graphical_top_bar_clock_text("12:34");
+        assert_eq!(clock, " 12:34 ");
+        assert_eq!(clock.capacity(), clock.len());
         assert_eq!(native_graphical_top_bar_clock_col(24, 12, 7), Some(18));
         assert_eq!(native_graphical_top_bar_clock_col(20, 12, 7), Some(14));
         assert_eq!(native_graphical_top_bar_clock_col(19, 12, 7), None);
