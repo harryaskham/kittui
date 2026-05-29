@@ -14780,7 +14780,12 @@ impl LayoutState {
     }
 
     fn label(&self) -> String {
-        format!("axis={} balanced#{}", self.split_axis, self.balances)
+        let mut label = String::with_capacity("axis= balanced#".len() + self.split_axis.len() + 20);
+        label.push_str("axis=");
+        label.push_str(self.split_axis);
+        label.push_str(" balanced#");
+        let _ = write!(label, "{}", self.balances);
+        label
     }
 }
 
