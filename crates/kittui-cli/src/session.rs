@@ -3965,14 +3965,12 @@ fn native_legacy_mouse_payload(bits: u16, col: u16, row: u16) -> Option<Vec<u8>>
     if bits > 223 || col == 0 || col > 223 || row == 0 || row > 223 {
         return None;
     }
-    Some(vec![
-        b'\x1b',
-        b'[',
-        b'M',
-        (bits + 32) as u8,
-        (col + 32) as u8,
-        (row + 32) as u8,
-    ])
+    let mut out = Vec::with_capacity(6);
+    out.extend_from_slice(b"\x1b[M");
+    out.push((bits + 32) as u8);
+    out.push((col + 32) as u8);
+    out.push((row + 32) as u8);
+    Some(out)
 }
 
 fn native_key_event_payload(
@@ -7035,19 +7033,18 @@ mod native_pane_tests {
             }
         )
         .is_none());
-        assert_eq!(
-            native_mouse_event_payload(
-                "press-left",
-                7,
-                9,
-                MouseReportingModes {
-                    sgr: false,
-                    ..modes
-                }
-            )
-            .unwrap(),
-            vec![b'\x1b', b'[', b'M', 32, 39, 41]
-        );
+        let legacy_press = native_mouse_event_payload(
+            "press-left",
+            7,
+            9,
+            MouseReportingModes {
+                sgr: false,
+                ..modes
+            },
+        )
+        .unwrap();
+        assert_eq!(legacy_press, vec![b'\x1b', b'[', b'M', 32, 39, 41]);
+        assert_eq!(legacy_press.capacity(), 6);
         assert_eq!(
             native_mouse_event_payload(
                 "release-left",
