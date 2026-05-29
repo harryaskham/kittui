@@ -15822,11 +15822,7 @@ impl SplitState {
             _ => self.last_orientation,
         };
         self.panes += 1;
-        format!(
-            "split.{}.launcher -> {}",
-            self.last_orientation,
-            self.label()
-        )
+        split_state_action_label(self.last_orientation, &self.label())
     }
 
     fn label(&self) -> String {
@@ -15838,9 +15834,26 @@ impl SplitState {
     }
 }
 
+fn split_state_action_label(orientation: &str, label: &str) -> String {
+    let mut action =
+        String::with_capacity("split..launcher -> ".len() + orientation.len() + label.len());
+    action.push_str("split.");
+    action.push_str(orientation);
+    action.push_str(".launcher -> ");
+    action.push_str(label);
+    action
+}
+
 #[cfg(test)]
 mod split_state_tests {
     use super::*;
+
+    #[test]
+    fn split_state_action_label_builds_directly() {
+        let action = split_state_action_label("vertical", "2:vertical");
+        assert_eq!(action, "split.vertical.launcher -> 2:vertical");
+        assert!(action.capacity() >= action.len());
+    }
 
     #[test]
     fn split_state_tracks_panes_and_orientation() {
