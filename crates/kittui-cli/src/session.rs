@@ -6876,6 +6876,13 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn split_launcher_overlay_opened_log_line_builds_directly() {
+        let line = split_launcher_overlay_opened_log_line("term");
+        assert_eq!(line, "split opened launcher overlay query=\"term\"");
+        assert_eq!(line.capacity(), line.len());
+    }
+
+    #[test]
     fn launcher_overlay_selected_log_line_builds_directly() {
         let line = launcher_overlay_selected_log_line(LauncherKind::Path, "htop", 99);
         assert_eq!(
@@ -12189,6 +12196,16 @@ fn launcher_overlay_opened_log_line(query: &str) -> String {
     out
 }
 
+fn split_launcher_overlay_opened_log_line(query: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out =
+        String::with_capacity("split opened launcher overlay query=".len() + query.len() + 2);
+    out.push_str("split opened launcher overlay query=");
+    let _ = write!(out, "{query:?}");
+    out
+}
+
 fn launcher_overlay_selected_log_line(kind: LauncherKind, command: &str, pid: u32) -> String {
     use std::fmt::Write as _;
 
@@ -12526,9 +12543,8 @@ pub fn run_loop_with<S: XServer>(
                                     dbg.log(&split_action_log_line(&msg));
                                     if opts.launcher_overlay {
                                         launcher_overlay.open_from_env();
-                                        dbg.log(&format!(
-                                            "split opened launcher overlay query={:?}",
-                                            launcher_overlay.query
+                                        dbg.log(&split_launcher_overlay_opened_log_line(
+                                            &launcher_overlay.query,
                                         ));
                                     } else {
                                         let selection = launcher_selection();
