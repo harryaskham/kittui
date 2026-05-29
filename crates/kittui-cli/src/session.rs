@@ -5130,7 +5130,7 @@ fn native_pane_title_status_scene(
         },
     ));
     layers.push(Layer::new(
-        format!("pane-{idx}-status-chip:{}", pane.status),
+        native_pane_status_chip_label(idx, &pane.status),
         Node::Rect {
             rect: native_pane_status_chip_rect(cols, rect.width, cell_w, chip_h),
             fill: Paint::Solid {
