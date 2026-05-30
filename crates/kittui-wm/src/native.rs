@@ -551,12 +551,22 @@ fn xwindow_resize_context_label(id: XWindowId, width: u32, height: u32) -> Strin
 }
 
 fn xwindow_press_keysym_context_label(id: XWindowId, sym: u32) -> String {
+    xwindow_keysym_context_label("press", id, sym)
+}
+
+fn xwindow_release_keysym_context_label(id: XWindowId, sym: u32) -> String {
+    xwindow_keysym_context_label("release", id, sym)
+}
+
+fn xwindow_keysym_context_label(action: &str, id: XWindowId, sym: u32) -> String {
     let mut label = String::with_capacity(
-        "press keysym  for X window XWindowId()".len()
+        action.len()
+            + " keysym  for X window XWindowId()".len()
             + decimal_len(u64::from(sym))
             + decimal_len(u64::from(id.0)),
     );
-    label.push_str("press keysym ");
+    label.push_str(action);
+    label.push_str(" keysym ");
     write!(label, "{sym}").expect("write to string");
     label.push_str(" for X window XWindowId(");
     write!(label, "{}", id.0).expect("write to string");
@@ -970,9 +980,9 @@ impl NativeSurface for XWindowSurface {
             self.server
                 .inject_key(sym, true)
                 .with_context(|| xwindow_press_keysym_context_label(self.window.id, sym))?;
-            self.server.inject_key(sym, false).with_context(|| {
-                format!("release keysym {sym} for X window {:?}", self.window.id)
-            })?;
+            self.server
+                .inject_key(sym, false)
+                .with_context(|| xwindow_release_keysym_context_label(self.window.id, sym))?;
         }
         Ok(())
     }
@@ -6665,10 +6675,13 @@ mod tests {
     }
 
     #[test]
-    fn xwindow_press_keysym_context_label_builds_directly() {
-        let label = xwindow_press_keysym_context_label(XWindowId(11), 97);
-        assert_eq!(label, "press keysym 97 for X window XWindowId(11)");
-        assert_eq!(label.capacity(), label.len());
+    fn xwindow_keysym_context_labels_build_directly() {
+        let press = xwindow_press_keysym_context_label(XWindowId(11), 97);
+        assert_eq!(press, "press keysym 97 for X window XWindowId(11)");
+        assert_eq!(press.capacity(), press.len());
+        let release = xwindow_release_keysym_context_label(XWindowId(11), 97);
+        assert_eq!(release, "release keysym 97 for X window XWindowId(11)");
+        assert_eq!(release.capacity(), release.len());
     }
 
     #[test]
