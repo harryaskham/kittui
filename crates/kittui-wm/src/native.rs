@@ -3731,6 +3731,14 @@ fn decimal_len(mut value: u64) -> usize {
     len
 }
 
+#[cfg(test)]
+fn headless_chrome_profile_prefix(pid: u32) -> String {
+    let mut prefix = String::with_capacity("kittui-headless-chrome-".len() + decimal_len(pid as u64) + 1);
+    prefix.push_str("kittui-headless-chrome-");
+    write!(prefix, "{pid}-").expect("write to string");
+    prefix
+}
+
 fn headless_chrome_profile_dir_name(pid: u32, id: u64) -> String {
     let mut name = String::with_capacity(
         "kittui-headless-chrome--".len() + decimal_len(pid as u64) + decimal_len(id),
@@ -5930,6 +5938,13 @@ mod tests {
     }
 
     #[test]
+    fn headless_chrome_profile_prefix_builds_directly() {
+        let prefix = headless_chrome_profile_prefix(1234);
+        assert_eq!(prefix, "kittui-headless-chrome-1234-");
+        assert_eq!(prefix.capacity(), prefix.len());
+    }
+
+    #[test]
     fn headless_chrome_profile_dir_name_builds_directly() {
         assert_eq!(decimal_len(0), 1);
         assert_eq!(decimal_len(9), 1);
@@ -5944,7 +5959,7 @@ mod tests {
         let a = next_headless_chrome_user_data_dir();
         let b = next_headless_chrome_user_data_dir();
         assert_ne!(a, b);
-        let prefix = format!("kittui-headless-chrome-{}-", std::process::id());
+        let prefix = headless_chrome_profile_prefix(std::process::id());
         assert!(a
             .file_name()
             .unwrap()
