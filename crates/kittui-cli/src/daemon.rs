@@ -2653,6 +2653,14 @@ fn wait_match_reply(match_tag: &str, window: &str, bytes: usize) -> String {
     out
 }
 
+fn wait_requires_needle_reply(verb: &str) -> String {
+    let mut out = String::with_capacity("ERR  requires window and needle\n".len() + verb.len());
+    out.push_str("ERR ");
+    out.push_str(verb);
+    out.push_str(" requires window and needle\n");
+    out
+}
+
 fn native_spawn_wait_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
@@ -2662,12 +2670,12 @@ fn native_spawn_wait_reply(
     json: bool,
 ) -> String {
     let Some((target, needle)) = rest.trim_start().split_once(' ') else {
-        return format!("ERR {verb} requires window and needle\n");
+        return wait_requires_needle_reply(verb);
     };
     let target = target.trim();
     let needle = needle.trim();
     if target.is_empty() || needle.is_empty() {
-        return format!("ERR {verb} requires window and needle\n");
+        return wait_requires_needle_reply(verb);
     }
     let deadline = Instant::now() + timeout;
     loop {
@@ -3964,6 +3972,13 @@ mod tests {
     fn wait_match_reply_builds_directly() {
         let reply = wait_match_reply("MATCH_TEXT", "native-2", 17);
         assert_eq!(reply, "MATCH_TEXT window=native-2 bytes=17\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn wait_requires_needle_reply_builds_directly() {
+        let reply = wait_requires_needle_reply("WAIT_TEXT");
+        assert_eq!(reply, "ERR WAIT_TEXT requires window and needle\n");
         assert_eq!(reply.capacity(), reply.len());
     }
 
