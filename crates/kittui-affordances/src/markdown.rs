@@ -617,7 +617,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
             }
             Event::FootnoteReference(label) => {
                 out.footnote_references.push(label.to_string());
-                let marker = format!("[^{label}]");
+                let marker = footnote_marker(&label);
                 if link_target.is_some() {
                     link_label.push_str(&marker);
                 }
@@ -813,6 +813,14 @@ fn flush_list_item(
     ));
 }
 
+fn footnote_marker(label: &str) -> String {
+    let mut marker = String::with_capacity("[^]".len() + label.len());
+    marker.push_str("[^");
+    marker.push_str(label);
+    marker.push(']');
+    marker
+}
+
 fn ordered_list_marker(next: u64) -> String {
     let mut marker = String::with_capacity(decimal_len(next) + 1);
     write!(marker, "{next}").expect("write to string");
@@ -932,6 +940,13 @@ mod tests {
                 MarkdownTableAlignment::Right,
             ]
         );
+    }
+
+    #[test]
+    fn footnote_marker_builds_directly() {
+        let marker = footnote_marker("note");
+        assert_eq!(marker, "[^note]");
+        assert!(marker.capacity() >= marker.len());
     }
 
     #[test]
