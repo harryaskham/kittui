@@ -2728,6 +2728,18 @@ impl PanesStatus {
         focused_pane_from_details(&self.panes_detail, Some(self.focus.as_str()))
     }
 
+    /// Focused pane detail when the current layout is fullscreen.
+    pub fn fullscreen_pane(&self) -> Option<&NativePaneDetail> {
+        self.is_fullscreen_layout()
+            .then(|| self.focused_pane())
+            .flatten()
+    }
+
+    /// Whether the focused pane is currently shown in fullscreen layout.
+    pub fn focused_is_fullscreen(&self) -> Option<bool> {
+        self.focused_pane().map(|_| self.is_fullscreen_layout())
+    }
+
     /// Topmost pane detail, using `stack_top` when reported or the largest stack index.
     pub fn topmost_pane(&self) -> Option<&NativePaneDetail> {
         topmost_pane_from_details(&self.panes_detail)
@@ -2969,6 +2981,18 @@ impl Status {
         self.focused_pane
             .as_ref()
             .or_else(|| focused_pane_from_details(&self.panes_detail, self.focus.as_deref()))
+    }
+
+    /// Focused pane detail when the current layout is fullscreen.
+    pub fn fullscreen_pane(&self) -> Option<&NativePaneDetail> {
+        self.is_fullscreen_layout()
+            .then(|| self.focused_pane())
+            .flatten()
+    }
+
+    /// Whether the focused pane is currently shown in fullscreen layout.
+    pub fn focused_is_fullscreen(&self) -> Option<bool> {
+        self.focused_pane().map(|_| self.is_fullscreen_layout())
     }
 
     /// Topmost pane detail, using `stack_top` when reported or the largest stack index.
@@ -5186,6 +5210,8 @@ mod tests {
         assert_eq!(panes.tilable_rows(), Some(23));
         assert!(panes.chrome_reservation().unwrap().is_reported());
         assert_eq!(panes.focused_pane().unwrap().window, "native-1");
+        assert_eq!(panes.fullscreen_pane(), None);
+        assert_eq!(panes.focused_is_fullscreen(), Some(false));
         assert_eq!(panes.topmost_pane().unwrap().window, "native-1");
         assert_eq!(panes.focused_is_topmost(), Some(true));
         assert_eq!(panes.focused_is_resized(), Some(true));
@@ -5354,6 +5380,8 @@ mod tests {
         assert!(status.chrome_reservation().is_none());
         assert!(status.focused_pane.is_none());
         assert!(status.focused_pane().is_none());
+        assert_eq!(status.fullscreen_pane(), None);
+        assert_eq!(status.focused_is_fullscreen(), None);
         assert!(status.topmost_pane().is_none());
         assert_eq!(status.focused_is_topmost(), None);
         assert_eq!(status.focused_is_resized(), None);
@@ -5385,12 +5413,14 @@ mod tests {
         assert!(!floating.is_tiled_layout());
 
         let fullscreen: PanesStatus = serde_json::from_str(
-            r#"{"panes":1,"focus":"native-1","layout":"fullscreen","panes_detail":[]}"#,
+            r#"{"panes":1,"focus":"native-1","layout":"fullscreen","panes_detail":[{"window":"native-1","title":"shell","focused":true,"weight":1}]}"#,
         )
         .unwrap();
         assert!(fullscreen.is_fullscreen_layout());
         assert!(!fullscreen.is_floating_layout());
         assert!(!fullscreen.is_tiled_layout());
+        assert_eq!(fullscreen.fullscreen_pane().unwrap().window, "native-1");
+        assert_eq!(fullscreen.focused_is_fullscreen(), Some(true));
     }
 
     #[test]
@@ -5409,6 +5439,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(status.focused_pane().unwrap().window, "native-1");
+        assert_eq!(status.fullscreen_pane(), None);
+        assert_eq!(status.focused_is_fullscreen(), Some(false));
         assert_eq!(status.topmost_pane().unwrap().window, "native-2");
         assert_eq!(status.focused_is_topmost(), Some(false));
         assert_eq!(status.focused_is_resized(), Some(false));
