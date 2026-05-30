@@ -3374,12 +3374,20 @@ fn handle_request(
                 quit.store(true, Ordering::SeqCst);
                 "BYE\n".to_string()
             }
-            other => format!("ERR unknown: {other}\n"),
+            other => daemon_unknown_command_reply(other),
         }
     };
     writer.write_all(reply.as_bytes())?;
     writer.flush()?;
     Ok(())
+}
+
+fn daemon_unknown_command_reply(command: &str) -> String {
+    let mut out = String::with_capacity("ERR unknown: \n".len() + command.len());
+    out.push_str("ERR unknown: ");
+    out.push_str(command);
+    out.push('\n');
+    out
 }
 
 fn daemon_help_entries() -> Vec<(&'static str, &'static str, &'static str)> {
@@ -3607,6 +3615,13 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("kittwm-test-status"));
+    }
+
+    #[test]
+    fn daemon_unknown_command_reply_builds_directly() {
+        let reply = daemon_unknown_command_reply("NOPE");
+        assert_eq!(reply, "ERR unknown: NOPE\n");
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
