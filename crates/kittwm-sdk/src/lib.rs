@@ -2068,6 +2068,30 @@ impl EventEnvelope {
         ))
     }
 
+    /// Changed tile count and total tile count as `<changed>/<total>`.
+    pub fn frame_changed_tiles_label(&self) -> Option<String> {
+        let (changed, total) = self.frame_changed_tiles_ratio()?;
+        Some(format!("{changed}/{total}"))
+    }
+
+    /// Changed tile fraction in `[0, 1]` reported or derived for a `pane_frame_presented` event.
+    pub fn frame_changed_fraction(&self) -> Option<f32> {
+        if let Some(fraction) = self.detail.get("changed_fraction").and_then(Value::as_f64) {
+            return Some(fraction as f32);
+        }
+        let (changed, total) = self.frame_changed_tiles_ratio()?;
+        if total == 0 {
+            return None;
+        }
+        Some(changed as f32 / total as f32)
+    }
+
+    /// Changed tile percentage in `[0, 100]` for a `pane_frame_presented` event.
+    pub fn frame_changed_percent(&self) -> Option<f32> {
+        self.frame_changed_fraction()
+            .map(|fraction| fraction * 100.0)
+    }
+
     /// Whether a `pane_frame_presented` event reported a skipped upload.
     pub fn frame_upload_skipped(&self) -> Option<bool> {
         self.detail_bool("skipped_upload")
@@ -6645,6 +6669,12 @@ mod tests {
                 assert_eq!(envelope.frame_uploaded(), Some(true));
                 assert_eq!(envelope.frame_upload_skipped(), Some(false));
                 assert_eq!(envelope.frame_changed_tiles_ratio(), Some((3, 12)));
+                assert_eq!(
+                    envelope.frame_changed_tiles_label().as_deref(),
+                    Some("3/12")
+                );
+                assert_eq!(envelope.frame_changed_fraction(), Some(0.25));
+                assert_eq!(envelope.frame_changed_percent(), Some(25.0));
                 assert_eq!(envelope.frame_upload_bytes(), Some(4096));
                 assert_eq!(envelope.frame_elapsed_us(), Some(321));
             }
