@@ -1926,6 +1926,17 @@ fn window_base64_required_reply(verb: &str) -> String {
     out
 }
 
+fn window_base64_invalid_reply(verb: &str, err: &base64::DecodeError) -> String {
+    let err = err.to_string();
+    let mut out = String::with_capacity("ERR  invalid base64: \n".len() + verb.len() + err.len());
+    out.push_str("ERR ");
+    out.push_str(verb);
+    out.push_str(" invalid base64: ");
+    out.push_str(&err);
+    out.push('\n');
+    out
+}
+
 fn parse_window_base64(rest: &str, verb: &str) -> Result<(String, Vec<u8>), String> {
     let Some((window, encoded)) = rest.trim().split_once(' ') else {
         return Err(window_base64_required_reply(verb));
@@ -1937,7 +1948,7 @@ fn parse_window_base64(rest: &str, verb: &str) -> Result<(String, Vec<u8>), Stri
     }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded)
-        .map_err(|err| format!("ERR {verb} invalid base64: {err}\n"))?;
+        .map_err(|err| window_base64_invalid_reply(verb, &err))?;
     Ok((window.to_string(), bytes))
 }
 
@@ -4091,6 +4102,19 @@ mod tests {
     fn window_base64_required_reply_builds_directly() {
         let reply = window_base64_required_reply("SEND_BYTES_B64");
         assert_eq!(reply, "ERR SEND_BYTES_B64 requires window and base64\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn window_base64_invalid_reply_builds_directly() {
+        let err = base64::engine::general_purpose::STANDARD
+            .decode("!!!")
+            .unwrap_err();
+        let reply = window_base64_invalid_reply("SEND_BYTES_B64", &err);
+        assert!(
+            reply.starts_with("ERR SEND_BYTES_B64 invalid base64: "),
+            "{reply}"
+        );
         assert_eq!(reply.capacity(), reply.len());
     }
 
