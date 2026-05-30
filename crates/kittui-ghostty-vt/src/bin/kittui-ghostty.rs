@@ -219,6 +219,16 @@ fn render_pty_sampled_command(args: &Args, command: &str) -> anyhow::Result<()> 
     Ok(())
 }
 
+#[cfg(test)]
+fn ghostty_manifest_test_dir_name(pid: u32) -> String {
+    let mut name = String::with_capacity(
+        "kittui-ghostty-manifest-test-".len() + decimal_len_usize(pid as usize),
+    );
+    name.push_str("kittui-ghostty-manifest-test-");
+    write!(name, "{pid}").expect("write to string");
+    name
+}
+
 fn frame_png_name(idx: usize) -> String {
     let mut name = String::with_capacity("frame-.png".len() + 3.max(decimal_len_usize(idx)));
     name.push_str("frame-");
@@ -880,11 +890,15 @@ mod tests {
     }
 
     #[test]
+    fn ghostty_manifest_test_dir_name_builds_directly() {
+        let name = ghostty_manifest_test_dir_name(1234);
+        assert_eq!(name, "kittui-ghostty-manifest-test-1234");
+        assert_eq!(name.capacity(), name.len());
+    }
+
+    #[test]
     fn frame_manifest_includes_kitty_placement_count() {
-        let dir = std::env::temp_dir().join(format!(
-            "kittui-ghostty-manifest-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(ghostty_manifest_test_dir_name(std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let frame_path = dir.join("frame-000.png");
