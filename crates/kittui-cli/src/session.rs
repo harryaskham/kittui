@@ -4145,8 +4145,11 @@ fn native_route_mouse_event(
             if let Some(idx) =
                 native_pane_chrome_at_host_cell_ordered(&layouts, col, row, topmost_first)
             {
+                let title_hit =
+                    native_pane_title_at_host_cell_ordered(&layouts, col, row, topmost_first)
+                        == Some(idx);
                 let target = native_focus_or_raise_for_mouse(panes, focused, idx, mode)?;
-                if event_name == "press-left" {
+                if event_name == "press-left" && title_hit {
                     if matches!(mode, NativePaneLayoutMode::Floating) {
                         if let Some(pane) = panes.get(target) {
                             *floating_drag = Some(NativeFloatingDrag {
@@ -4396,6 +4399,25 @@ fn native_pane_chrome_at_host_cell_ordered(
         let within_cols = col0 >= layout.x && col0 < layout.x.saturating_add(layout.cols);
         let within_rows = row0 >= layout.y && row0 < layout.y.saturating_add(layout.rows);
         within_cols && within_rows
+    };
+    if topmost_first {
+        (0..layouts.len()).rev().find(|idx| hit(&layouts[*idx]))
+    } else {
+        layouts.iter().position(hit)
+    }
+}
+
+fn native_pane_title_at_host_cell_ordered(
+    layouts: &[NativePaneLayout],
+    host_col: u16,
+    host_row: u16,
+    topmost_first: bool,
+) -> Option<usize> {
+    let col0 = host_col.checked_sub(1)?;
+    let row0 = host_row.checked_sub(1)?;
+    let hit = |layout: &NativePaneLayout| {
+        let within_cols = col0 >= layout.x && col0 < layout.x.saturating_add(layout.cols);
+        within_cols && row0 == layout.y
     };
     if topmost_first {
         (0..layouts.len()).rev().find(|idx| hit(&layouts[*idx]))
@@ -8967,6 +8989,56 @@ mod native_pane_tests {
     }
 
     #[test]
+    fn native_route_mouse_does_not_drag_tiled_bottom_chrome() {
+        let mut panes = vec![
+            dummy_native_pane("native-1", "left", 1),
+            dummy_native_pane("native-2", "right", 1),
+        ];
+        let mut focused = 0usize;
+        let mut clear = false;
+        let mut tiled_drag = None;
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        let layouts = native_layouts_for_panes_display_mode_with_offsets(
+            80,
+            24,
+            &panes,
+            focused,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Tiled,
+            &reservation,
+            &HashMap::new(),
+        );
+        let bottom_row = layouts[0]
+            .y
+            .saturating_add(layouts[0].rows.saturating_sub(1))
+            .saturating_add(1);
+
+        assert!(native_route_mouse_event(
+            &InputEvent::MousePress {
+                col: layouts[0].x + 2,
+                row: bottom_row,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Tiled,
+            &reservation,
+            &mut HashMap::new(),
+            &mut None,
+            &mut tiled_drag,
+            &mut clear,
+        )
+        .unwrap());
+        assert_eq!(focused, 0);
+        assert!(tiled_drag.is_none());
+        assert!(clear);
+    }
+
+    #[test]
     fn native_route_mouse_uses_fullscreen_layout_for_visible_pane() {
         let mut panes = vec![
             dummy_native_pane("native-1", "left", 1),
@@ -9203,6 +9275,54 @@ mod native_pane_tests {
         )
         .unwrap());
         assert!(drag.is_none());
+    }
+
+    #[test]
+    fn native_route_mouse_does_not_drag_floating_bottom_chrome() {
+        let mut panes = vec![dummy_native_pane("native-1", "float", 1)];
+        let mut focused = 0usize;
+        let mut clear = false;
+        let reservation = crate::daemon::NativeChromeReservationConfig::default();
+        let mut offsets = HashMap::new();
+        let mut drag = None;
+        let layouts = native_layouts_for_panes_display_mode_with_offsets(
+            80,
+            24,
+            &panes,
+            focused,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+            &offsets,
+        );
+        let bottom_row = layouts[0]
+            .y
+            .saturating_add(layouts[0].rows.saturating_sub(1))
+            .saturating_add(1);
+
+        assert!(native_route_mouse_event(
+            &InputEvent::MousePress {
+                col: layouts[0].x + 1,
+                row: bottom_row,
+                button: MouseButton::Left,
+                mods: Default::default(),
+            },
+            &mut panes,
+            &mut focused,
+            80,
+            24,
+            NativePaneLayoutAxis::Columns,
+            NativePaneLayoutMode::Floating,
+            &reservation,
+            &mut offsets,
+            &mut drag,
+            &mut None,
+            &mut clear,
+        )
+        .unwrap());
+        assert!(drag.is_none());
+        assert!(offsets.is_empty());
+        assert!(clear);
     }
 
     #[test]
