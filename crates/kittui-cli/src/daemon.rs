@@ -2727,15 +2727,12 @@ fn native_spawn_wait_reply(
                 "MATCH_TEXT"
             };
             if json {
-                return format!(
-                    "{}\n",
-                    serde_json::json!({
-                        "kind": if include_scrollback { "output" } else { "text" },
-                        "match": match_tag,
-                        "window": window,
-                        "bytes": text.len(),
-                    })
-                );
+                return json_value_line(&serde_json::json!({
+                    "kind": if include_scrollback { "output" } else { "text" },
+                    "match": match_tag,
+                    "window": window,
+                    "bytes": text.len(),
+                }));
             }
             return wait_match_reply(match_tag, &window, text.len());
         }
