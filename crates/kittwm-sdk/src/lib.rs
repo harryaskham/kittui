@@ -2457,12 +2457,12 @@ impl NativePaneDetail {
 
     /// Whether the pane title drag handle reports a tiled reorder interaction.
     pub fn title_drag_reorders_pane(&self) -> bool {
-        self.parsed_title_drag_kind() == Some(TitleDragKind::Reorder)
+        title_drag_kind_matches(self.title_drag_kind(), "reorder")
     }
 
     /// Whether the pane title drag handle reports a floating reposition interaction.
     pub fn title_drag_repositions_pane(&self) -> bool {
-        self.parsed_title_drag_kind() == Some(TitleDragKind::Reposition)
+        title_drag_kind_matches(self.title_drag_kind(), "reposition")
     }
 
     /// Visible title-row marker prefix for this pane in the given layout label.
@@ -3031,6 +3031,10 @@ fn normalized_layout_str(value: Option<&str>) -> Option<&str> {
 }
 
 fn layout_label_matches(value: Option<&str>, expected: &str) -> bool {
+    value.is_some_and(|value| value.eq_ignore_ascii_case(expected))
+}
+
+fn title_drag_kind_matches(value: Option<&str>, expected: &str) -> bool {
     value.is_some_and(|value| value.eq_ignore_ascii_case(expected))
 }
 
@@ -5738,6 +5742,15 @@ mod tests {
         );
         assert!(!unknown_kind.title_drag_reorders_pane());
         assert!(!unknown_kind.title_drag_repositions_pane());
+
+        let mut mixed_case_kind = base.clone();
+        mixed_case_kind.title_drag_kind = Some("RePosition".to_string());
+        assert!(!matches!(
+            mixed_case_kind.parsed_title_drag_kind(),
+            Some(TitleDragKind::Reposition)
+        ));
+        assert!(!mixed_case_kind.title_drag_reorders_pane());
+        assert!(mixed_case_kind.title_drag_repositions_pane());
 
         let mut not_draggable = base.clone();
         not_draggable.title_draggable = Some(false);
