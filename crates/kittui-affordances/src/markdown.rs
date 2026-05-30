@@ -422,7 +422,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     } else {
                         image_alt.trim().to_string()
                     };
-                    let placeholder = format!("image: {alt} -> {url}");
+                    let placeholder = image_placeholder_text(&alt, &url);
                     let title = image_title.take();
                     out.images.push(MarkdownImage { alt, url, title });
                     if in_table {
@@ -813,6 +813,15 @@ fn flush_list_item(
     ));
 }
 
+fn image_placeholder_text(alt: &str, url: &str) -> String {
+    let mut placeholder = String::with_capacity("image:  -> ".len() + alt.len() + url.len());
+    placeholder.push_str("image: ");
+    placeholder.push_str(alt);
+    placeholder.push_str(" -> ");
+    placeholder.push_str(url);
+    placeholder
+}
+
 fn code_block_text(label: &str, text: &str) -> String {
     let mut block = String::with_capacity("code:\n".len() + label.len() + text.len());
     block.push_str("code:");
@@ -976,6 +985,13 @@ mod tests {
                 MarkdownTableAlignment::Right,
             ]
         );
+    }
+
+    #[test]
+    fn image_placeholder_text_builds_directly() {
+        let placeholder = image_placeholder_text("kittui logo", "assets/logo.png");
+        assert_eq!(placeholder, "image: kittui logo -> assets/logo.png");
+        assert!(placeholder.capacity() >= placeholder.len());
     }
 
     #[test]
