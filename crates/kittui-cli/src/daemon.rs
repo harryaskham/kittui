@@ -2551,6 +2551,16 @@ fn native_spawn_wait_output_json_ms_reply(
     native_spawn_wait_ms_reply(pending, rest, "WAIT_OUTPUT_JSON_MS", true, true)
 }
 
+fn wait_ms_requires_args_reply(verb: &str) -> String {
+    let mut out = String::with_capacity(
+        "ERR  requires window, milliseconds, and needle\n".len() + verb.len(),
+    );
+    out.push_str("ERR ");
+    out.push_str(verb);
+    out.push_str(" requires window, milliseconds, and needle\n");
+    out
+}
+
 fn native_spawn_wait_ms_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
@@ -2559,10 +2569,10 @@ fn native_spawn_wait_ms_reply(
     json: bool,
 ) -> String {
     let Some((target, rest)) = rest.trim_start().split_once(' ') else {
-        return format!("ERR {verb} requires window, milliseconds, and needle\n");
+        return wait_ms_requires_args_reply(verb);
     };
     let Some((ms, needle)) = rest.trim_start().split_once(' ') else {
-        return format!("ERR {verb} requires window, milliseconds, and needle\n");
+        return wait_ms_requires_args_reply(verb);
     };
     let Ok(ms) = ms.trim().parse::<u64>() else {
         return format!("ERR {verb} milliseconds must be an integer\n");
@@ -3903,6 +3913,16 @@ mod tests {
         let arg = space_pair_arg("focused", "second line");
         assert_eq!(arg, "focused second line");
         assert_eq!(arg.capacity(), arg.len());
+    }
+
+    #[test]
+    fn wait_ms_requires_args_reply_builds_directly() {
+        let reply = wait_ms_requires_args_reply("WAIT_TEXT_MS");
+        assert_eq!(
+            reply,
+            "ERR WAIT_TEXT_MS requires window, milliseconds, and needle\n"
+        );
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
