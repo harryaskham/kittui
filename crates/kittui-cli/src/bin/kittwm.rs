@@ -8992,6 +8992,22 @@ kittwm_remote_desktop_localized_values() {
     desktop=$2
     awk -F= -v key="$key" '$1 ~ "^" key "\\[[^]]+\\]$" { print substr($0, index($0, "=") + 1) }' "$desktop" 2>/dev/null | tr '\n' ';'
 }
+kittwm_remote_try_exec_token() {
+    value=$1
+    case "$value" in
+        \"*) printf '%s\n' "$value" | sed -E 's/^"(([^"\\]|\\.)*)".*/\1/; s/\\"/"/g; s/\\\\/\\/g' ;;
+        \'*) printf '%s\n' "$value" | sed -E "s/^'([^']*)'.*/\\1/" ;;
+        *) printf '%s\n' "$value" | awk '{ print $1 }' ;;
+    esac
+}
+kittwm_remote_try_exec_available() {
+    token=$(kittwm_remote_try_exec_token "$1")
+    [ -n "$token" ] || return 1
+    case "$token" in
+        */*) [ -x "$token" ] ;;
+        *) command -v "$token" >/dev/null 2>&1 ;;
+    esac
+}
 kittwm_remote_linux_desktop_roots() {
     printf '%s\n' "${XDG_DATA_HOME:-$HOME/.local/share}/applications"
     old_ifs=$IFS
@@ -9014,7 +9030,7 @@ kittwm_remote_list_linux_desktop_apps() {
             try_exec=$(awk -F= '$1 == "TryExec" { print $2; exit }' "$desktop" 2>/dev/null)
             [ -n "$only_show_in" ] && ! kittwm_remote_desktop_field_matches "$only_show_in" && continue
             [ -n "$not_show_in" ] && kittwm_remote_desktop_field_matches "$not_show_in" && continue
-            [ -n "$try_exec" ] && ! command -v "$try_exec" >/dev/null 2>&1 && continue
+            [ -n "$try_exec" ] && ! kittwm_remote_try_exec_available "$try_exec" && continue
             id=$(basename "$desktop" .desktop)
             name=$(awk -F= '$1 == "Name" { print substr($0, index($0, "=") + 1); exit }' "$desktop" 2>/dev/null)
             localized_names=$(kittwm_remote_desktop_localized_values Name "$desktop")
@@ -13852,6 +13868,12 @@ mod tests {
         assert!(script.contains("$1 == \"OnlyShowIn\""), "{script}");
         assert!(script.contains("$1 == \"NotShowIn\""), "{script}");
         assert!(script.contains("$1 == \"TryExec\""), "{script}");
+        assert!(script.contains("kittwm_remote_try_exec_token"), "{script}");
+        assert!(
+            script.contains("kittwm_remote_try_exec_available"),
+            "{script}"
+        );
+        assert!(script.contains("[ -x \"$token\" ]"), "{script}");
         assert!(script.contains("XDG_CURRENT_DESKTOP"), "{script}");
         assert!(script.contains("desktop_file="), "{script}");
         assert!(script.contains("desktop_exec="), "{script}");
