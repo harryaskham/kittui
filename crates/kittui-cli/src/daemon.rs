@@ -976,6 +976,8 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "SESSION_JSON" => native_spawn_session_json_reply(pending),
         "APPS" => apps_reply(50),
         "APPS_JSON" => apps_json_reply(50),
+        "APPS_FIRST" => apps_first_reply("", false),
+        "APPS_LAUNCH_FIRST" => apps_first_reply("", true),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
         _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows|grid> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | NUDGE_PANE <window|focused> <dx> <dy> | RESET_PANE_OFFSET <window|focused> | RESET_ALL_PANE_OFFSETS | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | SPLIT_PANE <window|focused> <columns|rows|grid> <cmd> | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | RESERVE_CHROME_JSON <json> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | PING | HELP | HELP_JSON\n"
@@ -5342,6 +5344,21 @@ mod tests {
         assert!(reply.starts_with("ERR expected "), "{reply}");
         assert!(reply.contains("APPS_FIRST <query>"), "{reply}");
         assert!(reply.contains("APPS_LAUNCH_FIRST <query>"), "{reply}");
+    }
+
+    #[test]
+    fn native_spawn_bare_apps_first_returns_clean_error() {
+        // Consistency with the standalone daemon: bare APPS_FIRST/APPS_LAUNCH_FIRST
+        // return a recognized requires-query error rather than the full help dump.
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        assert_eq!(
+            native_spawn_queue_reply("APPS_FIRST", &pending),
+            "ERR APPS_FIRST requires a query\n"
+        );
+        assert_eq!(
+            native_spawn_queue_reply("APPS_LAUNCH_FIRST", &pending),
+            "ERR APPS_FIRST requires a query\n"
+        );
     }
 
     #[test]
