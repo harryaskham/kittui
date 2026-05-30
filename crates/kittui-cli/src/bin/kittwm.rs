@@ -3123,6 +3123,7 @@ fn remote_doctor_cmd(host: &str, json: bool, graphical: bool) -> Result<()> {
             "KITTWM_REMOTE_DOCTOR_GRAPHICAL".to_string(),
             if graphical { "1" } else { "0" }.to_string(),
         ),
+        ("KITTWM_REMOTE_TARGET".to_string(), host.to_string()),
     ];
     let args = if graphical {
         pooled_ssh_args_with_forwarding(host, &env, remote_doctor_script(), true)?
@@ -3142,6 +3143,7 @@ fn remote_doctor_cmd(host: &str, json: bool, graphical: bool) -> Result<()> {
 
 fn remote_doctor_script() -> &'static str {
     r#"host=$(hostname 2>/dev/null || printf unknown)
+command_host=${KITTWM_REMOTE_TARGET:-$host}
 term=${TERM:-}
 term_program=${TERM_PROGRAM:-}
 ssh_tty=${SSH_TTY:-}
@@ -3167,11 +3169,11 @@ else
     kittwm_startup_check="kittwm not found"
 fi
 if [ "${KITTWM_REMOTE_DOCTOR_JSON:-0}" = "1" ]; then
-    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"graphical_check":%s,"display":%s,"wayland_display":%s,"x11_forwarding_available":%s,"waypipe_available":%s,"waypipe_path":%s,"kittwm_available":%s,"kittwm_healthy":%s,"kittwm_path":%s,"startup_check":%s,"local_commands":[%s,%s,%s,%s,%s,%s,%s],"fallback_commands":[%s,%s,%s,%s,%s,%s,%s,%s],"terminal_commands":[%s,%s]}\n' \
-        "$(json_string "$host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ "$graphical" = "1" ] && printf true || printf false)" "$(json_string "$display")" "$(json_string "$wayland_display")" "$([ -n "$display" ] && printf true || printf false)" "$([ -n "$waypipe_path" ] && printf true || printf false)" "$(json_string "$waypipe_path")" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$kittwm_healthy" "$(json_string "$kittwm_path")" "$(json_string "$kittwm_startup_check")" \
-        "$(json_string "kittwm remote $host kittwm")" "$(json_string "kittwm remote $host graphical")" "$(json_string "kittwm remote $host list")" "$(json_string "kittwm remote $host list apps firefox")" "$(json_string "kittwm remote $host launch firefox")" "$(json_string "kittwm remote $host list windows")" "$(json_string "kittwm remote $host list displays")" \
-        "$(json_string "kittwm remote $host fallback apps firefox")" "$(json_string "kittwm remote $host fallback launch firefox")" "$(json_string "kittwm remote $host fallback windows firefox")" "$(json_string "kittwm remote $host fallback displays retina")" "$(json_string "kittwm remote $host apps firefox --fallback")" "$(json_string "kittwm remote $host launch firefox --fallback")" "$(json_string "kittwm remote $host list windows --fallback")" "$(json_string "kittwm remote $host list displays --fallback")" \
-        "$(json_string "kittwm remote $host shell")" "$(json_string "kittwm remote $host terminal htop")"
+    printf '{"host":%s,"target_host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"graphical_check":%s,"display":%s,"wayland_display":%s,"x11_forwarding_available":%s,"waypipe_available":%s,"waypipe_path":%s,"kittwm_available":%s,"kittwm_healthy":%s,"kittwm_path":%s,"startup_check":%s,"local_commands":[%s,%s,%s,%s,%s,%s,%s],"fallback_commands":[%s,%s,%s,%s,%s,%s,%s,%s],"terminal_commands":[%s,%s]}\n' \
+        "$(json_string "$host")" "$(json_string "$command_host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ "$graphical" = "1" ] && printf true || printf false)" "$(json_string "$display")" "$(json_string "$wayland_display")" "$([ -n "$display" ] && printf true || printf false)" "$([ -n "$waypipe_path" ] && printf true || printf false)" "$(json_string "$waypipe_path")" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$kittwm_healthy" "$(json_string "$kittwm_path")" "$(json_string "$kittwm_startup_check")" \
+        "$(json_string "kittwm remote $command_host kittwm")" "$(json_string "kittwm remote $command_host graphical")" "$(json_string "kittwm remote $command_host list")" "$(json_string "kittwm remote $command_host list apps firefox")" "$(json_string "kittwm remote $command_host launch firefox")" "$(json_string "kittwm remote $command_host list windows")" "$(json_string "kittwm remote $command_host list displays")" \
+        "$(json_string "kittwm remote $command_host fallback apps firefox")" "$(json_string "kittwm remote $command_host fallback launch firefox")" "$(json_string "kittwm remote $command_host fallback windows firefox")" "$(json_string "kittwm remote $command_host fallback displays retina")" "$(json_string "kittwm remote $command_host apps firefox --fallback")" "$(json_string "kittwm remote $command_host launch firefox --fallback")" "$(json_string "kittwm remote $command_host list windows --fallback")" "$(json_string "kittwm remote $command_host list displays --fallback")" \
+        "$(json_string "kittwm remote $command_host shell")" "$(json_string "kittwm remote $command_host terminal htop")"
     exit 0
 fi
 printf 'kittwm remote doctor\n=====================\n'
@@ -3207,23 +3209,24 @@ else
     printf 'remote kittwm  : not found\n'
     printf 'suggestion     : use local kittwm pooled-SSH forwarding commands\n'
 fi
-printf 'local commands : kittwm remote %s kittwm\n' "$host"
-printf '               : kittwm remote %s graphical\n' "$host"
-printf '               : kittwm remote %s list\n' "$host"
-printf '               : kittwm remote %s list apps firefox\n' "$host"
-printf '               : kittwm remote %s launch firefox\n' "$host"
-printf '               : kittwm remote %s list windows\n' "$host"
-printf '               : kittwm remote %s list displays\n' "$host"
-printf 'fallback cmds  : kittwm remote %s fallback apps firefox\n' "$host"
-printf '               : kittwm remote %s fallback launch firefox\n' "$host"
-printf '               : kittwm remote %s fallback windows firefox\n' "$host"
-printf '               : kittwm remote %s fallback displays retina\n' "$host"
-printf '               : kittwm remote %s apps firefox --fallback\n' "$host"
-printf '               : kittwm remote %s launch firefox --fallback\n' "$host"
-printf '               : kittwm remote %s list windows --fallback\n' "$host"
-printf '               : kittwm remote %s list displays --fallback\n' "$host"
-printf 'terminal cmds  : kittwm remote %s shell\n' "$host"
-printf '               : kittwm remote %s terminal htop\n' "$host"
+printf 'target host    : %s\n' "$command_host"
+printf 'local commands : kittwm remote %s kittwm\n' "$command_host"
+printf '               : kittwm remote %s graphical\n' "$command_host"
+printf '               : kittwm remote %s list\n' "$command_host"
+printf '               : kittwm remote %s list apps firefox\n' "$command_host"
+printf '               : kittwm remote %s launch firefox\n' "$command_host"
+printf '               : kittwm remote %s list windows\n' "$command_host"
+printf '               : kittwm remote %s list displays\n' "$command_host"
+printf 'fallback cmds  : kittwm remote %s fallback apps firefox\n' "$command_host"
+printf '               : kittwm remote %s fallback launch firefox\n' "$command_host"
+printf '               : kittwm remote %s fallback windows firefox\n' "$command_host"
+printf '               : kittwm remote %s fallback displays retina\n' "$command_host"
+printf '               : kittwm remote %s apps firefox --fallback\n' "$command_host"
+printf '               : kittwm remote %s launch firefox --fallback\n' "$command_host"
+printf '               : kittwm remote %s list windows --fallback\n' "$command_host"
+printf '               : kittwm remote %s list displays --fallback\n' "$command_host"
+printf 'terminal cmds  : kittwm remote %s shell\n' "$command_host"
+printf '               : kittwm remote %s terminal htop\n' "$command_host"
 "#
 }
 
@@ -13481,31 +13484,33 @@ mod tests {
         assert!(script.contains("kittwm doctor --json"), "{script}");
         assert!(script.contains("kittwm_healthy"), "{script}");
         assert!(script.contains("startup_check"), "{script}");
+        assert!(script.contains("target_host"), "{script}");
+        assert!(script.contains("KITTWM_REMOTE_TARGET"), "{script}");
         assert!(script.contains("local_commands"), "{script}");
         assert!(script.contains("fallback_commands"), "{script}");
         assert!(script.contains("terminal_commands"), "{script}");
         assert!(
-            script.contains("kittwm remote $host list apps firefox"),
+            script.contains("kittwm remote $command_host list apps firefox"),
             "{script}"
         );
         assert!(
-            script.contains("kittwm remote $host launch firefox"),
+            script.contains("kittwm remote $command_host launch firefox"),
             "{script}"
         );
         assert!(
-            script.contains("kittwm remote $host fallback apps firefox"),
+            script.contains("kittwm remote $command_host fallback apps firefox"),
             "{script}"
         );
         assert!(
-            script.contains("kittwm remote $host fallback launch firefox"),
+            script.contains("kittwm remote $command_host fallback launch firefox"),
             "{script}"
         );
         assert!(
-            script.contains("kittwm remote $host list windows --fallback"),
+            script.contains("kittwm remote $command_host list windows --fallback"),
             "{script}"
         );
         assert!(
-            script.contains("kittwm remote $host terminal htop"),
+            script.contains("kittwm remote $command_host terminal htop"),
             "{script}"
         );
         assert!(script.contains("DISPLAY"), "{script}");
@@ -13547,11 +13552,18 @@ mod tests {
         );
         let args = pooled_ssh_args(
             "host.example",
-            &[("KITTWM_REMOTE_DOCTOR_JSON".to_string(), "1".to_string())],
+            &[
+                ("KITTWM_REMOTE_DOCTOR_JSON".to_string(), "1".to_string()),
+                (
+                    "KITTWM_REMOTE_TARGET".to_string(),
+                    "host.example".to_string(),
+                ),
+            ],
             script,
         )
         .unwrap();
         assert!(args.contains(&"KITTWM_REMOTE_DOCTOR_JSON=1".to_string()));
+        assert!(args.contains(&"KITTWM_REMOTE_TARGET=host.example".to_string()));
         assert!(args.contains(&"host.example".to_string()));
         let x11_args = pooled_ssh_args_with_forwarding(
             "host.example",
