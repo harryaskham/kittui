@@ -2119,13 +2119,23 @@ fn native_ctrl_key_bytes(normalized: &str) -> Option<Vec<u8>> {
     Some(vec![(ch.to_ascii_lowercase() as u8) & 0x1f])
 }
 
+fn reserve_chrome_invalid_json_reply(err: &serde_json::Error) -> String {
+    let err = err.to_string();
+    let mut out =
+        String::with_capacity("ERR RESERVE_CHROME_JSON invalid json: \n".len() + err.len());
+    out.push_str("ERR RESERVE_CHROME_JSON invalid json: ");
+    out.push_str(&err);
+    out.push('\n');
+    out
+}
+
 fn native_reserve_chrome_json_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
 ) -> String {
     let mut reservation: NativeChromeReservationConfig = match serde_json::from_str(rest.trim()) {
         Ok(value) => value,
-        Err(err) => return format!("ERR RESERVE_CHROME_JSON invalid json: {err}\n"),
+        Err(err) => return reserve_chrome_invalid_json_reply(&err),
     };
     reservation.top_bar_rows = reservation.top_bar_rows.min(20);
     reservation.bottom_bar_rows = reservation.bottom_bar_rows.min(20);
@@ -5022,6 +5032,17 @@ mod tests {
         state.workspace = Some("   ".to_string());
         assert_eq!(native_workspace_id_for_state(&state), "env");
         std::env::remove_var("KITTWM_WORKSPACE");
+    }
+
+    #[test]
+    fn reserve_chrome_invalid_json_reply_builds_directly() {
+        let err = serde_json::from_str::<NativeChromeReservationConfig>("{").unwrap_err();
+        let reply = reserve_chrome_invalid_json_reply(&err);
+        assert!(
+            reply.starts_with("ERR RESERVE_CHROME_JSON invalid json: EOF while parsing"),
+            "{reply}"
+        );
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
