@@ -4750,8 +4750,20 @@ fn percent_encode(input: &str) -> String {
     out
 }
 
+fn devtools_new_target_endpoint(port: u16, encoded_url: &str) -> String {
+    let mut endpoint = String::with_capacity(
+        "http://127.0.0.1:/json/new?".len() + decimal_len(u64::from(port)) + encoded_url.len(),
+    );
+    endpoint.push_str("http://127.0.0.1:");
+    write!(endpoint, "{port}").expect("write to string");
+    endpoint.push_str("/json/new?");
+    endpoint.push_str(encoded_url);
+    endpoint
+}
+
 fn create_target(port: u16, url: &str) -> Result<serde_json::Value> {
-    let endpoint = format!("http://127.0.0.1:{port}/json/new?{}", percent_encode(url));
+    let encoded_url = percent_encode(url);
+    let endpoint = devtools_new_target_endpoint(port, &encoded_url);
     let agent = ureq::AgentBuilder::new()
         .timeout(devtools_http_timeout())
         .build();
@@ -5718,6 +5730,17 @@ mod tests {
         );
         assert_eq!(encoded.capacity(), encoded.len());
         assert_eq!(percent_encoded_len("azAZ09-_.~"), 10);
+    }
+
+    #[test]
+    fn devtools_new_target_endpoint_builds_directly() {
+        let encoded = percent_encode("https://example.test/a b");
+        let endpoint = devtools_new_target_endpoint(9222, &encoded);
+        assert_eq!(
+            endpoint,
+            "http://127.0.0.1:9222/json/new?https%3A%2F%2Fexample.test%2Fa%20b"
+        );
+        assert_eq!(endpoint.capacity(), endpoint.len());
     }
 
     #[test]
