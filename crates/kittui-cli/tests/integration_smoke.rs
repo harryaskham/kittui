@@ -8,7 +8,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use kittui::scene::builders::simple_solid_box;
-use kittui::{RendererKind, Runtime};
+use kittui::{CellSize, RendererKind, Runtime, TerminalInfo, Transport};
 
 fn unique_tmp(label: &str) -> std::path::PathBuf {
     static C: AtomicU64 = AtomicU64::new(0);
@@ -28,6 +28,17 @@ fn workspace_smoke_renders_box_and_emits_kitty_grammar() {
     let runtime = Runtime::builder()
         .cache_dir(unique_tmp("smoke"))
         .renderer(RendererKind::Cpu)
+        // Pin Direct transport so the asserted Direct-grammar is deterministic
+        // regardless of the ambient terminal (e.g. running inside tmux, which
+        // would otherwise wrap placements in tmux passthrough).
+        .terminal(TerminalInfo::override_with(
+            Some(80),
+            Some(24),
+            CellSize::default(),
+            true,
+            true,
+            Transport::Direct,
+        ))
         .build()
         .unwrap();
     let scene = simple_solid_box(4, 2, "#00d8ff");
