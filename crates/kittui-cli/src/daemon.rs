@@ -2779,13 +2779,24 @@ fn native_spawn_read_text_reply(
         return read_text_no_pane_reply(target);
     };
     let text = pane.text_snapshot.as_deref().unwrap_or("");
-    format!(
-        "TEXT window={} bytes={} cursor={}\n{}END\n",
-        pane.window,
-        text.len(),
-        native_pane_cursor_label(pane),
-        text
-    )
+    let cursor = native_pane_cursor_label(pane);
+    let mut out = String::with_capacity(
+        "TEXT window= bytes= cursor=\nEND\n".len()
+            + pane.window.len()
+            + usize_decimal_len(text.len())
+            + cursor.len()
+            + text.len(),
+    );
+    out.push_str("TEXT window=");
+    out.push_str(&pane.window);
+    out.push_str(" bytes=");
+    write!(out, "{}", text.len()).expect("write to string");
+    out.push_str(" cursor=");
+    out.push_str(&cursor);
+    out.push('\n');
+    out.push_str(text);
+    out.push_str("END\n");
+    out
 }
 
 fn native_spawn_read_text_json_reply(
@@ -2798,15 +2809,12 @@ fn native_spawn_read_text_json_reply(
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
         return read_json_no_pane_reply(target);
     };
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "window": pane.window,
-            "text": pane.text_snapshot.as_deref().unwrap_or(""),
-            "cursor_col": pane.cursor_col,
-            "cursor_row": pane.cursor_row,
-        })
-    )
+    json_value_line(&serde_json::json!({
+        "window": pane.window,
+        "text": pane.text_snapshot.as_deref().unwrap_or(""),
+        "cursor_col": pane.cursor_col,
+        "cursor_row": pane.cursor_row,
+    }))
 }
 
 fn native_spawn_read_scrollback_reply(
@@ -2820,12 +2828,20 @@ fn native_spawn_read_scrollback_reply(
         return read_scrollback_no_pane_reply(target);
     };
     let text = pane.scrollback_snapshot.as_deref().unwrap_or("");
-    format!(
-        "SCROLLBACK window={} bytes={}\n{}END\n",
-        pane.window,
-        text.len(),
-        text
-    )
+    let mut out = String::with_capacity(
+        "SCROLLBACK window= bytes=\nEND\n".len()
+            + pane.window.len()
+            + usize_decimal_len(text.len())
+            + text.len(),
+    );
+    out.push_str("SCROLLBACK window=");
+    out.push_str(&pane.window);
+    out.push_str(" bytes=");
+    write!(out, "{}", text.len()).expect("write to string");
+    out.push('\n');
+    out.push_str(text);
+    out.push_str("END\n");
+    out
 }
 
 fn native_spawn_read_scrollback_json_reply(
@@ -2838,13 +2854,10 @@ fn native_spawn_read_scrollback_json_reply(
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
         return read_json_no_pane_reply(target);
     };
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "window": pane.window,
-            "scrollback": pane.scrollback_snapshot.as_deref().unwrap_or(""),
-        })
-    )
+    json_value_line(&serde_json::json!({
+        "window": pane.window,
+        "scrollback": pane.scrollback_snapshot.as_deref().unwrap_or(""),
+    }))
 }
 
 fn native_spawn_semantic_snapshot_reply(
