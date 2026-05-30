@@ -1396,6 +1396,22 @@ mod tests {
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Run `f` with `KITTUI_KITTY_COMPRESSION=none` under `ENV_LOCK`, restoring
+    /// the prior value afterwards. Compression-default is zlib, and other tests
+    /// mutate this process-global var, so grammar tests that assert uncompressed
+    /// payloads must pin it themselves to stay order-independent.
+    fn with_compression_none<R>(f: impl FnOnce() -> R) -> R {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let prior = std::env::var("KITTUI_KITTY_COMPRESSION").ok();
+        std::env::set_var("KITTUI_KITTY_COMPRESSION", "none");
+        let out = f();
+        match prior {
+            Some(value) => std::env::set_var("KITTUI_KITTY_COMPRESSION", value),
+            None => std::env::remove_var("KITTUI_KITTY_COMPRESSION"),
+        }
+        out
+    }
+
     #[test]
     fn chunked_upload_header_builds_directly() {
         let header = chunked_upload_header(
@@ -1413,22 +1429,26 @@ mod tests {
 
     #[test]
     fn upload_still_emits_exact_grammar() {
-        let escapes = upload_still(0xABCD, b"hello kittui", Transport::Direct);
-        // Single chunk: complete from `\x1b_G` to `\x1b\\`.
-        assert_eq!(
-            escapes,
-            "\x1b_Ga=t,f=100,i=43981,m=0,q=2;aGVsbG8ga2l0dHVp\x1b\\"
-        );
+        with_compression_none(|| {
+            let escapes = upload_still(0xABCD, b"hello kittui", Transport::Direct);
+            // Single chunk: complete from `\x1b_G` to `\x1b\\`.
+            assert_eq!(
+                escapes,
+                "\x1b_Ga=t,f=100,i=43981,m=0,q=2;aGVsbG8ga2l0dHVp\x1b\\"
+            );
+        });
     }
 
     #[test]
     fn upload_still_multi_chunk_starts_first_with_verb_and_rest_with_m() {
-        let big = vec![0u8; 4096]; // base64 → 5464 chars, two chunks
-        let escapes = upload_still(1, &big, Transport::Direct);
-        assert!(escapes.starts_with("\x1b_Ga=t,f=100,i=1,m=1,q=2;"));
-        // Second chunk header is the bare `m=0` continuation.
-        assert!(escapes.contains("\x1b\\\x1b_Gm=0;"));
-        assert!(escapes.ends_with("\x1b\\"));
+        with_compression_none(|| {
+            let big = vec![0u8; 4096]; // base64 → 5464 chars, two chunks
+            let escapes = upload_still(1, &big, Transport::Direct);
+            assert!(escapes.starts_with("\x1b_Ga=t,f=100,i=1,m=1,q=2;"));
+            // Second chunk header is the bare `m=0` continuation.
+            assert!(escapes.contains("\x1b\\\x1b_Gm=0;"));
+            assert!(escapes.ends_with("\x1b\\"));
+        });
     }
 
     #[test]
@@ -1546,41 +1566,45 @@ mod tests {
 
     #[test]
     fn animated_upload_uses_a_t_then_a_f_then_control() {
-        let frames = vec![vec![1u8; 8], vec![2u8; 8], vec![3u8; 8]];
-        let delays = vec![100, 200, 300];
-        let escapes = upload_animation(0x42, &frames, &delays, 0, Transport::Direct);
-        // First frame uses a=t without redundant r=1; second/third use a=f with r=2,r=3.
-        // Per-frame delays live on the frame upload commands via z=<ms>.
-        assert!(escapes.contains("\x1b_Ga=t,f=100,i=66,m=0,z=100,q=2;"));
-        assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=2,z=200,q=2;"));
-        assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=3,z=300,q=2;"));
-        // Loop forever => s=2, no v field, no c field. (bd-ad5957)
-        assert!(escapes.contains("\x1b_Ga=a,i=66,s=2,q=2\x1b\\"));
-        assert!(!escapes.contains("a=a,i=66,r=1,z="));
+        with_compression_none(|| {
+            let frames = vec![vec![1u8; 8], vec![2u8; 8], vec![3u8; 8]];
+            let delays = vec![100, 200, 300];
+            let escapes = upload_animation(0x42, &frames, &delays, 0, Transport::Direct);
+            // First frame uses a=t without redundant r=1; second/third use a=f with r=2,r=3.
+            // Per-frame delays live on the frame upload commands via z=<ms>.
+            assert!(escapes.contains("\x1b_Ga=t,f=100,i=66,m=0,z=100,q=2;"));
+            assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=2,z=200,q=2;"));
+            assert!(escapes.contains("\x1b_Ga=f,f=100,i=66,m=0,r=3,z=300,q=2;"));
+            // Loop forever => s=2, no v field, no c field. (bd-ad5957)
+            assert!(escapes.contains("\x1b_Ga=a,i=66,s=2,q=2\x1b\\"));
+            assert!(!escapes.contains("a=a,i=66,r=1,z="));
+        });
     }
 
     #[test]
     fn animation_frame_helper_uses_t_for_first_and_f_for_later_frames() {
-        let first = upload_animation_frame_ex(
-            5,
-            1,
-            b"first",
-            Some(33),
-            Quiet::SuppressAll,
-            Transport::Direct,
-        );
-        assert!(first.starts_with("\x1b_Ga=t,f=100,i=5,m=0,z=33,q=2;"));
-        assert!(!first.contains(",r=1,"));
+        with_compression_none(|| {
+            let first = upload_animation_frame_ex(
+                5,
+                1,
+                b"first",
+                Some(33),
+                Quiet::SuppressAll,
+                Transport::Direct,
+            );
+            assert!(first.starts_with("\x1b_Ga=t,f=100,i=5,m=0,z=33,q=2;"));
+            assert!(!first.contains(",r=1,"));
 
-        let second = upload_animation_frame_ex(
-            5,
-            2,
-            b"second",
-            Some(44),
-            Quiet::SuppressAll,
-            Transport::Direct,
-        );
-        assert!(second.starts_with("\x1b_Ga=f,f=100,i=5,m=0,r=2,z=44,q=2;"));
+            let second = upload_animation_frame_ex(
+                5,
+                2,
+                b"second",
+                Some(44),
+                Quiet::SuppressAll,
+                Transport::Direct,
+            );
+            assert!(second.starts_with("\x1b_Ga=f,f=100,i=5,m=0,r=2,z=44,q=2;"));
+        });
     }
 
     #[test]
@@ -1632,9 +1656,11 @@ mod tests {
 
     #[test]
     fn tmux_passthrough_wraps_each_payload_and_doubles_escapes() {
-        let escapes = upload_still(1, b"hi", Transport::TmuxPassthrough);
-        assert!(escapes.starts_with("\x1bPtmux;\x1b\x1b_Ga=t,f=100,i=1,m=0,q=2;"));
-        assert!(escapes.ends_with("\x1b\\"));
+        with_compression_none(|| {
+            let escapes = upload_still(1, b"hi", Transport::TmuxPassthrough);
+            assert!(escapes.starts_with("\x1bPtmux;\x1b\x1b_Ga=t,f=100,i=1,m=0,q=2;"));
+            assert!(escapes.ends_with("\x1b\\"));
+        });
     }
 
     #[test]
@@ -1859,26 +1885,28 @@ mod tests {
 
     #[test]
     fn upload_still_rgb_emits_f24_grammar_with_s_v_width_height() {
-        let rgb: Vec<u8> = vec![
-            0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
-        ];
-        let escapes = upload_still_rgb(0x1234, &rgb, 2, 2, Transport::Direct);
-        assert!(
-            escapes.starts_with("\x1b_Ga=t,f=24,s=2,v=2,i=4660,m=0,q=2;"),
-            "raw RGB upload must use f=24,s=W,v=H: prefix was {}",
-            &escapes[..escapes.len().min(60)]
-        );
-        assert!(escapes.ends_with("\x1b\\"));
-        assert!(!escapes.contains("PNG"));
-        let body = escapes
-            .split_once(';')
-            .unwrap()
-            .1
-            .trim_end_matches("\x1b\\");
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(body)
-            .unwrap();
-        assert_eq!(decoded, rgb);
+        with_compression_none(|| {
+            let rgb: Vec<u8> = vec![
+                0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
+            ];
+            let escapes = upload_still_rgb(0x1234, &rgb, 2, 2, Transport::Direct);
+            assert!(
+                escapes.starts_with("\x1b_Ga=t,f=24,s=2,v=2,i=4660,m=0,q=2;"),
+                "raw RGB upload must use f=24,s=W,v=H: prefix was {}",
+                &escapes[..escapes.len().min(60)]
+            );
+            assert!(escapes.ends_with("\x1b\\"));
+            assert!(!escapes.contains("PNG"));
+            let body = escapes
+                .split_once(';')
+                .unwrap()
+                .1
+                .trim_end_matches("\x1b\\");
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(body)
+                .unwrap();
+            assert_eq!(decoded, rgb);
+        });
     }
 
     #[test]
