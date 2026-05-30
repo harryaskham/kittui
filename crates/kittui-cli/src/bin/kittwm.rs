@@ -93,6 +93,7 @@ struct Cli {
     apps_filter: Option<String>,
     apps_first: bool,
     apps_launch_first: bool,
+    apps_force_fallback: bool,
     remote_host: Option<String>,
     status_scene_json: bool,
     status_kitty: bool,
@@ -1498,6 +1499,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            list remote app matches using a positional query\n\
              kittwm remote HOST apps firefox --json\n\
                                            structured remote app matches with counts\n\
+             kittwm remote HOST apps firefox --fallback\n\
+                                           skip remote kittwm and force pooled-SSH fallback discovery\n\
              kittwm remote HOST applications firefox\n\
                                            natural alias for remote HOST apps\n\
              kittwm remote HOST programs firefox\n\
@@ -1658,6 +1661,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                             alias for remote HOST list displays\n\
              remote HOST apps QUERY         list remote app matches with a positional query\n\
              remote HOST apps QUERY --json  structured remote app matches with counts\n\
+             remote HOST apps QUERY --fallback\n\
+                                            skip remote kittwm and force pooled-SSH fallback discovery\n\
              remote HOST applications QUERY alias for remote HOST apps QUERY\n\
              remote HOST programs QUERY     alias for remote HOST apps QUERY\n\
              remote HOST software QUERY     alias for remote HOST apps QUERY\n\
@@ -2149,6 +2154,7 @@ fn parse_remote_apps_flags(out: &mut Cli, flags: &[String]) -> Result<()> {
             }
             "--first" => out.apps_first = true,
             "--launch-first" => out.apps_launch_first = true,
+            "--fallback" => out.apps_force_fallback = true,
             "--" => {
                 query_terms.extend(iter.cloned());
                 break;
@@ -5096,6 +5102,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST apps QUERY --json",
             category: "remote",
             description: "list remote app matches as JSON",
+        },
+        LocalCommandEntry {
+            command: "remote HOST apps QUERY --fallback",
+            category: "remote",
+            description: "force pooled-SSH fallback app discovery",
         },
         LocalCommandEntry {
             command: "remote HOST applications QUERY",
@@ -8511,7 +8522,12 @@ fn remote_apps_cmd(cli: &Cli, host: &str) -> Result<()> {
     let mode = remote_apps_mode(cli);
     run_pooled_ssh_script(
         host,
-        &remote_apps_env(cli.apps_filter.as_deref(), limit, mode),
+        &remote_apps_env(
+            cli.apps_filter.as_deref(),
+            limit,
+            mode,
+            cli.apps_force_fallback,
+        ),
         remote_apps_script(),
         "remote apps",
         mode.requests_graphical_forwarding(),
@@ -8623,6 +8639,7 @@ fn remote_apps_env(
     query: Option<&str>,
     limit: usize,
     mode: RemoteAppsMode,
+    force_fallback: bool,
 ) -> Vec<(String, String)> {
     vec![
         (
@@ -8641,6 +8658,10 @@ fn remote_apps_env(
                 RemoteAppsMode::LaunchFirstJson => "launch-first-json",
             }
             .to_string(),
+        ),
+        (
+            "KITTWM_REMOTE_FORCE_FALLBACK".to_string(),
+            if force_fallback { "1" } else { "0" }.to_string(),
         ),
     ]
 }
@@ -8769,7 +8790,7 @@ kittwm_remote_emit_kittwm_output() {
         cat
     fi
 }
-if command -v kittwm >/dev/null 2>&1; then
+if [ "${KITTWM_REMOTE_FORCE_FALLBACK:-0}" != "1" ] && command -v kittwm >/dev/null 2>&1; then
     set -- apps --limit "${KITTWM_REMOTE_LIMIT:-50}"
     if [ -n "${KITTWM_REMOTE_QUERY:-}" ]; then set -- "$@" --filter "$KITTWM_REMOTE_QUERY"; fi
     case "${KITTWM_REMOTE_MODE:-list}" in
@@ -11765,6 +11786,9 @@ mod tests {
             entry["command"] == "remote HOST apps QUERY --json" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST apps QUERY --fallback" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST applications QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -12802,6 +12826,18 @@ mod tests {
         assert_eq!(software_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(software_query.apps_first);
 
+        let mut fallback_query = Cli::default();
+        fallback_query.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut fallback_query,
+            "apps",
+            &args(&["fire", "fox", "--fallback"]),
+        )
+        .unwrap();
+        assert!(fallback_query.apps);
+        assert_eq!(fallback_query.apps_filter.as_deref(), Some("fire fox"));
+        assert!(fallback_query.apps_force_fallback);
+
         let mut singular_app_query = Cli::default();
         singular_app_query.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut singular_app_query, "app", &args(&["fire", "fox"])).unwrap();
@@ -13256,13 +13292,14 @@ mod tests {
             apps_limit: Some(7),
             ..Cli::default()
         };
-        let env = remote_apps_env(cli.apps_filter.as_deref(), 7, remote_apps_mode(&cli));
+        let env = remote_apps_env(cli.apps_filter.as_deref(), 7, remote_apps_mode(&cli), false);
         assert!(env.contains(&(
             "KITTWM_REMOTE_QUERY".to_string(),
             "Visual Studio Code".to_string()
         )));
         assert!(env.contains(&("KITTWM_REMOTE_LIMIT".to_string(), "7".to_string())));
         assert!(env.contains(&("KITTWM_REMOTE_MODE".to_string(), "launch-first".to_string())));
+        assert!(env.contains(&("KITTWM_REMOTE_FORCE_FALLBACK".to_string(), "0".to_string())));
         assert!(remote_apps_mode(&cli).requests_graphical_forwarding());
         let json_launch_cli = Cli {
             apps: true,
@@ -13279,7 +13316,8 @@ mod tests {
         assert!(remote_apps_env(
             json_launch_cli.apps_filter.as_deref(),
             7,
-            remote_apps_mode(&json_launch_cli)
+            remote_apps_mode(&json_launch_cli),
+            false
         )
         .contains(&(
             "KITTWM_REMOTE_MODE".to_string(),
@@ -13299,12 +13337,13 @@ mod tests {
         assert!(remote_apps_env(
             json_first_cli.apps_filter.as_deref(),
             7,
-            remote_apps_mode(&json_first_cli)
+            remote_apps_mode(&json_first_cli),
+            false
         )
         .contains(&("KITTWM_REMOTE_MODE".to_string(), "first-json".to_string())));
         let args = pooled_ssh_args_with_forwarding(
             "host.example",
-            &remote_apps_env(cli.apps_filter.as_deref(), 7, remote_apps_mode(&cli)),
+            &remote_apps_env(cli.apps_filter.as_deref(), 7, remote_apps_mode(&cli), false),
             "echo ok",
             remote_apps_mode(&cli).requests_graphical_forwarding(),
         )
@@ -13315,6 +13354,12 @@ mod tests {
                 .any(|arg| arg.starts_with("ControlPath=") && arg.ends_with("%C-x11")),
             "{args:?}"
         );
+        let fallback_env =
+            remote_apps_env(cli.apps_filter.as_deref(), 7, remote_apps_mode(&cli), true);
+        assert!(
+            fallback_env.contains(&("KITTWM_REMOTE_FORCE_FALLBACK".to_string(), "1".to_string()))
+        );
+
         let script = remote_apps_script();
         assert!(script.contains("command -v kittwm"), "{script}");
         assert!(script.contains("kittwm_status"), "{script}");
