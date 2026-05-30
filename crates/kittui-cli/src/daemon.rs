@@ -1602,6 +1602,16 @@ fn now_unix_ms() -> u128 {
         .as_millis()
 }
 
+fn queue_action_reply(ok_prefix: &str, count: usize) -> String {
+    let mut out =
+        String::with_capacity(ok_prefix.len() + " command=\n".len() + usize_decimal_len(count));
+    out.push_str(ok_prefix);
+    out.push_str(" command=");
+    write!(out, "{count}").expect("write to string");
+    out.push('\n');
+    out
+}
+
 fn queue_native_pane_action(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     command: NativePaneCommand,
@@ -1612,7 +1622,7 @@ fn queue_native_pane_action(
             let old_pending = state.pending.len();
             state.pending.push(command);
             push_native_pending_status_event(&mut state, old_pending);
-            format!("{ok_prefix} command={}\n", state.pending.len())
+            queue_action_reply(ok_prefix, state.pending.len())
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
@@ -3586,6 +3596,13 @@ mod tests {
         assert!(reply.contains("page-up"));
         assert!(reply.contains("f5..f12"));
         assert!(reply.contains("ctrl-a..ctrl-z"));
+    }
+
+    #[test]
+    fn queue_action_reply_builds_directly() {
+        let reply = queue_action_reply("FOCUS_NEXT_QUEUED", 12);
+        assert_eq!(reply, "FOCUS_NEXT_QUEUED command=12\n");
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
