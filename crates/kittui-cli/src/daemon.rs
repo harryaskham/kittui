@@ -3565,6 +3565,8 @@ fn handle_request(
             "DISPLAYS" => displays_reply(),
             "APPS" => apps_reply(50),
             "APPS_JSON" => apps_json_reply(50),
+            "APPS_FIRST" => apps_first_reply("", false),
+            "APPS_LAUNCH_FIRST" => apps_first_reply("", true),
             "PANES" => panes_reply(panes),
             "PANES_JSON" => panes_json_reply(panes),
             "HELP" | "?" => daemon_help_reply(),
@@ -3849,6 +3851,40 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| { entry["command"] == "SPAWN <argv>" && entry["category"] == "control" }));
+    }
+
+    #[test]
+    fn standalone_daemon_help_catalog_commands_are_all_handled() {
+        // Coverage guard: every command advertised in the standalone daemon HELP
+        // catalog must actually be handled by the dispatcher (never "ERR unknown").
+        // Skips side-effecting commands that would disrupt the test daemon.
+        let p = std::env::temp_dir().join(test_socket_filename(
+            "kittwm-help-coverage",
+            std::process::id(),
+        ));
+        let _ = std::fs::remove_file(&p);
+        let server = DaemonServer::bind(p.clone()).unwrap();
+        for (command, _category, _description) in daemon_help_entries() {
+            let keyword = command.split_whitespace().next().unwrap_or(command);
+            if matches!(keyword, "QUIT" | "SPAWN") {
+                continue;
+            }
+            let reply = client_request(server.path(), keyword).unwrap();
+            assert!(
+                !reply.starts_with("ERR unknown"),
+                "HELP catalog advertises {keyword:?} but the daemon does not handle it: {reply}"
+            );
+        }
+        // The bare APPS_FIRST/APPS_LAUNCH_FIRST keywords now return a helpful
+        // recognized error instead of "ERR unknown".
+        assert_eq!(
+            client_request(server.path(), "APPS_FIRST").unwrap(),
+            "ERR APPS_FIRST requires a query\n"
+        );
+        assert_eq!(
+            client_request(server.path(), "APPS_LAUNCH_FIRST").unwrap(),
+            "ERR APPS_FIRST requires a query\n"
+        );
     }
 
     #[test]
