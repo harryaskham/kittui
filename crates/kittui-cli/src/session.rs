@@ -2066,6 +2066,7 @@ fn native_shell_view(
     include_text_snapshots: bool,
 ) -> NativeShellView {
     let focused_footer_label = panes.get(focused).map(native_status_pane_focus_label);
+    let focused_status_label = panes.get(focused).map(native_pane_status_chip_text);
     let pane_chrome = panes
         .iter()
         .enumerate()
@@ -2121,6 +2122,7 @@ fn native_shell_view(
                 panes.len(),
                 layout_label,
                 focused_footer_label.as_deref(),
+                focused_status_label.as_deref(),
                 active_drag_label,
                 log_path,
             ),
@@ -2219,6 +2221,7 @@ const NATIVE_STATUS_FOCUS_MAX_CHARS: usize = 48;
 const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
 const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
 const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
+const NATIVE_STATUS_LINE_STATE_PREFIX: &str = " · state:";
 const NATIVE_STATUS_LINE_DRAG_PREFIX: &str = " · drag:";
 const NATIVE_STATUS_LINE_HINTS: &str =
     " · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r/R reset · C-a e split · C-a x close · Ctrl-] exit";
@@ -2228,6 +2231,7 @@ fn native_status_line_text(
     panes: usize,
     layout_label: &str,
     focused_window: Option<&str>,
+    focused_status: Option<&str>,
     active_drag_label: Option<NativeActiveDragLabel<'_>>,
     log_path: &str,
 ) -> String {
@@ -2238,6 +2242,11 @@ fn native_status_line_text(
         let mode = native_status_layout_label(layout_label);
         let pane_count = panes.to_string();
         let focused_window = native_status_focused_window_label(focused_window);
+        let focused_status = focused_status.map(|status| bounded_ellipsis(status, 96));
+        let focused_status_len = focused_status
+            .as_ref()
+            .map(|status| NATIVE_STATUS_LINE_STATE_PREFIX.len() + status.len())
+            .unwrap_or(0);
         let active_drag_len = active_drag_label
             .map(|label| NATIVE_STATUS_LINE_DRAG_PREFIX.len() + label.bounded_len())
             .unwrap_or(0);
@@ -2248,6 +2257,7 @@ fn native_status_line_text(
                 + pane_count.len()
                 + NATIVE_STATUS_LINE_FOCUS_PREFIX.len()
                 + focused_window.len()
+                + focused_status_len
                 + active_drag_len
                 + NATIVE_STATUS_LINE_HINTS.len()
                 + NATIVE_STATUS_LINE_LOG_PREFIX.len()
@@ -2259,6 +2269,10 @@ fn native_status_line_text(
         out.push_str(&pane_count);
         out.push_str(NATIVE_STATUS_LINE_FOCUS_PREFIX);
         out.push_str(&focused_window);
+        if let Some(focused_status) = focused_status.as_deref() {
+            out.push_str(NATIVE_STATUS_LINE_STATE_PREFIX);
+            out.push_str(focused_status);
+        }
         if let Some(active_drag_label) = active_drag_label {
             out.push_str(NATIVE_STATUS_LINE_DRAG_PREFIX);
             active_drag_label.push_bounded(&mut out);
@@ -8116,20 +8130,27 @@ mod native_pane_tests {
     #[test]
     fn native_footer_visible_text_clips_huge_log_paths_to_terminal_width() {
         assert_eq!(
-            native_status_line_text(0, "columns", None, None, "/tmp/kittwm.log"),
+            native_status_line_text(0, "columns", None, None, None, "/tmp/kittwm.log"),
             ""
         );
-        let footer =
-            native_status_line_text(1, "floating", Some("native-1"), None, "/tmp/kittwm.log");
+        let footer = native_status_line_text(
+            1,
+            "floating",
+            Some("native-1"),
+            Some("sh · pid:101 · frame:clean"),
+            None,
+            "/tmp/kittwm.log",
+        );
         assert_eq!(
             footer,
-            " mode:floating · panes:1 · focus:native-1 · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r/R reset · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
+            " mode:floating · panes:1 · focus:native-1 · state:sh · pid:101 · frame:clean · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r/R reset · C-a e split · C-a x close · Ctrl-] exit · log: /tmp/kittwm.log"
         );
         assert_eq!(footer.capacity(), footer.len());
         let drag_footer = native_status_line_text(
             1,
             "floating",
             Some("native-1"),
+            Some("sh · pid:101 · frame:clean"),
             Some(NativeActiveDragLabel {
                 kind: "move",
                 window: "native-1",
@@ -8137,7 +8158,7 @@ mod native_pane_tests {
             "/tmp/kittwm.log",
         );
         assert!(
-            drag_footer.contains(" · focus:native-1 · drag:move:native-1 · C-a ? help"),
+            drag_footer.contains(" · focus:native-1 · state:sh · pid:101 · frame:clean · drag:move:native-1 · C-a ? help"),
             "{drag_footer}"
         );
 
@@ -8145,6 +8166,7 @@ mod native_pane_tests {
             1,
             "floating",
             Some("native-1"),
+            Some("sh · pid:101 · frame:clean"),
             None,
             &native_footer_test_huge_log_path(10_000),
         );
