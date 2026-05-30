@@ -2250,7 +2250,7 @@ impl TerminalState {
             selection: selector.to_string(),
             payload_base64: payload.clone(),
         });
-        self.queue_host_sequence(format!("\x1b]52;{selector};{payload}\x07"));
+        self.queue_host_sequence(osc52_host_sequence(selector, &payload));
     }
 
     fn clear_line_range(&mut self, start: u16, end_inclusive: u16) {
@@ -2639,6 +2639,17 @@ fn dec_special_graphics_char(ch: char) -> char {
         '~' => '·',
         _ => ch,
     }
+}
+
+fn osc52_host_sequence(selector: &str, payload: &str) -> String {
+    let mut sequence =
+        String::with_capacity("\x1b]52;;\x07".len() + selector.len() + payload.len());
+    sequence.push_str("\x1b]52;");
+    sequence.push_str(selector);
+    sequence.push(';');
+    sequence.push_str(payload);
+    sequence.push('\x07');
+    sequence
 }
 
 fn join_osc_utf8_params(parts: &[&[u8]]) -> String {
@@ -6034,6 +6045,13 @@ mod tests {
         assert_eq!(state.title.as_deref(), Some("build;pane"));
         state.resize(20, 4);
         assert_eq!(state.title.as_deref(), Some("build;pane"));
+    }
+
+    #[test]
+    fn osc52_host_sequence_builds_directly() {
+        let sequence = osc52_host_sequence("c", "aGVsbG8=");
+        assert_eq!(sequence, "\x1b]52;c;aGVsbG8=\x07");
+        assert!(sequence.capacity() >= sequence.len());
     }
 
     #[test]
