@@ -59,6 +59,16 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
         description: "toggle fullscreen",
     },
     NativeShortcut {
+        id: "drag_tiled_title",
+        keys: "mouse: drag tiled title",
+        description: "reorder tiled panes",
+    },
+    NativeShortcut {
+        id: "drag_floating_title",
+        keys: "mouse: drag floating title",
+        description: "reposition floating pane",
+    },
+    NativeShortcut {
         id: "nudge_floating_pane",
         keys: "C-a w/a/s/d",
         description: "nudge focused floating pane",
@@ -138,6 +148,8 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a e              toggle current split vertical/horizontal",
     "C-a t              toggle floating mode",
     "C-a f              toggle fullscreen",
+    "mouse drag tiled title     reorder tiled panes",
+    "mouse drag floating title  reposition floating pane",
     "C-a w/a/s/d        nudge focused floating pane",
     "C-a { / C-a }      lower/raise focused floating pane",
     "C-a r              reset focused floating pane position",
@@ -195,6 +207,8 @@ mod tests {
         assert!(text.contains(NATIVE_SHORTCUT_COMMAND_HINTS[0]));
         assert!(text.contains("C-a p"));
         assert!(text.contains("C-a w/a/s/d"));
+        assert!(text.contains("mouse drag tiled title"));
+        assert!(text.contains("mouse drag floating title"));
         assert!(text.contains("C-a { / C-a }"));
         assert!(text.contains("C-a r"));
         assert!(text.contains("C-a R"));
@@ -218,6 +232,16 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry["id"] == "focus_prev"));
+        assert!(value["shortcuts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == "drag_tiled_title"));
+        assert!(value["shortcuts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["id"] == "drag_floating_title"));
         assert!(value["shortcuts"]
             .as_array()
             .unwrap()
