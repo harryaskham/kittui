@@ -1103,8 +1103,7 @@ impl TerminalSurface {
         let join = std::thread::spawn(move || {
             let mut parser = Parser::new();
             let mut buf = [0u8; 4096];
-            loop {
-                let Ok(n) = reader.read(&mut buf) else { break };
+            while let Ok(n) = reader.read(&mut buf) {
                 if n == 0 {
                     break;
                 }
@@ -1375,8 +1374,7 @@ impl GhosttyTerminalApp {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
-            loop {
-                let Ok(n) = reader.read(&mut buf) else { break };
+            while let Ok(n) = reader.read(&mut buf) {
                 if n == 0 {
                     break;
                 }
@@ -1885,7 +1883,7 @@ struct TerminalRenderState {
     cells: Vec<TerminalCell>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct TerminalStyle {
     fg: Option<TerminalColor>,
     bg: Option<TerminalColor>,
@@ -1895,17 +1893,6 @@ struct TerminalStyle {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TerminalColor(u8, u8, u8);
-
-impl Default for TerminalStyle {
-    fn default() -> Self {
-        Self {
-            fg: None,
-            bg: None,
-            bold: false,
-            reverse: false,
-        }
-    }
-}
 
 impl TerminalCell {
     fn blank(style: TerminalStyle) -> Self {
@@ -2451,11 +2438,11 @@ impl TerminalState {
 
     fn set_scroll_region(&mut self, params: &Params) {
         let mut iter = params.iter();
-        let top = iter.next().and_then(|p| p.first().copied()).unwrap_or(1) as u16;
+        let top = iter.next().and_then(|p| p.first().copied()).unwrap_or(1);
         let bottom = iter
             .next()
             .and_then(|p| p.first().copied())
-            .unwrap_or(self.rows) as u16;
+            .unwrap_or(self.rows);
         if top == 0 && bottom == 0 {
             self.reset_scroll_region();
             return;
@@ -2795,7 +2782,7 @@ impl Perform for TerminalState {
             .iter()
             .next()
             .and_then(|p| p.first().copied())
-            .unwrap_or(0) as u16;
+            .unwrap_or(0);
         let first_count = if first_raw == 0 { 1 } else { first_raw };
         let is_dec_private = intermediates.contains(&b'?');
         let has_alt_screen_mode = params.iter().any(|param| {
@@ -2855,8 +2842,8 @@ impl Perform for TerminalState {
             }
             'H' | 'f' => {
                 let mut iter = params.iter();
-                let row = iter.next().and_then(|p| p.first().copied()).unwrap_or(1) as u16;
-                let col = iter.next().and_then(|p| p.first().copied()).unwrap_or(1) as u16;
+                let row = iter.next().and_then(|p| p.first().copied()).unwrap_or(1);
+                let col = iter.next().and_then(|p| p.first().copied()).unwrap_or(1);
                 self.address_cursor(row, col);
             }
             'h' if !is_dec_private && first_raw == 4 => self.insert_mode = true,
@@ -3071,6 +3058,10 @@ fn fill_cell_background(
     }
 }
 
+// Glyph rasterization helpers take the destination buffer, geometry, cell
+// metrics, glyph, and color as flat parameters; bundling them into a struct
+// would not improve clarity for these tight pixel-drawing paths.
+#[allow(clippy::too_many_arguments)]
 fn draw_terminal_glyph(
     rgba: &mut [u8],
     width: u32,
@@ -3256,6 +3247,7 @@ fn normalize_font_filename(name: &str) -> String {
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_terminal_font_glyph(
     rgba: &mut [u8],
     width: u32,
@@ -3398,6 +3390,7 @@ fn set_rgba_pixel_at_index(rgba: &mut [u8], idx: usize, color: TerminalColor) {
     rgba[idx + 3] = 0xff;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_box_drawing_glyph(
     rgba: &mut [u8],
     width: u32,
@@ -4697,13 +4690,9 @@ fn set_devtools_socket_timeouts(
     socket: &mut WebSocket<MaybeTlsStream<std::net::TcpStream>>,
     timeout: Duration,
 ) -> Result<()> {
-    match socket.get_mut() {
-        MaybeTlsStream::Plain(stream) => {
-            stream.set_read_timeout(Some(timeout))?;
-            stream.set_write_timeout(Some(timeout))?;
-        }
-        #[allow(unreachable_patterns)]
-        _ => {}
+    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
     }
     Ok(())
 }
