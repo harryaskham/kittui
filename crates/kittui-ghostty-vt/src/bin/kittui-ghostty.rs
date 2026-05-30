@@ -83,7 +83,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn render_timelapse_demo(args: &Args) -> anyhow::Result<()> {
-    let chunks = timelapse_demo_steps().iter().copied().collect::<Vec<_>>();
+    let chunks = timelapse_demo_steps().to_vec();
     render_timelapse_chunks(args, chunks)
 }
 

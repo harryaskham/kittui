@@ -836,7 +836,7 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("\x1b[21;11H"));
-            assert!(payload["embed"].as_str().unwrap().len() > 0);
+            assert!(!payload["embed"].as_str().unwrap().is_empty());
             kittui_runtime_free(runtime);
         }
     }
