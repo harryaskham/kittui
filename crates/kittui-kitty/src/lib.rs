@@ -683,19 +683,39 @@ pub fn animation_control_ex(
     quiet: Quiet,
     transport: Transport,
 ) -> String {
-    let current = current_frame
-        .map(|frame| format!(",c={}", frame.max(1)))
-        .unwrap_or_default();
-    let loops = loops.map(|v| format!(",v={v}")).unwrap_or_default();
-    let control = format!(
-        "{ESC}_Ga=a,i={id},s={state}{current}{loops}{q}{ESC}\\",
-        id = image_id,
-        state = state.field(),
-        current = current,
-        loops = loops,
-        q = quiet.field(),
+    wrap_transport(
+        animation_control_payload(image_id, state, loops, current_frame, quiet),
+        transport,
+    )
+}
+
+fn animation_control_payload(
+    image_id: u32,
+    state: AnimationState,
+    loops: Option<u32>,
+    current_frame: Option<u32>,
+    quiet: Quiet,
+) -> String {
+    let mut control = String::with_capacity(
+        ESC.len() + "_Ga=a,i=,s=,c=,v=,q=2".len() + 20 + 1 + 20 + 20 + ESC.len() + 1,
     );
-    wrap_transport(control, transport)
+    control.push_str(ESC);
+    control.push_str("_Ga=a,i=");
+    let _ = write!(control, "{image_id}");
+    control.push_str(",s=");
+    let _ = write!(control, "{}", state.field());
+    if let Some(frame) = current_frame {
+        control.push_str(",c=");
+        let _ = write!(control, "{}", frame.max(1));
+    }
+    if let Some(loops) = loops {
+        control.push_str(",v=");
+        let _ = write!(control, "{loops}");
+    }
+    control.push_str(quiet.field());
+    control.push_str(ESC);
+    control.push('\\');
+    control
 }
 
 /// Convenience control command that selects a displayed animation frame.
@@ -1424,6 +1444,19 @@ mod tests {
             Transport::Direct,
         );
         assert!(second.starts_with("\x1b_Ga=f,f=100,i=5,m=0,r=2,z=44,q=2;"));
+    }
+
+    #[test]
+    fn animation_control_payload_builds_directly() {
+        let control = animation_control_payload(
+            7,
+            AnimationState::PlayAndStop,
+            Some(3),
+            Some(2),
+            Quiet::SuppressAll,
+        );
+        assert_eq!(control, "\x1b_Ga=a,i=7,s=3,c=2,v=3,q=2\x1b\\");
+        assert!(control.capacity() >= control.len());
     }
 
     #[test]
