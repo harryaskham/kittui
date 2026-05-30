@@ -255,7 +255,7 @@ mod imp {
                     let width = img.width() as u32;
                     let height = img.height() as u32;
                     let data = img.data();
-                    let row_bytes = img.bytes_per_row() as usize;
+                    let row_bytes = img.bytes_per_row();
                     let bytes = data.bytes();
                     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
                     for y in 0..height as usize {
@@ -480,20 +480,24 @@ mod imp {
                             CaptureTarget::AllDisplays => id.0,
                             _ => CGDisplay::main().id,
                         };
-                        return sck::capture_display(display_id, self.max_size).map(|(w, h, rgba)| XCapture {
-                            id,
-                            width: w,
-                            height: h,
-                            rgba,
-                        });
+                        sck::capture_display(display_id, self.max_size).map(|(w, h, rgba)| {
+                            XCapture {
+                                id,
+                                width: w,
+                                height: h,
+                                rgba,
+                            }
+                        })
                     }
                     CaptureTarget::Window(window_id) => {
-                        return sck::capture_window(*window_id, self.max_size).map(|(w, h, rgba)| XCapture {
-                            id,
-                            width: w,
-                            height: h,
-                            rgba,
-                        });
+                        sck::capture_window(*window_id, self.max_size).map(|(w, h, rgba)| {
+                            XCapture {
+                                id,
+                                width: w,
+                                height: h,
+                                rgba,
+                            }
+                        })
                     }
                 }
             }
@@ -609,8 +613,11 @@ mod imp {
             output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, SCStream,
         };
 
+        /// Captured frame payload: (width, height, RGBA bytes).
+        type FrameData = (u32, u32, Vec<u8>);
+
         #[derive(Clone)]
-        struct FrameSlot(std::sync::Arc<Mutex<Option<(u32, u32, Vec<u8>)>>>);
+        struct FrameSlot(std::sync::Arc<Mutex<Option<FrameData>>>);
 
         impl FrameSlot {
             fn new() -> Self {
@@ -619,7 +626,7 @@ mod imp {
             fn store(&self, w: u32, h: u32, rgba: Vec<u8>) {
                 *self.0.lock().unwrap() = Some((w, h, rgba));
             }
-            fn load(&self) -> Option<(u32, u32, Vec<u8>)> {
+            fn load(&self) -> Option<FrameData> {
                 self.0.lock().unwrap().clone()
             }
         }
