@@ -6476,11 +6476,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn surface_focus_close_send_expected_socket_commands() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwfc-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwfc", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
