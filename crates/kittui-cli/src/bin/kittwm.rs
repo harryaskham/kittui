@@ -9148,7 +9148,7 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
         );
         let _ = write!(
             out,
-            "{{\"default_command\": {default_cmd:?}, \"default_resolved\": "
+            "{{\"mode\": \"shell-path-macos-linux-desktop\", \"default_command\": {default_cmd:?}, \"default_resolved\": "
         );
         if let Some(path) = default_path.as_ref() {
             let _ = write!(out, "{:?}", path.display().to_string());
@@ -12360,7 +12360,7 @@ mod tests {
             .saturating_add(macos_count)
             .saturating_add(linux_desktop_count);
         let json = format!(
-            ", \"filter\": {}, \"limit\": {}, \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"linux_desktop_generic_names\": [{}], \"linux_desktop_keywords\": [{}], \"linux_desktop_categories\": [{}], \"linux_desktop_comments\": [{}], \"path_count\": {}, \"macos_count\": {}, \"linux_desktop_count\": {}, \"total_count\": {}",
+            "{{\"mode\": \"shell-path-macos-linux-desktop\", \"filter\": {}, \"limit\": {}, \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"linux_desktop_generic_names\": [{}], \"linux_desktop_keywords\": [{}], \"linux_desktop_categories\": [{}], \"linux_desktop_comments\": [{}], \"path_count\": {}, \"macos_count\": {}, \"linux_desktop_count\": {}, \"total_count\": {}}}",
             json_option_string(query),
             10,
             json_string_array(&["org.example.Term.desktop".to_string()]),
@@ -12374,6 +12374,10 @@ mod tests {
             macos_count,
             linux_desktop_count,
             total_count
+        );
+        assert!(
+            json.contains("\"mode\": \"shell-path-macos-linux-desktop\""),
+            "{json}"
         );
         assert!(json.contains("\"filter\": \"term\""), "{json}");
         assert!(json.contains("\"limit\": 10"), "{json}");
