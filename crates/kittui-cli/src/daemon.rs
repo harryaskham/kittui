@@ -2098,6 +2098,16 @@ fn send_key_queued_reply(count: usize, window: &str, key: &str, bytes: usize) ->
     out
 }
 
+fn send_key_unsupported_reply() -> String {
+    let mut out = String::with_capacity(
+        "ERR SEND_KEY unsupported key; expected \n".len() + NATIVE_SEND_KEY_SUPPORTED_HELP.len(),
+    );
+    out.push_str("ERR SEND_KEY unsupported key; expected ");
+    out.push_str(NATIVE_SEND_KEY_SUPPORTED_HELP);
+    out.push('\n');
+    out
+}
+
 fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
     let Some((window, key)) = rest.trim().split_once(' ') else {
         return "ERR SEND_KEY requires window and key\n".to_string();
@@ -2108,9 +2118,7 @@ fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str
         return "ERR SEND_KEY requires window and single key name\n".to_string();
     }
     let Some(bytes) = native_key_bytes(key) else {
-        return format!(
-            "ERR SEND_KEY unsupported key; expected {NATIVE_SEND_KEY_SUPPORTED_HELP}\n"
-        );
+        return send_key_unsupported_reply();
     };
     match pending.lock() {
         Ok(mut state) => {
@@ -4193,6 +4201,14 @@ mod tests {
             reply,
             "SEND_KEY_QUEUED command=12 window=focused key=shift-tab bytes=3\n"
         );
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn send_key_unsupported_reply_builds_directly() {
+        let reply = send_key_unsupported_reply();
+        assert!(reply.starts_with("ERR SEND_KEY unsupported key; expected enter|return|tab"));
+        assert!(reply.contains("ctrl-a..ctrl-z"));
         assert_eq!(reply.capacity(), reply.len());
     }
 
