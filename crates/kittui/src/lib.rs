@@ -236,7 +236,7 @@ impl Runtime {
         let placement = {
             let mv = kitty::cursor_move(placement_footprint.x, placement_footprint.y, transport);
             let p = kitty::placement_command_ex(image_id, placement_footprint, options, transport);
-            format!("{mv}{p}")
+            placement_escape(&mv, &p)
         };
         let embed = if options.unicode_placeholder {
             kitty::placeholder_text(image_id, placement_footprint)
@@ -433,7 +433,7 @@ impl Runtime {
         let placement = {
             let mv = kitty::cursor_move(footprint.x, footprint.y, transport);
             let p = kitty::placement_command_ex(image_id, footprint, options, transport);
-            format!("{mv}{p}")
+            placement_escape(&mv, &p)
         };
         let embed = if options.unicode_placeholder {
             kitty::placeholder_text(image_id, footprint)
@@ -622,6 +622,13 @@ impl Runtime {
     fn mark_placed(&self, image_id: u32, footprint: CellRect) {
         self.placed.lock().insert(image_id, footprint);
     }
+}
+
+fn placement_escape(cursor_move: &str, placement: &str) -> String {
+    let mut out = String::with_capacity(cursor_move.len() + placement.len());
+    out.push_str(cursor_move);
+    out.push_str(placement);
+    out
 }
 
 fn raw_frame_unique_suffix() -> u128 {
@@ -1267,6 +1274,13 @@ mod tests {
                 placement.upload
             );
         }
+    }
+
+    #[test]
+    fn placement_escape_builds_directly() {
+        let escape = placement_escape("\x1b[2;3H", "\x1b_Ga=p,i=7\x1b\\");
+        assert_eq!(escape, "\x1b[2;3H\x1b_Ga=p,i=7\x1b\\");
+        assert_eq!(escape.capacity(), escape.len());
     }
 
     #[test]
