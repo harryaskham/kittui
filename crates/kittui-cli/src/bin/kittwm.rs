@@ -8797,7 +8797,9 @@ json_escape() {
     awk 'BEGIN { ORS="" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\r/, "\\r"); gsub(/\t/, "\\t"); printf "\"%s\"", $0 }'
 }
 kittwm_remote_emit_json_lines() {
-    printf '{"host":%s,"kind":%s,"filter":%s,"lines":[' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$query" | json_escape)"
+    mode=${1:-fallback}
+    source=${2:-unknown}
+    printf '{"host":%s,"kind":%s,"filter":%s,"mode":%s,"source":%s,"lines":[' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$query" | json_escape)" "$(printf '%s' "$mode" | json_escape)" "$(printf '%s' "$source" | json_escape)"
     first=1
     while IFS= read -r line; do
         [ $first -eq 1 ] || printf ','
@@ -8807,8 +8809,10 @@ kittwm_remote_emit_json_lines() {
     printf ']}\n'
 }
 kittwm_remote_emit() {
+    mode=${1:-fallback}
+    source=${2:-unknown}
     if [ "$json" = "1" ]; then
-        kittwm_remote_emit_json_lines
+        kittwm_remote_emit_json_lines "$mode" "$source"
     else
         cat
     fi
@@ -8861,7 +8865,7 @@ if command -v kittwm >/dev/null 2>&1; then
         kittwm_status=$?
         if [ $kittwm_status -eq 0 ]; then
             rm -f "$kittwm_err"
-            printf '%s\n' "$kittwm_out" | kittwm_remote_filter | kittwm_remote_emit
+            printf '%s\n' "$kittwm_out" | kittwm_remote_filter | kittwm_remote_emit kittwm kittwm
             exit 0
         fi
         cat "$kittwm_err" >&2
@@ -8873,7 +8877,7 @@ if command -v kittwm >/dev/null 2>&1; then
         esac
         kittwm_status=$?
         if [ $kittwm_status -eq 0 ]; then
-            printf '%s\n' "$kittwm_out" | kittwm_remote_filter | kittwm_remote_emit
+            printf '%s\n' "$kittwm_out" | kittwm_remote_filter | kittwm_remote_emit kittwm kittwm
             exit 0
         fi
         printf '%s\n' "$kittwm_out" >&2
@@ -8887,15 +8891,15 @@ case "$kind" in
             [ -z "$query" ] || printf 'filter: %s\n' "$query"
         fi
         if command -v swaymsg >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-            swaymsg -t get_outputs 2>/dev/null | jq -r '.[] | "  " + (.name // "?") + " " + (.make // "") + " " + (.model // "") + " " + ((.current_mode.width // 0)|tostring) + "x" + ((.current_mode.height // 0)|tostring) + " active=" + ((.active // false)|tostring)' | kittwm_remote_filter | kittwm_remote_emit
+            swaymsg -t get_outputs 2>/dev/null | jq -r '.[] | "  " + (.name // "?") + " " + (.make // "") + " " + (.model // "") + " " + ((.current_mode.width // 0)|tostring) + "x" + ((.current_mode.height // 0)|tostring) + " active=" + ((.active // false)|tostring)' | kittwm_remote_filter | kittwm_remote_emit fallback swaymsg-jq
         elif command -v swaymsg >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
-            swaymsg -t get_outputs 2>/dev/null | kittwm_remote_sway_outputs_python | kittwm_remote_filter | kittwm_remote_emit
+            swaymsg -t get_outputs 2>/dev/null | kittwm_remote_sway_outputs_python | kittwm_remote_filter | kittwm_remote_emit fallback swaymsg-python3
         elif command -v xrandr >/dev/null 2>&1; then
-            (xrandr --listmonitors 2>/dev/null || xrandr --query 2>/dev/null | awk '/ connected/{print "  "$0}') | kittwm_remote_filter | kittwm_remote_emit
+            (xrandr --listmonitors 2>/dev/null || xrandr --query 2>/dev/null | awk '/ connected/{print "  "$0}') | kittwm_remote_filter | kittwm_remote_emit fallback xrandr
         elif command -v system_profiler >/dev/null 2>&1; then
-            system_profiler SPDisplaysDataType 2>/dev/null | awk '/^[[:space:]]*(Resolution|Main Display|Online|Display Type):/{print "  "$0}' | kittwm_remote_filter | kittwm_remote_emit
+            system_profiler SPDisplaysDataType 2>/dev/null | awk '/^[[:space:]]*(Resolution|Main Display|Online|Display Type):/{print "  "$0}' | kittwm_remote_filter | kittwm_remote_emit fallback system-profiler
         else
-            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, xrandr, or system_profiler\n' | kittwm_remote_emit
+            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, xrandr, or system_profiler\n' | kittwm_remote_emit fallback unavailable
         fi
         ;;
     *)
@@ -8904,21 +8908,21 @@ case "$kind" in
             [ -z "$query" ] || printf 'filter: %s\n' "$query"
         fi
         if command -v swaymsg >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-            swaymsg -t get_tree 2>/dev/null | jq -r '.. | objects | select((.type? == "con") and ((.app_id? != null) or (.window? != null))) | "  " + ((.id // 0)|tostring) + " " + (.app_id // .window_properties.class // "?") + "  " + (.name // "")' | kittwm_remote_filter | kittwm_remote_emit
+            swaymsg -t get_tree 2>/dev/null | jq -r '.. | objects | select((.type? == "con") and ((.app_id? != null) or (.window? != null))) | "  " + ((.id // 0)|tostring) + " " + (.app_id // .window_properties.class // "?") + "  " + (.name // "")' | kittwm_remote_filter | kittwm_remote_emit fallback swaymsg-jq
         elif command -v swaymsg >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
-            swaymsg -t get_tree 2>/dev/null | kittwm_remote_sway_tree_python | kittwm_remote_filter | kittwm_remote_emit
+            swaymsg -t get_tree 2>/dev/null | kittwm_remote_sway_tree_python | kittwm_remote_filter | kittwm_remote_emit fallback swaymsg-python3
         elif command -v wmctrl >/dev/null 2>&1; then
-            (wmctrl -lx 2>/dev/null || wmctrl -l) | kittwm_remote_filter | kittwm_remote_emit
+            (wmctrl -lx 2>/dev/null || wmctrl -l) | kittwm_remote_filter | kittwm_remote_emit fallback wmctrl
         elif command -v xdotool >/dev/null 2>&1; then
             xdotool search --onlyvisible --name '.*' 2>/dev/null | while IFS= read -r id; do
                 class=$(xdotool getwindowclassname "$id" 2>/dev/null || printf '?')
                 title=$(xdotool getwindowname "$id" 2>/dev/null || printf '')
                 printf '  %s %s  %s\n' "$id" "$class" "$title"
-            done | kittwm_remote_filter | kittwm_remote_emit
+            done | kittwm_remote_filter | kittwm_remote_emit fallback xdotool
         elif command -v osascript >/dev/null 2>&1; then
-            osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /' | kittwm_remote_filter | kittwm_remote_emit
+            osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /' | kittwm_remote_filter | kittwm_remote_emit fallback osascript
         else
-            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, wmctrl, xdotool, or enable macOS osascript accessibility\n' | kittwm_remote_emit
+            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, wmctrl, xdotool, or enable macOS osascript accessibility\n' | kittwm_remote_emit fallback unavailable
         fi
         ;;
 esac
@@ -12297,8 +12301,16 @@ mod tests {
         let script = remote_listing_script();
         assert!(script.contains("KITTWM_REMOTE_JSON"), "{script}");
         assert!(script.contains("kittwm_remote_emit_json_lines"), "{script}");
+        assert!(script.contains("\"mode\":"), "{script}");
+        assert!(script.contains("\"source\":"), "{script}");
         assert!(script.contains("\"lines\":"), "{script}");
-        assert!(script.contains("kittwm_remote_emit"), "{script}");
+        assert!(
+            script.contains("kittwm_remote_emit kittwm kittwm"),
+            "{script}"
+        );
+        assert!(script.contains("fallback swaymsg-jq"), "{script}");
+        assert!(script.contains("fallback xrandr"), "{script}");
+        assert!(script.contains("fallback wmctrl"), "{script}");
         assert!(script.contains("kittwm --list-windows"), "{script}");
         assert!(script.contains("kittwm --list-displays"), "{script}");
         assert!(script.contains("kittwm_status"), "{script}");
