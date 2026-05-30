@@ -2510,6 +2510,13 @@ impl NativePaneDetail {
             .map(|metrics| metrics.changed_fraction)
     }
 
+    /// Dirty-frame changed tile percentage in `[0, 100]`, when reported.
+    pub fn frame_changed_percent(&self) -> Option<f32> {
+        self.dirty_frame
+            .as_ref()
+            .map(DirtyFrameStatus::changed_percent)
+    }
+
     /// Whether the most recent frame upload was skipped because it was clean, when reported.
     pub fn frame_upload_skipped(&self) -> Option<bool> {
         self.dirty_frame
@@ -2822,6 +2829,11 @@ impl PanesStatus {
         self.focused_pane()?.frame_changed_fraction()
     }
 
+    /// Dirty-frame changed tile percentage in `[0, 100]` for the focused pane.
+    pub fn focused_frame_changed_percent(&self) -> Option<f32> {
+        self.focused_pane()?.frame_changed_percent()
+    }
+
     /// Panes whose title row is reported as a window-manager drag handle.
     pub fn title_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         self.panes_detail
@@ -3075,6 +3087,11 @@ impl Status {
     /// Dirty-frame changed tile fraction for the focused pane.
     pub fn focused_frame_changed_fraction(&self) -> Option<f32> {
         self.focused_pane()?.frame_changed_fraction()
+    }
+
+    /// Dirty-frame changed tile percentage in `[0, 100]` for the focused pane.
+    pub fn focused_frame_changed_percent(&self) -> Option<f32> {
+        self.focused_pane()?.frame_changed_percent()
     }
 
     /// Panes whose title row is reported as a window-manager drag handle.
@@ -5296,6 +5313,7 @@ mod tests {
         assert_eq!(panes.focused_frame_upload_skipped(), Some(false));
         assert_eq!(panes.focused_frame_changed_tiles_ratio(), Some((1, 4)));
         assert_eq!(panes.focused_frame_changed_fraction(), Some(0.25));
+        assert_eq!(panes.focused_frame_changed_percent(), Some(25.0));
         assert_eq!(panes.clean_frame_panes().count(), 0);
         assert_eq!(
             panes
@@ -5344,6 +5362,7 @@ mod tests {
         assert!(pane.has_dirty_frame());
         assert_eq!(pane.frame_changed_tiles_ratio(), Some((1, 4)));
         assert_eq!(pane.frame_changed_fraction(), Some(0.25));
+        assert_eq!(pane.frame_changed_percent(), Some(25.0));
         assert_eq!(pane.frame_upload_skipped(), Some(false));
         assert_eq!(pane.is_frame_clean(), Some(false));
         let frame = pane.dirty_frame.as_ref().unwrap();
@@ -5370,6 +5389,7 @@ mod tests {
         assert!(!pane.has_floating_offset());
         assert_eq!(pane.frame_changed_tiles_ratio(), None);
         assert_eq!(pane.frame_changed_fraction(), None);
+        assert_eq!(pane.frame_changed_percent(), None);
         assert_eq!(pane.frame_upload_skipped(), None);
         assert_eq!(pane.is_frame_clean(), None);
         assert_eq!(pane.title_drag_cell(), None);
@@ -5463,6 +5483,7 @@ mod tests {
         assert_eq!(status.focused_frame_upload_skipped(), None);
         assert_eq!(status.focused_frame_changed_tiles_ratio(), None);
         assert_eq!(status.focused_frame_changed_fraction(), None);
+        assert_eq!(status.focused_frame_changed_percent(), None);
         assert_eq!(status.title_draggable_panes().count(), 0);
         assert_eq!(status.title_reorder_draggable_panes().count(), 0);
         assert_eq!(status.title_reposition_draggable_panes().count(), 0);
@@ -5525,6 +5546,7 @@ mod tests {
         assert_eq!(status.focused_frame_upload_skipped(), Some(true));
         assert_eq!(status.focused_frame_changed_tiles_ratio(), Some((0, 4)));
         assert_eq!(status.focused_frame_changed_fraction(), Some(0.0));
+        assert_eq!(status.focused_frame_changed_percent(), Some(0.0));
         assert_eq!(
             status
                 .title_draggable_panes()
