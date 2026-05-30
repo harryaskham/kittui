@@ -1971,6 +1971,11 @@ impl EventEnvelope {
     pub fn detail_u64(&self, key: &str) -> Option<u64> {
         self.detail.get(key).and_then(Value::as_u64)
     }
+
+    /// Parse a nested `pane` detail object into typed native pane metadata.
+    pub fn pane_detail(&self) -> Option<NativePaneDetail> {
+        serde_json::from_value(self.detail.get("pane")?.clone()).ok()
+    }
 }
 
 /// Owning iterator over a bounded `EVENTS [ms]` batch.
@@ -6460,14 +6465,31 @@ mod tests {
             other => panic!("unexpected event: {other:?}"),
         }
 
+        let pane_changed = KittwmEvent::parse_line(
+            r#"{"schema_version":1,"seq":9,"kind":"pane_changed","window":"native-1","detail":{"pane":{"window":"native-1","title":"shell","focused":true,"weight":1,"title_draggable":true,"title_drag_kind":"reorder","title_drag_active":true,"title_drag_col":2,"title_drag_row":1}}}"#,
+        )
+        .unwrap();
+        assert_eq!(pane_changed.kind(), "pane_changed");
+        match pane_changed {
+            KittwmEvent::PaneChanged(envelope) => {
+                assert_eq!(envelope.seq, Some(9));
+                let pane = envelope.pane_detail().unwrap();
+                assert_eq!(pane.window, "native-1");
+                assert!(pane.is_title_drag_active());
+                assert_eq!(pane.title_drag_kind(), Some("reorder"));
+                assert_eq!(pane.title_drag_cell(), Some((2, 1)));
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
         let input = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":9,"kind":"pane_input_sent","window":"native-1","detail":{"source":"socket","method":"send_key","key":"enter","bytes":1,"sensitive":false}}"#,
+            r#"{"schema_version":1,"seq":10,"kind":"pane_input_sent","window":"native-1","detail":{"source":"socket","method":"send_key","key":"enter","bytes":1,"sensitive":false}}"#,
         )
         .unwrap();
         assert_eq!(input.kind(), "pane_input_sent");
         match input {
             KittwmEvent::PaneInputSent(envelope) => {
-                assert_eq!(envelope.seq, Some(9));
+                assert_eq!(envelope.seq, Some(10));
                 assert_eq!(envelope.window.as_deref(), Some("native-1"));
                 assert_eq!(envelope.detail["source"], "socket");
                 assert_eq!(envelope.detail["method"], "send_key");
@@ -6477,13 +6499,13 @@ mod tests {
         }
 
         let frame = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":10,"kind":"pane_frame_presented","window":"native-1","detail":{"image_id":7,"frame":42,"width":640,"height":384,"transport":"file","skipped_upload":false}}"#,
+            r#"{"schema_version":1,"seq":11,"kind":"pane_frame_presented","window":"native-1","detail":{"image_id":7,"frame":42,"width":640,"height":384,"transport":"file","skipped_upload":false}}"#,
         )
         .unwrap();
         assert_eq!(frame.kind(), "pane_frame_presented");
         match frame {
             KittwmEvent::PaneFramePresented(envelope) => {
-                assert_eq!(envelope.seq, Some(10));
+                assert_eq!(envelope.seq, Some(11));
                 assert_eq!(envelope.window.as_deref(), Some("native-1"));
                 assert_eq!(envelope.detail["image_id"], 7);
                 assert_eq!(envelope.detail["frame"], 42);
@@ -6494,7 +6516,7 @@ mod tests {
         }
 
         let semantic = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":11,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
+            r#"{"schema_version":1,"seq":12,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
         )
         .unwrap();
         assert_eq!(semantic.kind(), "semantic_value_changed");
