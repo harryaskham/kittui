@@ -5918,11 +5918,25 @@ mod tests {
         assert_eq!(join_osc_utf8_params(&[]), "");
     }
 
+    fn scrollback_stress_line(idx: usize) -> String {
+        let mut line = String::with_capacity("line-".len() + decimal_len(idx as u64));
+        line.push_str("line-");
+        write!(line, "{idx}").expect("write to string");
+        line
+    }
+
+    #[test]
+    fn scrollback_stress_line_builds_directly() {
+        let line = scrollback_stress_line(42);
+        assert_eq!(line, "line-42");
+        assert!(line.capacity() >= line.len());
+    }
+
     #[test]
     fn terminal_state_batches_scrollback_pruning_after_overflow() {
         let mut state = TerminalState::new(8, 2);
         for idx in 0..=SCROLLBACK_MAX_LINES {
-            state.push_scrollback_line(format!("line-{idx}"));
+            state.push_scrollback_line(scrollback_stress_line(idx));
         }
         assert!(state.scrollback.len() <= SCROLLBACK_MAX_LINES);
         assert_eq!(
