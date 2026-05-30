@@ -549,6 +549,7 @@ fn compress_payload(bytes: &[u8], compression: CompressionMode) -> Option<Vec<u8
     }
 }
 
+#[allow(clippy::too_many_arguments)] // kitty upload grammar: id+data+dims+format+transport+quiet+compression are intrinsic
 fn encode_chunked_raw(
     image_id: u32,
     base64_body: &str,
@@ -1215,6 +1216,7 @@ fn path_bytes(path: &Path) -> Vec<u8> {
     path.to_string_lossy().as_bytes().to_vec()
 }
 
+#[allow(clippy::too_many_arguments)] // kitty upload grammar: id+data+dims+format+transport+quiet+compression are intrinsic
 fn single_payload(
     image_id: u32,
     verb: &str,
@@ -1265,6 +1267,7 @@ fn single_payload_header(
     header
 }
 
+#[allow(clippy::too_many_arguments)] // kitty upload grammar: id+data+dims+format+transport+quiet+compression are intrinsic
 fn single_payload_raw(
     image_id: u32,
     format: u8,
@@ -1305,6 +1308,7 @@ fn single_payload_raw_header(
     header
 }
 
+#[allow(clippy::too_many_arguments)] // kitty upload grammar: id+data+dims+format+transport+quiet+compression are intrinsic
 fn encode_chunked(
     image_id: u32,
     verb: &str,
