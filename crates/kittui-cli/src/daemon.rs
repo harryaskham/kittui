@@ -2672,6 +2672,23 @@ fn wait_no_pane_reply(verb: &str, target: &str) -> String {
     out
 }
 
+fn wait_timeout_reply(verb: &str, window: &str, needle_bytes: usize) -> String {
+    let mut out = String::with_capacity(
+        "ERR  timeout window= needle_bytes=\n".len()
+            + verb.len()
+            + window.len()
+            + usize_decimal_len(needle_bytes),
+    );
+    out.push_str("ERR ");
+    out.push_str(verb);
+    out.push_str(" timeout window=");
+    out.push_str(window);
+    out.push_str(" needle_bytes=");
+    write!(out, "{needle_bytes}").expect("write to string");
+    out.push('\n');
+    out
+}
+
 fn native_spawn_wait_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
@@ -2723,10 +2740,7 @@ fn native_spawn_wait_reply(
             return wait_match_reply(match_tag, &window, text.len());
         }
         if Instant::now() >= deadline {
-            return format!(
-                "ERR {verb} timeout window={window} needle_bytes={}\n",
-                needle.len()
-            );
+            return wait_timeout_reply(verb, &window, needle.len());
         }
         std::thread::sleep(Duration::from_millis(25));
     }
@@ -3997,6 +4011,16 @@ mod tests {
     fn wait_no_pane_reply_builds_directly() {
         let reply = wait_no_pane_reply("WAIT_TEXT", "missing");
         assert_eq!(reply, "ERR WAIT_TEXT no pane matching missing\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn wait_timeout_reply_builds_directly() {
+        let reply = wait_timeout_reply("WAIT_TEXT", "native-2", 7);
+        assert_eq!(
+            reply,
+            "ERR WAIT_TEXT timeout window=native-2 needle_bytes=7\n"
+        );
         assert_eq!(reply.capacity(), reply.len());
     }
 
