@@ -949,7 +949,17 @@ fn delete_payload(image_id: u32, placement_id: Option<u32>) -> String {
 /// This is a pure encoder: it does not write to or read from the terminal. The
 /// query intentionally omits `q=` so the terminal can respond.
 pub fn query_capabilities(query_id: u32, transport: Transport) -> String {
-    wrap_transport(format!("{ESC}_Ga=q,i={query_id}{ESC}\\"), transport)
+    wrap_transport(query_capabilities_payload(query_id), transport)
+}
+
+fn query_capabilities_payload(query_id: u32) -> String {
+    let mut payload = String::with_capacity(ESC.len() + "_Ga=q,i=".len() + 20 + ESC.len() + 1);
+    payload.push_str(ESC);
+    payload.push_str("_Ga=q,i=");
+    let _ = write!(payload, "{query_id}");
+    payload.push_str(ESC);
+    payload.push('\\');
+    payload
 }
 
 /// Parse one kitty graphics response escape from terminal output.
@@ -1557,6 +1567,13 @@ mod tests {
     fn delete_by_placement_emits_p_field() {
         let cmd = delete_placement(0x55, 3, Transport::Direct);
         assert_eq!(cmd, "\x1b_Ga=d,d=I,i=85,p=3,q=2\x1b\\");
+    }
+
+    #[test]
+    fn query_capabilities_payload_builds_directly() {
+        let payload = query_capabilities_payload(123);
+        assert_eq!(payload, "\x1b_Ga=q,i=123\x1b\\");
+        assert!(payload.capacity() >= payload.len());
     }
 
     #[test]
