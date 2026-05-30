@@ -1248,17 +1248,34 @@ fn single_payload_raw(
     quiet: Quiet,
     transport: Transport,
 ) -> String {
-    let header = format!(
-        "a=t,f={format},s={width},v={height},t={medium},i={id}{q}",
-        format = format,
-        width = width,
-        height = height,
-        medium = medium_field,
-        id = image_id,
-        q = quiet.field(),
-    );
+    let header = single_payload_raw_header(image_id, format, medium_field, width, height, quiet);
     let payload = kitty_graphics_payload_with_body(&header, base64_body);
     wrap_transport(payload, transport)
+}
+
+fn single_payload_raw_header(
+    image_id: u32,
+    format: u8,
+    medium_field: &str,
+    width: u32,
+    height: u32,
+    quiet: Quiet,
+) -> String {
+    let mut header = String::with_capacity(
+        "a=t,f=,s=,v=,t=,i=,q=2".len() + 3 + 10 + 10 + medium_field.len() + 20,
+    );
+    header.push_str("a=t,f=");
+    let _ = write!(header, "{format}");
+    header.push_str(",s=");
+    let _ = write!(header, "{width}");
+    header.push_str(",v=");
+    let _ = write!(header, "{height}");
+    header.push_str(",t=");
+    header.push_str(medium_field);
+    header.push_str(",i=");
+    let _ = write!(header, "{image_id}");
+    header.push_str(quiet.field());
+    header
 }
 
 fn encode_chunked(
@@ -1577,6 +1594,13 @@ mod tests {
         let expected_b64 = base64::engine::general_purpose::STANDARD.encode(b"/kittui-9");
         let want = format!("\x1b_Ga=t,f=100,t=s,i=9,q=2;{expected_b64}\x1b\\");
         assert_eq!(escapes, want);
+    }
+
+    #[test]
+    fn single_payload_raw_header_builds_directly() {
+        let header = single_payload_raw_header(13, 24, "t", 64, 32, Quiet::SuppressAll);
+        assert_eq!(header, "a=t,f=24,s=64,v=32,t=t,i=13,q=2");
+        assert!(header.capacity() >= header.len());
     }
 
     #[test]
