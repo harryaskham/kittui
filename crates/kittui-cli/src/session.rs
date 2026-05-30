@@ -5314,10 +5314,11 @@ fn native_title_drag_affordance_enabled(layout_label: &str) -> bool {
 }
 
 fn native_title_reorder_affordance_enabled(layout_label: &str) -> bool {
-    matches!(
-        layout_label.trim().to_ascii_lowercase().as_str(),
-        "columns" | "rows" | "grid" | "tiled"
-    )
+    let label = layout_label.trim();
+    label.eq_ignore_ascii_case("columns")
+        || label.eq_ignore_ascii_case("rows")
+        || label.eq_ignore_ascii_case("grid")
+        || label.eq_ignore_ascii_case("tiled")
 }
 
 fn native_pane_title_text(
@@ -10627,7 +10628,9 @@ mod native_pane_tests {
         assert!(native_title_drag_affordance_enabled("floating"));
         assert!(!native_title_drag_affordance_enabled("columns"));
         assert!(native_title_reorder_affordance_enabled("columns"));
-        assert!(native_title_reorder_affordance_enabled("rows"));
+        assert!(native_title_reorder_affordance_enabled("Rows"));
+        assert!(native_title_reorder_affordance_enabled(" grid "));
+        assert!(native_title_reorder_affordance_enabled("TILED"));
         assert!(!native_title_reorder_affordance_enabled("floating"));
     }
 
