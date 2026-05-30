@@ -8536,6 +8536,7 @@ fn remote_apps_script() -> &'static str {
         json) set -- "$@" --json ;;
         first) set -- "$@" --first ;;
         launch-first) set -- "$@" --launch-first ;;
+        launch-first-json) set -- "$@" --launch-first --json ;;
     esac
     kittwm_err=$(mktemp "${TMPDIR:-/tmp}/kittwm-remote-apps.XXXXXX" 2>/dev/null || printf '')
     if [ -n "$kittwm_err" ]; then
@@ -12293,6 +12294,10 @@ mod tests {
         );
         assert!(script.contains("method=%s"), "{script}");
         assert!(script.contains("launch-first-json"), "{script}");
+        assert!(
+            script.contains("launch-first-json) set -- \"$@\" --launch-first --json"),
+            "{script}"
+        );
         assert!(script.contains("\"mode\":\"launch-first\""), "{script}");
         assert!(script.contains("kittwm_remote_launch_error"), "{script}");
         assert!(script.contains("\"error\":"), "{script}");
