@@ -978,7 +978,7 @@ fn native_spawn_queue_reply(cmd: &str, pending: &Arc<Mutex<NativeSpawnQueueState
         "APPS_JSON" => apps_json_reply(50),
         "HELP" | "?" => native_spawn_help_reply(),
         "HELP_JSON" => native_spawn_help_json_reply(),
-        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows|grid> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | NUDGE_PANE <window|focused> <dx> <dy> | RESET_PANE_OFFSET <window|focused> | RESET_ALL_PANE_OFFSETS | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | SPLIT_PANE <window|focused> <columns|rows|grid> <cmd> | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | RESERVE_CHROME_JSON <json> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | PING | HELP\n"
+        _ => "ERR expected SPAWN_PTY <cmd> | FOCUS_PANE <window> | FOCUS_NEXT | FOCUS_PREV | CLOSE_PANE <window|focused> | LAYOUT <columns|rows|grid> | MOVE_PANE <window|focused> <left|right|up|down|first|last> | NUDGE_PANE <window|focused> <dx> <dy> | RESET_PANE_OFFSET <window|focused> | RESET_ALL_PANE_OFFSETS | RESIZE_PANE <window|focused> <grow|shrink|+N|-N> | BALANCE_PANES | SPLIT_PANE <window|focused> <columns|rows|grid> <cmd> | RESTORE_SESSION_JSON <json> | RENAME_PANE <window> <title> | RESERVE_CHROME_JSON <json> | SEND_TEXT <window|focused> <text> | SEND_LINE <window|focused> <text> | SEND_KEY <window|focused> <key> | SEND_MOUSE <window|focused> <event> <col> <row> | SEND_BYTES_B64 <window|focused> <base64> | PASTE_BYTES_B64 <window|focused> <base64> | READ_TEXT <window|focused> | READ_TEXT_JSON <window|focused> | READ_SCROLLBACK <window|focused> | READ_SCROLLBACK_JSON <window|focused> | SEMANTIC_SNAPSHOT <window|focused> | SEMANTIC_PUBLISH <window|focused> <snapshot-json> | SEMANTIC_ACTION <window|focused> <component> <action> <json> | SEMANTIC_FOCUS <window|focused> <component> | WAIT_TEXT <window|focused> <needle> | WAIT_TEXT_MS <window|focused> <ms> <needle> | WAIT_TEXT_JSON <window|focused> <needle> | WAIT_TEXT_JSON_MS <window|focused> <ms> <needle> | WAIT_OUTPUT <window|focused> <needle> | WAIT_OUTPUT_MS <window|focused> <ms> <needle> | WAIT_OUTPUT_JSON <window|focused> <needle> | WAIT_OUTPUT_JSON_MS <window|focused> <ms> <needle> | SESSION_JSON | STATUS | STATUS_JSON | CHROME_JSON | SHORTCUTS_JSON | CLIPBOARD_JSON | PANES | PANES_JSON | EVENTS [ms] | APPS | APPS_JSON | APPS_FIRST <query> | APPS_LAUNCH_FIRST <query> | PING | HELP | HELP_JSON\n"
             .to_string(),
     }
 }
@@ -5289,6 +5289,23 @@ mod tests {
             "SPLIT_PANE <window|focused> <columns|rows|grid> <cmd>",
         ] {
             assert!(reply.contains(needle), "missing {needle:?} in: {reply}");
+        }
+    }
+
+    #[test]
+    fn unknown_command_help_covers_help_catalog() {
+        // Regression guard: every command in the structured HELP catalog must also
+        // appear in the unknown-command error help so the two discoverability
+        // surfaces cannot drift (prevents recurrence of the APPS_FIRST/PING/STATUS
+        // /PANES/SPLIT_PANE gaps).
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let reply = native_spawn_queue_reply("NOT_A_REAL_COMMAND", &pending);
+        for (command, _category, _description) in native_spawn_help_entries() {
+            let token = command.split_whitespace().next().unwrap_or(command);
+            assert!(
+                reply.contains(token),
+                "unknown-command help is missing catalog command {token:?}; reply: {reply}"
+            );
         }
     }
 
