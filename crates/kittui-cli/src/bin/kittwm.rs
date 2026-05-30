@@ -9117,15 +9117,31 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
             linux_apps.iter().map(|app| app.file.clone()).collect();
         let linux_desktop_labels: Vec<String> =
             linux_apps.iter().map(|app| app.label.clone()).collect();
+        let linux_desktop_generic_names: Vec<String> = linux_apps
+            .iter()
+            .map(|app| app.generic_name.clone())
+            .collect();
+        let linux_desktop_keywords: Vec<String> =
+            linux_apps.iter().map(|app| app.keywords.clone()).collect();
+        let linux_desktop_categories: Vec<String> = linux_apps
+            .iter()
+            .map(|app| app.categories.clone())
+            .collect();
+        let linux_desktop_comments: Vec<String> =
+            linux_apps.iter().map(|app| app.comment.clone()).collect();
         let _ = write!(
             out,
-            ", \"filter\": {}, \"limit\": {limit}, \"path_commands\": [{}], \"macos_apps\": [{}], \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"path_count\": {path_count}, \"macos_count\": {macos_count}, \"linux_desktop_count\": {linux_desktop_count}, \"total_count\": {total_count}}}",
+            ", \"filter\": {}, \"limit\": {limit}, \"path_commands\": [{}], \"macos_apps\": [{}], \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"linux_desktop_generic_names\": [{}], \"linux_desktop_keywords\": [{}], \"linux_desktop_categories\": [{}], \"linux_desktop_comments\": [{}], \"path_count\": {path_count}, \"macos_count\": {macos_count}, \"linux_desktop_count\": {linux_desktop_count}, \"total_count\": {total_count}}}",
             json_option_string(query),
             json_string_array(&path_cmds),
             json_string_array(&mac_apps),
             json_string_array(&linux_desktop_ids),
             json_string_array(&linux_desktop_files),
             json_string_array(&linux_desktop_labels),
+            json_string_array(&linux_desktop_generic_names),
+            json_string_array(&linux_desktop_keywords),
+            json_string_array(&linux_desktop_categories),
+            json_string_array(&linux_desktop_comments),
         );
         println!("{out}");
         return Ok(());
@@ -9403,6 +9419,10 @@ struct LinuxDesktopApp {
     label: String,
     file: String,
     exec: String,
+    generic_name: String,
+    keywords: String,
+    categories: String,
+    comment: String,
 }
 
 #[cfg(target_os = "linux")]
@@ -9471,12 +9491,32 @@ fn linux_desktop_roots() -> Vec<std::path::PathBuf> {
     roots
 }
 
+fn join_desktop_metadata(primary: Option<String>, localized: Vec<String>) -> String {
+    let mut values = Vec::new();
+    if let Some(primary) = primary.filter(|value| !value.is_empty()) {
+        values.push(primary);
+    }
+    for value in localized {
+        if !value.is_empty() && !values.iter().any(|existing| existing == &value) {
+            values.push(value);
+        }
+    }
+    values.join(";")
+}
+
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<LinuxDesktopApp> {
     let mut in_desktop_entry = false;
     let mut entry_seen = false;
     let mut ty = None::<String>;
     let mut name = None::<String>;
+    let mut generic_name = None::<String>;
+    let mut localized_generic_names = Vec::<String>::new();
+    let mut comment = None::<String>;
+    let mut localized_comments = Vec::<String>::new();
+    let mut keywords = None::<String>;
+    let mut localized_keywords = Vec::<String>::new();
+    let mut categories = None::<String>;
     let mut exec = None::<String>;
     let mut hidden = false;
     let mut no_display = false;
@@ -9500,8 +9540,21 @@ fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<Linux
             "Type" => ty = Some(value.to_string()),
             "Name" => name = Some(value.to_string()),
             "Exec" => exec = Some(value.to_string()),
+            "GenericName" => generic_name = Some(value.to_string()),
+            "Comment" => comment = Some(value.to_string()),
+            "Keywords" => keywords = Some(value.to_string()),
+            "Categories" => categories = Some(value.to_string()),
             "Hidden" => hidden = value.eq_ignore_ascii_case("true"),
             "NoDisplay" => no_display = value.eq_ignore_ascii_case("true"),
+            localized if localized.starts_with("GenericName[") => {
+                localized_generic_names.push(value.to_string())
+            }
+            localized if localized.starts_with("Comment[") => {
+                localized_comments.push(value.to_string())
+            }
+            localized if localized.starts_with("Keywords[") => {
+                localized_keywords.push(value.to_string())
+            }
             _ => {}
         }
     }
@@ -9517,6 +9570,10 @@ fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<Linux
         label: name.unwrap_or_else(|| id.trim_end_matches(".desktop").to_string()),
         file: file.to_string(),
         exec: exec.unwrap_or_default(),
+        generic_name: join_desktop_metadata(generic_name, localized_generic_names),
+        keywords: join_desktop_metadata(keywords, localized_keywords),
+        categories: categories.unwrap_or_default(),
+        comment: join_desktop_metadata(comment, localized_comments),
     })
 }
 
@@ -9529,6 +9586,10 @@ fn linux_desktop_app_matches(app: &LinuxDesktopApp, query: Option<&str>) -> bool
     app.id.to_ascii_lowercase().contains(&query)
         || app.label.to_ascii_lowercase().contains(&query)
         || app.file.to_ascii_lowercase().contains(&query)
+        || app.generic_name.to_ascii_lowercase().contains(&query)
+        || app.keywords.to_ascii_lowercase().contains(&query)
+        || app.categories.to_ascii_lowercase().contains(&query)
+        || app.comment.to_ascii_lowercase().contains(&query)
 }
 
 fn linux_desktop_app_row(app: &LinuxDesktopApp) -> String {
@@ -12250,12 +12311,16 @@ mod tests {
             .saturating_add(macos_count)
             .saturating_add(linux_desktop_count);
         let json = format!(
-            ", \"filter\": {}, \"limit\": {}, \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"path_count\": {}, \"macos_count\": {}, \"linux_desktop_count\": {}, \"total_count\": {}",
+            ", \"filter\": {}, \"limit\": {}, \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"linux_desktop_generic_names\": [{}], \"linux_desktop_keywords\": [{}], \"linux_desktop_categories\": [{}], \"linux_desktop_comments\": [{}], \"path_count\": {}, \"macos_count\": {}, \"linux_desktop_count\": {}, \"total_count\": {}",
             json_option_string(query),
             10,
             json_string_array(&["org.example.Term.desktop".to_string()]),
             json_string_array(&["/usr/share/applications/org.example.Term.desktop".to_string()]),
             json_string_array(&["Terminal".to_string()]),
+            json_string_array(&["Terminal emulator".to_string()]),
+            json_string_array(&["shell;console;".to_string()]),
+            json_string_array(&["System;TerminalEmulator;".to_string()]),
+            json_string_array(&["Open a shell".to_string()]),
             path_count,
             macos_count,
             linux_desktop_count,
@@ -12272,6 +12337,22 @@ mod tests {
             json.contains("\"linux_desktop_apps\": [\"Terminal\"]"),
             "{json}"
         );
+        assert!(
+            json.contains("\"linux_desktop_generic_names\": [\"Terminal emulator\"]"),
+            "{json}"
+        );
+        assert!(
+            json.contains("\"linux_desktop_keywords\": [\"shell;console;\"]"),
+            "{json}"
+        );
+        assert!(
+            json.contains("\"linux_desktop_categories\": [\"System;TerminalEmulator;\"]"),
+            "{json}"
+        );
+        assert!(
+            json.contains("\"linux_desktop_comments\": [\"Open a shell\"]"),
+            "{json}"
+        );
         assert!(json.contains("\"path_count\": 2"), "{json}");
         assert!(json.contains("\"macos_count\": 1"), "{json}");
         assert!(json.contains("\"linux_desktop_count\": 3"), "{json}");
@@ -12283,12 +12364,20 @@ mod tests {
         let app = parse_linux_desktop_app(
             "org.example.Term.desktop",
             "/usr/share/applications/org.example.Term.desktop",
-            "[Desktop Entry]\nType=Application\nName=Example Terminal\nExec=example-term\n",
+            "[Desktop Entry]\nType=Application\nName=Example Terminal\nGenericName=Terminal emulator\nGenericName[en_GB]=Command line\nComment=Open a shell\nComment[en_GB]=Open a terminal window\nKeywords=shell;console;\nKeywords[en_GB]=cli;tty;\nCategories=System;TerminalEmulator;\nExec=example-term\n",
         )
         .unwrap();
         assert_eq!(app.label, "Example Terminal");
+        assert_eq!(app.generic_name, "Terminal emulator;Command line");
+        assert_eq!(app.comment, "Open a shell;Open a terminal window");
+        assert_eq!(app.keywords, "shell;console;;cli;tty;");
+        assert_eq!(app.categories, "System;TerminalEmulator;");
         assert!(linux_desktop_app_matches(&app, Some("terminal")));
         assert!(linux_desktop_app_matches(&app, Some("org.example")));
+        assert!(linux_desktop_app_matches(&app, Some("console")));
+        assert!(linux_desktop_app_matches(&app, Some("command line")));
+        assert!(linux_desktop_app_matches(&app, Some("open a shell")));
+        assert!(linux_desktop_app_matches(&app, Some("TerminalEmulator")));
         assert!(!linux_desktop_app_matches(&app, Some("browser")));
         assert!(parse_linux_desktop_app(
             "hidden.desktop",
@@ -12352,6 +12441,10 @@ mod tests {
             label: "Example Terminal".to_string(),
             file: "/usr/share/applications/org.example.Term.desktop".to_string(),
             exec: "example-term %U".to_string(),
+            generic_name: "Terminal emulator".to_string(),
+            keywords: "shell;console;".to_string(),
+            categories: "System;TerminalEmulator;".to_string(),
+            comment: "Open a shell".to_string(),
         };
         let selected = first_app_candidate(&[], &[], &[linux_app]).unwrap();
         assert_eq!(selected.kind, "desktop");
