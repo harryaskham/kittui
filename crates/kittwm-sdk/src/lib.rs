@@ -3058,6 +3058,21 @@ impl PanesStatus {
         })
     }
 
+    /// Host-cell coordinate suitable for dragging the active title-drag target.
+    pub fn active_title_drag_cell(&self) -> Option<(u16, u16)> {
+        self.active_title_drag_pane()?.title_drag_cell()
+    }
+
+    /// Start/end host-cell coordinates for dragging the active title-drag target by a delta.
+    pub fn active_title_drag_cells_by(
+        &self,
+        delta_cols: i32,
+        delta_rows: i32,
+    ) -> Option<((u16, u16), (u16, u16))> {
+        self.active_title_drag_pane()?
+            .title_drag_cells_by(delta_cols, delta_rows)
+    }
+
     /// Panes whose title drag handle reorders the tiled pane stack.
     pub fn title_reorder_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         let is_tiled = self.is_tiled_layout();
@@ -3501,6 +3516,21 @@ impl Status {
                     && self.is_floating_layout()
                     && pane.is_title_draggable())
         })
+    }
+
+    /// Host-cell coordinate suitable for dragging the active title-drag target.
+    pub fn active_title_drag_cell(&self) -> Option<(u16, u16)> {
+        self.active_title_drag_pane()?.title_drag_cell()
+    }
+
+    /// Start/end host-cell coordinates for dragging the active title-drag target by a delta.
+    pub fn active_title_drag_cells_by(
+        &self,
+        delta_cols: i32,
+        delta_rows: i32,
+    ) -> Option<((u16, u16), (u16, u16))> {
+        self.active_title_drag_pane()?
+            .title_drag_cells_by(delta_cols, delta_rows)
     }
 
     /// Panes whose title drag handle reorders the tiled pane stack.
@@ -5770,6 +5800,11 @@ mod tests {
         );
         assert_eq!(panes.active_title_drag_reorders_pane(), Some(true));
         assert_eq!(panes.active_title_drag_repositions_pane(), Some(false));
+        assert_eq!(panes.active_title_drag_cell(), Some((6, 2)));
+        assert_eq!(
+            panes.active_title_drag_cells_by(5, 2),
+            Some(((6, 2), (11, 4)))
+        );
         assert_eq!(
             panes
                 .focused_pane()
@@ -6002,6 +6037,8 @@ mod tests {
         assert!(status.active_title_drag_pane().is_none());
         assert_eq!(status.active_title_drag_reorders_pane(), None);
         assert_eq!(status.active_title_drag_repositions_pane(), None);
+        assert_eq!(status.active_title_drag_cell(), None);
+        assert_eq!(status.active_title_drag_cells_by(1, 1), None);
         assert_eq!(status.focused_frame_is_clean(), None);
         assert_eq!(status.focused_frame_upload_skipped(), None);
         assert_eq!(status.focused_frame_status_label(), None);
@@ -6105,6 +6142,8 @@ mod tests {
         assert!(status.active_title_drag_pane().is_none());
         assert_eq!(status.active_title_drag_reorders_pane(), None);
         assert_eq!(status.active_title_drag_repositions_pane(), None);
+        assert_eq!(status.active_title_drag_cell(), None);
+        assert_eq!(status.active_title_drag_cells_by(1, 1), None);
         assert_eq!(status.focused_frame_is_clean(), Some(true));
         assert_eq!(status.focused_frame_upload_skipped(), Some(true));
         assert_eq!(
