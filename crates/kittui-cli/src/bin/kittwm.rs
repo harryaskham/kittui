@@ -8986,14 +8986,26 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
         );
     }
     if cli.apps_first || cli.apps_launch_first {
-        let selected = first_app_candidate(&path_cmds, &mac_apps)
-            .ok_or_else(|| anyhow!("no app candidates matched"))?;
+        let Some(selected) = first_app_candidate(&path_cmds, &mac_apps) else {
+            if cli.json {
+                println!(
+                    "{}",
+                    app_launch_json_error(query, "no_candidates", "no app candidates matched")
+                );
+                return Ok(());
+            }
+            return Err(anyhow!("no app candidates matched"));
+        };
         if cli.apps_launch_first {
             let pid = launch_app_candidate(&selected)?;
-            println!(
-                "kittwm apps: launched pid={} kind={} name={}",
-                pid, selected.kind, selected.name
-            );
+            if cli.json {
+                println!("{}", app_launch_json(query, &selected, pid));
+            } else {
+                println!(
+                    "kittwm apps: launched pid={} kind={} name={}",
+                    pid, selected.kind, selected.name
+                );
+            }
         } else {
             println!("{}:{}", selected.kind, selected.name);
         }
@@ -9283,6 +9295,39 @@ fn macos_apps(limit: usize) -> Vec<String> {
         }
     }
     out.into_iter().take(limit).collect()
+}
+
+fn json_option_string(value: Option<&str>) -> String {
+    value.map_or_else(|| "null".to_string(), |value| format!("{value:?}"))
+}
+
+fn app_launch_method(candidate: &AppCandidate) -> &'static str {
+    if candidate.kind == "macos" {
+        "open"
+    } else {
+        "path"
+    }
+}
+
+fn app_launch_json(query: Option<&str>, candidate: &AppCandidate, pid: u32) -> String {
+    format!(
+        "{{\"mode\":\"launch-first\",\"filter\":{},\"kind\":{:?},\"method\":{:?},\"candidate\":{:?},\"name\":{:?},\"pid\":{:?}}}",
+        json_option_string(query),
+        candidate.kind,
+        app_launch_method(candidate),
+        candidate.name,
+        candidate.name,
+        pid.to_string()
+    )
+}
+
+fn app_launch_json_error(query: Option<&str>, code: &str, message: &str) -> String {
+    format!(
+        "{{\"mode\":\"launch-first\",\"filter\":{},\"error\":{:?},\"message\":{:?}}}",
+        json_option_string(query),
+        code,
+        message
+    )
 }
 
 fn json_string_array(items: &[String]) -> String {
@@ -11845,6 +11890,32 @@ mod tests {
             ..Cli::default()
         };
         assert!(apps_cmd(&cli).is_ok());
+    }
+
+    #[test]
+    fn app_launch_first_json_reports_structured_success_and_errors() {
+        let candidate = AppCandidate {
+            kind: "path",
+            name: "xterm".to_string(),
+        };
+        let success = app_launch_json(Some("term"), &candidate, 42);
+        assert!(success.contains("\"mode\":\"launch-first\""), "{success}");
+        assert!(success.contains("\"filter\":\"term\""), "{success}");
+        assert!(success.contains("\"kind\":\"path\""), "{success}");
+        assert!(success.contains("\"method\":\"path\""), "{success}");
+        assert!(success.contains("\"candidate\":\"xterm\""), "{success}");
+        assert!(success.contains("\"pid\":\"42\""), "{success}");
+
+        let error = app_launch_json_error(
+            Some("missing"),
+            "no_candidates",
+            "no app candidates matched",
+        );
+        assert!(error.contains("\"error\":\"no_candidates\""), "{error}");
+        assert!(
+            error.contains("\"message\":\"no app candidates matched\""),
+            "{error}"
+        );
     }
 
     #[test]
