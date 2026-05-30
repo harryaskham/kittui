@@ -780,16 +780,25 @@ fn align_table_cell_text(text: &str, width: usize, alignment: MarkdownTableAlign
     }
     let pad = width - len;
     match alignment {
-        MarkdownTableAlignment::Right => format!("{}{}", " ".repeat(pad), truncated),
+        MarkdownTableAlignment::Right => padded_table_cell("", pad, &truncated, 0),
         MarkdownTableAlignment::Center => {
             let left = pad / 2;
             let right = pad - left;
-            format!("{}{}{}", " ".repeat(left), truncated, " ".repeat(right))
+            padded_table_cell("", left, &truncated, right)
         }
         MarkdownTableAlignment::None | MarkdownTableAlignment::Left => {
-            format!("{}{}", truncated, " ".repeat(pad))
+            padded_table_cell(&truncated, 0, "", pad)
         }
     }
+}
+
+fn padded_table_cell(prefix: &str, left_pad: usize, text: &str, right_pad: usize) -> String {
+    let mut cell = String::with_capacity(prefix.len() + left_pad + text.len() + right_pad);
+    cell.push_str(prefix);
+    cell.extend(std::iter::repeat_n(' ', left_pad));
+    cell.push_str(text);
+    cell.extend(std::iter::repeat_n(' ', right_pad));
+    cell
 }
 
 fn flush_paragraph(out: &mut MarkdownDocument, buf: &mut String, width_cells: u16) {
@@ -989,6 +998,19 @@ mod tests {
         assert_eq!(doc.outline[0].anchor, "hello-world");
         assert_eq!(doc.outline[1].anchor, "hello-world-2");
         assert_eq!(doc.outline[2].anchor, "section");
+    }
+
+    #[test]
+    fn padded_table_cell_builds_directly() {
+        let right = align_table_cell_text("4", 2, MarkdownTableAlignment::Right);
+        assert_eq!(right, " 4");
+        assert!(right.capacity() >= right.len());
+        let center = align_table_cell_text("x", 3, MarkdownTableAlignment::Center);
+        assert_eq!(center, " x ");
+        assert!(center.capacity() >= center.len());
+        let left = align_table_cell_text("1", 2, MarkdownTableAlignment::Left);
+        assert_eq!(left, "1 ");
+        assert!(left.capacity() >= left.len());
     }
 
     #[test]
