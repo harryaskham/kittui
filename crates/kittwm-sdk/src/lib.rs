@@ -2092,6 +2092,30 @@ impl EventEnvelope {
             .map(|fraction| fraction * 100.0)
     }
 
+    /// Whether a `pane_frame_presented` event represents a clean frame.
+    pub fn frame_is_clean(&self) -> Option<bool> {
+        if self.frame_upload_skipped().unwrap_or(false) {
+            return Some(true);
+        }
+        let (changed, _) = self.frame_changed_tiles_ratio()?;
+        Some(changed == 0)
+    }
+
+    /// Live-style status label for a `pane_frame_presented` event.
+    pub fn frame_status_label(&self) -> Option<String> {
+        if self.frame_is_clean()? {
+            Some("clean".to_string())
+        } else {
+            self.frame_changed_tiles_label()
+        }
+    }
+
+    /// Live-style status-chip label for a `pane_frame_presented` event.
+    pub fn frame_chip_label(&self) -> Option<String> {
+        self.frame_status_label()
+            .map(|status| format!("frame:{status}"))
+    }
+
     /// Whether a `pane_frame_presented` event reported a skipped upload.
     pub fn frame_upload_skipped(&self) -> Option<bool> {
         self.detail_bool("skipped_upload")
@@ -6675,6 +6699,9 @@ mod tests {
                 );
                 assert_eq!(envelope.frame_changed_fraction(), Some(0.25));
                 assert_eq!(envelope.frame_changed_percent(), Some(25.0));
+                assert_eq!(envelope.frame_is_clean(), Some(false));
+                assert_eq!(envelope.frame_status_label().as_deref(), Some("3/12"));
+                assert_eq!(envelope.frame_chip_label().as_deref(), Some("frame:3/12"));
                 assert_eq!(envelope.frame_upload_bytes(), Some(4096));
                 assert_eq!(envelope.frame_elapsed_us(), Some(321));
             }
