@@ -1655,7 +1655,7 @@ mod tests {
         );
         let expected_b64 =
             base64::engine::general_purpose::STANDARD.encode(b"/tmp/kittui-image.png");
-        let want = format!("\x1b_Ga=t,f=100,t=f,i=7,q=2;{expected_b64}\x1b\\");
+        let want = kitty_graphics_payload_with_body("a=t,f=100,t=f,i=7,q=2", &expected_b64);
         assert_eq!(escapes, want);
     }
 
@@ -1668,7 +1668,7 @@ mod tests {
             Transport::Direct,
         );
         let expected_b64 = base64::engine::general_purpose::STANDARD.encode(b"/kittui-9");
-        let want = format!("\x1b_Ga=t,f=100,t=s,i=9,q=2;{expected_b64}\x1b\\");
+        let want = kitty_graphics_payload_with_body("a=t,f=100,t=s,i=9,q=2", &expected_b64);
         assert_eq!(escapes, want);
     }
 
@@ -1692,7 +1692,8 @@ mod tests {
         );
         let expected_b64 =
             base64::engine::general_purpose::STANDARD.encode(b"/tmp/kittui-raw-frame.rgb");
-        let want = format!("\x1b_Ga=t,f=24,s=64,v=32,t=t,i=13,q=2;{expected_b64}\x1b\\");
+        let want =
+            kitty_graphics_payload_with_body("a=t,f=24,s=64,v=32,t=t,i=13,q=2", &expected_b64);
         assert_eq!(escapes, want);
     }
 
@@ -1709,7 +1710,7 @@ mod tests {
             Transport::Direct,
         );
         let expected_b64 = base64::engine::general_purpose::STANDARD.encode(b"/kittui-rgb-14");
-        let want = format!("\x1b_Ga=t,f=24,s=8,v=4,t=s,i=14,q=2;{expected_b64}\x1b\\");
+        let want = kitty_graphics_payload_with_body("a=t,f=24,s=8,v=4,t=s,i=14,q=2", &expected_b64);
         assert_eq!(escapes, want);
     }
 
@@ -1726,7 +1727,8 @@ mod tests {
         );
         let expected_b64 =
             base64::engine::general_purpose::STANDARD.encode(b"/tmp/kittui-raw-frame.rgba");
-        let want = format!("\x1b_Ga=t,f=32,s=64,v=32,t=t,i=11,q=2;{expected_b64}\x1b\\");
+        let want =
+            kitty_graphics_payload_with_body("a=t,f=32,s=64,v=32,t=t,i=11,q=2", &expected_b64);
         assert_eq!(escapes, want);
     }
 
@@ -1743,7 +1745,7 @@ mod tests {
             Transport::Direct,
         );
         let expected_b64 = base64::engine::general_purpose::STANDARD.encode(b"/kittui-raw-12");
-        let want = format!("\x1b_Ga=t,f=32,s=8,v=4,t=s,i=12,q=2;{expected_b64}\x1b\\");
+        let want = kitty_graphics_payload_with_body("a=t,f=32,s=8,v=4,t=s,i=12,q=2", &expected_b64);
         assert_eq!(escapes, want);
     }
 
