@@ -1431,16 +1431,28 @@ impl NativeApp for GhosttyTerminalApp {
     }
 }
 
+fn terminal_process_surface_id(prefix: &str, pid: Option<u32>) -> String {
+    let suffix_len = pid
+        .map(|pid| decimal_len(u64::from(pid)))
+        .unwrap_or("unknown".len());
+    let mut id = String::with_capacity(prefix.len() + 1 + suffix_len);
+    id.push_str(prefix);
+    id.push(':');
+    match pid {
+        Some(pid) => write!(id, "{pid}").expect("write to string"),
+        None => id.push_str("unknown"),
+    }
+    id
+}
+
 impl NativeSurface for GhosttyTerminalApp {
     fn metadata(&self) -> SurfaceMetadata {
         let mut capabilities = SurfaceCapabilities::interactive_capture();
         capabilities.exact_byte_input = true;
         SurfaceMetadata {
-            id: SurfaceId::new(format!(
-                "ghostty-pty:{}",
-                self.process_id()
-                    .map(|pid| pid.to_string())
-                    .unwrap_or_else(|| "unknown".to_string())
+            id: SurfaceId::new(terminal_process_surface_id(
+                "ghostty-pty",
+                self.process_id(),
             )),
             kind: SurfaceKind::Terminal,
             title: self.title.clone(),
@@ -1723,12 +1735,7 @@ impl NativeSurface for PtyTerminalApp {
         capabilities.focus_events = true;
         capabilities.surface_events = true;
         SurfaceMetadata {
-            id: SurfaceId::new(format!(
-                "pty:{}",
-                self.process_id()
-                    .map(|pid| pid.to_string())
-                    .unwrap_or_else(|| "unknown".to_string())
-            )),
+            id: SurfaceId::new(terminal_process_surface_id("pty", self.process_id())),
             kind: SurfaceKind::Terminal,
             title: self.surface.title().unwrap_or_else(|| self.title.clone()),
             capabilities,
@@ -6670,6 +6677,17 @@ mod tests {
         assert!(!capture.can_resize());
         assert!(capture.has_title());
         assert!(!capture.can_restore());
+    }
+
+    #[test]
+    fn terminal_process_surface_id_builds_directly() {
+        let known = terminal_process_surface_id("pty", Some(42));
+        assert_eq!(known, "pty:42");
+        assert_eq!(known.capacity(), known.len());
+
+        let unknown = terminal_process_surface_id("ghostty-pty", None);
+        assert_eq!(unknown, "ghostty-pty:unknown");
+        assert_eq!(unknown.capacity(), unknown.len());
     }
 
     #[test]
