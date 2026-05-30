@@ -1,6 +1,7 @@
 //! Markdown-to-kittui component rendering.
 
 use std::collections::HashMap;
+use std::fmt::Write as FmtWrite;
 
 use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, HeadingLevel, MetadataBlockKind, Options, Parser, Tag, TagEnd,
@@ -191,7 +192,7 @@ struct ListState {
 impl ListState {
     fn next_marker(&mut self) -> String {
         if let Some(next) = &mut self.next_number {
-            let marker = format!("{next}.");
+            let marker = ordered_list_marker(*next);
             *next = next.saturating_add(1);
             marker
         } else {
@@ -806,10 +807,38 @@ fn flush_list_item(
         .map(ListState::next_marker)
         .unwrap_or_else(|| "•".to_string());
     out.components.push(textbox(
-        format!("{marker} {text}"),
+        list_item_text(&marker, &text),
         width_cells,
         Tone::Assistant,
     ));
+}
+
+fn ordered_list_marker(next: u64) -> String {
+    let mut marker = String::with_capacity(decimal_len(next) + 1);
+    write!(marker, "{next}").expect("write to string");
+    marker.push('.');
+    marker
+}
+
+fn list_item_text(marker: &str, text: &str) -> String {
+    let mut item = String::with_capacity(marker.len() + 1 + text.len());
+    item.push_str(marker);
+    item.push(' ');
+    item.push_str(text);
+    item
+}
+
+fn decimal_len(value: u64) -> usize {
+    if value == 0 {
+        return 1;
+    }
+    let mut n = value;
+    let mut len = 0;
+    while n > 0 {
+        len += 1;
+        n /= 10;
+    }
+    len
 }
 
 fn take_trimmed(buf: &mut String) -> String {
@@ -903,6 +932,16 @@ mod tests {
                 MarkdownTableAlignment::Right,
             ]
         );
+    }
+
+    #[test]
+    fn list_marker_helpers_build_directly() {
+        let marker = ordered_list_marker(42);
+        assert_eq!(marker, "42.");
+        assert!(marker.capacity() >= marker.len());
+        let item = list_item_text(&marker, "answer");
+        assert_eq!(item, "42. answer");
+        assert!(item.capacity() >= item.len());
     }
 
     #[test]
