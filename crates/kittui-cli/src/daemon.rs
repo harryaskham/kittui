@@ -1876,6 +1876,25 @@ fn queue_native_send_text(
     }
 }
 
+fn base64_queued_reply(prefix: &str, count: usize, window: &str, bytes: usize) -> String {
+    let mut out = String::with_capacity(
+        prefix.len()
+            + " command= window= bytes=\n".len()
+            + usize_decimal_len(count)
+            + window.len()
+            + usize_decimal_len(bytes),
+    );
+    out.push_str(prefix);
+    out.push_str(" command=");
+    write!(out, "{count}").expect("write to string");
+    out.push_str(" window=");
+    out.push_str(window);
+    out.push_str(" bytes=");
+    write!(out, "{bytes}").expect("write to string");
+    out.push('\n');
+    out
+}
+
 fn queue_native_send_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
     let (window, bytes) = match parse_window_base64(rest, "SEND_BYTES_B64") {
         Ok(parsed) => parsed,
@@ -1896,11 +1915,11 @@ fn queue_native_send_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest
                 "bytes",
                 serde_json::json!({ "bytes": bytes.len() }),
             );
-            format!(
-                "SEND_BYTES_B64_QUEUED command={} window={} bytes={}\n",
+            base64_queued_reply(
+                "SEND_BYTES_B64_QUEUED",
                 state.pending.len(),
-                window,
-                bytes.len()
+                &window,
+                bytes.len(),
             )
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
@@ -1926,11 +1945,11 @@ fn queue_native_paste_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, res
                 "paste",
                 serde_json::json!({ "bytes": bytes.len() }),
             );
-            format!(
-                "PASTE_BYTES_B64_QUEUED command={} window={} bytes={}\n",
+            base64_queued_reply(
+                "PASTE_BYTES_B64_QUEUED",
                 state.pending.len(),
-                window,
-                bytes.len()
+                &window,
+                bytes.len(),
             )
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
@@ -4123,6 +4142,16 @@ mod tests {
         assert_eq!(
             reply,
             "SEND_TEXT_QUEUED command=12 window=focused bytes=5\n"
+        );
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn base64_queued_reply_builds_directly() {
+        let reply = base64_queued_reply("SEND_BYTES_B64_QUEUED", 12, "focused", 5);
+        assert_eq!(
+            reply,
+            "SEND_BYTES_B64_QUEUED command=12 window=focused bytes=5\n"
         );
         assert_eq!(reply.capacity(), reply.len());
     }
