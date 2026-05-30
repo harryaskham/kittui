@@ -6546,11 +6546,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn control_helpers_send_expected_socket_commands() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwc-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwc", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
