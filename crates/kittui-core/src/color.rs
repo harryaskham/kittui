@@ -14,6 +14,12 @@ impl Rgba {
     }
 
     /// Construct a color from `r,g,b,a` channels.
+    //
+    // `rgba` deliberately mirrors `rgb` as an ergonomic constructor and is used
+    // at 150+ call sites; renaming to satisfy `self_named_constructors` would be
+    // a wide breaking change for no behavioural gain, so the lint is scoped-allowed
+    // here to keep `kittui-core` strict-clippy clean (see bd-dc44f1).
+    #[allow(clippy::self_named_constructors)]
     pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self(r, g, b, a)
     }
