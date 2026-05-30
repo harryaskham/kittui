@@ -89,6 +89,7 @@ pub fn compose_pane_chrome(
 mod tests {
     use super::*;
     use kittui::RendererKind;
+    use std::fmt::Write as FmtWrite;
 
     fn tempdir() -> std::path::PathBuf {
         let pid = std::process::id();
@@ -96,9 +97,37 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("kittui-tmux-{pid}-{nanos}"));
+        let path = std::env::temp_dir().join(tmux_test_temp_dir_name(pid, nanos));
         std::fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    fn tmux_test_temp_dir_name(pid: u32, nanos: u128) -> String {
+        let mut name = String::with_capacity(
+            "kittui-tmux-".len() + decimal_len(pid as u128) + 1 + decimal_len(nanos),
+        );
+        name.push_str("kittui-tmux-");
+        write!(name, "{pid}-{nanos}").expect("write to string");
+        name
+    }
+
+    fn decimal_len(mut value: u128) -> usize {
+        let mut digits = 1;
+        while value >= 10 {
+            value /= 10;
+            digits += 1;
+        }
+        digits
+    }
+
+    #[test]
+    fn tmux_test_temp_dir_name_builds_directly() {
+        let name = tmux_test_temp_dir_name(1234, 5678);
+        assert_eq!(name, "kittui-tmux-1234-5678");
+        assert_eq!(name.capacity(), name.len());
+        assert_eq!(decimal_len(0), 1);
+        assert_eq!(decimal_len(9), 1);
+        assert_eq!(decimal_len(10), 2);
     }
 
     #[test]
