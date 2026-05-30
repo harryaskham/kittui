@@ -653,8 +653,7 @@ fn decode_pty_input(input: &str) -> anyhow::Result<Vec<u8>> {
                 let lo = chars
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--pty-input has incomplete \\xHH escape"))?;
-                let hex = format!("{hi}{lo}");
-                out.push(u8::from_str_radix(&hex, 16)?);
+                out.push(hex_pair_to_byte(hi, lo)?);
             }
             Some('\\') => out.push(b'\\'),
             Some(other) => anyhow::bail!("unsupported --pty-input escape \\{other}"),
@@ -662,6 +661,16 @@ fn decode_pty_input(input: &str) -> anyhow::Result<Vec<u8>> {
         }
     }
     Ok(out)
+}
+
+fn hex_pair_to_byte(hi: char, lo: char) -> anyhow::Result<u8> {
+    let high = hi
+        .to_digit(16)
+        .ok_or_else(|| anyhow::anyhow!("--pty-input has invalid \\xHH escape"))?;
+    let low = lo
+        .to_digit(16)
+        .ok_or_else(|| anyhow::anyhow!("--pty-input has invalid \\xHH escape"))?;
+    Ok((high * 16 + low) as u8)
 }
 
 fn kittwm_proof_env() -> [(&'static str, &'static str); 7] {
@@ -899,6 +908,15 @@ mod tests {
         assert_eq!(decimal_len_usize(0), 1);
         assert_eq!(decimal_len_usize(9), 1);
         assert_eq!(decimal_len_usize(10), 2);
+    }
+
+    #[test]
+    fn hex_pair_to_byte_parses_directly() {
+        assert_eq!(hex_pair_to_byte('1', 'd').unwrap(), 0x1d);
+        assert_eq!(hex_pair_to_byte('0', '0').unwrap(), 0x00);
+        assert_eq!(hex_pair_to_byte('F', 'F').unwrap(), 0xff);
+        assert!(hex_pair_to_byte('g', '0').is_err());
+        assert!(hex_pair_to_byte('0', 'z').is_err());
     }
 
     #[test]
