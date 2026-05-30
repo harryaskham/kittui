@@ -2746,6 +2746,21 @@ fn native_spawn_wait_reply(
     }
 }
 
+fn read_text_no_pane_reply(target: &str) -> String {
+    let target = target.trim();
+    let mut out = String::with_capacity("ERR READ_TEXT no pane matching \n".len() + target.len());
+    out.push_str("ERR READ_TEXT no pane matching ");
+    out.push_str(target);
+    out.push('\n');
+    out
+}
+
+fn read_json_no_pane_reply(target: &str) -> String {
+    json_value_line(
+        &serde_json::json!({ "error": "no pane matching target", "target": target.trim() }),
+    )
+}
+
 fn native_spawn_read_text_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     target: &str,
@@ -2754,7 +2769,7 @@ fn native_spawn_read_text_reply(
         return "ERR registry poisoned\n".to_string();
     };
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
-        return format!("ERR READ_TEXT no pane matching {}\n", target.trim());
+        return read_text_no_pane_reply(target);
     };
     let text = pane.text_snapshot.as_deref().unwrap_or("");
     format!(
@@ -2774,10 +2789,7 @@ fn native_spawn_read_text_json_reply(
         return "{\"error\":\"registry poisoned\"}\n".to_string();
     };
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
-        return format!(
-            "{}\n",
-            serde_json::json!({ "error": "no pane matching target", "target": target.trim() })
-        );
+        return read_json_no_pane_reply(target);
     };
     format!(
         "{}\n",
@@ -4012,6 +4024,18 @@ mod tests {
         let reply = wait_no_pane_reply("WAIT_TEXT", "missing");
         assert_eq!(reply, "ERR WAIT_TEXT no pane matching missing\n");
         assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn read_text_no_pane_reply_builds_directly() {
+        let reply = read_text_no_pane_reply(" missing ");
+        assert_eq!(reply, "ERR READ_TEXT no pane matching missing\n");
+        assert_eq!(reply.capacity(), reply.len());
+
+        let json: serde_json::Value =
+            serde_json::from_str(&read_json_no_pane_reply(" missing ")).unwrap();
+        assert_eq!(json["error"], "no pane matching target");
+        assert_eq!(json["target"], "missing");
     }
 
     #[test]
