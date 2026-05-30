@@ -272,9 +272,18 @@ fn wrap_transport(payload: String, transport: Transport) -> String {
         Transport::Direct | Transport::File | Transport::Memory => payload,
         Transport::TmuxPassthrough => {
             let escaped = payload.replace(ESC, "\x1b\x1b");
-            format!("\x1bPtmux;{escaped}\x1b\\")
+            tmux_passthrough_payload(&escaped)
         }
     }
+}
+
+fn tmux_passthrough_payload(escaped: &str) -> String {
+    let mut out = String::with_capacity("\x1bPtmux;".len() + escaped.len() + ESC.len() + 1);
+    out.push_str("\x1bPtmux;");
+    out.push_str(escaped);
+    out.push_str(ESC);
+    out.push('\\');
+    out
 }
 
 /// Build the escape sequence that uploads a still image to the terminal.
@@ -1421,6 +1430,13 @@ mod tests {
             escapes.contains("\x1b_Ga=a,i=7,s=3,v=5,q=2\x1b\\"),
             "finite loop count must emit s=3,v=<N>: {escapes}"
         );
+    }
+
+    #[test]
+    fn tmux_passthrough_payload_builds_directly() {
+        let payload = tmux_passthrough_payload("\x1b\x1b_Ga=q,i=7\x1b\x1b\\");
+        assert_eq!(payload, "\x1bPtmux;\x1b\x1b_Ga=q,i=7\x1b\x1b\\\x1b\\");
+        assert!(payload.capacity() >= payload.len());
     }
 
     #[test]
