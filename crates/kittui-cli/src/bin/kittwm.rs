@@ -1485,6 +1485,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            singular alias for remote HOST list apps\n\
              kittwm remote HOST list windows firefox\n\
                                            list remote windows matching a query\n\
+             kittwm remote HOST list windows firefox --json\n\
+                                           structured remote window matches\n\
              kittwm remote HOST win firefox\n\
                                            short alias for remote window listing\n\
              kittwm remote HOST monitors retina\n\
@@ -1607,6 +1609,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST list apps QUERY    list remote app matches with a natural alias\n\
              remote HOST list app QUERY     singular alias for remote HOST list apps\n\
              remote HOST list windows QUERY list remote windows matching a query\n\
+             remote HOST list windows QUERY --json\n\
+                                            structured remote window matches\n\
              remote HOST list win QUERY     short alias for remote HOST list windows\n\
              remote HOST list displays QUERY\n\
                                             list remote displays matching a query\n\
@@ -1962,7 +1966,7 @@ fn parse_remote_listing_alias(
     kind: RemoteListingKind,
     args: &[String],
 ) -> Result<()> {
-    let query = remote_listing_query(args)?;
+    let query = remote_listing_query(args, out)?;
     match kind {
         RemoteListingKind::Windows => out.list_windows = true,
         RemoteListingKind::Displays => out.list_displays = true,
@@ -1971,7 +1975,7 @@ fn parse_remote_listing_alias(
     Ok(())
 }
 
-fn remote_listing_query(args: &[String]) -> Result<Option<String>> {
+fn remote_listing_query(args: &[String], out: &mut Cli) -> Result<Option<String>> {
     if args.is_empty() {
         return Ok(None);
     }
@@ -1980,6 +1984,7 @@ fn remote_listing_query(args: &[String]) -> Result<Option<String>> {
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--filter" | "--query" => terms.push(iter.next().ok_or_else(missing_filter_error)?.clone()),
+            "--json" => out.json = true,
             "--" => {
                 terms.extend(iter.cloned());
                 break;
@@ -2595,6 +2600,7 @@ fn real_main() -> Result<()> {
                 RemoteListingKind::Windows,
                 host,
                 cli.remote_listing_filter.as_deref(),
+                cli.json,
             );
         }
         return list_windows_cmd();
@@ -2605,6 +2611,7 @@ fn real_main() -> Result<()> {
                 RemoteListingKind::Displays,
                 host,
                 cli.remote_listing_filter.as_deref(),
+                cli.json,
             );
         }
         return list_displays_cmd();
@@ -4966,6 +4973,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST list windows",
             category: "remote",
             description: "list remote windows through pooled SSH",
+        },
+        LocalCommandEntry {
+            command: "remote HOST list windows --json",
+            category: "remote",
+            description: "list remote windows as JSON",
         },
         LocalCommandEntry {
             command: "remote HOST list win",
@@ -8325,7 +8337,12 @@ impl RemoteListingKind {
     }
 }
 
-fn remote_listing_cmd(kind: RemoteListingKind, host: &str, query: Option<&str>) -> Result<()> {
+fn remote_listing_cmd(
+    kind: RemoteListingKind,
+    host: &str,
+    query: Option<&str>,
+    json: bool,
+) -> Result<()> {
     run_pooled_ssh_script(
         host,
         &[
@@ -8336,6 +8353,10 @@ fn remote_listing_cmd(kind: RemoteListingKind, host: &str, query: Option<&str>) 
             (
                 "KITTWM_REMOTE_QUERY".to_string(),
                 query.unwrap_or_default().to_string(),
+            ),
+            (
+                "KITTWM_REMOTE_JSON".to_string(),
+                if json { "1" } else { "0" }.to_string(),
             ),
         ],
         remote_listing_script(),
@@ -8770,7 +8791,28 @@ esac
 fn remote_listing_script() -> &'static str {
     r#"kind=${KITTWM_REMOTE_KIND:-windows}
 query=${KITTWM_REMOTE_QUERY:-}
+json=${KITTWM_REMOTE_JSON:-0}
 host=$(hostname 2>/dev/null || printf unknown)
+json_escape() {
+    awk 'BEGIN { ORS="" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\r/, "\\r"); gsub(/\t/, "\\t"); printf "\"%s\"", $0 }'
+}
+kittwm_remote_emit_json_lines() {
+    printf '{"host":%s,"kind":%s,"filter":%s,"lines":[' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$query" | json_escape)"
+    first=1
+    while IFS= read -r line; do
+        [ $first -eq 1 ] || printf ','
+        first=0
+        printf '%s' "$line" | json_escape
+    done
+    printf ']}\n'
+}
+kittwm_remote_emit() {
+    if [ "$json" = "1" ]; then
+        kittwm_remote_emit_json_lines
+    else
+        cat
+    fi
+}
 kittwm_remote_filter() {
     if [ -n "$query" ]; then
         awk -v q="$query" 'BEGIN { q=tolower(q) } index(tolower($0), q)'
@@ -8819,7 +8861,7 @@ if command -v kittwm >/dev/null 2>&1; then
         kittwm_status=$?
         if [ $kittwm_status -eq 0 ]; then
             rm -f "$kittwm_err"
-            printf '%s\n' "$kittwm_out" | kittwm_remote_filter
+            printf '%s\n' "$kittwm_out" | kittwm_remote_filter | kittwm_remote_emit
             exit 0
         fi
         cat "$kittwm_err" >&2
@@ -8831,7 +8873,7 @@ if command -v kittwm >/dev/null 2>&1; then
         esac
         kittwm_status=$?
         if [ $kittwm_status -eq 0 ]; then
-            printf '%s\n' "$kittwm_out" | kittwm_remote_filter
+            printf '%s\n' "$kittwm_out" | kittwm_remote_filter | kittwm_remote_emit
             exit 0
         fi
         printf '%s\n' "$kittwm_out" >&2
@@ -8840,39 +8882,43 @@ if command -v kittwm >/dev/null 2>&1; then
 fi
 case "$kind" in
     displays)
-        printf 'kittwm remote displays\n======================\nhost: %s\nmode: fallback\n' "$host"
-        [ -z "$query" ] || printf 'filter: %s\n' "$query"
+        if [ "$json" != "1" ]; then
+            printf 'kittwm remote displays\n======================\nhost: %s\nmode: fallback\n' "$host"
+            [ -z "$query" ] || printf 'filter: %s\n' "$query"
+        fi
         if command -v swaymsg >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-            swaymsg -t get_outputs 2>/dev/null | jq -r '.[] | "  " + (.name // "?") + " " + (.make // "") + " " + (.model // "") + " " + ((.current_mode.width // 0)|tostring) + "x" + ((.current_mode.height // 0)|tostring) + " active=" + ((.active // false)|tostring)' | kittwm_remote_filter
+            swaymsg -t get_outputs 2>/dev/null | jq -r '.[] | "  " + (.name // "?") + " " + (.make // "") + " " + (.model // "") + " " + ((.current_mode.width // 0)|tostring) + "x" + ((.current_mode.height // 0)|tostring) + " active=" + ((.active // false)|tostring)' | kittwm_remote_filter | kittwm_remote_emit
         elif command -v swaymsg >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
-            swaymsg -t get_outputs 2>/dev/null | kittwm_remote_sway_outputs_python | kittwm_remote_filter
+            swaymsg -t get_outputs 2>/dev/null | kittwm_remote_sway_outputs_python | kittwm_remote_filter | kittwm_remote_emit
         elif command -v xrandr >/dev/null 2>&1; then
-            (xrandr --listmonitors 2>/dev/null || xrandr --query 2>/dev/null | awk '/ connected/{print "  "$0}') | kittwm_remote_filter
+            (xrandr --listmonitors 2>/dev/null || xrandr --query 2>/dev/null | awk '/ connected/{print "  "$0}') | kittwm_remote_filter | kittwm_remote_emit
         elif command -v system_profiler >/dev/null 2>&1; then
-            system_profiler SPDisplaysDataType 2>/dev/null | awk '/^[[:space:]]*(Resolution|Main Display|Online|Display Type):/{print "  "$0}' | kittwm_remote_filter
+            system_profiler SPDisplaysDataType 2>/dev/null | awk '/^[[:space:]]*(Resolution|Main Display|Online|Display Type):/{print "  "$0}' | kittwm_remote_filter | kittwm_remote_emit
         else
-            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, xrandr, or system_profiler\n'
+            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, xrandr, or system_profiler\n' | kittwm_remote_emit
         fi
         ;;
     *)
-        printf 'kittwm remote windows\n=====================\nhost: %s\nmode: fallback\n' "$host"
-        [ -z "$query" ] || printf 'filter: %s\n' "$query"
+        if [ "$json" != "1" ]; then
+            printf 'kittwm remote windows\n=====================\nhost: %s\nmode: fallback\n' "$host"
+            [ -z "$query" ] || printf 'filter: %s\n' "$query"
+        fi
         if command -v swaymsg >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-            swaymsg -t get_tree 2>/dev/null | jq -r '.. | objects | select((.type? == "con") and ((.app_id? != null) or (.window? != null))) | "  " + ((.id // 0)|tostring) + " " + (.app_id // .window_properties.class // "?") + "  " + (.name // "")' | kittwm_remote_filter
+            swaymsg -t get_tree 2>/dev/null | jq -r '.. | objects | select((.type? == "con") and ((.app_id? != null) or (.window? != null))) | "  " + ((.id // 0)|tostring) + " " + (.app_id // .window_properties.class // "?") + "  " + (.name // "")' | kittwm_remote_filter | kittwm_remote_emit
         elif command -v swaymsg >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
-            swaymsg -t get_tree 2>/dev/null | kittwm_remote_sway_tree_python | kittwm_remote_filter
+            swaymsg -t get_tree 2>/dev/null | kittwm_remote_sway_tree_python | kittwm_remote_filter | kittwm_remote_emit
         elif command -v wmctrl >/dev/null 2>&1; then
-            wmctrl -lx 2>/dev/null | kittwm_remote_filter || wmctrl -l | kittwm_remote_filter
+            (wmctrl -lx 2>/dev/null || wmctrl -l) | kittwm_remote_filter | kittwm_remote_emit
         elif command -v xdotool >/dev/null 2>&1; then
             xdotool search --onlyvisible --name '.*' 2>/dev/null | while IFS= read -r id; do
                 class=$(xdotool getwindowclassname "$id" 2>/dev/null || printf '?')
                 title=$(xdotool getwindowname "$id" 2>/dev/null || printf '')
                 printf '  %s %s  %s\n' "$id" "$class" "$title"
-            done | kittwm_remote_filter
+            done | kittwm_remote_filter | kittwm_remote_emit
         elif command -v osascript >/dev/null 2>&1; then
-            osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /' | kittwm_remote_filter
+            osascript -e 'tell application "System Events" to repeat with p in (processes whose background only is false)' -e 'set pname to name of p' -e 'repeat with w in windows of p' -e 'try' -e 'set wname to name of w' -e 'if wname is not "" then log pname & "  " & wname' -e 'end try' -e 'end repeat' -e 'end repeat' 2>&1 | sed 's/^/  /' | kittwm_remote_filter | kittwm_remote_emit
         else
-            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, wmctrl, xdotool, or enable macOS osascript accessibility\n'
+            printf '  capability unavailable: install remote kittwm, swaymsg+jq, swaymsg+python3, wmctrl, xdotool, or enable macOS osascript accessibility\n' | kittwm_remote_emit
         fi
         ;;
 esac
@@ -10967,6 +11013,9 @@ mod tests {
             entry["command"] == "remote HOST list windows" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST list windows --json" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list win" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -11895,6 +11944,21 @@ mod tests {
             Some("firefox")
         );
 
+        let mut list_windows_json = Cli::default();
+        list_windows_json.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut list_windows_json,
+            "list",
+            &args(&["windows", "firefox", "--json"]),
+        )
+        .unwrap();
+        assert!(list_windows_json.list_windows);
+        assert_eq!(
+            list_windows_json.remote_listing_filter.as_deref(),
+            Some("firefox")
+        );
+        assert!(list_windows_json.json);
+
         let mut win = Cli::default();
         win.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut win, "win", &args(&["firefox"])).unwrap();
@@ -12231,6 +12295,10 @@ mod tests {
         assert_eq!(RemoteListingKind::Windows.env_value(), "windows");
         assert_eq!(RemoteListingKind::Displays.env_value(), "displays");
         let script = remote_listing_script();
+        assert!(script.contains("KITTWM_REMOTE_JSON"), "{script}");
+        assert!(script.contains("kittwm_remote_emit_json_lines"), "{script}");
+        assert!(script.contains("\"lines\":"), "{script}");
+        assert!(script.contains("kittwm_remote_emit"), "{script}");
         assert!(script.contains("kittwm --list-windows"), "{script}");
         assert!(script.contains("kittwm --list-displays"), "{script}");
         assert!(script.contains("kittwm_status"), "{script}");
