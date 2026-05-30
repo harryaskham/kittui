@@ -1498,7 +1498,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST apps firefox --json\n\
                                            structured remote app matches with counts\n\
              kittwm remote HOST app firefox\n\
-                                           singular alias for remote HOST apps\n\
+                                           select the first remote app match\n\
              kittwm remote HOST app firefox --json\n\
                                            structured first remote app match\n\
              kittwm remote HOST launch firefox\n\
@@ -1626,7 +1626,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                             alias for remote HOST list displays\n\
              remote HOST apps QUERY         list remote app matches with a positional query\n\
              remote HOST apps QUERY --json  structured remote app matches with counts\n\
-             remote HOST app QUERY          singular alias for remote HOST apps\n\
+             remote HOST app QUERY          select the first remote app match\n\
              remote HOST app QUERY --json   structured first remote app match\n\
              remote HOST launch QUERY       shortest alias for remote app launch\n\
              remote HOST open QUERY         natural alias for remote app launch\n\
@@ -1873,8 +1873,13 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
         "help" | "usage" => ensure_empty_remote_help_args(rest, || {
             out.remote_help = true;
         }),
-        "apps" | "app" => {
+        "apps" => {
             out.apps = true;
+            parse_remote_apps_flags(out, rest)
+        }
+        "app" => {
+            out.apps = true;
+            out.apps_first = true;
             parse_remote_apps_flags(out, rest)
         }
         "list" | "ls" => parse_remote_list_alias(out, rest),
@@ -5037,7 +5042,7 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
         LocalCommandEntry {
             command: "remote HOST app QUERY",
             category: "remote",
-            description: "singular alias for remote app matches",
+            description: "select the first remote app match",
         },
         LocalCommandEntry {
             command: "remote HOST app QUERY --json",
@@ -12376,15 +12381,26 @@ mod tests {
 
         let mut singular_app_query = Cli::default();
         singular_app_query.remote_host = Some("buildbox".to_string());
-        parse_remote_alias_action(
-            &mut singular_app_query,
-            "app",
-            &args(&["fire", "fox", "--first"]),
-        )
-        .unwrap();
+        parse_remote_alias_action(&mut singular_app_query, "app", &args(&["fire", "fox"])).unwrap();
         assert!(singular_app_query.apps);
         assert_eq!(singular_app_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(singular_app_query.apps_first);
+
+        let mut singular_app_json_query = Cli::default();
+        singular_app_json_query.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut singular_app_json_query,
+            "app",
+            &args(&["fire", "fox", "--json"]),
+        )
+        .unwrap();
+        assert!(singular_app_json_query.apps);
+        assert_eq!(
+            singular_app_json_query.apps_filter.as_deref(),
+            Some("fire fox")
+        );
+        assert!(singular_app_json_query.apps_first);
+        assert!(singular_app_json_query.json);
 
         let mut doctor = Cli::default();
         doctor.remote_host = Some("buildbox".to_string());
