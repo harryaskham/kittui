@@ -239,6 +239,25 @@ mod tests {
             .unwrap();
     }
 
+    fn padded_scene_id(value: u64) -> String {
+        let mut id = String::with_capacity(64);
+        let digits = decimal_len(value as u128);
+        id.extend(std::iter::repeat_n('0', 64usize.saturating_sub(digits)));
+        write!(id, "{value}").expect("write to string");
+        id
+    }
+
+    #[test]
+    fn padded_scene_id_builds_directly() {
+        let id = padded_scene_id(42);
+        assert_eq!(
+            id,
+            "0000000000000000000000000000000000000000000000000000000000000042"
+        );
+        assert_eq!(id.capacity(), id.len());
+        assert_eq!(id.len(), 64);
+    }
+
     #[test]
     fn eviction_test_temp_dir_name_builds_directly() {
         let name = eviction_test_temp_dir_name(1234, 5678, 9);
@@ -263,7 +282,7 @@ mod tests {
         )
         .unwrap();
         for i in 0..3 {
-            let sha = format!("{:0>64}", i);
+            let sha = padded_scene_id(i);
             put(&cache, &sha, &vec![0u8; 4096]);
         }
         // Age the entries so age > grace=0.
