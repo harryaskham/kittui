@@ -2701,6 +2701,18 @@ impl PanesStatus {
             .map(NativePaneDetail::is_title_draggable)
     }
 
+    /// Whether dragging the focused pane title row reorders tiled panes.
+    pub fn focused_title_drag_reorders_pane(&self) -> Option<bool> {
+        self.focused_pane()
+            .map(|pane| self.is_tiled_layout() && pane.is_title_draggable())
+    }
+
+    /// Whether dragging the focused pane title row repositions a floating pane.
+    pub fn focused_title_drag_repositions_pane(&self) -> Option<bool> {
+        self.focused_pane()
+            .map(|pane| self.is_floating_layout() && pane.is_title_draggable())
+    }
+
     /// Host-cell coordinate suitable for dragging the focused pane title row.
     pub fn focused_title_drag_cell(&self) -> Option<(u16, u16)> {
         self.focused_pane()?.title_drag_cell()
@@ -2741,6 +2753,22 @@ impl PanesStatus {
         self.panes_detail
             .iter()
             .filter(|pane| pane.is_title_draggable())
+    }
+
+    /// Panes whose title drag handle reorders the tiled pane stack.
+    pub fn title_reorder_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        let is_tiled = self.is_tiled_layout();
+        self.panes_detail
+            .iter()
+            .filter(move |pane| is_tiled && pane.is_title_draggable())
+    }
+
+    /// Panes whose title drag handle repositions a floating pane.
+    pub fn title_reposition_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        let is_floating = self.is_floating_layout();
+        self.panes_detail
+            .iter()
+            .filter(move |pane| is_floating && pane.is_title_draggable())
     }
 
     /// Panes with non-zero floating offsets.
@@ -2906,6 +2934,18 @@ impl Status {
             .map(NativePaneDetail::is_title_draggable)
     }
 
+    /// Whether dragging the focused pane title row reorders tiled panes.
+    pub fn focused_title_drag_reorders_pane(&self) -> Option<bool> {
+        self.focused_pane()
+            .map(|pane| self.is_tiled_layout() && pane.is_title_draggable())
+    }
+
+    /// Whether dragging the focused pane title row repositions a floating pane.
+    pub fn focused_title_drag_repositions_pane(&self) -> Option<bool> {
+        self.focused_pane()
+            .map(|pane| self.is_floating_layout() && pane.is_title_draggable())
+    }
+
     /// Host-cell coordinate suitable for dragging the focused pane title row.
     pub fn focused_title_drag_cell(&self) -> Option<(u16, u16)> {
         self.focused_pane()?.title_drag_cell()
@@ -2946,6 +2986,22 @@ impl Status {
         self.panes_detail
             .iter()
             .filter(|pane| pane.is_title_draggable())
+    }
+
+    /// Panes whose title drag handle reorders the tiled pane stack.
+    pub fn title_reorder_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        let is_tiled = self.is_tiled_layout();
+        self.panes_detail
+            .iter()
+            .filter(move |pane| is_tiled && pane.is_title_draggable())
+    }
+
+    /// Panes whose title drag handle repositions a floating pane.
+    pub fn title_reposition_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        let is_floating = self.is_floating_layout();
+        self.panes_detail
+            .iter()
+            .filter(move |pane| is_floating && pane.is_title_draggable())
     }
 
     /// Panes with non-zero floating offsets.
@@ -5060,6 +5116,8 @@ mod tests {
         assert_eq!(panes.focused_is_resized(), Some(true));
         assert_eq!(panes.focused_is_moved(), Some(true));
         assert_eq!(panes.focused_is_title_draggable(), Some(true));
+        assert_eq!(panes.focused_title_drag_reorders_pane(), Some(true));
+        assert_eq!(panes.focused_title_drag_repositions_pane(), Some(false));
         assert_eq!(panes.focused_title_drag_cell(), Some((6, 2)));
         assert_eq!(
             panes.focused_title_drag_cells_by(5, 2),
@@ -5078,6 +5136,8 @@ mod tests {
             vec!["native-1"]
         );
         assert_eq!(panes.title_draggable_panes().count(), 1);
+        assert_eq!(panes.title_reorder_draggable_panes().count(), 1);
+        assert_eq!(panes.title_reposition_draggable_panes().count(), 0);
         assert_eq!(
             panes
                 .moved_floating_panes()
@@ -5206,6 +5266,8 @@ mod tests {
         assert_eq!(status.focused_is_resized(), None);
         assert_eq!(status.focused_is_moved(), None);
         assert_eq!(status.focused_is_title_draggable(), None);
+        assert_eq!(status.focused_title_drag_reorders_pane(), None);
+        assert_eq!(status.focused_title_drag_repositions_pane(), None);
         assert_eq!(status.focused_title_drag_cell(), None);
         assert_eq!(status.focused_title_drag_cells_by(1, 1), None);
         assert_eq!(status.focused_frame_is_clean(), None);
@@ -5213,6 +5275,8 @@ mod tests {
         assert_eq!(status.focused_frame_changed_tiles_ratio(), None);
         assert_eq!(status.focused_frame_changed_fraction(), None);
         assert_eq!(status.title_draggable_panes().count(), 0);
+        assert_eq!(status.title_reorder_draggable_panes().count(), 0);
+        assert_eq!(status.title_reposition_draggable_panes().count(), 0);
         assert!(status.panes_detail.is_empty());
     }
 
@@ -5257,6 +5321,8 @@ mod tests {
         assert_eq!(status.focused_is_resized(), Some(false));
         assert_eq!(status.focused_is_moved(), Some(false));
         assert_eq!(status.focused_is_title_draggable(), Some(true));
+        assert_eq!(status.focused_title_drag_reorders_pane(), Some(false));
+        assert_eq!(status.focused_title_drag_repositions_pane(), Some(true));
         assert_eq!(status.focused_title_drag_cell(), Some((4, 1)));
         assert_eq!(
             status.focused_title_drag_cells_by(3, 2),
@@ -5269,6 +5335,14 @@ mod tests {
         assert_eq!(
             status
                 .title_draggable_panes()
+                .map(|pane| pane.window.as_str())
+                .collect::<Vec<_>>(),
+            vec!["native-1", "native-2"]
+        );
+        assert_eq!(status.title_reorder_draggable_panes().count(), 0);
+        assert_eq!(
+            status
+                .title_reposition_draggable_panes()
                 .map(|pane| pane.window.as_str())
                 .collect::<Vec<_>>(),
             vec!["native-1", "native-2"]
