@@ -10054,14 +10054,39 @@ fn linux_desktop_app_matches(app: &LinuxDesktopApp, query: Option<&str>) -> bool
 }
 
 fn linux_desktop_app_row(app: &LinuxDesktopApp) -> String {
-    let mut row =
-        String::with_capacity(app.label.len() + app.id.len() + app.file.len() + " () — ".len());
+    let detail = linux_desktop_app_detail(app);
+    let mut row = String::with_capacity(
+        app.label
+            .len()
+            .saturating_add(app.id.len())
+            .saturating_add(app.file.len())
+            .saturating_add(detail.len())
+            .saturating_add(" () —  — ".len()),
+    );
     row.push_str(&app.label);
     row.push_str(" (");
     row.push_str(&app.id);
     row.push_str(") — ");
     row.push_str(&app.file);
+    if !detail.is_empty() {
+        row.push_str(" — ");
+        row.push_str(&detail);
+    }
     row
+}
+
+fn linux_desktop_app_detail(app: &LinuxDesktopApp) -> String {
+    let mut detail = String::new();
+    for value in [&app.localized_names, &app.generic_name, &app.categories] {
+        if value.is_empty() {
+            continue;
+        }
+        if !detail.is_empty() {
+            detail.push_str("; ");
+        }
+        detail.push_str(value);
+    }
+    detail
 }
 
 fn json_option_string(value: Option<&str>) -> String {
@@ -12979,10 +13004,15 @@ mod tests {
             desktop_try_exec_token("'quoted command' --flag").as_deref(),
             Some("quoted command")
         );
+        let detail = linux_desktop_app_detail(&app);
+        assert_eq!(
+            detail,
+            "Terminale Exemple; Terminal emulator;Command line; System;TerminalEmulator;"
+        );
         let row = linux_desktop_app_row(&app);
         assert_eq!(
             row,
-            "Example Terminal (org.example.Term.desktop) — /usr/share/applications/org.example.Term.desktop"
+            "Example Terminal (org.example.Term.desktop) — /usr/share/applications/org.example.Term.desktop — Terminale Exemple; Terminal emulator;Command line; System;TerminalEmulator;"
         );
         assert_eq!(row.capacity(), row.len());
         assert!(parse_linux_desktop_app(
