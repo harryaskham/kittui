@@ -575,10 +575,19 @@ fn xwindow_keysym_context_label(action: &str, id: XWindowId, sym: u32) -> String
 }
 
 fn xwindow_pointer_context_label(id: XWindowId) -> String {
+    xwindow_simple_context_label("send pointer event to", id)
+}
+
+fn xwindow_capture_context_label(id: XWindowId) -> String {
+    xwindow_simple_context_label("capture", id)
+}
+
+fn xwindow_simple_context_label(action: &str, id: XWindowId) -> String {
     let mut label = String::with_capacity(
-        "send pointer event to X window XWindowId()".len() + decimal_len(u64::from(id.0)),
+        action.len() + " X window XWindowId()".len() + decimal_len(u64::from(id.0)),
     );
-    label.push_str("send pointer event to X window XWindowId(");
+    label.push_str(action);
+    label.push_str(" X window XWindowId(");
     write!(label, "{}", id.0).expect("write to string");
     label.push(')');
     label
@@ -1022,7 +1031,7 @@ impl NativeSurface for XWindowSurface {
         let capture = self
             .server
             .capture(self.window.id)
-            .with_context(|| format!("capture X window {:?}", self.window.id))?;
+            .with_context(|| xwindow_capture_context_label(self.window.id))?;
         let window = self.current_window();
         self.window = window.clone();
         let frame = NativeFrame::Rgba {
@@ -6699,6 +6708,16 @@ mod tests {
         let label = xwindow_pointer_context_label(XWindowId(11));
         assert_eq!(label, "send pointer event to X window XWindowId(11)");
         assert_eq!(label.capacity(), label.len());
+    }
+
+    #[test]
+    fn xwindow_simple_context_labels_build_directly() {
+        let pointer = xwindow_pointer_context_label(XWindowId(11));
+        assert_eq!(pointer, "send pointer event to X window XWindowId(11)");
+        assert_eq!(pointer.capacity(), pointer.len());
+        let capture = xwindow_capture_context_label(XWindowId(11));
+        assert_eq!(capture, "capture X window XWindowId(11)");
+        assert_eq!(capture.capacity(), capture.len());
     }
 
     #[test]
