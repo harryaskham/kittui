@@ -4,6 +4,8 @@
 //! control state for kittwm/SDK/component surfaces while still being able to
 //! lower to ordinary kittui primitive scenes for renderers and tests.
 
+use std::fmt::Write as FmtWrite;
+
 use kittui::{
     scene, Animation, CellRect, CellSize, Corners, Layer, Node, Paint, PxRect, Rgba, Scene, Stroke,
     STANDARD_ANIMATION_FPS, STANDARD_ANIMATION_FRAMES,
@@ -517,7 +519,7 @@ impl ControlComponent {
                         ..self.state
                     };
                     layers.push(Layer::new(
-                        format!("control_tab_{idx}"),
+                        control_index_label("control_tab_", idx),
                         control_rect(
                             tab,
                             fill_for(ControlKind::Button, selected),
@@ -554,7 +556,7 @@ impl ControlComponent {
                         ..self.state
                     };
                     layers.push(Layer::new(
-                        format!("control_option_{idx}"),
+                        control_index_label("control_option_", idx),
                         control_rect(
                             row,
                             fill_for(ControlKind::Button, selected),
@@ -569,7 +571,7 @@ impl ControlComponent {
 
         if let Some(animation) = self.animation {
             layers.push(Layer::new(
-                format!("control_animation_{}", self.kind.as_str()),
+                control_animation_label(self.kind),
                 Node::Glow {
                     rect,
                     center_x_frac: 0.5,
@@ -765,6 +767,34 @@ fn control_chrome_tone(_kind: ControlKind, state: ControlState, tone: Tone) -> C
         .padding(Padding::trbl(0, 1, 0, 1))
 }
 
+fn control_index_label(prefix: &str, idx: usize) -> String {
+    let mut label = String::with_capacity(prefix.len() + decimal_len(idx as u64));
+    label.push_str(prefix);
+    write!(label, "{idx}").expect("write to string");
+    label
+}
+
+fn control_animation_label(kind: ControlKind) -> String {
+    let kind = kind.as_str();
+    let mut label = String::with_capacity("control_animation_".len() + kind.len());
+    label.push_str("control_animation_");
+    label.push_str(kind);
+    label
+}
+
+fn decimal_len(value: u64) -> usize {
+    if value == 0 {
+        return 1;
+    }
+    let mut n = value;
+    let mut len = 0;
+    while n > 0 {
+        len += 1;
+        n /= 10;
+    }
+    len
+}
+
 fn control_rect(rect: PxRect, fill: Rgba, stroke: Rgba, radius: f32) -> Node {
     Node::Rect {
         rect,
@@ -880,6 +910,19 @@ mod tests {
             split_pane("split", "Split", 30, 8).kind,
             ControlKind::SplitPane
         );
+    }
+
+    #[test]
+    fn control_layer_labels_build_directly() {
+        let tab = control_index_label("control_tab_", 12);
+        assert_eq!(tab, "control_tab_12");
+        assert!(tab.capacity() >= tab.len());
+        let option = control_index_label("control_option_", 3);
+        assert_eq!(option, "control_option_3");
+        assert!(option.capacity() >= option.len());
+        let animation = control_animation_label(ControlKind::Slider);
+        assert_eq!(animation, "control_animation_slider");
+        assert!(animation.capacity() >= animation.len());
     }
 
     #[test]
