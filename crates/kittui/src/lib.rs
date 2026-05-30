@@ -1277,7 +1277,7 @@ mod tests {
         let prefix = prefix_name.trim_end_matches("0.rgba");
         if let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) {
             for entry in entries.flatten() {
-                if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                if entry.file_name().to_string_lossy().starts_with(prefix) {
                     let _ = std::fs::remove_file(entry.path());
                 }
             }
@@ -1342,7 +1342,7 @@ mod tests {
 
     #[test]
     fn gpu_error_label_builds_directly() {
-        let err = std::io::Error::new(std::io::ErrorKind::Other, "device lost");
+        let err = std::io::Error::other("device lost");
         let label = gpu_error_label(&err);
         assert_eq!(label, "gpu error: device lost");
         assert!(label.capacity() >= label.len());
