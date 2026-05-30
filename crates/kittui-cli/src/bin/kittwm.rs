@@ -1084,7 +1084,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|wm|list|apps|applications|app|application|select|pick|launch|open|run|start|windows|win|displays|monitors|screens|terminal|term|cmd|command|exec|shell|sh|login|ssh|console|tty]
+  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|wm|list|apps|applications|programs|app|application|program|select|pick|launch|open|run|start|windows|win|displays|monitors|screens|terminal|term|cmd|command|exec|shell|sh|login|ssh|console|tty]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1500,12 +1500,16 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            structured remote app matches with counts\n\
              kittwm remote HOST applications firefox\n\
                                            natural alias for remote HOST apps\n\
+             kittwm remote HOST programs firefox\n\
+                                           program-style alias for remote HOST apps\n\
              kittwm remote HOST app firefox\n\
                                            select the first remote app match\n\
              kittwm remote HOST app firefox --json\n\
                                            structured first remote app match\n\
              kittwm remote HOST application firefox --json\n\
                                            structured alias for selecting the first remote app match\n\
+             kittwm remote HOST program firefox --json\n\
+                                           structured program-style alias for the first remote app match\n\
              kittwm remote HOST select firefox
 \
                                            natural alias for selecting the first remote app match
@@ -1622,7 +1626,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                             first-party event card JSON\n\n\
              EVENTS starts with status, then pane/focus/layout/input/frame,\n\
              semantic, and surface side-effect event envelopes, ending with END.\n"),
-        "apps" | "app" | "applications" | "application" => Ok("kittwm help apps\n\
+        "apps" | "app" | "applications" | "application" | "programs" | "program" => Ok("kittwm help apps\n\
              ================\n\n\
              apps                           list launch candidates\n\
              remote HOST                    check remote kittwm availability\n\
@@ -1653,9 +1657,12 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST apps QUERY         list remote app matches with a positional query\n\
              remote HOST apps QUERY --json  structured remote app matches with counts\n\
              remote HOST applications QUERY alias for remote HOST apps QUERY\n\
+             remote HOST programs QUERY     alias for remote HOST apps QUERY\n\
              remote HOST app QUERY          select the first remote app match\n\
              remote HOST app QUERY --json   structured first remote app match\n\
              remote HOST application QUERY --json\n\
+                                            structured alias for remote HOST app QUERY\n\
+             remote HOST program QUERY --json\n\
                                             structured alias for remote HOST app QUERY\n\
              remote HOST select QUERY       alias for remote HOST app QUERY
 \
@@ -1915,11 +1922,11 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
         "help" | "usage" => ensure_empty_remote_help_args(rest, || {
             out.remote_help = true;
         }),
-        "apps" | "applications" => {
+        "apps" | "applications" | "programs" => {
             out.apps = true;
             parse_remote_apps_flags(out, rest)
         }
-        "app" | "application" | "select" | "pick" => {
+        "app" | "application" | "program" | "select" | "pick" => {
             out.apps = true;
             out.apps_first = true;
             parse_remote_apps_flags(out, rest)
@@ -2068,7 +2075,7 @@ fn parse_remote_list_alias(out: &mut Cli, args: &[String]) -> Result<()> {
         return Ok(());
     };
     match kind {
-        "apps" | "applications" | "app" | "application" => {
+        "apps" | "applications" | "programs" | "app" | "application" | "program" => {
             out.apps = true;
             parse_remote_apps_flags(out, &args[1..])
         }
@@ -5093,6 +5100,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "alias for remote app matches",
         },
         LocalCommandEntry {
+            command: "remote HOST programs QUERY",
+            category: "remote",
+            description: "program-style alias for remote app matches",
+        },
+        LocalCommandEntry {
             command: "remote HOST app QUERY",
             category: "remote",
             description: "select the first remote app match",
@@ -5106,6 +5118,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST application QUERY --json",
             category: "remote",
             description: "structured alias for first remote app match",
+        },
+        LocalCommandEntry {
+            command: "remote HOST program QUERY --json",
+            category: "remote",
+            description: "structured program-style alias for first remote app match",
         },
         LocalCommandEntry {
             command: "remote HOST select QUERY",
@@ -5995,8 +6012,10 @@ fn completion_words() -> &'static [&'static str] {
             "list",
             "apps",
             "applications",
+            "programs",
             "app",
             "application",
+            "program",
             "launch",
             "open",
             "run",
@@ -11740,6 +11759,9 @@ mod tests {
             entry["command"] == "remote HOST applications QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST programs QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST app QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -11748,6 +11770,9 @@ mod tests {
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST application QUERY --json"
                 && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST program QUERY --json" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST select QUERY" && entry["category"] == "remote"
@@ -12746,6 +12771,13 @@ mod tests {
         assert_eq!(applications_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(applications_query.json);
 
+        let mut programs_query = Cli::default();
+        programs_query.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut programs_query, "programs", &args(&["fire", "fox"]))
+            .unwrap();
+        assert!(programs_query.apps);
+        assert_eq!(programs_query.apps_filter.as_deref(), Some("fire fox"));
+
         let mut singular_app_query = Cli::default();
         singular_app_query.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut singular_app_query, "app", &args(&["fire", "fox"])).unwrap();
@@ -12784,6 +12816,19 @@ mod tests {
         );
         assert!(application_json_query.apps_first);
         assert!(application_json_query.json);
+
+        let mut program_json_query = Cli::default();
+        program_json_query.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut program_json_query,
+            "program",
+            &args(&["fire", "fox", "--json"]),
+        )
+        .unwrap();
+        assert!(program_json_query.apps);
+        assert_eq!(program_json_query.apps_filter.as_deref(), Some("fire fox"));
+        assert!(program_json_query.apps_first);
+        assert!(program_json_query.json);
 
         let mut select_query = Cli::default();
         select_query.remote_host = Some("buildbox".to_string());
@@ -12897,6 +12942,13 @@ mod tests {
         .unwrap();
         assert!(list_applications.apps);
         assert_eq!(list_applications.apps_filter.as_deref(), Some("terminal"));
+
+        let mut list_programs = Cli::default();
+        list_programs.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut list_programs, "list", &args(&["programs", "terminal"]))
+            .unwrap();
+        assert!(list_programs.apps);
+        assert_eq!(list_programs.apps_filter.as_deref(), Some("terminal"));
 
         let mut list_windows = Cli::default();
         list_windows.remote_host = Some("buildbox".to_string());
