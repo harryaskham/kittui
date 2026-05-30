@@ -3249,6 +3249,21 @@ impl ShortcutCatalog {
         self.entry("title_markers")
     }
 
+    /// Mouse title-drag entry for reordering tiled panes.
+    pub fn tiled_title_drag_shortcut(&self) -> Option<&ShortcutEntry> {
+        self.entry("drag_tiled_title")
+    }
+
+    /// Mouse title-drag entry for repositioning floating panes.
+    pub fn floating_title_drag_shortcut(&self) -> Option<&ShortcutEntry> {
+        self.entry("drag_floating_title")
+    }
+
+    /// Whether both mouse title-drag shortcut entries are present.
+    pub fn has_mouse_title_drag_shortcuts(&self) -> bool {
+        self.tiled_title_drag_shortcut().is_some() && self.floating_title_drag_shortcut().is_some()
+    }
+
     /// Whether the catalog includes the title marker legend entry.
     pub fn has_title_marker_legend(&self) -> bool {
         self.title_marker_legend().is_some()
@@ -3270,6 +3285,16 @@ impl ShortcutEntry {
     /// Whether this entry is the pane-title marker legend.
     pub fn is_title_marker_legend(&self) -> bool {
         self.id == "title_markers"
+    }
+
+    /// Whether this entry describes tiled title-drag reordering.
+    pub fn is_tiled_title_drag_shortcut(&self) -> bool {
+        self.id == "drag_tiled_title"
+    }
+
+    /// Whether this entry describes floating title-drag repositioning.
+    pub fn is_floating_title_drag_shortcut(&self) -> bool {
+        self.id == "drag_floating_title"
     }
 }
 
@@ -6097,7 +6122,7 @@ mod tests {
                 .unwrap();
             stream
                 .write_all(
-                    r#"{"schema_version":1,"kind":"kittwm-native-shortcuts","shortcuts":[{"id":"launch_terminal","keys":"C-a Enter / C-a t","description":"launch terminal"},{"id":"toggle_help","keys":"C-a ?","description":"toggle this help"},{"id":"title_markers","keys":"title markers","description":"▶ focus · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved"},{"id":"exit_kittwm","keys":"Ctrl-]","description":"exit kittwm"}]}
+                    r#"{"schema_version":1,"kind":"kittwm-native-shortcuts","shortcuts":[{"id":"launch_terminal","keys":"C-a Enter / C-a t","description":"launch terminal"},{"id":"toggle_help","keys":"C-a ?","description":"toggle this help"},{"id":"drag_tiled_title","keys":"mouse: drag tiled title","description":"reorder tiled panes"},{"id":"drag_floating_title","keys":"mouse: drag floating title","description":"reposition floating pane"},{"id":"title_markers","keys":"title markers","description":"▶ focus · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved"},{"id":"exit_kittwm","keys":"Ctrl-]","description":"exit kittwm"}]}
 "#
                     .as_bytes(),
                 )
@@ -6120,6 +6145,13 @@ mod tests {
             .any(|entry| entry.id == "toggle_help"));
         assert!(catalog.shortcuts.iter().any(|entry| entry.keys == "Ctrl-]"));
         assert_eq!(catalog.entry("toggle_help").unwrap().keys, "C-a ?");
+        let tiled_drag = catalog.tiled_title_drag_shortcut().unwrap();
+        assert!(tiled_drag.is_tiled_title_drag_shortcut());
+        assert_eq!(tiled_drag.description, "reorder tiled panes");
+        let floating_drag = catalog.floating_title_drag_shortcut().unwrap();
+        assert!(floating_drag.is_floating_title_drag_shortcut());
+        assert_eq!(floating_drag.description, "reposition floating pane");
+        assert!(catalog.has_mouse_title_drag_shortcuts());
         let marker = catalog.title_marker_legend().unwrap();
         assert!(marker.is_title_marker_legend());
         assert!(marker.description.contains("⇄ reorder"));
