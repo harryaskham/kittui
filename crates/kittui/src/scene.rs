@@ -114,7 +114,7 @@ pub mod builders {
     pub fn simple_solid_box(cols: u16, rows: u16, color: &str) -> Scene {
         let cell = CellSize::default();
         let footprint = CellRect::new(0, 0, cols, rows);
-        let bg = background_solid(footprint, cell, Rgba::parse(color).unwrap_or(Rgba::default()));
+        let bg = background_solid(footprint, cell, Rgba::parse(color).unwrap_or_default());
         scene(footprint, cell, vec![bg])
     }
 }

@@ -38,6 +38,10 @@ use kittui_kitty as kitty;
 use kittui_render_cpu as cpu;
 use kittui_render_gpu as gpu;
 
+// `BackendState::Gpu` intentionally holds the renderer inline on the hot
+// backend lock/match path; boxing it to satisfy `large_enum_variant` would add
+// an allocation/indirection for the common render case, so the lint is scoped.
+#[allow(clippy::large_enum_variant)]
 enum BackendState {
     Cpu,
     Gpu(gpu::GpuRenderer),
@@ -62,20 +66,15 @@ pub enum KittuiError {
 }
 
 /// Renderer selection.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub enum RendererKind {
     /// CPU renderer (always available; reference oracle).
     Cpu,
     /// GPU renderer (wgpu). Falls back to CPU until the GPU backend lands.
     Gpu,
     /// Choose GPU if available, otherwise CPU.
+    #[default]
     Auto,
-}
-
-impl Default for RendererKind {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Long-lived state shared across `Runtime::place` calls.
@@ -200,6 +199,10 @@ impl Runtime {
                 upload.push_str(&kitty::upload_still(image_id, &png, transport));
             }
         } else {
+            // The `if scene.animation.is_none()` branch above is the still path;
+            // here the animation is always present. Keep the explicit is_none/else
+            // split for readability of the two render paths.
+            #[allow(clippy::unnecessary_unwrap)]
             let animation = scene.animation.as_ref().expect("checked above");
             if !self.cache.contains_animation(&id, animation.frames as u32) {
                 let raster = self.render_animation_with_backend(scene)?;
