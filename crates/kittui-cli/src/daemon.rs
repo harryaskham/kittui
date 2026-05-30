@@ -2661,6 +2661,17 @@ fn wait_requires_needle_reply(verb: &str) -> String {
     out
 }
 
+fn wait_no_pane_reply(verb: &str, target: &str) -> String {
+    let mut out =
+        String::with_capacity("ERR  no pane matching \n".len() + verb.len() + target.len());
+    out.push_str("ERR ");
+    out.push_str(verb);
+    out.push_str(" no pane matching ");
+    out.push_str(target);
+    out.push('\n');
+    out
+}
+
 fn native_spawn_wait_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
@@ -2690,7 +2701,7 @@ fn native_spawn_wait_reply(
             Err(_) => return "ERR registry poisoned\n".to_string(),
         };
         let Some((window, text)) = snapshot else {
-            return format!("ERR {verb} no pane matching {target}\n");
+            return wait_no_pane_reply(verb, target);
         };
         if text.contains(needle) {
             let match_tag = if include_scrollback {
@@ -3979,6 +3990,13 @@ mod tests {
     fn wait_requires_needle_reply_builds_directly() {
         let reply = wait_requires_needle_reply("WAIT_TEXT");
         assert_eq!(reply, "ERR WAIT_TEXT requires window and needle\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn wait_no_pane_reply_builds_directly() {
+        let reply = wait_no_pane_reply("WAIT_TEXT", "missing");
+        assert_eq!(reply, "ERR WAIT_TEXT no pane matching missing\n");
         assert_eq!(reply.capacity(), reply.len());
     }
 
