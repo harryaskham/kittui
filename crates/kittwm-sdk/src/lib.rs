@@ -2065,6 +2065,18 @@ impl EventEnvelope {
         Some((width, height))
     }
 
+    /// Total pixel workload reported by a `pane_frame_presented` event.
+    pub fn frame_pixel_count(&self) -> Option<u64> {
+        let (width, height) = self.frame_pixel_size()?;
+        Some(u64::from(width) * u64::from(height))
+    }
+
+    /// Pixel workload in megapixels reported by a `pane_frame_presented` event.
+    pub fn frame_megapixels(&self) -> Option<f32> {
+        self.frame_pixel_count()
+            .map(|pixels| pixels as f32 / 1_000_000.0)
+    }
+
     /// App/content bounds reported by a `pane_frame_presented` event.
     pub fn frame_app_bounds(&self) -> Option<(u16, u16, u16, u16)> {
         self.detail.get("app_bounds").and_then(bounds_tuple)
@@ -6735,6 +6747,8 @@ mod tests {
                 assert_eq!(envelope.frame_renderer(), Some("kitty"));
                 assert_eq!(envelope.frame_format(), Some("rgba"));
                 assert_eq!(envelope.frame_pixel_size(), Some((640, 384)));
+                assert_eq!(envelope.frame_pixel_count(), Some(245_760));
+                assert_eq!(envelope.frame_megapixels(), Some(0.24576));
                 assert_eq!(envelope.frame_app_bounds(), Some((0, 1, 80, 23)));
                 assert_eq!(envelope.frame_uploaded(), Some(true));
                 assert_eq!(envelope.frame_upload_skipped(), Some(false));
