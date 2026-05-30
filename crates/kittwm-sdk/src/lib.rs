@@ -8,6 +8,7 @@
 #![warn(missing_docs, rust_2018_idioms)]
 
 use std::env;
+use std::fmt::Write as FmtWrite;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -3629,11 +3630,9 @@ impl SurfaceHandle {
     /// Nudge this pane's floating offset by cell deltas.
     pub fn nudge(&self, dx: i16, dy: i16) -> Result<String> {
         self.client.capabilities.ensure(Capability::ControlWindow)?;
-        self.client.request_protocol(surface_payload_request(
-            "NUDGE_PANE",
-            &self.id,
-            &format!("{dx} {dy}"),
-        ))
+        let payload = nudge_delta_payload(dx, dy);
+        self.client
+            .request_protocol(surface_payload_request("NUDGE_PANE", &self.id, &payload))
     }
 
     /// Reset this pane's floating offset to the generated layout position.
@@ -4084,6 +4083,29 @@ fn resize_delta_label(delta: i16) -> String {
     });
     out.push(if delta >= 0 { '+' } else { '-' });
     out.push_str(&magnitude);
+    out
+}
+
+fn i16_decimal_len(value: i16) -> usize {
+    if value < 0 {
+        1 + u32_decimal_len(value.unsigned_abs() as u32)
+    } else {
+        u32_decimal_len(value as u32)
+    }
+}
+
+fn u32_decimal_len(mut value: u32) -> usize {
+    let mut len = 1;
+    while value >= 10 {
+        value /= 10;
+        len += 1;
+    }
+    len
+}
+
+fn nudge_delta_payload(dx: i16, dy: i16) -> String {
+    let mut out = String::with_capacity(i16_decimal_len(dx) + 1 + i16_decimal_len(dy));
+    write!(out, "{dx} {dy}").expect("write to string");
     out
 }
 
@@ -6265,6 +6287,18 @@ mod tests {
         assert_eq!(resize_delta_label(0), "+0");
         assert_eq!(resize_delta_label(-2), "-2");
         assert_eq!(resize_delta_label(i16::MIN), "-32768");
+    }
+
+    #[test]
+    fn nudge_delta_payload_builds_directly() {
+        assert_eq!(i16_decimal_len(0), 1);
+        assert_eq!(i16_decimal_len(9), 1);
+        assert_eq!(i16_decimal_len(10), 2);
+        assert_eq!(i16_decimal_len(-1), 2);
+        assert_eq!(i16_decimal_len(i16::MIN), 6);
+        let payload = nudge_delta_payload(3, -2);
+        assert_eq!(payload, "3 -2");
+        assert_eq!(payload.capacity(), payload.len());
     }
 
     #[test]
