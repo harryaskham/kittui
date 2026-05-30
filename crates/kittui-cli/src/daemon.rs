@@ -1918,14 +1918,22 @@ fn queue_native_paste_bytes_b64(pending: &Arc<Mutex<NativeSpawnQueueState>>, res
     }
 }
 
+fn window_base64_required_reply(verb: &str) -> String {
+    let mut out = String::with_capacity("ERR  requires window and base64\n".len() + verb.len());
+    out.push_str("ERR ");
+    out.push_str(verb);
+    out.push_str(" requires window and base64\n");
+    out
+}
+
 fn parse_window_base64(rest: &str, verb: &str) -> Result<(String, Vec<u8>), String> {
     let Some((window, encoded)) = rest.trim().split_once(' ') else {
-        return Err(format!("ERR {verb} requires window and base64\n"));
+        return Err(window_base64_required_reply(verb));
     };
     let window = window.trim();
     let encoded = encoded.trim();
     if window.is_empty() || window.contains(char::is_whitespace) || encoded.is_empty() {
-        return Err(format!("ERR {verb} requires window and base64\n"));
+        return Err(window_base64_required_reply(verb));
     }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded)
@@ -4077,6 +4085,13 @@ mod tests {
                 })
             ]
         );
+    }
+
+    #[test]
+    fn window_base64_required_reply_builds_directly() {
+        let reply = window_base64_required_reply("SEND_BYTES_B64");
+        assert_eq!(reply, "ERR SEND_BYTES_B64 requires window and base64\n");
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
