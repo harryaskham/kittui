@@ -3451,7 +3451,7 @@ fn daemon_help_json_reply() -> String {
             })
         })
         .collect::<Vec<_>>();
-    format!("{}\n", serde_json::json!({ "commands": commands }))
+    json_value_line(&serde_json::json!({ "commands": commands }))
 }
 
 fn client_read_timeout_for(cmd: &str) -> Duration {
@@ -3616,6 +3616,16 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("kittwm-test-status"));
+    }
+
+    #[test]
+    fn daemon_help_json_reply_uses_json_value_line() {
+        let reply = daemon_help_json_reply();
+        assert!(reply.ends_with('\n'));
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert!(value["commands"]
+            .as_array()
+            .is_some_and(|commands| !commands.is_empty()));
     }
 
     #[test]
