@@ -8897,10 +8897,18 @@ host=$(hostname 2>/dev/null || printf unknown)
 json_escape() {
     awk 'BEGIN { ORS="" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\r/, "\\r"); gsub(/\t/, "\\t"); printf "\"%s\"", $0 }'
 }
+json_option() {
+    value=$1
+    if [ -n "$value" ]; then
+        printf '%s' "$value" | json_escape
+    else
+        printf 'null'
+    fi
+}
 kittwm_remote_emit_json_lines() {
     mode=${1:-fallback}
     source=${2:-unknown}
-    printf '{"host":%s,"kind":%s,"filter":%s,"mode":%s,"source":%s,"lines":[' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$query" | json_escape)" "$(printf '%s' "$mode" | json_escape)" "$(printf '%s' "$source" | json_escape)"
+    printf '{"host":%s,"kind":%s,"filter":%s,"mode":%s,"source":%s,"lines":[' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(json_option "$query")" "$(printf '%s' "$mode" | json_escape)" "$(printf '%s' "$source" | json_escape)"
     first=1
     count=0
     while IFS= read -r line; do
@@ -13038,6 +13046,8 @@ mod tests {
             "{script}"
         );
         assert!(script.contains("KITTWM_REMOTE_QUERY"), "{script}");
+        assert!(script.contains("json_option()"), "{script}");
+        assert!(script.contains("$(json_option \"$query\")"), "{script}");
         assert!(script.contains("kittwm_remote_filter"), "{script}");
         assert!(script.contains("swaymsg"), "{script}");
         assert!(script.contains("jq"), "{script}");
