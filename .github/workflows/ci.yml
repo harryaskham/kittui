@@ -57,3 +57,12 @@ jobs:
       - name: Focused SDK tests
         shell: bash
         run: nix develop --command cargo test -p kittwm-sdk --lib --jobs 2
+
+      - name: Strict-clippy baseline (macOS)
+        # The guard checks macOS-specific crates (kittui-quartz under --features
+        # sck), so run it on the darwin target where the full 16-crate baseline
+        # is validated clean. A Linux-scoped guard can be added separately once
+        # the X11/non-macOS platform lints are validated on a Linux runner.
+        if: matrix.target == 'aarch64-darwin'
+        shell: bash
+        run: nix develop --command scripts/kittwm-strict-clippy.sh
