@@ -4,6 +4,8 @@
 //! conservative — its goal is correctness and reference parity, not raw
 //! speed. The GPU backend is where high-fps rendering lives.
 
+use std::fmt::Write as FmtWrite;
+
 use kittui_core::color::Rgba;
 use kittui_core::geom::{Px, PxRect};
 use kittui_core::node::{BlendMode, Direction, Fit, ImageRef, Layer, Node, StrokeAlign};
@@ -501,10 +503,17 @@ fn load_image_bytes(src: &ImageRef) -> Result<Vec<u8>, RenderError> {
         ImageRef::Path { path } => std::fs::read(path).map_err(|e| {
             RenderError::UnsupportedImage(format!("failed to read {}: {e}", path))
         }),
-        ImageRef::Cached { hash } => Err(RenderError::UnsupportedImage(format!(
-            "cached image refs not supported in CPU rasterizer: {hash}"
-        ))),
+        ImageRef::Cached { hash } => Err(RenderError::UnsupportedImage(cached_image_error(hash))),
     }
+}
+
+fn cached_image_error(hash: &str) -> String {
+    let mut message = String::with_capacity(
+        "cached image refs not supported in CPU rasterizer: ".len() + hash.len(),
+    );
+    message.push_str("cached image refs not supported in CPU rasterizer: ");
+    write!(message, "{hash}").expect("write to string");
+    message
 }
 
 #[cfg(feature = "image-decoders")]
@@ -522,4 +531,31 @@ fn decode_image(_bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), RenderError> {
     Err(RenderError::UnsupportedImage(
         "image-decoders feature disabled; rebuild with --features image-decoders".to_owned(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_image_error_builds_directly() {
+        let message = cached_image_error("abc123");
+        assert_eq!(
+            message,
+            "cached image refs not supported in CPU rasterizer: abc123"
+        );
+        assert!(message.capacity() >= message.len());
+    }
+
+    #[test]
+    fn load_image_bytes_rejects_cached_refs_with_stable_message() {
+        let err = load_image_bytes(&ImageRef::Cached {
+            hash: "abc123".to_string(),
+        })
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "image source cached image refs not supported in CPU rasterizer: abc123 is not supported by the CPU renderer in this version"
+        );
+    }
 }
