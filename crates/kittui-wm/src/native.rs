@@ -2481,13 +2481,24 @@ impl TerminalState {
         self.scrollback.clear();
     }
 
+    fn cursor_position_response(row: u16, col: u16) -> String {
+        let row = row.saturating_add(1);
+        let col = col.saturating_add(1);
+        let mut out = String::with_capacity(
+            "\x1b[;R".len() + decimal_len(u64::from(row)) + decimal_len(u64::from(col)),
+        );
+        out.push_str("\x1b[");
+        write!(out, "{row};{col}").expect("write to string");
+        out.push('R');
+        out
+    }
+
     fn device_status_report(&mut self, mode: u16) {
         match mode {
             5 => self.queue_response(b"\x1b[0n"),
-            6 => self.queue_response(format!(
-                "\x1b[{};{}R",
-                self.cursor_row.saturating_add(1),
-                self.cursor_col.saturating_add(1)
+            6 => self.queue_response(Self::cursor_position_response(
+                self.cursor_row,
+                self.cursor_col,
             )),
             _ => {}
         }
@@ -5234,6 +5245,13 @@ mod tests {
         assert!(state.application_cursor_keys);
         parser.advance(&mut state, b"\x1b[?1l");
         assert!(!state.application_cursor_keys);
+    }
+
+    #[test]
+    fn cursor_position_response_builds_directly() {
+        let response = TerminalState::cursor_position_response(1, 3);
+        assert_eq!(response, "\x1b[2;4R");
+        assert_eq!(response.capacity(), response.len());
     }
 
     #[test]
