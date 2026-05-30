@@ -857,28 +857,33 @@ fn montage_frame_indices(len: usize) -> Vec<usize> {
 }
 
 fn write_manifest(out_dir: &Path, frames: &[FrameRecord]) -> anyhow::Result<()> {
-    let files = frames
-        .iter()
-        .map(|frame| {
-            format!(
-                "{{\"index\":{},\"path\":{:?},\"cursor_x\":{},\"cursor_y\":{},\"kitty_placements\":{}}}",
-                frame.index,
-                frame.path.display().to_string(),
-                frame.cursor_x,
-                frame.cursor_y,
-                frame.kitty_placements
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",\n  ");
-    std::fs::write(
-        out_dir.join("manifest.json"),
-        format!(
-            "{{\n  \"kind\": \"kittui-ghostty-cli-timelapse\",\n  \"frame_count\": {},\n  \"frames\": [\n  {}\n  ]\n}}\n",
-            frames.len(), files
-        ),
-    )?;
+    let mut manifest = String::new();
+    manifest.push_str("{\n  \"kind\": \"kittui-ghostty-cli-timelapse\",\n  \"frame_count\": ");
+    write!(manifest, "{}", frames.len()).expect("write to string");
+    manifest.push_str(",\n  \"frames\": [\n  ");
+    for (i, frame) in frames.iter().enumerate() {
+        if i > 0 {
+            manifest.push_str(",\n  ");
+        }
+        append_frame_manifest_entry(&mut manifest, frame);
+    }
+    manifest.push_str("\n  ]\n}\n");
+    std::fs::write(out_dir.join("manifest.json"), manifest)?;
     Ok(())
+}
+
+fn append_frame_manifest_entry(manifest: &mut String, frame: &FrameRecord) {
+    manifest.push_str("{\"index\":");
+    write!(manifest, "{}", frame.index).expect("write to string");
+    manifest.push_str(",\"path\":");
+    write!(manifest, "{:?}", frame.path.display().to_string()).expect("write to string");
+    manifest.push_str(",\"cursor_x\":");
+    write!(manifest, "{}", frame.cursor_x).expect("write to string");
+    manifest.push_str(",\"cursor_y\":");
+    write!(manifest, "{}", frame.cursor_y).expect("write to string");
+    manifest.push_str(",\"kitty_placements\":");
+    write!(manifest, "{}", frame.kitty_placements).expect("write to string");
+    manifest.push('}');
 }
 
 #[cfg(test)]
@@ -908,6 +913,34 @@ mod tests {
         assert_eq!(decimal_len_usize(0), 1);
         assert_eq!(decimal_len_usize(9), 1);
         assert_eq!(decimal_len_usize(10), 2);
+    }
+
+    #[test]
+    fn write_manifest_preserves_exact_shape() {
+        let dir = std::env::temp_dir().join(ghostty_manifest_test_dir_name(std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let frames = vec![
+            FrameRecord {
+                index: 0,
+                path: std::path::PathBuf::from("/tmp/frame-000.png"),
+                cursor_x: 1,
+                cursor_y: 2,
+                kitty_placements: 3,
+            },
+            FrameRecord {
+                index: 1,
+                path: std::path::PathBuf::from("/tmp/frame-001.png"),
+                cursor_x: 4,
+                cursor_y: 5,
+                kitty_placements: 6,
+            },
+        ];
+        write_manifest(&dir, &frames).unwrap();
+        let manifest = std::fs::read_to_string(dir.join("manifest.json")).unwrap();
+        let expected = "{\n  \"kind\": \"kittui-ghostty-cli-timelapse\",\n  \"frame_count\": 2,\n  \"frames\": [\n  {\"index\":0,\"path\":\"/tmp/frame-000.png\",\"cursor_x\":1,\"cursor_y\":2,\"kitty_placements\":3},\n  {\"index\":1,\"path\":\"/tmp/frame-001.png\",\"cursor_x\":4,\"cursor_y\":5,\"kitty_placements\":6}\n  ]\n}\n";
+        assert_eq!(manifest, expected, "{manifest}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
