@@ -774,7 +774,17 @@ pub fn upload_animation_ex(
 pub fn cursor_move(col_x: u16, row_y: u16, transport: Transport) -> String {
     let row = row_y.saturating_add(1);
     let col = col_x.saturating_add(1);
-    wrap_transport(format!("\x1b[{row};{col}H"), transport)
+    wrap_transport(cursor_move_csi(row, col), transport)
+}
+
+fn cursor_move_csi(row: u16, col: u16) -> String {
+    let mut out = String::with_capacity("\x1b[;H".len() + 5 + 5);
+    out.push_str("\x1b[");
+    let _ = write!(out, "{row}");
+    out.push(';');
+    let _ = write!(out, "{col}");
+    out.push('H');
+    out
 }
 
 /// Build a placement escape sequence with explicit options.
@@ -1482,6 +1492,13 @@ mod tests {
         let expected_b64 = base64::engine::general_purpose::STANDARD.encode(b"/kittui-raw-12");
         let want = format!("\x1b_Ga=t,f=32,s=8,v=4,t=s,i=12,q=2;{expected_b64}\x1b\\");
         assert_eq!(escapes, want);
+    }
+
+    #[test]
+    fn cursor_move_csi_builds_directly() {
+        let csi = cursor_move_csi(3, 5);
+        assert_eq!(csi, "\x1b[3;5H");
+        assert!(csi.capacity() >= csi.len());
     }
 
     #[test]
