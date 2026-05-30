@@ -458,6 +458,7 @@ pub mod chrome {
 /// chrome through a `LifecycleTracker`-compatible delete pass.
 pub mod compositor {
     use std::collections::HashMap;
+    use std::fmt::Write as FmtWrite;
 
     use kittui::{CellRect, CellSize, Scene};
     use kittui_core::geom::PxRect;
@@ -532,6 +533,13 @@ pub mod compositor {
     /// with kittui's own scene-derived image ids.
     fn kitty_image_id_for(id: XWindowId) -> u32 {
         0x4000_0000 | id.0
+    }
+
+    fn x11_window_title(id: XWindowId) -> String {
+        let mut title = String::with_capacity("x11:".len() + 10);
+        title.push_str("x11:");
+        let _ = write!(title, "{}", id.0);
+        title
     }
 
     impl<S: XServer> Compositor<S> {
@@ -746,7 +754,7 @@ pub mod compositor {
                     height: cap.height,
                     rgba: cap.rgba,
                     footprint,
-                    title: format!("x11:{}", w.id.0),
+                    title: x11_window_title(w.id),
                     focused: focused_window == Some(w.id),
                     mode,
                     fullscreen: is_fullscreen,
@@ -814,7 +822,7 @@ pub mod compositor {
                     tint: None,
                 })];
                 let focused = focused_window == Some(w.id);
-                let title = format!("x11:{}", w.id.0);
+                let title = x11_window_title(w.id);
                 layers.extend(WindowChromeTheme::default().layers(
                     rect,
                     &WindowChromeState::new(focused, mode == WindowMode::Tiled, title),
@@ -1083,6 +1091,13 @@ pub mod compositor {
     mod tests {
         use super::*;
         use kittui_xvfb::FakeServer;
+
+        #[test]
+        fn x11_window_title_builds_directly() {
+            let title = x11_window_title(XWindowId(42));
+            assert_eq!(title, "x11:42");
+            assert!(title.capacity() >= title.len());
+        }
 
         fn server() -> FakeServer {
             FakeServer::with_windows(vec![
