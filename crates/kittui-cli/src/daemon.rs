@@ -1990,6 +1990,29 @@ fn parse_window_base64(rest: &str, verb: &str) -> Result<(String, Vec<u8>), Stri
     Ok((window.to_string(), bytes))
 }
 
+fn send_mouse_queued_reply(count: usize, window: &str, event: &str, col: u16, row: u16) -> String {
+    let mut out = String::with_capacity(
+        "SEND_MOUSE_QUEUED command= window= event= col= row=\n".len()
+            + usize_decimal_len(count)
+            + window.len()
+            + event.len()
+            + usize_decimal_len(usize::from(col))
+            + usize_decimal_len(usize::from(row)),
+    );
+    out.push_str("SEND_MOUSE_QUEUED command=");
+    write!(out, "{count}").expect("write to string");
+    out.push_str(" window=");
+    out.push_str(window);
+    out.push_str(" event=");
+    out.push_str(event);
+    out.push_str(" col=");
+    write!(out, "{col}").expect("write to string");
+    out.push_str(" row=");
+    write!(out, "{row}").expect("write to string");
+    out.push('\n');
+    out
+}
+
 fn queue_native_send_mouse(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
     let mut parts = rest.split_whitespace();
     let Some(window) = parts.next() else {
@@ -2028,14 +2051,7 @@ fn queue_native_send_mouse(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &s
                 "mouse",
                 serde_json::json!({ "event": event, "col": col, "row": row }),
             );
-            format!(
-                "SEND_MOUSE_QUEUED command={} window={} event={} col={} row={}\n",
-                state.pending.len(),
-                window,
-                event,
-                col,
-                row
-            )
+            send_mouse_queued_reply(state.pending.len(), window, event, col, row)
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
@@ -4142,6 +4158,16 @@ mod tests {
         assert_eq!(
             reply,
             "SEND_TEXT_QUEUED command=12 window=focused bytes=5\n"
+        );
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn send_mouse_queued_reply_builds_directly() {
+        let reply = send_mouse_queued_reply(12, "focused", "press-left", 7, 9);
+        assert_eq!(
+            reply,
+            "SEND_MOUSE_QUEUED command=12 window=focused event=press-left col=7 row=9\n"
         );
         assert_eq!(reply.capacity(), reply.len());
     }
