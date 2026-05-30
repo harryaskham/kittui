@@ -3852,6 +3852,30 @@ mod tests {
     }
 
     #[test]
+    fn standalone_daemon_help_catalog_has_no_empty_or_duplicate_entries() {
+        // Quality guard for the standalone daemon HELP/HELP_JSON surface: every
+        // entry must carry a non-empty command, category, and description, and
+        // command keywords must be unique.
+        let mut seen = std::collections::HashSet::new();
+        for (command, category, description) in daemon_help_entries() {
+            assert!(!command.trim().is_empty(), "empty command entry");
+            assert!(
+                !category.trim().is_empty(),
+                "empty category for {command:?}"
+            );
+            assert!(
+                !description.trim().is_empty(),
+                "empty description for {command:?}"
+            );
+            let keyword = command.split_whitespace().next().unwrap_or(command);
+            assert!(
+                seen.insert(keyword),
+                "duplicate daemon HELP catalog command keyword {keyword:?}"
+            );
+        }
+    }
+
+    #[test]
     fn quit_sets_flag() {
         let p =
             std::env::temp_dir().join(test_socket_filename("kittwm-test-quit", std::process::id()));
