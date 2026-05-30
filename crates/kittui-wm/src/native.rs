@@ -4462,7 +4462,7 @@ fn browser_viewport_pixels(cols: u16, rows: u16) -> (u32, u32) {
 
 fn browser_surface_metadata(pid: u32, title: String, width: u32, height: u32) -> SurfaceMetadata {
     SurfaceMetadata {
-        id: SurfaceId::new(format!("browser:{pid}")),
+        id: SurfaceId::new(browser_surface_id(pid)),
         kind: SurfaceKind::Browser,
         title,
         capabilities: SurfaceCapabilities::interactive_capture(),
