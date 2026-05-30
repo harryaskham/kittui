@@ -2397,6 +2397,12 @@ impl NativePaneDetail {
         self.weight > 1
     }
 
+    /// Live pane-chip weight label such as `wt:3`, when the pane is resized.
+    pub fn weight_chip_label(&self) -> Option<String> {
+        self.has_non_default_weight()
+            .then(|| format!("wt:{}", self.weight))
+    }
+
     /// Alias for [`NativePaneDetail::has_non_default_weight`].
     pub fn is_resized(&self) -> bool {
         self.has_non_default_weight()
@@ -2801,6 +2807,11 @@ impl PanesStatus {
         self.focused_pane().map(NativePaneDetail::is_resized)
     }
 
+    /// Live pane-chip weight label for the focused pane, such as `wt:3`.
+    pub fn focused_weight_chip_label(&self) -> Option<String> {
+        self.focused_pane()?.weight_chip_label()
+    }
+
     /// Whether the focused pane has a non-zero floating offset.
     pub fn focused_is_moved(&self) -> Option<bool> {
         self.focused_pane()
@@ -3075,6 +3086,11 @@ impl Status {
     /// Whether the focused pane has a non-default layout weight.
     pub fn focused_is_resized(&self) -> Option<bool> {
         self.focused_pane().map(NativePaneDetail::is_resized)
+    }
+
+    /// Live pane-chip weight label for the focused pane, such as `wt:3`.
+    pub fn focused_weight_chip_label(&self) -> Option<String> {
+        self.focused_pane()?.weight_chip_label()
     }
 
     /// Whether the focused pane has a non-zero floating offset.
@@ -5371,6 +5387,7 @@ mod tests {
         assert_eq!(panes.topmost_pane().unwrap().window, "native-1");
         assert_eq!(panes.focused_is_topmost(), Some(true));
         assert_eq!(panes.focused_is_resized(), Some(true));
+        assert_eq!(panes.focused_weight_chip_label().as_deref(), Some("wt:2"));
         assert_eq!(panes.focused_is_moved(), Some(true));
         assert_eq!(panes.focused_is_title_draggable(), Some(true));
         assert_eq!(panes.focused_title_drag_reorders_pane(), Some(true));
@@ -5419,6 +5436,7 @@ mod tests {
         assert!(pane.is_stack_top());
         assert!(pane.has_non_default_weight());
         assert!(pane.is_resized());
+        assert_eq!(pane.weight_chip_label().as_deref(), Some("wt:2"));
         assert_eq!(pane.floating_offset(), Some((4, -2)));
         assert_eq!(pane.floating_moved, Some(true));
         assert!(pane.has_floating_offset());
@@ -5469,6 +5487,7 @@ mod tests {
         assert_eq!(pane.weight, 0);
         assert!(!pane.has_non_default_weight());
         assert!(!pane.is_resized());
+        assert_eq!(pane.weight_chip_label(), None);
         assert_eq!(pane.bounds(), None);
         assert_eq!(pane.app_bounds(), None);
         assert_eq!(pane.floating_offset(), None);
@@ -5562,6 +5581,7 @@ mod tests {
         assert!(status.topmost_pane().is_none());
         assert_eq!(status.focused_is_topmost(), None);
         assert_eq!(status.focused_is_resized(), None);
+        assert_eq!(status.focused_weight_chip_label(), None);
         assert_eq!(status.focused_is_moved(), None);
         assert_eq!(status.focused_is_title_draggable(), None);
         assert_eq!(status.focused_title_drag_reorders_pane(), None);
@@ -5625,6 +5645,7 @@ mod tests {
         assert_eq!(status.topmost_pane().unwrap().window, "native-2");
         assert_eq!(status.focused_is_topmost(), Some(false));
         assert_eq!(status.focused_is_resized(), Some(false));
+        assert_eq!(status.focused_weight_chip_label(), None);
         assert_eq!(status.focused_is_moved(), Some(false));
         assert_eq!(status.focused_is_title_draggable(), Some(true));
         assert_eq!(status.focused_title_drag_reorders_pane(), Some(false));
