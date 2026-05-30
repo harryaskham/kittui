@@ -4275,6 +4275,13 @@ fn browser_surface_id(pid: u32) -> String {
     id
 }
 
+fn browser_semantic_root_id(surface: &str) -> String {
+    let mut id = String::with_capacity(surface.len() + ".root".len());
+    id.push_str(surface);
+    id.push_str(".root");
+    id
+}
+
 fn browser_semantic_snapshot_from_value(
     surface: impl Into<String>,
     title: impl Into<String>,
@@ -4295,7 +4302,7 @@ fn browser_semantic_snapshot_from_value(
             }
         }
     }
-    let root = ComponentNode::new(format!("{surface}.root"), ComponentRole::Group)
+    let root = ComponentNode::new(browser_semantic_root_id(&surface), ComponentRole::Group)
         .labeled(title)
         .children(children);
     Ok(SemanticSurfaceSnapshot::new(surface, 1, root))
@@ -6733,6 +6740,13 @@ mod tests {
     fn browser_surface_id_builds_directly() {
         let id = browser_surface_id(42);
         assert_eq!(id, "browser:42");
+        assert_eq!(id.capacity(), id.len());
+    }
+
+    #[test]
+    fn browser_semantic_root_id_builds_directly() {
+        let id = browser_semantic_root_id("browser:42");
+        assert_eq!(id, "browser:42.root");
         assert_eq!(id.capacity(), id.len());
     }
 
