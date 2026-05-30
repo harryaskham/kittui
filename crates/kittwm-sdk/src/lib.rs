@@ -1960,6 +1960,10 @@ fn value_u16(value: &Value, key: &str) -> Option<u16> {
     value.get(key)?.as_u64()?.try_into().ok()
 }
 
+fn value_u32(value: &Value, key: &str) -> Option<u32> {
+    value.get(key)?.as_u64()?.try_into().ok()
+}
+
 fn bounds_tuple(value: &Value) -> Option<(u16, u16, u16, u16)> {
     Some((
         value_u16(value, "x")?,
@@ -2040,6 +2044,48 @@ impl EventEnvelope {
             i32::from(new.2) - i32::from(old.2),
             i32::from(new.3) - i32::from(old.3),
         ))
+    }
+
+    /// Pixel size reported by a `pane_frame_presented` event.
+    pub fn frame_pixel_size(&self) -> Option<(u32, u32)> {
+        let width =
+            value_u32(&self.detail, "pixel_width").or_else(|| value_u32(&self.detail, "width"))?;
+        let height = value_u32(&self.detail, "pixel_height")
+            .or_else(|| value_u32(&self.detail, "height"))?;
+        Some((width, height))
+    }
+
+    /// App/content bounds reported by a `pane_frame_presented` event.
+    pub fn frame_app_bounds(&self) -> Option<(u16, u16, u16, u16)> {
+        self.detail.get("app_bounds").and_then(bounds_tuple)
+    }
+
+    /// Changed tile count and total tile count reported by a `pane_frame_presented` event.
+    pub fn frame_changed_tiles_ratio(&self) -> Option<(u32, u32)> {
+        Some((
+            value_u32(&self.detail, "changed_tiles")?,
+            value_u32(&self.detail, "total_tiles")?,
+        ))
+    }
+
+    /// Whether a `pane_frame_presented` event reported a skipped upload.
+    pub fn frame_upload_skipped(&self) -> Option<bool> {
+        self.detail_bool("skipped_upload")
+    }
+
+    /// Whether a `pane_frame_presented` event reported an upload.
+    pub fn frame_uploaded(&self) -> Option<bool> {
+        self.detail_bool("uploaded")
+    }
+
+    /// Uploaded byte count reported by a `pane_frame_presented` event.
+    pub fn frame_upload_bytes(&self) -> Option<u64> {
+        self.detail_u64("upload_bytes")
+    }
+
+    /// Elapsed render/upload time in microseconds reported by a `pane_frame_presented` event.
+    pub fn frame_elapsed_us(&self) -> Option<u64> {
+        self.detail_u64("elapsed_us")
     }
 }
 
@@ -6584,7 +6630,7 @@ mod tests {
         }
 
         let frame = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":12,"kind":"pane_frame_presented","window":"native-1","detail":{"image_id":7,"frame":42,"width":640,"height":384,"transport":"file","skipped_upload":false}}"#,
+            r#"{"schema_version":1,"seq":12,"kind":"pane_frame_presented","window":"native-1","detail":{"renderer":"kitty","format":"rgba","pixel_width":640,"pixel_height":384,"app_bounds":{"x":0,"y":1,"cols":80,"rows":23},"uploaded":true,"skipped_upload":false,"changed_tiles":3,"total_tiles":12,"upload_bytes":4096,"elapsed_us":321}}"#,
         )
         .unwrap();
         assert_eq!(frame.kind(), "pane_frame_presented");
@@ -6592,10 +6638,15 @@ mod tests {
             KittwmEvent::PaneFramePresented(envelope) => {
                 assert_eq!(envelope.seq, Some(12));
                 assert_eq!(envelope.window.as_deref(), Some("native-1"));
-                assert_eq!(envelope.detail["image_id"], 7);
-                assert_eq!(envelope.detail["frame"], 42);
-                assert_eq!(envelope.detail["transport"], "file");
-                assert_eq!(envelope.detail["skipped_upload"], false);
+                assert_eq!(envelope.detail["renderer"], "kitty");
+                assert_eq!(envelope.detail["format"], "rgba");
+                assert_eq!(envelope.frame_pixel_size(), Some((640, 384)));
+                assert_eq!(envelope.frame_app_bounds(), Some((0, 1, 80, 23)));
+                assert_eq!(envelope.frame_uploaded(), Some(true));
+                assert_eq!(envelope.frame_upload_skipped(), Some(false));
+                assert_eq!(envelope.frame_changed_tiles_ratio(), Some((3, 12)));
+                assert_eq!(envelope.frame_upload_bytes(), Some(4096));
+                assert_eq!(envelope.frame_elapsed_us(), Some(321));
             }
             other => panic!("unexpected event: {other:?}"),
         }
