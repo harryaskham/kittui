@@ -126,7 +126,8 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
     NativeShortcut {
         id: "title_markers",
         keys: "title markers",
-        description: "▶ focus · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved",
+        description:
+            "▶ focus · ◆ active · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved",
     },
 ];
 
@@ -162,7 +163,7 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a b              balance panes",
     "Ctrl-C×3 then y    confirm and exit kittwm",
     "Ctrl-]             emergency/direct exit",
-    "title markers      ▶ focus · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved",
+    "title markers      ▶ focus · ◆ active · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved",
     NATIVE_SHORTCUT_COMMAND_HINTS[0],
     NATIVE_SHORTCUT_COMMAND_HINTS[1],
 ];

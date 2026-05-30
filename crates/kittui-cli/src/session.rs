@@ -2053,10 +2053,12 @@ fn native_shell_view(
             let floating_moved = floating_offsets
                 .get(&pane.window)
                 .is_some_and(|offset| *offset != NativeFloatingPaneOffset::default());
+            let active_drag = active_drag_label.is_some_and(|drag| drag.window == pane.window);
             let text = native_pane_title_text(
                 pane,
                 layout,
                 is_focused,
+                active_drag,
                 native_title_drag_affordance_enabled(layout_label),
                 native_title_reorder_affordance_enabled(layout_label),
                 native_title_fullscreen_affordance_enabled(layout_label),
@@ -5394,6 +5396,7 @@ fn reap_exited_native_panes(
 
 const NATIVE_FOCUSED_PANE_TITLE_MARKER: &str = "▶";
 const NATIVE_UNFOCUSED_PANE_TITLE_MARKER: &str = " ";
+const NATIVE_ACTIVE_PANE_TITLE_DRAG_MARKER: &str = "◆";
 const NATIVE_FLOATING_PANE_DRAG_MARKER: &str = "≡";
 const NATIVE_FLOATING_PANE_TOP_MARKER: &str = "▲";
 const NATIVE_FLOATING_PANE_NOT_TOP_MARKER: &str = " ";
@@ -5423,6 +5426,7 @@ fn native_pane_title_text(
     pane: &NativePane,
     layout: NativePaneLayout,
     focused: bool,
+    active_drag: bool,
     drag_affordance: bool,
     reorder_affordance: bool,
     fullscreen_affordance: bool,
@@ -5442,6 +5446,14 @@ fn native_pane_title_text(
             NATIVE_UNFOCUSED_PANE_TITLE_MARKER
         },
     );
+    if active_drag {
+        native_pane_title_push(
+            &mut out,
+            &mut count,
+            width,
+            NATIVE_ACTIVE_PANE_TITLE_DRAG_MARKER,
+        );
+    }
     if reorder_affordance {
         native_pane_title_push(
             &mut out,
@@ -10730,6 +10742,7 @@ mod native_pane_tests {
             false,
             false,
             false,
+            false,
             true,
             false,
         );
@@ -10751,6 +10764,7 @@ mod native_pane_tests {
                 app_rows: 3,
             },
             true,
+            false,
             false,
             true,
             false,
@@ -10774,6 +10788,7 @@ mod native_pane_tests {
                 app_rows: 3,
             },
             true,
+            false,
             false,
             true,
             false,
@@ -10799,6 +10814,7 @@ mod native_pane_tests {
                 false,
                 false,
                 false,
+                false,
                 true,
                 false,
             ),
@@ -10818,6 +10834,7 @@ mod native_pane_tests {
                 app_rows: 3,
             },
             true,
+            false,
             false,
             false,
             true,
@@ -10843,12 +10860,35 @@ mod native_pane_tests {
             true,
             false,
             false,
+            false,
             true,
             true,
             false,
         );
         assert_eq!(fullscreen_text, "▶▣ native-1 titl");
         assert_eq!(fullscreen_text.chars().count(), 16);
+
+        let active_reorder_text = native_pane_title_text(
+            &pane,
+            NativePaneLayout {
+                x: 0,
+                y: 0,
+                cols: 16,
+                rows: 4,
+                app_x: 0,
+                app_y: 1,
+                app_cols: 16,
+                app_rows: 3,
+            },
+            true,
+            true,
+            false,
+            true,
+            false,
+            true,
+            false,
+        );
+        assert_eq!(active_reorder_text, "▶◆⇄ native-1 tit");
 
         let floating_text = native_pane_title_text(
             &pane,
@@ -10863,6 +10903,7 @@ mod native_pane_tests {
                 app_rows: 3,
             },
             true,
+            false,
             true,
             false,
             false,
@@ -10884,6 +10925,7 @@ mod native_pane_tests {
                 app_rows: 3,
             },
             true,
+            false,
             true,
             false,
             false,

@@ -6496,7 +6496,7 @@ mod tests {
                 .unwrap();
             stream
                 .write_all(
-                    r#"{"schema_version":1,"kind":"kittwm-native-shortcuts","shortcuts":[{"id":"launch_terminal","keys":"C-a Enter / C-a t","description":"launch terminal"},{"id":"toggle_help","keys":"C-a ?","description":"toggle this help"},{"id":"drag_tiled_title","keys":"mouse: drag tiled title","description":"reorder tiled panes"},{"id":"drag_floating_title","keys":"mouse: drag floating title","description":"reposition floating pane"},{"id":"title_markers","keys":"title markers","description":"▶ focus · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved"},{"id":"exit_kittwm","keys":"Ctrl-]","description":"exit kittwm"}]}
+                    r#"{"schema_version":1,"kind":"kittwm-native-shortcuts","shortcuts":[{"id":"launch_terminal","keys":"C-a Enter / C-a t","description":"launch terminal"},{"id":"toggle_help","keys":"C-a ?","description":"toggle this help"},{"id":"drag_tiled_title","keys":"mouse: drag tiled title","description":"reorder tiled panes"},{"id":"drag_floating_title","keys":"mouse: drag floating title","description":"reposition floating pane"},{"id":"title_markers","keys":"title markers","description":"▶ focus · ◆ active · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved"},{"id":"exit_kittwm","keys":"Ctrl-]","description":"exit kittwm"}]}
 "#
                     .as_bytes(),
                 )
@@ -6528,6 +6528,7 @@ mod tests {
         assert!(catalog.has_mouse_title_drag_shortcuts());
         let marker = catalog.title_marker_legend().unwrap();
         assert!(marker.is_title_marker_legend());
+        assert!(marker.description.contains("◆ active"));
         assert!(marker.description.contains("⇄ reorder"));
         assert!(catalog.has_title_marker_legend());
     }
