@@ -4720,14 +4720,31 @@ fn parse_devtools_port(text: &str) -> Option<u16> {
     after_colon[..end].parse().ok()
 }
 
+fn percent_encoded_len(input: &str) -> usize {
+    input
+        .bytes()
+        .map(|b| if is_percent_unreserved(b) { 1 } else { 3 })
+        .sum()
+}
+
+fn is_percent_unreserved(b: u8) -> bool {
+    matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~')
+}
+
+fn push_percent_escape(out: &mut String, b: u8) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    out.push('%');
+    out.push(HEX[(b >> 4) as usize] as char);
+    out.push(HEX[(b & 0x0f) as usize] as char);
+}
+
 fn percent_encode(input: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(percent_encoded_len(input));
     for b in input.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
+        if is_percent_unreserved(b) {
+            out.push(b as char);
+        } else {
+            push_percent_escape(&mut out, b);
         }
     }
     out
@@ -5690,6 +5707,17 @@ mod tests {
             browser_ready_state_from_cdp_result(&complete)
         ));
         assert!(!browser_ready_state_is_renderable(None));
+    }
+
+    #[test]
+    fn percent_encode_builds_escapes_directly() {
+        let encoded = percent_encode("https://example.test/a b?x=✓&ok=~");
+        assert_eq!(
+            encoded,
+            "https%3A%2F%2Fexample.test%2Fa%20b%3Fx%3D%E2%9C%93%26ok%3D~"
+        );
+        assert_eq!(encoded.capacity(), encoded.len());
+        assert_eq!(percent_encoded_len("azAZ09-_.~"), 10);
     }
 
     #[test]
