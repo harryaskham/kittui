@@ -2834,7 +2834,15 @@ fn native_spawn_semantic_publish_reply(
         Some(window.clone()),
         serde_json::json!({ "revision": revision, "focus": focus }),
     );
-    format!("SEMANTIC_PUBLISHED window={window}\n")
+    semantic_published_reply(&window)
+}
+
+fn semantic_published_reply(window: &str) -> String {
+    let mut out = String::with_capacity("SEMANTIC_PUBLISHED window=\n".len() + window.len());
+    out.push_str("SEMANTIC_PUBLISHED window=");
+    out.push_str(window);
+    out.push('\n');
+    out
 }
 
 fn semantic_component_id(window: &str, suffix: &str) -> String {
@@ -4943,6 +4951,13 @@ mod tests {
         assert!(shortcuts
             .iter()
             .any(|entry| entry["keys"] == "Ctrl-C×3 then y / Ctrl-]"));
+    }
+
+    #[test]
+    fn semantic_published_reply_builds_directly() {
+        let reply = semantic_published_reply("native-1");
+        assert_eq!(reply, "SEMANTIC_PUBLISHED window=native-1\n");
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
