@@ -2224,6 +2224,15 @@ fn reserve_chrome_invalid_json_reply(err: &serde_json::Error) -> String {
     out
 }
 
+fn chrome_reserved_reply(reservation: &NativeChromeReservationConfig) -> String {
+    let reservation = serde_json::to_string(reservation).expect("serialize chrome reservation");
+    let mut out = String::with_capacity("CHROME_RESERVED \n".len() + reservation.len());
+    out.push_str("CHROME_RESERVED ");
+    out.push_str(&reservation);
+    out.push('\n');
+    out
+}
+
 fn native_reserve_chrome_json_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
@@ -2253,10 +2262,7 @@ fn native_reserve_chrome_json_reply(
                 None,
                 serde_json::json!({ "chrome": chrome }),
             );
-            format!(
-                "CHROME_RESERVED {}\n",
-                serde_json::to_string(&reservation).unwrap()
-            )
+            chrome_reserved_reply(&reservation)
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
@@ -5195,6 +5201,25 @@ mod tests {
         state.workspace = Some("   ".to_string());
         assert_eq!(native_workspace_id_for_state(&state), "env");
         std::env::remove_var("KITTWM_WORKSPACE");
+    }
+
+    #[test]
+    fn chrome_reserved_reply_builds_directly() {
+        let reservation = NativeChromeReservationConfig {
+            top_bar_rows: 2,
+            bottom_bar_rows: 1,
+            left_cols: 4,
+            right_cols: 3,
+            gap_cols: 1,
+            gap_rows: 2,
+            owner: Some("bar".to_string()),
+        };
+        let reply = chrome_reserved_reply(&reservation);
+        assert_eq!(
+            reply,
+            "CHROME_RESERVED {\"top_bar_rows\":2,\"bottom_bar_rows\":1,\"left_cols\":4,\"right_cols\":3,\"gap_cols\":1,\"gap_rows\":2,\"owner\":\"bar\"}\n"
+        );
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
