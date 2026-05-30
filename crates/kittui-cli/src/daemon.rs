@@ -4046,6 +4046,22 @@ mod tests {
     }
 
     #[test]
+    fn queue_native_pane_command_empty_arg_uses_direct_empty_error_reply() {
+        // bd-cf9749: confirm the queued-command empty-arg path returns the direct
+        // empty-error reply (no format!) when the argument is whitespace-only.
+        let pending = Arc::new(Mutex::new(NativeSpawnQueueState::default()));
+        let reply = queue_native_pane_command(
+            &pending,
+            "   ",
+            "FOCUS_PANE requires window",
+            NativePaneCommand::Focus,
+            "FOCUS_QUEUED",
+        );
+        assert_eq!(reply, "ERR FOCUS_PANE requires window\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
     fn tab_pair_arg_builds_move_and_rename_queue_args_directly() {
         let arg = tab_pair_arg("focused", "last");
         assert_eq!(arg, "focused\tlast");
