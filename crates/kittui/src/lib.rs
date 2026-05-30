@@ -27,6 +27,7 @@ pub use kittui_core::{
     STANDARD_ANIMATION_CYCLE_MS, STANDARD_ANIMATION_FPS, STANDARD_ANIMATION_FRAMES,
 };
 
+use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -636,11 +637,32 @@ fn raw_frame_shm_name_path(image_id: u32, suffix: u128) -> Option<(String, PathB
     if !dir.is_dir() {
         return None;
     }
-    let file_name = format!(
-        "kittui-raw-shm-{pid}-{image_id}-{suffix}.rgba",
-        pid = std::process::id(),
+    let file_name = raw_frame_shm_file_name(std::process::id(), image_id, suffix);
+    let mut posix_name = String::with_capacity(1 + file_name.len());
+    posix_name.push('/');
+    posix_name.push_str(&file_name);
+    Some((posix_name, dir.join(file_name)))
+}
+
+fn raw_frame_shm_file_name(pid: u32, image_id: u32, suffix: u128) -> String {
+    let mut file_name = String::with_capacity(
+        "kittui-raw-shm---.rgba".len()
+            + decimal_len_u128(pid as u128)
+            + decimal_len_u128(image_id as u128)
+            + decimal_len_u128(suffix),
     );
-    Some((format!("/{file_name}"), dir.join(file_name)))
+    file_name.push_str("kittui-raw-shm-");
+    write!(file_name, "{pid}-{image_id}-{suffix}.rgba").expect("write to string");
+    file_name
+}
+
+fn decimal_len_u128(mut value: u128) -> usize {
+    let mut digits = 1;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    digits
 }
 
 fn now_rfc3339() -> String {
@@ -1238,6 +1260,17 @@ mod tests {
                 placement.upload
             );
         }
+    }
+
+    #[test]
+    fn raw_frame_shm_file_name_builds_directly() {
+        let file_name = raw_frame_shm_file_name(1234, 19, 5678);
+        assert_eq!(file_name, "kittui-raw-shm-1234-19-5678.rgba");
+        assert_eq!(file_name.capacity(), file_name.len());
+        assert_eq!(decimal_len_u128(0), 1);
+        assert_eq!(decimal_len_u128(9), 1);
+        assert_eq!(decimal_len_u128(10), 2);
+        assert_eq!(decimal_len_u128(12345678901234567890), 20);
     }
 
     #[test]
