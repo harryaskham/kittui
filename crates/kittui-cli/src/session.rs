@@ -6297,6 +6297,46 @@ fn native_toast_colors(message: &str) -> InlineChipColors {
 
 const NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS: usize = 96;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct NativeFooterStatusChipSpec {
+    label: &'static str,
+    x_cells: f32,
+    width_cells: f32,
+}
+
+const NATIVE_FOOTER_STATUS_CHIP_SPECS: &[NativeFooterStatusChipSpec] = &[
+    NativeFooterStatusChipSpec {
+        label: "help",
+        x_cells: 1.0,
+        width_cells: 10.0,
+    },
+    NativeFooterStatusChipSpec {
+        label: "focus",
+        x_cells: 12.5,
+        width_cells: 9.0,
+    },
+    NativeFooterStatusChipSpec {
+        label: "state",
+        x_cells: 23.0,
+        width_cells: 9.0,
+    },
+    NativeFooterStatusChipSpec {
+        label: "drag",
+        x_cells: 33.5,
+        width_cells: 8.0,
+    },
+    NativeFooterStatusChipSpec {
+        label: "terminal",
+        x_cells: 43.0,
+        width_cells: 14.0,
+    },
+    NativeFooterStatusChipSpec {
+        label: "close",
+        x_cells: 58.5,
+        width_cells: 9.0,
+    },
+];
+
 fn native_footer_status_backdrop_label(status_label: &str) -> String {
     let mut label = String::with_capacity("status-bar-backdrop:".len() + status_label.len());
     label.push_str("status-bar-backdrop:");
@@ -6317,14 +6357,6 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
     let rect = CellRect::new(0, 0, cols, 1).to_pixels(cell_size);
     let cell_w = cell_size.width_px.max(1) as f32;
     let chip_h = (cell_size.height_px.max(1) as f32 - 4.0).max(6.0);
-    let chip_specs = [
-        ("help", 1.0, 10.0),
-        ("focus", 12.5, 9.0),
-        ("state", 23.0, 9.0),
-        ("drag", 33.5, 8.0),
-        ("terminal", 43.0, 14.0),
-        ("close", 58.5, 9.0),
-    ];
     let has_focus = native_footer_status_has_focus(status_text);
     let has_state = native_footer_status_has_state(status_text);
     let drag_chip = native_footer_status_drag_chip(status_text);
@@ -6345,7 +6377,8 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
             corners: Corners::uniform(5.0),
         },
     )];
-    for (label, x_cells, width_cells) in chip_specs {
+    for spec in NATIVE_FOOTER_STATUS_CHIP_SPECS {
+        let label = spec.label;
         if (label == "focus" && !has_focus) || (label == "state" && !has_state) {
             continue;
         }
@@ -6357,11 +6390,11 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         } else {
             label
         };
-        let x = x_cells * cell_w;
+        let x = spec.x_cells * cell_w;
         if x >= rect.width {
             continue;
         }
-        let width = (width_cells * cell_w).min((rect.width - x - 4.0).max(1.0));
+        let width = (spec.width_cells * cell_w).min((rect.width - x - 4.0).max(1.0));
         if width <= 1.0 || x + width > rect.width {
             continue;
         }
@@ -12091,6 +12124,18 @@ mod native_pane_tests {
         let label = native_footer_status_chip_label("help");
         assert_eq!(label, "status-chip-help");
         assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
+    fn native_footer_status_chip_specs_are_ordered_by_position() {
+        assert_eq!(NATIVE_FOOTER_STATUS_CHIP_SPECS[0].label, "help");
+        for pair in NATIVE_FOOTER_STATUS_CHIP_SPECS.windows(2) {
+            assert!(pair[0].x_cells < pair[1].x_cells, "{pair:?}");
+            assert!(pair[0].width_cells > 0.0, "{pair:?}");
+        }
+        assert!(NATIVE_FOOTER_STATUS_CHIP_SPECS
+            .last()
+            .is_some_and(|spec| spec.width_cells > 0.0));
     }
 
     #[test]
