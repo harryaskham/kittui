@@ -1643,6 +1643,14 @@ fn queue_command_reply(ok_prefix: &str, count: usize, arg: &str) -> String {
     out
 }
 
+fn queue_empty_error_reply(empty_error: &str) -> String {
+    let mut out = String::with_capacity("ERR \n".len() + empty_error.len());
+    out.push_str("ERR ");
+    out.push_str(empty_error);
+    out.push('\n');
+    out
+}
+
 fn queue_native_pane_command(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     arg: &str,
@@ -1652,7 +1660,7 @@ fn queue_native_pane_command(
 ) -> String {
     let arg = arg.trim();
     if arg.is_empty() {
-        return format!("ERR {empty_error}\n");
+        return queue_empty_error_reply(empty_error);
     }
     match pending.lock() {
         Ok(mut state) => {
@@ -3654,6 +3662,13 @@ mod tests {
     fn queue_command_reply_builds_directly() {
         let reply = queue_command_reply("MOVE_QUEUED", 12, "focused\tlast");
         assert_eq!(reply, "MOVE_QUEUED command=12 arg=focused\tlast\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn queue_empty_error_reply_builds_directly() {
+        let reply = queue_empty_error_reply("FOCUS_PANE requires window");
+        assert_eq!(reply, "ERR FOCUS_PANE requires window\n");
         assert_eq!(reply.capacity(), reply.len());
     }
 
