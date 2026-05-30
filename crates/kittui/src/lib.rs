@@ -165,12 +165,9 @@ impl Runtime {
         if scene.footprint.cols != placement_footprint.cols
             || scene.footprint.rows != placement_footprint.rows
         {
-            return Err(KittuiError::InvalidPlacement(format!(
-                "placement footprint dimensions {}x{} must match scene footprint {}x{}",
-                placement_footprint.cols,
-                placement_footprint.rows,
-                scene.footprint.cols,
-                scene.footprint.rows
+            return Err(KittuiError::InvalidPlacement(placement_dimension_error(
+                placement_footprint,
+                scene.footprint,
             )));
         }
         let id = scene.id();
@@ -619,6 +616,21 @@ impl Runtime {
     fn mark_placed(&self, image_id: u32, footprint: CellRect) {
         self.placed.lock().insert(image_id, footprint);
     }
+}
+
+fn placement_dimension_error(placement: CellRect, scene: CellRect) -> String {
+    let mut message = String::with_capacity(
+        "placement footprint dimensions x must match scene footprint x".len()
+            + decimal_len_u128(placement.cols as u128)
+            + decimal_len_u128(placement.rows as u128)
+            + decimal_len_u128(scene.cols as u128)
+            + decimal_len_u128(scene.rows as u128),
+    );
+    message.push_str("placement footprint dimensions ");
+    write!(message, "{}x{}", placement.cols, placement.rows).expect("write to string");
+    message.push_str(" must match scene footprint ");
+    write!(message, "{}x{}", scene.cols, scene.rows).expect("write to string");
+    message
 }
 
 fn placement_escape(cursor_move: &str, placement: &str) -> String {
@@ -1284,6 +1296,17 @@ mod tests {
                 placement.upload
             );
         }
+    }
+
+    #[test]
+    fn placement_dimension_error_builds_directly() {
+        let message =
+            placement_dimension_error(CellRect::new(0, 0, 5, 2), CellRect::new(0, 0, 4, 2));
+        assert_eq!(
+            message,
+            "placement footprint dimensions 5x2 must match scene footprint 4x2"
+        );
+        assert_eq!(message.capacity(), message.len());
     }
 
     #[test]
