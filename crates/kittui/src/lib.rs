@@ -562,7 +562,7 @@ impl Runtime {
                     }
                     Err(e) => {
                         return Err(KittuiError::Render(cpu::RenderError::UnsupportedImage(
-                            format!("gpu error: {e}"),
+                            gpu_error_label(&e),
                         )));
                     }
                 }
@@ -600,7 +600,7 @@ impl Runtime {
                     }
                     Err(e) => {
                         return Err(KittuiError::Render(cpu::RenderError::UnsupportedImage(
-                            format!("gpu error: {e}"),
+                            gpu_error_label(&e),
                         )));
                     }
                 }
@@ -616,6 +616,13 @@ impl Runtime {
     fn mark_placed(&self, image_id: u32, footprint: CellRect) {
         self.placed.lock().insert(image_id, footprint);
     }
+}
+
+fn gpu_error_label(err: &impl std::fmt::Display) -> String {
+    let mut label = String::with_capacity("gpu error: ".len() + 64);
+    label.push_str("gpu error: ");
+    write!(label, "{err}").expect("write to string");
+    label
 }
 
 fn placement_dimension_error(placement: CellRect, scene: CellRect) -> String {
@@ -1296,6 +1303,14 @@ mod tests {
                 placement.upload
             );
         }
+    }
+
+    #[test]
+    fn gpu_error_label_builds_directly() {
+        let err = std::io::Error::new(std::io::ErrorKind::Other, "device lost");
+        let label = gpu_error_label(&err);
+        assert_eq!(label, "gpu error: device lost");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
