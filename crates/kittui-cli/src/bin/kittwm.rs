@@ -1536,6 +1536,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
 \
              kittwm remote HOST launch firefox\n\
                                            shortest alias for launching the first remote app match\n\
+             kittwm remote HOST launch firefox --fallback\n\
+                                           skip remote kittwm and force pooled-SSH fallback launch\n\
              kittwm remote HOST open firefox\n\
                                            natural alias for remote HOST launch\n\
              kittwm remote HOST run firefox\n\
@@ -1697,6 +1699,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST pick QUERY --json  structured alias for remote HOST app QUERY
 \
              remote HOST launch QUERY       shortest alias for remote app launch\n\
+             remote HOST launch QUERY --fallback\n\
+                                            skip remote kittwm and force pooled-SSH fallback launch\n\
              remote HOST open QUERY         natural alias for remote app launch\n\
              remote HOST run QUERY          natural alias for remote app launch\n\
              remote HOST start QUERY        natural alias for remote app launch
@@ -2172,6 +2176,7 @@ fn parse_remote_launch_alias(out: &mut Cli, args: &[String]) -> Result<()> {
                 let value = iter.next().ok_or_else(missing_limit_error)?;
                 out.apps_limit = Some(parse_limit_value(value)?);
             }
+            "--fallback" => out.apps_force_fallback = true,
             "--" => {
                 terms.extend(iter.cloned());
                 break;
@@ -5238,6 +5243,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST launch QUERY",
             category: "remote",
             description: "shortest alias for remote app launch",
+        },
+        LocalCommandEntry {
+            command: "remote HOST launch QUERY --fallback",
+            category: "remote",
+            description: "force pooled-SSH fallback app launch",
         },
         LocalCommandEntry {
             command: "remote HOST open QUERY",
@@ -11925,6 +11935,10 @@ mod tests {
             entry["command"] == "remote HOST launch QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST launch QUERY --fallback"
+                && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST launch QUERY --json" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -13380,6 +13394,22 @@ mod tests {
         assert!(launch.apps);
         assert_eq!(launch.apps_filter.as_deref(), Some("fire fox"));
         assert!(launch.apps_launch_first);
+
+        let mut fallback_direct_launch = Cli::default();
+        fallback_direct_launch.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut fallback_direct_launch,
+            "launch",
+            &args(&["fire", "fox", "--fallback"]),
+        )
+        .unwrap();
+        assert!(fallback_direct_launch.apps);
+        assert_eq!(
+            fallback_direct_launch.apps_filter.as_deref(),
+            Some("fire fox")
+        );
+        assert!(fallback_direct_launch.apps_launch_first);
+        assert!(fallback_direct_launch.apps_force_fallback);
 
         let mut open = Cli::default();
         open.remote_host = Some("buildbox".to_string());
