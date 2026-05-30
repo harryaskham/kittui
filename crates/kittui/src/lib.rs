@@ -399,10 +399,7 @@ impl Runtime {
     fn write_raw_frame_tempfile(&self, image_id: u32, rgba: &[u8]) -> Option<PathBuf> {
         let mut path = std::env::temp_dir();
         let now = raw_frame_unique_suffix();
-        path.push(format!(
-            "kittui-raw-{pid}-{image_id}-{now}.rgba",
-            pid = std::process::id(),
-        ));
+        path.push(raw_frame_temp_file_name(std::process::id(), image_id, now));
         std::fs::write(&path, rgba).ok()?;
         Some(path)
     }
@@ -637,6 +634,18 @@ fn raw_frame_unique_suffix() -> u128 {
         .ok()
         .map(|d| d.as_nanos())
         .unwrap_or_default()
+}
+
+fn raw_frame_temp_file_name(pid: u32, image_id: u32, suffix: u128) -> String {
+    let mut file_name = String::with_capacity(
+        "kittui-raw---.rgba".len()
+            + decimal_len_u128(pid as u128)
+            + decimal_len_u128(image_id as u128)
+            + decimal_len_u128(suffix),
+    );
+    file_name.push_str("kittui-raw-");
+    write!(file_name, "{pid}-{image_id}-{suffix}.rgba").expect("write to string");
+    file_name
 }
 
 fn raw_frame_shm_name_path(image_id: u32, suffix: u128) -> Option<(String, PathBuf)> {
@@ -1224,7 +1233,8 @@ mod tests {
             "raw frame file transport should use tempfile medium: {:?}",
             placement.upload
         );
-        let prefix = format!("kittui-raw-{}-17-", std::process::id());
+        let prefix_name = raw_frame_temp_file_name(std::process::id(), 17, 0);
+        let prefix = prefix_name.trim_end_matches("0.rgba");
         if let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) {
             for entry in entries.flatten() {
                 if entry.file_name().to_string_lossy().starts_with(&prefix) {
@@ -1274,6 +1284,13 @@ mod tests {
                 placement.upload
             );
         }
+    }
+
+    #[test]
+    fn raw_frame_temp_file_name_builds_directly() {
+        let file_name = raw_frame_temp_file_name(1234, 17, 5678);
+        assert_eq!(file_name, "kittui-raw-1234-17-5678.rgba");
+        assert_eq!(file_name.capacity(), file_name.len());
     }
 
     #[test]
