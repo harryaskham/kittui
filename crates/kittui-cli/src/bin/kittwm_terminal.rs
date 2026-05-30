@@ -261,7 +261,7 @@ fn help_text() -> String {
     "kittwm-terminal — first-party terminal client for kittwm\n\n\
 Usage:\n  kittwm-terminal [--replace|--new-window] [--title TITLE] [--command CMD]\n  kittwm-terminal [--replace|--new-window] [--title TITLE] -- PROGRAM [ARGS...]\n  kittwm-terminal --remote HOST [--title TITLE] [--command CMD]\n  kittwm-terminal --status\n  kittwm-terminal --status-scene-json\n  kittwm-terminal --status-kitty\n  kittwm-terminal --events-ms MS\n  kittwm-terminal --events-scene-json MS\n  kittwm-terminal --events-kitty MS\n\n\
 Options:\n  --replace              Replace the currently focused pane (default)\n  --new-window           Spawn a new kittwm native pane\n  --remote HOST          Open a local kittwm terminal pane running pooled SSH\n  --title TITLE          Set the terminal surface title\n  --command CMD, -c CMD  Run CMD through the configured shell\n  --status               Print typed SDK status/pane detail\n  --status-scene-json    Emit the status card as kittui Scene JSON\n  --status-kitty         Render the status card with kitty graphics\n  --events-ms MS         Print a bounded event batch\n  --events-scene-json MS Emit the event batch as kittui Scene JSON\n  --events-kitty MS      Render the event batch with kitty graphics\n  --help, -h             Show this help text\n\n\
-Examples:\n  kittwm-terminal\n  kittwm-terminal --title logs -- tail -f /tmp/app.log\n  kittwm-terminal --remote buildbox --title buildbox\n  kittwm-terminal --remote buildbox -- htop\n  kittwm-terminal --replace --command 'zsh -l'\n  kittwm-terminal --status\n  kittwm-terminal --events-ms 1000\n\n\
+Examples:\n  kittwm-terminal\n  kittwm-terminal --title logs -- tail -f /tmp/app.log\n  kittwm-terminal --remote buildbox          # pane title defaults to buildbox\n  kittwm-terminal --remote buildbox -- htop\n  kittwm-terminal --remote buildbox --title logs -- tail -f /tmp/app.log\n  kittwm-terminal --replace --command 'zsh -l'\n  kittwm-terminal --status\n  kittwm-terminal --events-ms 1000\n\n\
 Connects through KITTWM_SOCKET/KITTWM_DISPLAY using kittwm-sdk and asks the\n\
 running kittwm instance to spawn or replace a native terminal surface.\n\
 --status prints typed SDK status/pane detail; --status-scene-json and\n\
@@ -607,7 +607,7 @@ fn run(args: TerminalArgs) -> Result<String, String> {
         };
     }
     let command = terminal_spawn_command(&args)?;
-    let title = args.title;
+    let title = terminal_surface_title(&args);
     if args.replace {
         wm.replace_current(&WindowSpec { title, command })
             .map_err(|err| sdk_error("replace current terminal", &err))
@@ -627,6 +627,10 @@ fn terminal_spawn_command(args: &TerminalArgs) -> Result<String, String> {
         return remote_terminal_command(host, &args.command, args.command_explicit);
     }
     Ok(args.command.clone())
+}
+
+fn terminal_surface_title(args: &TerminalArgs) -> Option<String> {
+    args.title.clone().or_else(|| args.remote_host.clone())
 }
 
 fn remote_terminal_command(
@@ -779,6 +783,7 @@ mod tests {
     fn parses_remote_terminal_host_and_builds_pooled_ssh_command() {
         let args = TerminalArgs::parse_from(["--remote", "buildbox", "--", "htop"]).unwrap();
         assert_eq!(args.remote_host.as_deref(), Some("buildbox"));
+        assert_eq!(terminal_surface_title(&args).as_deref(), Some("buildbox"));
         assert!(args.command_explicit);
         let command =
             remote_terminal_command("buildbox", &args.command, args.command_explicit).unwrap();
@@ -786,6 +791,19 @@ mod tests {
         assert!(command.contains("ControlMaster=auto"), "{command}");
         assert!(command.contains("ControlPersist=10m"), "{command}");
         assert!(command.contains("buildbox sh -lc htop"), "{command}");
+
+        let titled = TerminalArgs::parse_from([
+            "--remote",
+            "buildbox",
+            "--title",
+            "logs",
+            "--",
+            "tail",
+            "-f",
+            "/tmp/app.log",
+        ])
+        .unwrap();
+        assert_eq!(terminal_surface_title(&titled).as_deref(), Some("logs"));
 
         let login = remote_terminal_command("buildbox", "/bin/sh -l", false).unwrap();
         assert!(login.contains("ssh -tt"), "{login}");
@@ -1133,6 +1151,12 @@ mod tests {
         assert!(help.contains("kittwm-terminal\n"), "{help}");
         assert!(
             help.contains("kittwm-terminal --title logs -- tail -f /tmp/app.log"),
+            "{help}"
+        );
+        assert!(
+            help.contains(
+                "kittwm-terminal --remote buildbox          # pane title defaults to buildbox"
+            ),
             "{help}"
         );
         assert!(
