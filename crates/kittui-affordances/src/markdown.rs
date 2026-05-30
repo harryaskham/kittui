@@ -550,7 +550,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     kind: MarkdownMathKind::Inline,
                     source: source.clone(),
                 });
-                let placeholder = format!("math:{source}");
+                let placeholder = prefixed_text("math:", &source);
                 if link_target.is_some() {
                     link_label.push_str(&placeholder);
                 }
@@ -567,11 +567,11 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     source: math.to_string(),
                 });
                 if in_table {
-                    table_cell.push_str(&format!("math:{math}"));
+                    table_cell.push_str(&prefixed_text("math:", math));
                 } else {
                     flush_paragraph(&mut out, &mut buf, width_cells);
                     out.components
-                        .push(textbox(format!("math:\n{math}"), width_cells, Tone::Tool));
+                        .push(textbox(math_block_text(math), width_cells, Tone::Tool));
                 }
             }
             Event::InlineHtml(html) => {
@@ -813,6 +813,17 @@ fn flush_list_item(
     ));
 }
 
+fn prefixed_text(prefix: &str, text: &str) -> String {
+    let mut out = String::with_capacity(prefix.len() + text.len());
+    out.push_str(prefix);
+    out.push_str(text);
+    out
+}
+
+fn math_block_text(math: &str) -> String {
+    prefixed_text("math:\n", math)
+}
+
 fn image_placeholder_text(alt: &str, url: &str) -> String {
     let mut placeholder = String::with_capacity("image:  -> ".len() + alt.len() + url.len());
     placeholder.push_str("image: ");
@@ -985,6 +996,16 @@ mod tests {
                 MarkdownTableAlignment::Right,
             ]
         );
+    }
+
+    #[test]
+    fn math_placeholder_text_builds_directly() {
+        let inline = prefixed_text("math:", "x + y");
+        assert_eq!(inline, "math:x + y");
+        assert!(inline.capacity() >= inline.len());
+        let block = math_block_text("a^2 + b^2");
+        assert_eq!(block, "math:\na^2 + b^2");
+        assert!(block.capacity() >= block.len());
     }
 
     #[test]
