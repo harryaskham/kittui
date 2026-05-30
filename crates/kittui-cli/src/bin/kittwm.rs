@@ -8953,7 +8953,7 @@ if [ "${KITTWM_REMOTE_FORCE_FALLBACK:-0}" != "1" ] && command -v kittwm >/dev/nu
         fi
         printf '%s\n' "$kittwm_out" >&2
     fi
-    printf 'WARN remote kittwm apps failed; falling back to shell app discovery on %s\n' "$(hostname 2>/dev/null || printf unknown)" >&2
+    printf 'WARN remote kittwm apps failed; falling back to shell app discovery on target=%s host=%s\n' "$command_host" "$host" >&2
 fi
 json_escape() {
     awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
@@ -9357,7 +9357,7 @@ if [ "${KITTWM_REMOTE_FORCE_FALLBACK:-0}" != "1" ] && command -v kittwm >/dev/nu
         fi
         printf '%s\n' "$kittwm_out" >&2
     fi
-    printf 'WARN remote kittwm %s listing failed; falling back to platform discovery on %s\n' "$kind" "$host" >&2
+    printf 'WARN remote kittwm %s listing failed; falling back to platform discovery on target=%s host=%s\n' "$kind" "$command_host" "$host" >&2
 fi
 case "$kind" in
     displays)
@@ -13927,6 +13927,7 @@ mod tests {
             script.contains("WARN remote kittwm apps failed; falling back"),
             "{script}"
         );
+        assert!(script.contains("target=%s host=%s"), "{script}");
         assert!(
             script.contains("kittwm_remote_list_path_commands"),
             "{script}"
@@ -14104,6 +14105,7 @@ mod tests {
             script.contains("WARN remote kittwm %s listing failed; falling back"),
             "{script}"
         );
+        assert!(script.contains("target=%s host=%s"), "{script}");
         assert!(script.contains("KITTWM_REMOTE_QUERY"), "{script}");
         assert!(script.contains("json_option()"), "{script}");
         assert!(script.contains("$(json_option \"$query\")"), "{script}");
