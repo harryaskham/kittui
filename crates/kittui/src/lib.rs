@@ -543,7 +543,7 @@ impl Runtime {
             if matches!(*backend, BackendState::Cpu) {
                 match gpu::GpuRenderer::new() {
                     Ok(r) => {
-                        let adapter = format!("{:?}", r.adapter_info().name);
+                        let adapter = gpu_adapter_label(&r.adapter_info().name);
                         *backend = BackendState::Gpu(r);
                         self.record_gpu_probe("ok", Some(adapter));
                     }
@@ -581,7 +581,7 @@ impl Runtime {
             if matches!(*backend, BackendState::Cpu) {
                 match gpu::GpuRenderer::new() {
                     Ok(r) => {
-                        let adapter = format!("{:?}", r.adapter_info().name);
+                        let adapter = gpu_adapter_label(&r.adapter_info().name);
                         *backend = BackendState::Gpu(r);
                         self.record_gpu_probe("ok", Some(adapter));
                     }
@@ -616,6 +616,12 @@ impl Runtime {
     fn mark_placed(&self, image_id: u32, footprint: CellRect) {
         self.placed.lock().insert(image_id, footprint);
     }
+}
+
+fn gpu_adapter_label(name: &impl std::fmt::Debug) -> String {
+    let mut label = String::with_capacity(64);
+    write!(label, "{name:?}").expect("write to string");
+    label
 }
 
 fn gpu_error_label(err: &impl std::fmt::Display) -> String {
@@ -1303,6 +1309,13 @@ mod tests {
                 placement.upload
             );
         }
+    }
+
+    #[test]
+    fn gpu_adapter_label_builds_directly() {
+        let label = gpu_adapter_label(&"Apple M-series");
+        assert_eq!(label, "\"Apple M-series\"");
+        assert!(label.capacity() >= label.len());
     }
 
     #[test]
