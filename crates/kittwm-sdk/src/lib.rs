@@ -2465,6 +2465,16 @@ impl NativePaneDetail {
         self.parsed_title_drag_kind() == Some(TitleDragKind::Reposition)
     }
 
+    /// Visible title-row marker prefix for this pane in the given layout label.
+    ///
+    /// The returned prefix mirrors kittwm's compact marker language: focus (`▶`),
+    /// tiled reorder (`⇄`), resized (`↔`), fullscreen (`▣`), floating drag (`≡`),
+    /// topmost (`▲`), and moved (`●`). Alignment spaces are preserved for the
+    /// same marker slots used by live title rows.
+    pub fn title_marker_prefix(&self, layout: Option<&str>) -> String {
+        title_marker_prefix_for_pane(self, layout)
+    }
+
     /// Host-cell coordinate suitable for starting a title-row drag, when available.
     ///
     /// Returns one-based `(col, row)` coordinates for the title row. The column is
@@ -2907,6 +2917,12 @@ impl PanesStatus {
             .title_drag_cells_by(delta_cols, delta_rows)
     }
 
+    /// Visible title-row marker prefix for the focused pane.
+    pub fn focused_title_marker_prefix(&self) -> Option<String> {
+        self.focused_pane()
+            .map(|pane| title_marker_prefix_for_pane_with_focus(pane, self.layout_label(), true))
+    }
+
     /// Whether the focused pane's latest dirty-frame metrics report a clean/skipped frame.
     pub fn focused_frame_is_clean(&self) -> Option<bool> {
         self.focused_pane()?.is_frame_clean()
@@ -3023,6 +3039,65 @@ fn layout_label_is_tiled(value: Option<&str>) -> bool {
         value.map(|label| label.to_ascii_lowercase()),
         Some(label) if matches!(label.as_str(), "columns" | "rows" | "grid")
     )
+}
+
+const FOCUSED_TITLE_MARKER: &str = "▶";
+const UNFOCUSED_TITLE_MARKER: &str = " ";
+const FLOATING_TITLE_DRAG_MARKER: &str = "≡";
+const FLOATING_TITLE_TOP_MARKER: &str = "▲";
+const FLOATING_TITLE_NOT_TOP_MARKER: &str = " ";
+const FLOATING_TITLE_MOVED_MARKER: &str = "●";
+const FLOATING_TITLE_NOT_MOVED_MARKER: &str = " ";
+const TILED_TITLE_REORDER_MARKER: &str = "⇄";
+const RESIZED_TILED_TITLE_MARKER: &str = "↔";
+const FULLSCREEN_TITLE_MARKER: &str = "▣";
+
+fn title_marker_prefix_for_pane(pane: &NativePaneDetail, layout: Option<&str>) -> String {
+    title_marker_prefix_for_pane_with_focus(pane, layout, pane.focused)
+}
+
+fn title_marker_prefix_for_pane_with_focus(
+    pane: &NativePaneDetail,
+    layout: Option<&str>,
+    focused: bool,
+) -> String {
+    let is_tiled = layout_label_is_tiled(layout);
+    let is_floating = layout_label_matches(layout, "floating");
+    let is_fullscreen = layout_label_matches(layout, "fullscreen");
+    let drag_kind_missing = pane.title_drag_kind().is_none();
+    let reorder = pane.title_drag_reorders_pane()
+        || (drag_kind_missing && is_tiled && pane.is_title_draggable());
+    let reposition = pane.title_drag_repositions_pane()
+        || (drag_kind_missing && is_floating && pane.is_title_draggable());
+    let mut markers = String::with_capacity(8);
+    markers.push_str(if focused {
+        FOCUSED_TITLE_MARKER
+    } else {
+        UNFOCUSED_TITLE_MARKER
+    });
+    if reorder {
+        markers.push_str(TILED_TITLE_REORDER_MARKER);
+    }
+    if is_fullscreen {
+        markers.push_str(FULLSCREEN_TITLE_MARKER);
+    }
+    if reorder && pane.has_non_default_weight() {
+        markers.push_str(RESIZED_TILED_TITLE_MARKER);
+    }
+    if reposition {
+        markers.push_str(FLOATING_TITLE_DRAG_MARKER);
+        markers.push_str(if pane.is_stack_top() {
+            FLOATING_TITLE_TOP_MARKER
+        } else {
+            FLOATING_TITLE_NOT_TOP_MARKER
+        });
+        markers.push_str(if pane.has_floating_offset() {
+            FLOATING_TITLE_MOVED_MARKER
+        } else {
+            FLOATING_TITLE_NOT_MOVED_MARKER
+        });
+    }
+    markers
 }
 
 /// Minimal status response shape shared by standalone and native daemons.
@@ -3202,6 +3277,12 @@ impl Status {
     ) -> Option<((u16, u16), (u16, u16))> {
         self.focused_pane()?
             .title_drag_cells_by(delta_cols, delta_rows)
+    }
+
+    /// Visible title-row marker prefix for the focused pane.
+    pub fn focused_title_marker_prefix(&self) -> Option<String> {
+        self.focused_pane()
+            .map(|pane| title_marker_prefix_for_pane_with_focus(pane, self.layout_label(), true))
     }
 
     /// Whether the focused pane's latest dirty-frame metrics report a clean/skipped frame.
@@ -5491,6 +5572,7 @@ mod tests {
             panes.focused_title_drag_cells_by(5, 2),
             Some(((6, 2), (11, 4)))
         );
+        assert_eq!(panes.focused_title_marker_prefix().as_deref(), Some("▶⇄↔"));
         assert_eq!(panes.focused_frame_is_clean(), Some(false));
         assert_eq!(panes.focused_frame_upload_skipped(), Some(false));
         assert_eq!(panes.focused_frame_status_label().as_deref(), Some("1/4"));
@@ -5547,6 +5629,7 @@ mod tests {
         assert!(!pane.title_drag_repositions_pane());
         assert_eq!(pane.title_drag_cell(), Some((6, 2)));
         assert_eq!(pane.title_drag_cells_by(5, 2), Some(((6, 2), (11, 4))));
+        assert_eq!(pane.title_marker_prefix(Some("columns")), "▶⇄↔");
         assert_eq!(pane.bounds(), Some((0, 0, 80, 24)));
         assert_eq!(pane.app_bounds(), Some((0, 1, 80, 23)));
         assert_eq!(pane.cursor_position(), Some((4, 5)));
@@ -5604,6 +5687,7 @@ mod tests {
         assert_eq!(pane.frame_upload_skipped(), None);
         assert_eq!(pane.is_frame_clean(), None);
         assert_eq!(pane.title_drag_cell(), None);
+        assert_eq!(pane.title_marker_prefix(Some("floating")), " ");
     }
 
     #[test]
@@ -5694,6 +5778,7 @@ mod tests {
         assert_eq!(status.focused_title_drag_repositions_pane(), None);
         assert_eq!(status.focused_title_drag_cell(), None);
         assert_eq!(status.focused_title_drag_cells_by(1, 1), None);
+        assert_eq!(status.focused_title_marker_prefix(), None);
         assert_eq!(status.focused_frame_is_clean(), None);
         assert_eq!(status.focused_frame_upload_skipped(), None);
         assert_eq!(status.focused_frame_status_label(), None);
@@ -5728,6 +5813,10 @@ mod tests {
         assert!(!fullscreen.is_tiled_layout());
         assert_eq!(fullscreen.fullscreen_pane().unwrap().window, "native-1");
         assert_eq!(fullscreen.focused_is_fullscreen(), Some(true));
+        assert_eq!(
+            fullscreen.focused_title_marker_prefix().as_deref(),
+            Some("▶▣")
+        );
     }
 
     #[test]
@@ -5766,6 +5855,10 @@ mod tests {
         assert_eq!(
             status.focused_title_drag_cells_by(3, 2),
             Some(((4, 1), (7, 3)))
+        );
+        assert_eq!(
+            status.focused_title_marker_prefix().as_deref(),
+            Some("▶≡  ")
         );
         assert_eq!(status.focused_frame_is_clean(), Some(true));
         assert_eq!(status.focused_frame_upload_skipped(), Some(true));
