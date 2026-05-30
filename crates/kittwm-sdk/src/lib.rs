@@ -3155,6 +3155,11 @@ impl PanesStatus {
         )
     }
 
+    /// High-priority live footer status text, joined with the native footer separator.
+    pub fn footer_status_text(&self) -> Option<String> {
+        footer_status_text(self.footer_status_labels())
+    }
+
     /// Whether the focused pane has a non-zero floating offset.
     pub fn focused_is_moved(&self) -> Option<bool> {
         self.focused_pane()
@@ -3667,6 +3672,11 @@ impl Status {
         )
     }
 
+    /// High-priority live footer status text, joined with the native footer separator.
+    pub fn footer_status_text(&self) -> Option<String> {
+        footer_status_text(self.footer_status_labels())
+    }
+
     /// Whether the focused pane has a non-zero floating offset.
     pub fn focused_is_moved(&self) -> Option<bool> {
         self.focused_pane()
@@ -3981,6 +3991,10 @@ fn footer_status_labels(
         labels.push(footer_drag);
     }
     labels
+}
+
+fn footer_status_text(labels: Vec<String>) -> Option<String> {
+    (!labels.is_empty()).then(|| labels.join(" · "))
 }
 
 fn bounded_ellipsis(text: &str, max_chars: usize) -> String {
@@ -6156,6 +6170,10 @@ mod tests {
                 "drag:reorder:native-1".to_string(),
             ]
         );
+        assert_eq!(
+            panes.footer_status_text().as_deref(),
+            Some("mode:columns · panes:1 · focus:native-1(shell) · state:/bin/sh · wt:2 · pid:123 · frame:1/4 · drag:reorder:native-1")
+        );
         assert_eq!(panes.focused_is_moved(), Some(true));
         assert_eq!(panes.focused_is_title_draggable(), Some(true));
         assert_eq!(panes.focused_is_title_drag_active(), Some(true));
@@ -6455,6 +6473,10 @@ mod tests {
                 "focus:native-1".to_string(),
             ]
         );
+        assert_eq!(
+            status.footer_status_text().as_deref(),
+            Some("mode:rows · panes:1 · focus:native-1")
+        );
         assert_eq!(status.focused_is_moved(), None);
         assert_eq!(status.focused_is_title_draggable(), None);
         assert_eq!(status.focused_is_title_drag_active(), None);
@@ -6565,6 +6587,10 @@ mod tests {
                 "focus:native-1(shell)".to_string(),
                 "state:- · pid:- · frame:clean".to_string(),
             ]
+        );
+        assert_eq!(
+            status.footer_status_text().as_deref(),
+            Some("mode:floating · panes:2 · focus:native-1(shell) · state:- · pid:- · frame:clean")
         );
         assert_eq!(status.focused_is_moved(), Some(false));
         assert_eq!(status.focused_is_title_draggable(), Some(true));
