@@ -1,3 +1,4 @@
+use std::fmt::Write as FmtWrite;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -181,7 +182,7 @@ fn render_pty_sampled_command(args: &Args, command: &str) -> anyhow::Result<()> 
         }
         let snapshot = terminal.render_snapshot()?;
         let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
-        let path = args.out_dir.join(format!("frame-{idx:03}.png"));
+        let path = args.out_dir.join(frame_png_name(idx));
         std::fs::write(&path, png)?;
         frames.push(FrameRecord {
             index: idx,
@@ -218,6 +219,28 @@ fn render_pty_sampled_command(args: &Args, command: &str) -> anyhow::Result<()> 
     Ok(())
 }
 
+fn frame_png_name(idx: usize) -> String {
+    let mut name = String::with_capacity("frame-.png".len() + 3.max(decimal_len_usize(idx)));
+    name.push_str("frame-");
+    if idx < 100 {
+        name.push('0');
+    }
+    if idx < 10 {
+        name.push('0');
+    }
+    write!(name, "{idx}.png").expect("write to string");
+    name
+}
+
+fn decimal_len_usize(mut value: usize) -> usize {
+    let mut digits = 1;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    digits
+}
+
 fn render_timelapse_chunks(args: &Args, chunks: Vec<&[u8]>) -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.out_dir)?;
     let mut terminal = GhosttyVtTerminal::new(args.cols, args.rows, 1_000)?;
@@ -226,7 +249,7 @@ fn render_timelapse_chunks(args: &Args, chunks: Vec<&[u8]>) -> anyhow::Result<()
         terminal.write(bytes);
         let snapshot = terminal.render_snapshot()?;
         let png = render_snapshot_preview_png(&snapshot, &PreviewOptions::default())?;
-        let path = args.out_dir.join(format!("frame-{idx:03}.png"));
+        let path = args.out_dir.join(frame_png_name(idx));
         std::fs::write(&path, png)?;
         frames.push(FrameRecord {
             index: idx,
@@ -838,6 +861,22 @@ mod tests {
         assert!(env.contains(&("KITTWM_NATIVE_CHROME_RENDERER", "terminal")));
         assert!(env.contains(&("KITTWM_STARTUP_TERMINAL", "0")));
         assert!(env.contains(&("TERM_PROGRAM", "kittui-ghostty-proof")));
+    }
+
+    #[test]
+    fn frame_png_name_builds_directly() {
+        let first = frame_png_name(0);
+        assert_eq!(first, "frame-000.png");
+        assert_eq!(first.capacity(), first.len());
+        let later = frame_png_name(42);
+        assert_eq!(later, "frame-042.png");
+        assert_eq!(later.capacity(), later.len());
+        let wide = frame_png_name(1234);
+        assert_eq!(wide, "frame-1234.png");
+        assert_eq!(wide.capacity(), wide.len());
+        assert_eq!(decimal_len_usize(0), 1);
+        assert_eq!(decimal_len_usize(9), 1);
+        assert_eq!(decimal_len_usize(10), 2);
     }
 
     #[test]
