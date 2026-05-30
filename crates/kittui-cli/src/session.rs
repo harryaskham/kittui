@@ -6325,6 +6325,7 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         ("terminal", 43.0, 14.0),
         ("close", 58.5, 9.0),
     ];
+    let has_drag = native_footer_status_has_drag(status_text);
     let status_label = bounded_ellipsis(status_text, NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS);
     let mut layers = vec![Layer::new(
         native_footer_status_backdrop_label(&status_label),
@@ -6343,6 +6344,9 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         },
     )];
     for (label, x_cells, width_cells) in chip_specs {
+        if label == "drag" && !has_drag {
+            continue;
+        }
         let x = x_cells * cell_w;
         if x >= rect.width {
             continue;
@@ -6374,6 +6378,10 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         layers,
         animation: None,
     }
+}
+
+fn native_footer_status_has_drag(status_text: &str) -> bool {
+    status_text.contains(NATIVE_STATUS_LINE_DRAG_PREFIX)
 }
 
 fn native_empty_workspace_action_chip_label(idx: usize) -> String {
@@ -12060,7 +12068,7 @@ mod native_pane_tests {
     }
 
     #[test]
-    fn native_footer_status_scene_labels_focus_and_state_chips() {
+    fn native_footer_status_scene_labels_focus_state_and_active_drag_chips() {
         let scene = native_footer_status_scene(
             CellSize::new(8, 16),
             80,
@@ -12074,7 +12082,19 @@ mod native_pane_tests {
         assert!(labels.contains(&"status-chip-help"), "{labels:?}");
         assert!(labels.contains(&"status-chip-focus"), "{labels:?}");
         assert!(labels.contains(&"status-chip-state"), "{labels:?}");
-        assert!(labels.contains(&"status-chip-drag"), "{labels:?}");
+        assert!(!labels.contains(&"status-chip-drag"), "{labels:?}");
+
+        let dragging = native_footer_status_scene(
+            CellSize::new(8, 16),
+            80,
+            " mode:floating · panes:1 · focus:native-1 · state:sh · pid:101 · frame:clean · drag:move:native-1",
+        );
+        let drag_labels = dragging
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(drag_labels.contains(&"status-chip-drag"), "{drag_labels:?}");
     }
 
     #[test]
