@@ -9098,6 +9098,13 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
             println!("  {app}");
         }
     }
+    if !linux_apps.is_empty() {
+        println!();
+        println!("Linux desktop entries (first {limit}):");
+        for app in &linux_apps {
+            println!("  {}", linux_desktop_app_row(app));
+        }
+    }
     Ok(())
 }
 
@@ -9462,6 +9469,10 @@ fn linux_desktop_app_matches(app: &LinuxDesktopApp, query: Option<&str>) -> bool
     app.id.to_ascii_lowercase().contains(&query)
         || app.label.to_ascii_lowercase().contains(&query)
         || app.file.to_ascii_lowercase().contains(&query)
+}
+
+fn linux_desktop_app_row(app: &LinuxDesktopApp) -> String {
+    format!("{} ({}) — {}", app.label, app.id, app.file)
 }
 
 fn json_option_string(value: Option<&str>) -> String {
@@ -12117,6 +12128,10 @@ mod tests {
             "[Desktop Entry]\nType=Application\nName=Hidden\nExec=hidden\nNoDisplay=true\n",
         )
         .is_none());
+        assert_eq!(
+            linux_desktop_app_row(&app),
+            "Example Terminal (org.example.Term.desktop) — /usr/share/applications/org.example.Term.desktop"
+        );
         assert!(parse_linux_desktop_app(
             "link.desktop",
             "/tmp/link.desktop",
