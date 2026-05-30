@@ -2408,11 +2408,36 @@ impl NativePaneDetail {
         self.has_non_default_weight()
     }
 
+    /// Live pane-chip command label, bounded like the native status chip.
+    pub fn command_chip_label(&self) -> String {
+        bounded_ellipsis(
+            self.command
+                .as_deref()
+                .filter(|command| !command.is_empty())
+                .unwrap_or("-"),
+            PANE_STATUS_COMMAND_MAX_CHARS,
+        )
+    }
+
     /// Live pane-chip pid label, matching `pid:<pid>` or `pid:-`.
     pub fn pid_chip_label(&self) -> String {
         self.pid
             .map(|pid| format!("pid:{pid}"))
             .unwrap_or_else(|| "pid:-".to_string())
+    }
+
+    /// Full live pane status chip text: command, optional weight, pid, and frame.
+    pub fn status_chip_label(&self) -> String {
+        let mut label = self.command_chip_label();
+        if let Some(weight) = self.weight_chip_label() {
+            label.push_str(" · ");
+            label.push_str(&weight);
+        }
+        label.push_str(" · ");
+        label.push_str(&self.pid_chip_label());
+        label.push_str(" · ");
+        label.push_str(&self.frame_chip_label());
+        label
     }
 
     /// Whether the pane title row is reported as a window-manager drag handle.
@@ -2819,9 +2844,20 @@ impl PanesStatus {
         self.focused_pane()?.weight_chip_label()
     }
 
+    /// Live pane-chip command label for the focused pane, bounded like the native status chip.
+    pub fn focused_command_chip_label(&self) -> Option<String> {
+        self.focused_pane()
+            .map(NativePaneDetail::command_chip_label)
+    }
+
     /// Live pane-chip pid label for the focused pane, matching `pid:<pid>` or `pid:-`.
     pub fn focused_pid_chip_label(&self) -> Option<String> {
         self.focused_pane().map(NativePaneDetail::pid_chip_label)
+    }
+
+    /// Full live pane status chip text for the focused pane.
+    pub fn focused_status_chip_label(&self) -> Option<String> {
+        self.focused_pane().map(NativePaneDetail::status_chip_label)
     }
 
     /// Whether the focused pane has a non-zero floating offset.
@@ -3105,9 +3141,20 @@ impl Status {
         self.focused_pane()?.weight_chip_label()
     }
 
+    /// Live pane-chip command label for the focused pane, bounded like the native status chip.
+    pub fn focused_command_chip_label(&self) -> Option<String> {
+        self.focused_pane()
+            .map(NativePaneDetail::command_chip_label)
+    }
+
     /// Live pane-chip pid label for the focused pane, matching `pid:<pid>` or `pid:-`.
     pub fn focused_pid_chip_label(&self) -> Option<String> {
         self.focused_pane().map(NativePaneDetail::pid_chip_label)
+    }
+
+    /// Full live pane status chip text for the focused pane.
+    pub fn focused_status_chip_label(&self) -> Option<String> {
+        self.focused_pane().map(NativePaneDetail::status_chip_label)
     }
 
     /// Whether the focused pane has a non-zero floating offset.
@@ -3277,6 +3324,27 @@ fn focused_is_topmost_from_details(
     topmost: Option<&NativePaneDetail>,
 ) -> Option<bool> {
     Some(focused?.window == topmost?.window)
+}
+
+const PANE_STATUS_COMMAND_MAX_CHARS: usize = 64;
+
+fn bounded_ellipsis(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let mut chars = text.chars();
+    let mut out = String::with_capacity(max_chars.min(text.len()));
+    for _ in 0..max_chars {
+        let Some(ch) = chars.next() else {
+            return out;
+        };
+        out.push(ch);
+    }
+    if chars.next().is_some() {
+        out.pop();
+        out.push('…');
+    }
+    out
 }
 
 /// Native app discovery catalog returned by `APPS_JSON`.
@@ -5405,7 +5473,15 @@ mod tests {
         assert_eq!(panes.focused_is_topmost(), Some(true));
         assert_eq!(panes.focused_is_resized(), Some(true));
         assert_eq!(panes.focused_weight_chip_label().as_deref(), Some("wt:2"));
+        assert_eq!(
+            panes.focused_command_chip_label().as_deref(),
+            Some("/bin/sh")
+        );
         assert_eq!(panes.focused_pid_chip_label().as_deref(), Some("pid:123"));
+        assert_eq!(
+            panes.focused_status_chip_label().as_deref(),
+            Some("/bin/sh · wt:2 · pid:123 · frame:1/4")
+        );
         assert_eq!(panes.focused_is_moved(), Some(true));
         assert_eq!(panes.focused_is_title_draggable(), Some(true));
         assert_eq!(panes.focused_title_drag_reorders_pane(), Some(true));
@@ -5455,7 +5531,12 @@ mod tests {
         assert!(pane.has_non_default_weight());
         assert!(pane.is_resized());
         assert_eq!(pane.weight_chip_label().as_deref(), Some("wt:2"));
+        assert_eq!(pane.command_chip_label(), "/bin/sh");
         assert_eq!(pane.pid_chip_label(), "pid:123");
+        assert_eq!(
+            pane.status_chip_label(),
+            "/bin/sh · wt:2 · pid:123 · frame:1/4"
+        );
         assert_eq!(pane.floating_offset(), Some((4, -2)));
         assert_eq!(pane.floating_moved, Some(true));
         assert!(pane.has_floating_offset());
@@ -5507,7 +5588,9 @@ mod tests {
         assert!(!pane.has_non_default_weight());
         assert!(!pane.is_resized());
         assert_eq!(pane.weight_chip_label(), None);
+        assert_eq!(pane.command_chip_label(), "-");
         assert_eq!(pane.pid_chip_label(), "pid:-");
+        assert_eq!(pane.status_chip_label(), "- · pid:- · frame:new");
         assert_eq!(pane.bounds(), None);
         assert_eq!(pane.app_bounds(), None);
         assert_eq!(pane.floating_offset(), None);
@@ -5602,7 +5685,9 @@ mod tests {
         assert_eq!(status.focused_is_topmost(), None);
         assert_eq!(status.focused_is_resized(), None);
         assert_eq!(status.focused_weight_chip_label(), None);
+        assert_eq!(status.focused_command_chip_label(), None);
         assert_eq!(status.focused_pid_chip_label(), None);
+        assert_eq!(status.focused_status_chip_label(), None);
         assert_eq!(status.focused_is_moved(), None);
         assert_eq!(status.focused_is_title_draggable(), None);
         assert_eq!(status.focused_title_drag_reorders_pane(), None);
@@ -5667,7 +5752,12 @@ mod tests {
         assert_eq!(status.focused_is_topmost(), Some(false));
         assert_eq!(status.focused_is_resized(), Some(false));
         assert_eq!(status.focused_weight_chip_label(), None);
+        assert_eq!(status.focused_command_chip_label().as_deref(), Some("-"));
         assert_eq!(status.focused_pid_chip_label().as_deref(), Some("pid:-"));
+        assert_eq!(
+            status.focused_status_chip_label().as_deref(),
+            Some("- · pid:- · frame:clean")
+        );
         assert_eq!(status.focused_is_moved(), Some(false));
         assert_eq!(status.focused_is_title_draggable(), Some(true));
         assert_eq!(status.focused_title_drag_reorders_pane(), Some(false));
