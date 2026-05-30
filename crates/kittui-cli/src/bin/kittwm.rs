@@ -8408,6 +8408,7 @@ enum RemoteAppsMode {
     List,
     Json,
     First,
+    FirstJson,
     LaunchFirst,
     LaunchFirstJson,
 }
@@ -8423,6 +8424,8 @@ fn remote_apps_mode(cli: &Cli) -> RemoteAppsMode {
         RemoteAppsMode::LaunchFirstJson
     } else if cli.apps_launch_first {
         RemoteAppsMode::LaunchFirst
+    } else if cli.apps_first && cli.json {
+        RemoteAppsMode::FirstJson
     } else if cli.apps_first {
         RemoteAppsMode::First
     } else if cli.json {
@@ -8449,6 +8452,7 @@ fn remote_apps_env(
                 RemoteAppsMode::List => "list",
                 RemoteAppsMode::Json => "json",
                 RemoteAppsMode::First => "first",
+                RemoteAppsMode::FirstJson => "first-json",
                 RemoteAppsMode::LaunchFirst => "launch-first",
                 RemoteAppsMode::LaunchFirstJson => "launch-first-json",
             }
@@ -8554,6 +8558,7 @@ fn remote_apps_script() -> &'static str {
     case "${KITTWM_REMOTE_MODE:-list}" in
         json) set -- "$@" --json ;;
         first) set -- "$@" --first ;;
+        first-json) set -- "$@" --first --json ;;
         launch-first) set -- "$@" --launch-first ;;
         launch-first-json) set -- "$@" --launch-first --json ;;
     esac
@@ -8754,13 +8759,25 @@ case "$mode" in
         done
         printf '],"path_count":%s,"macos_count":%s,"linux_desktop_count":%s,"total_count":%s}' "$path_count" "$macos_count" "$linux_desktop_count" "$total_count"
         ;;
-    first)
+    first|first-json)
         candidate=$(kittwm_remote_candidates | head -n 1)
-        [ -n "$candidate" ] || { echo "ERR no remote app candidates matched"; exit 1; }
+        [ -n "$candidate" ] || {
+            if [ "$mode" = "first-json" ]; then
+                printf '{"host":%s,"mode":"first","filter":%s,"error":"no_candidates","message":"no remote app candidates matched"}\n' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)"
+            else
+                echo "ERR no remote app candidates matched"
+            fi
+            exit 1
+        }
         kind=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $1}')
         name=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
         label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
-        printf '%s:%s\n' "$kind" "$label"
+        desktop_file=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $5}')
+        if [ "$mode" = "first-json" ]; then
+            printf '{"host":%s,"mode":"first","filter":%s,"kind":%s,"candidate":%s,"name":%s,"desktop_file":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$name" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(printf '%s' "$desktop_file" | json_escape)"
+        else
+            printf '%s:%s\n' "$kind" "$label"
+        fi
         ;;
     launch-first|launch-first-json)
         candidate=$(kittwm_remote_candidates | head -n 1)
@@ -9010,7 +9027,11 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
             if cli.json {
                 println!(
                     "{}",
-                    app_launch_json_error(query, "no_candidates", "no app candidates matched")
+                    if cli.apps_launch_first {
+                        app_launch_json_error(query, "no_candidates", "no app candidates matched")
+                    } else {
+                        app_first_json_error(query, "no_candidates", "no app candidates matched")
+                    }
                 );
                 return Ok(());
             }
@@ -9026,6 +9047,8 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
                     pid, selected.kind, selected.name
                 );
             }
+        } else if cli.json {
+            println!("{}", app_first_json(query, &selected));
         } else {
             println!("{}:{}", selected.kind, selected.name);
         }
@@ -9479,6 +9502,26 @@ fn linux_desktop_app_row(app: &LinuxDesktopApp) -> String {
 
 fn json_option_string(value: Option<&str>) -> String {
     value.map_or_else(|| "null".to_string(), |value| format!("{value:?}"))
+}
+
+fn app_first_json(query: Option<&str>, candidate: &AppCandidate) -> String {
+    format!(
+        "{{\"mode\":\"first\",\"filter\":{},\"kind\":{:?},\"candidate\":{:?},\"name\":{:?},\"desktop_file\":{}}}",
+        json_option_string(query),
+        candidate.kind,
+        candidate.name,
+        candidate.name,
+        json_option_string(candidate.desktop_file.as_deref())
+    )
+}
+
+fn app_first_json_error(query: Option<&str>, code: &str, message: &str) -> String {
+    format!(
+        "{{\"mode\":\"first\",\"filter\":{},\"error\":{:?},\"message\":{:?}}}",
+        json_option_string(query),
+        code,
+        message
+    )
 }
 
 fn app_launch_method(candidate: &AppCandidate) -> &'static str {
@@ -12220,6 +12263,20 @@ mod tests {
         assert!(success.contains("\"candidate\":\"xterm\""), "{success}");
         assert!(success.contains("\"pid\":\"42\""), "{success}");
 
+        let first = app_first_json(Some("term"), &candidate);
+        assert!(first.contains("\"mode\":\"first\""), "{first}");
+        assert!(first.contains("\"candidate\":\"xterm\""), "{first}");
+        let first_error = app_first_json_error(
+            Some("missing"),
+            "no_candidates",
+            "no app candidates matched",
+        );
+        assert!(first_error.contains("\"mode\":\"first\""), "{first_error}");
+        assert!(
+            first_error.contains("\"error\":\"no_candidates\""),
+            "{first_error}"
+        );
+
         let error = app_launch_json_error(
             Some("missing"),
             "no_candidates",
@@ -12631,6 +12688,22 @@ mod tests {
             "launch-first-json".to_string()
         )));
         assert!(remote_apps_mode(&json_launch_cli).requests_graphical_forwarding());
+        let json_first_cli = Cli {
+            apps: true,
+            apps_first: true,
+            json: true,
+            apps_filter: Some("Visual Studio Code".to_string()),
+            apps_limit: Some(7),
+            ..Cli::default()
+        };
+        assert_eq!(remote_apps_mode(&json_first_cli), RemoteAppsMode::FirstJson);
+        assert!(!remote_apps_mode(&json_first_cli).requests_graphical_forwarding());
+        assert!(remote_apps_env(
+            json_first_cli.apps_filter.as_deref(),
+            7,
+            remote_apps_mode(&json_first_cli)
+        )
+        .contains(&("KITTWM_REMOTE_MODE".to_string(), "first-json".to_string())));
         let args = pooled_ssh_args_with_forwarding(
             "host.example",
             &remote_apps_env(cli.apps_filter.as_deref(), 7, remote_apps_mode(&cli)),
@@ -12706,6 +12779,12 @@ mod tests {
             "{script}"
         );
         assert!(script.contains("method=%s"), "{script}");
+        assert!(script.contains("first-json"), "{script}");
+        assert!(
+            script.contains("first-json) set -- \"$@\" --first --json"),
+            "{script}"
+        );
+        assert!(script.contains("\"mode\":\"first\""), "{script}");
         assert!(script.contains("launch-first-json"), "{script}");
         assert!(
             script.contains("launch-first-json) set -- \"$@\" --launch-first --json"),
