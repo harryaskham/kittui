@@ -280,16 +280,23 @@ impl Cache {
     }
 
     fn still_path(&self, id: &SceneId) -> PathBuf {
-        self.shard(id).join(format!("{}.png", id.0))
+        self.shard(id).join(scene_artifact_name(id, ".png"))
     }
 
     fn frames_dir(&self, id: &SceneId) -> PathBuf {
-        self.shard(id).join(format!("{}.frames", id.0))
+        self.shard(id).join(scene_artifact_name(id, ".frames"))
     }
 
     fn meta_path(&self, id: &SceneId) -> PathBuf {
-        self.shard(id).join(format!("{}.meta.json", id.0))
+        self.shard(id).join(scene_artifact_name(id, ".meta.json"))
     }
+}
+
+fn scene_artifact_name(id: &SceneId, suffix: &str) -> String {
+    let mut name = String::with_capacity(id.0.len() + suffix.len());
+    name.push_str(&id.0);
+    name.push_str(suffix);
+    name
 }
 
 /// Default cache root, honouring `KITTUI_CACHE_DIR` and XDG conventions.
@@ -385,6 +392,23 @@ mod tests {
             kitty_image_id: 0x1234,
             loops: 0,
         }
+    }
+
+    #[test]
+    fn scene_artifact_names_build_directly() {
+        let id = SceneId("a".repeat(64));
+        let still = scene_artifact_name(&id, ".png");
+        assert_eq!(
+            still,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"
+        );
+        assert_eq!(still.capacity(), still.len());
+        let frames = scene_artifact_name(&id, ".frames");
+        assert!(frames.ends_with(".frames"));
+        assert_eq!(frames.capacity(), frames.len());
+        let meta = scene_artifact_name(&id, ".meta.json");
+        assert!(meta.ends_with(".meta.json"));
+        assert_eq!(meta.capacity(), meta.len());
     }
 
     #[test]
