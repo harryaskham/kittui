@@ -7895,12 +7895,11 @@ fn shortcuts_scene() -> Scene {
     shortcuts_scene_for_cols(shortcuts_scene_cols())
 }
 
-const SHORTCUTS_SCENE_ROW_LIMIT: usize = 12;
-
 fn shortcuts_scene_for_cols(cols: u16) -> Scene {
     let entries = kittui_cli::shortcuts::NATIVE_SHORTCUT_ENTRIES;
-    let visible_entries = shortcuts_scene_visible_entries(entries, SHORTCUTS_SCENE_ROW_LIMIT);
     let rows = shortcuts_scene_rows(entries.len());
+    let visible_entries =
+        shortcuts_scene_visible_entries(entries, shortcuts_scene_entry_limit(rows));
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
     let height = rows as f32 * cell.height_px as f32;
@@ -7962,6 +7961,10 @@ fn shortcuts_scene_for_cols(cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn shortcuts_scene_entry_limit(rows: u16) -> usize {
+    rows.saturating_sub(2) as usize
 }
 
 fn shortcuts_scene_visible_entries<'a>(
@@ -13800,6 +13803,10 @@ mod tests {
         assert_eq!(shortcuts_scene_rows(0), 4);
         assert_eq!(shortcuts_scene_rows(3), 6);
         assert_eq!(shortcuts_scene_rows(usize::MAX), 18);
+        assert_eq!(
+            shortcuts_scene_entry_limit(shortcuts_scene_rows(usize::MAX)),
+            16
+        );
     }
 
     #[test]
@@ -13861,6 +13868,11 @@ mod tests {
         let entries = kittui_cli::shortcuts::NATIVE_SHORTCUT_ENTRIES;
         let visible = shortcuts_scene_visible_entries(entries, 12);
         assert_eq!(visible.len(), 12);
+        assert!(visible.iter().any(|entry| entry.id == "title_markers"));
+        assert_eq!(visible.last().map(|entry| entry.id), Some("title_markers"));
+
+        let visible = shortcuts_scene_visible_entries(entries, shortcuts_scene_entry_limit(18));
+        assert_eq!(visible.len(), 16);
         assert!(visible.iter().any(|entry| entry.id == "title_markers"));
         assert_eq!(visible.last().map(|entry| entry.id), Some("title_markers"));
     }
