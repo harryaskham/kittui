@@ -6327,7 +6327,7 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
     ];
     let has_focus = native_footer_status_has_focus(status_text);
     let has_state = native_footer_status_has_state(status_text);
-    let has_drag = native_footer_status_has_drag(status_text);
+    let drag_chip = native_footer_status_drag_chip(status_text);
     let status_label = bounded_ellipsis(status_text, NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS);
     let mut layers = vec![Layer::new(
         native_footer_status_backdrop_label(&status_label),
@@ -6346,12 +6346,17 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         },
     )];
     for (label, x_cells, width_cells) in chip_specs {
-        if (label == "focus" && !has_focus)
-            || (label == "state" && !has_state)
-            || (label == "drag" && !has_drag)
-        {
+        if (label == "focus" && !has_focus) || (label == "state" && !has_state) {
             continue;
         }
+        let label = if label == "drag" {
+            let Some(drag_chip) = drag_chip else {
+                continue;
+            };
+            drag_chip
+        } else {
+            label
+        };
         let x = x_cells * cell_w;
         if x >= rect.width {
             continue;
@@ -6393,8 +6398,16 @@ fn native_footer_status_has_state(status_text: &str) -> bool {
     status_text.contains(NATIVE_STATUS_LINE_STATE_PREFIX)
 }
 
-fn native_footer_status_has_drag(status_text: &str) -> bool {
-    status_text.contains(NATIVE_STATUS_LINE_DRAG_PREFIX)
+fn native_footer_status_drag_chip(status_text: &str) -> Option<&'static str> {
+    if status_text.contains(" · drag:move:") {
+        Some("drag-move")
+    } else if status_text.contains(" · drag:reorder:") {
+        Some("drag-reorder")
+    } else if status_text.contains(NATIVE_STATUS_LINE_DRAG_PREFIX) {
+        Some("drag")
+    } else {
+        None
+    }
 }
 
 fn native_empty_workspace_action_chip_label(idx: usize) -> String {
@@ -12096,6 +12109,8 @@ mod native_pane_tests {
         assert!(labels.contains(&"status-chip-focus"), "{labels:?}");
         assert!(labels.contains(&"status-chip-state"), "{labels:?}");
         assert!(!labels.contains(&"status-chip-drag"), "{labels:?}");
+        assert!(!labels.contains(&"status-chip-drag-move"), "{labels:?}");
+        assert!(!labels.contains(&"status-chip-drag-reorder"), "{labels:?}");
 
         let dragging = native_footer_status_scene(
             CellSize::new(8, 16),
@@ -12107,7 +12122,33 @@ mod native_pane_tests {
             .iter()
             .filter_map(|layer| layer.label.as_deref())
             .collect::<Vec<_>>();
-        assert!(drag_labels.contains(&"status-chip-drag"), "{drag_labels:?}");
+        assert!(
+            drag_labels.contains(&"status-chip-drag-move"),
+            "{drag_labels:?}"
+        );
+        assert!(
+            !drag_labels.contains(&"status-chip-drag-reorder"),
+            "{drag_labels:?}"
+        );
+
+        let reorder = native_footer_status_scene(
+            CellSize::new(8, 16),
+            80,
+            " mode:columns · panes:2 · focus:native-1 · state:sh · pid:101 · frame:clean · drag:reorder:native-1",
+        );
+        let reorder_labels = reorder
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            reorder_labels.contains(&"status-chip-drag-reorder"),
+            "{reorder_labels:?}"
+        );
+        assert!(
+            !reorder_labels.contains(&"status-chip-drag-move"),
+            "{reorder_labels:?}"
+        );
 
         let generic = native_footer_status_scene(CellSize::new(8, 16), 80, "status");
         let generic_labels = generic
@@ -12129,6 +12170,14 @@ mod native_pane_tests {
         );
         assert!(
             !generic_labels.contains(&"status-chip-drag"),
+            "{generic_labels:?}"
+        );
+        assert!(
+            !generic_labels.contains(&"status-chip-drag-move"),
+            "{generic_labels:?}"
+        );
+        assert!(
+            !generic_labels.contains(&"status-chip-drag-reorder"),
             "{generic_labels:?}"
         );
     }
