@@ -3038,6 +3038,16 @@ impl PanesStatus {
         self.active_title_drag_panes().next()
     }
 
+    /// Reported raw title-drag interaction kind for the active drag target.
+    pub fn active_title_drag_kind(&self) -> Option<&str> {
+        self.active_title_drag_pane()?.title_drag_kind()
+    }
+
+    /// Parsed title-drag interaction kind for the active drag target.
+    pub fn active_parsed_title_drag_kind(&self) -> Option<TitleDragKind> {
+        self.active_title_drag_pane()?.parsed_title_drag_kind()
+    }
+
     /// Whether the active title-drag target reorders tiled panes.
     pub fn active_title_drag_reorders_pane(&self) -> Option<bool> {
         self.active_title_drag_pane().map(|pane| {
@@ -3496,6 +3506,16 @@ impl Status {
     /// First pane reported as the active title-drag target.
     pub fn active_title_drag_pane(&self) -> Option<&NativePaneDetail> {
         self.active_title_drag_panes().next()
+    }
+
+    /// Reported raw title-drag interaction kind for the active drag target.
+    pub fn active_title_drag_kind(&self) -> Option<&str> {
+        self.active_title_drag_pane()?.title_drag_kind()
+    }
+
+    /// Parsed title-drag interaction kind for the active drag target.
+    pub fn active_parsed_title_drag_kind(&self) -> Option<TitleDragKind> {
+        self.active_title_drag_pane()?.parsed_title_drag_kind()
     }
 
     /// Whether the active title-drag target reorders tiled panes.
@@ -5798,6 +5818,11 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["native-1"]
         );
+        assert_eq!(panes.active_title_drag_kind(), Some("reorder"));
+        assert_eq!(
+            panes.active_parsed_title_drag_kind(),
+            Some(TitleDragKind::Reorder)
+        );
         assert_eq!(panes.active_title_drag_reorders_pane(), Some(true));
         assert_eq!(panes.active_title_drag_repositions_pane(), Some(false));
         assert_eq!(panes.active_title_drag_cell(), Some((6, 2)));
@@ -6035,6 +6060,8 @@ mod tests {
         assert_eq!(status.focused_title_marker_prefix(), None);
         assert_eq!(status.focused_reported_title_marker_prefix(), None);
         assert!(status.active_title_drag_pane().is_none());
+        assert_eq!(status.active_title_drag_kind(), None);
+        assert_eq!(status.active_parsed_title_drag_kind(), None);
         assert_eq!(status.active_title_drag_reorders_pane(), None);
         assert_eq!(status.active_title_drag_repositions_pane(), None);
         assert_eq!(status.active_title_drag_cell(), None);
@@ -6140,6 +6167,8 @@ mod tests {
             Some("▶≡  ")
         );
         assert!(status.active_title_drag_pane().is_none());
+        assert_eq!(status.active_title_drag_kind(), None);
+        assert_eq!(status.active_parsed_title_drag_kind(), None);
         assert_eq!(status.active_title_drag_reorders_pane(), None);
         assert_eq!(status.active_title_drag_repositions_pane(), None);
         assert_eq!(status.active_title_drag_cell(), None);
