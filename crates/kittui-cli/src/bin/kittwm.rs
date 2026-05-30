@@ -8801,12 +8801,14 @@ kittwm_remote_emit_json_lines() {
     source=${2:-unknown}
     printf '{"host":%s,"kind":%s,"filter":%s,"mode":%s,"source":%s,"lines":[' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$query" | json_escape)" "$(printf '%s' "$mode" | json_escape)" "$(printf '%s' "$source" | json_escape)"
     first=1
+    count=0
     while IFS= read -r line; do
         [ $first -eq 1 ] || printf ','
         first=0
+        count=$((count + 1))
         printf '%s' "$line" | json_escape
     done
-    printf ']}\n'
+    printf '],"count":%s}\n' "$count"
 }
 kittwm_remote_emit() {
     mode=${1:-fallback}
@@ -12304,6 +12306,7 @@ mod tests {
         assert!(script.contains("\"mode\":"), "{script}");
         assert!(script.contains("\"source\":"), "{script}");
         assert!(script.contains("\"lines\":"), "{script}");
+        assert!(script.contains("\"count\":"), "{script}");
         assert!(
             script.contains("kittwm_remote_emit kittwm kittwm"),
             "{script}"
