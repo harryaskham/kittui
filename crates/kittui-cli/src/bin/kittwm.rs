@@ -9006,7 +9006,7 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
         );
     }
     if cli.apps_first || cli.apps_launch_first {
-        let Some(selected) = first_app_candidate(&path_cmds, &mac_apps) else {
+        let Some(selected) = first_app_candidate(&path_cmds, &mac_apps, &linux_apps) else {
             if cli.json {
                 println!(
                     "{}",
@@ -9344,6 +9344,7 @@ struct LinuxDesktopApp {
     id: String,
     label: String,
     file: String,
+    exec: String,
 }
 
 #[cfg(target_os = "linux")]
@@ -9457,6 +9458,7 @@ fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<Linux
         id: id.to_string(),
         label: name.unwrap_or_else(|| id.trim_end_matches(".desktop").to_string()),
         file: file.to_string(),
+        exec: exec.unwrap_or_default(),
     })
 }
 
@@ -9480,21 +9482,22 @@ fn json_option_string(value: Option<&str>) -> String {
 }
 
 fn app_launch_method(candidate: &AppCandidate) -> &'static str {
-    if candidate.kind == "macos" {
-        "open"
-    } else {
-        "path"
+    match candidate.kind {
+        "macos" => "open",
+        "desktop" => "desktop",
+        _ => "path",
     }
 }
 
 fn app_launch_json(query: Option<&str>, candidate: &AppCandidate, pid: u32) -> String {
     format!(
-        "{{\"mode\":\"launch-first\",\"filter\":{},\"kind\":{:?},\"method\":{:?},\"candidate\":{:?},\"name\":{:?},\"pid\":{:?}}}",
+        "{{\"mode\":\"launch-first\",\"filter\":{},\"kind\":{:?},\"method\":{:?},\"candidate\":{:?},\"name\":{:?},\"desktop_file\":{},\"pid\":{:?}}}",
         json_option_string(query),
         candidate.kind,
         app_launch_method(candidate),
         candidate.name,
         candidate.name,
+        json_option_string(candidate.desktop_file.as_deref()),
         pid.to_string()
     )
 }
@@ -9585,24 +9588,68 @@ fn ascii_casefold_contains(item: &str, query: &str) -> bool {
 struct AppCandidate {
     kind: &'static str,
     name: String,
+    desktop_file: Option<String>,
+    exec_line: Option<String>,
 }
 
-fn first_app_candidate(path_cmds: &[String], mac_apps: &[String]) -> Option<AppCandidate> {
+impl AppCandidate {
+    fn path(name: impl Into<String>) -> Self {
+        Self {
+            kind: "path",
+            name: name.into(),
+            desktop_file: None,
+            exec_line: None,
+        }
+    }
+
+    fn macos(name: impl Into<String>) -> Self {
+        Self {
+            kind: "macos",
+            name: name.into(),
+            desktop_file: None,
+            exec_line: None,
+        }
+    }
+
+    fn desktop(app: &LinuxDesktopApp) -> Self {
+        Self {
+            kind: "desktop",
+            name: app.id.clone(),
+            desktop_file: Some(app.file.clone()),
+            exec_line: Some(app.exec.clone()),
+        }
+    }
+
+    fn none() -> Self {
+        Self {
+            kind: "none",
+            name: "<no matches>".to_string(),
+            desktop_file: None,
+            exec_line: None,
+        }
+    }
+}
+
+fn first_app_candidate(
+    path_cmds: &[String],
+    mac_apps: &[String],
+    linux_apps: &[LinuxDesktopApp],
+) -> Option<AppCandidate> {
     path_cmds
         .first()
-        .map(|name| AppCandidate {
-            kind: "path",
-            name: name.clone(),
-        })
+        .map(|name| AppCandidate::path(name.clone()))
         .or_else(|| {
-            mac_apps.first().map(|name| AppCandidate {
-                kind: "macos",
-                name: name.clone(),
-            })
+            mac_apps
+                .first()
+                .map(|name| AppCandidate::macos(name.clone()))
         })
+        .or_else(|| linux_apps.first().map(AppCandidate::desktop))
 }
 
 fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
+    if candidate.kind == "desktop" {
+        return launch_desktop_app_candidate(candidate);
+    }
     let mut cmd = if candidate.kind == "macos" {
         let mut c = std::process::Command::new("open");
         c.arg("-a").arg(&candidate.name);
@@ -9623,6 +9670,62 @@ fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
             )
         })?;
     Ok(child.id())
+}
+
+fn launch_desktop_app_candidate(candidate: &AppCandidate) -> Result<u32> {
+    if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        return Err(anyhow!(
+            "launch candidate desktop:{}: no graphical display is available; try: kittwm remote HOST graphical",
+            candidate.name
+        ));
+    }
+    if find_on_path("gtk-launch").is_some() {
+        if let Ok(pid) = spawn_detached_command("gtk-launch", &[candidate.name.as_str()]) {
+            return Ok(pid);
+        }
+    }
+    if let Some(file) = candidate.desktop_file.as_deref() {
+        if find_on_path("gio").is_some() {
+            if let Ok(pid) = spawn_detached_command("gio", &["launch", file]) {
+                return Ok(pid);
+            }
+        }
+    }
+    if let Some(exec_line) = candidate.exec_line.as_deref() {
+        let desktop_exec = strip_desktop_exec_field_codes(exec_line);
+        if !desktop_exec.trim().is_empty() {
+            return spawn_shell_command(&desktop_exec);
+        }
+    }
+    Err(anyhow!(
+        "launch candidate desktop:{}: gtk-launch/gio failed and no Linux desktop Exec fallback is available",
+        candidate.name
+    ))
+}
+
+fn spawn_detached_command(program: &str, args: &[&str]) -> Result<u32> {
+    let child = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .with_context(|| format!("launch {program}"))?;
+    Ok(child.id())
+}
+
+fn spawn_shell_command(command: &str) -> Result<u32> {
+    spawn_detached_command("sh", &["-lc", command])
+}
+
+fn strip_desktop_exec_field_codes(exec_line: &str) -> String {
+    exec_line
+        .split_whitespace()
+        .filter(|part| !part.starts_with('%'))
+        .map(|part| part.replace("%f", "").replace("%u", ""))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn replace_cmd(cli: &Cli) -> Result<()> {
@@ -9731,18 +9834,12 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
     let mac_app_candidates: Vec<String> = Vec::new();
     let mut candidates: Vec<AppCandidate> = path_cmds
         .into_iter()
-        .map(|name| AppCandidate { kind: "path", name })
-        .chain(mac_app_candidates.into_iter().map(|name| AppCandidate {
-            kind: "macos",
-            name,
-        }))
+        .map(AppCandidate::path)
+        .chain(mac_app_candidates.into_iter().map(AppCandidate::macos))
         .take(limit)
         .collect();
     if candidates.is_empty() {
-        candidates.push(AppCandidate {
-            kind: "none",
-            name: "<no matches>".to_string(),
-        });
+        candidates.push(AppCandidate::none());
     }
     let mut selected = cli.launcher_select.unwrap_or(1);
     if selected == 0 {
@@ -11884,10 +11981,7 @@ mod tests {
 
     #[test]
     fn launcher_preview_row_text_builds_directly() {
-        let candidate = AppCandidate {
-            kind: "path",
-            name: "Terminal".to_string(),
-        };
+        let candidate = AppCandidate::path("Terminal");
         assert_eq!(
             launcher_preview_row_text(2, &candidate, true),
             "▶  2. [path ] Terminal"
@@ -11900,10 +11994,8 @@ mod tests {
 
     #[test]
     fn launcher_selected_label_builds_directly_and_bounds_name() {
-        let candidate = AppCandidate {
-            kind: "path",
-            name: "path-command-name-that-is-pathologically-long-and-noisy".to_string(),
-        };
+        let candidate =
+            AppCandidate::path("path-command-name-that-is-pathologically-long-and-noisy");
         let label = launcher_selected_label(Some(&candidate));
         assert!(
             label.starts_with("path:path-command-name-that-is-pathologically-long"),
@@ -11925,16 +12017,7 @@ mod tests {
     fn launcher_scene_row_rects_fit_narrow_widths() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("KITTWM_INFO_COLS", "8");
-        let candidates = vec![
-            AppCandidate {
-                kind: "path",
-                name: "xterm".to_string(),
-            },
-            AppCandidate {
-                kind: "macos",
-                name: "Terminal".to_string(),
-            },
-        ];
+        let candidates = vec![AppCandidate::path("xterm"), AppCandidate::macos("Terminal")];
         let scene = launcher_scene("term", 1, &candidates);
         assert_eq!(scene.footprint.cols, 8);
         let width = scene.footprint.cols as f32 * scene.cell_size.width_px as f32;
@@ -11961,16 +12044,7 @@ mod tests {
 
     #[test]
     fn launcher_scene_labels_selected_candidate() {
-        let candidates = vec![
-            AppCandidate {
-                kind: "path",
-                name: "xterm".to_string(),
-            },
-            AppCandidate {
-                kind: "macos",
-                name: "Terminal".to_string(),
-            },
-        ];
+        let candidates = vec![AppCandidate::path("xterm"), AppCandidate::macos("Terminal")];
         let scene = launcher_scene("term", 1, &candidates);
         let labels = scene
             .layers
@@ -12001,15 +12075,10 @@ mod tests {
     #[test]
     fn launcher_scene_clips_pathological_label_fields() {
         let candidates = vec![
-            AppCandidate {
-                kind: "path",
-                name: "path-command-name-that-is-pathologically-long-and-bloats-labels".to_string(),
-            },
-            AppCandidate {
-                kind: "macos",
-                name: "macOS Application Name That Is Pathologically Long And Bloats Labels"
-                    .to_string(),
-            },
+            AppCandidate::path("path-command-name-that-is-pathologically-long-and-bloats-labels"),
+            AppCandidate::macos(
+                "macOS Application Name That Is Pathologically Long And Bloats Labels",
+            ),
         ];
         let scene = launcher_scene(
             "query-value-that-is-pathologically-long-and-would-bloat-labels",
@@ -12142,10 +12211,7 @@ mod tests {
 
     #[test]
     fn app_launch_first_json_reports_structured_success_and_errors() {
-        let candidate = AppCandidate {
-            kind: "path",
-            name: "xterm".to_string(),
-        };
+        let candidate = AppCandidate::path("xterm");
         let success = app_launch_json(Some("term"), &candidate, 42);
         assert!(success.contains("\"mode\":\"launch-first\""), "{success}");
         assert!(success.contains("\"filter\":\"term\""), "{success}");
@@ -12163,6 +12229,34 @@ mod tests {
         assert!(
             error.contains("\"message\":\"no app candidates matched\""),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn app_candidates_include_linux_desktop_launchers() {
+        let linux_app = LinuxDesktopApp {
+            id: "org.example.Term.desktop".to_string(),
+            label: "Example Terminal".to_string(),
+            file: "/usr/share/applications/org.example.Term.desktop".to_string(),
+            exec: "example-term %U".to_string(),
+        };
+        let selected = first_app_candidate(&[], &[], &[linux_app]).unwrap();
+        assert_eq!(selected.kind, "desktop");
+        assert_eq!(selected.name, "org.example.Term.desktop");
+        assert_eq!(
+            selected.desktop_file.as_deref(),
+            Some("/usr/share/applications/org.example.Term.desktop")
+        );
+        assert_eq!(
+            strip_desktop_exec_field_codes("example-term %U --new-window %f"),
+            "example-term --new-window"
+        );
+        let json = app_launch_json(Some("term"), &selected, 99);
+        assert!(json.contains("\"kind\":\"desktop\""), "{json}");
+        assert!(json.contains("\"method\":\"desktop\""), "{json}");
+        assert!(
+            json.contains("\"desktop_file\":\"/usr/share/applications/org.example.Term.desktop\""),
+            "{json}"
         );
     }
 
