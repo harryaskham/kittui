@@ -2066,7 +2066,7 @@ fn native_shell_view(
     include_text_snapshots: bool,
 ) -> NativeShellView {
     let focused_footer_label = panes.get(focused).map(native_status_pane_focus_label);
-    let focused_status_label = panes.get(focused).map(native_pane_status_chip_text);
+    let mut focused_status_label = None;
     let pane_chrome = panes
         .iter()
         .enumerate()
@@ -2089,13 +2089,17 @@ fn native_shell_view(
                 floating_moved,
             );
             let cache_key = native_pane_title_key_from_text(&text, layout, is_focused);
+            let status = native_pane_status_chip_text(pane);
+            if is_focused {
+                focused_status_label = Some(status.clone());
+            }
             Some(NativePaneChrome {
                 x: layout.x,
                 y: layout.y,
                 focused: is_focused,
                 text,
                 cache_key,
-                status: native_pane_status_chip_text(pane),
+                status,
                 app_x: layout.app_x,
                 app_y: layout.app_y,
                 app_cols: layout.app_cols,
