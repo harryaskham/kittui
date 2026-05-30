@@ -7,10 +7,11 @@
 # PASS/FAIL summary. Exits non-zero if any baseline crate regresses, so CI and
 # agents can keep the baseline green crate-by-crate.
 #
-# The heavier crates kittui-cli, kittwm-sdk, and kittui-wm are intentionally
+# The heavier crates kittui-cli and kittui-wm are intentionally
 # NOT in the baseline yet: they still carry pre-existing warnings and are
 # actively developed, so run non-strict clippy there until their owners clear
-# them (see bd-dc44f1).
+# them (see bd-dc44f1). kittwm-sdk joined the baseline once its lib was made
+# strict-clippy clean (bd-3a7f70).
 #
 # Usage:
 #   scripts/kittwm-strict-clippy.sh            # check the whole baseline
@@ -40,12 +41,12 @@ BASELINE_CRATES=(
   kittui-ffi
   kittui-quartz
   kittui-xvfb
+  kittwm-sdk
 )
 
 # Crates intentionally excluded from the strict baseline (peer-owned / pre-existing warnings).
 NOT_YET_CLEAN=(
   kittui-cli
-  kittwm-sdk
   kittui-wm
 )
 

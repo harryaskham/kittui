@@ -1652,10 +1652,11 @@ pub struct ComponentState {
 }
 
 /// Semantic layout kind hint.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ComponentLayoutKind {
     /// Renderer may flow/re-wrap children.
+    #[default]
     Flow,
     /// Row layout.
     Row,
@@ -1667,12 +1668,6 @@ pub enum ComponentLayoutKind {
     Stack,
     /// Absolute/fixed rectangle layout.
     Absolute,
-}
-
-impl Default for ComponentLayoutKind {
-    fn default() -> Self {
-        Self::Flow
-    }
 }
 
 /// Optional semantic layout hints.
@@ -4614,7 +4609,7 @@ fn validated_text_payload<'a>(text: &'a str, verb: &str) -> Result<&'a str> {
     Ok(text)
 }
 
-fn validated_pane_title<'a>(title: &'a str) -> Result<&'a str> {
+fn validated_pane_title(title: &str) -> Result<&str> {
     let title = title.trim();
     if title.is_empty() {
         return Err(Error::Daemon(
@@ -5137,11 +5132,7 @@ fn surface_payload_request(verb: &str, id: &str, payload: &str) -> String {
 
 fn resize_delta_label(delta: i16) -> String {
     let magnitude = delta.unsigned_abs().to_string();
-    let mut out = String::with_capacity(if delta >= 0 {
-        1 + magnitude.len()
-    } else {
-        1 + magnitude.len()
-    });
+    let mut out = String::with_capacity(1 + magnitude.len());
     out.push(if delta >= 0 { '+' } else { '-' });
     out.push_str(&magnitude);
     out
