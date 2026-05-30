@@ -9676,7 +9676,14 @@ fn linux_desktop_app_matches(app: &LinuxDesktopApp, query: Option<&str>) -> bool
 }
 
 fn linux_desktop_app_row(app: &LinuxDesktopApp) -> String {
-    format!("{} ({}) — {}", app.label, app.id, app.file)
+    let mut row =
+        String::with_capacity(app.label.len() + app.id.len() + app.file.len() + " () — ".len());
+    row.push_str(&app.label);
+    row.push_str(" (");
+    row.push_str(&app.id);
+    row.push_str(") — ");
+    row.push_str(&app.file);
+    row
 }
 
 fn json_option_string(value: Option<&str>) -> String {
@@ -12497,10 +12504,12 @@ mod tests {
             "[Desktop Entry]\nType=Application\nName=Hidden\nExec=hidden\nNoDisplay=true\n",
         )
         .is_none());
+        let row = linux_desktop_app_row(&app);
         assert_eq!(
-            linux_desktop_app_row(&app),
+            row,
             "Example Terminal (org.example.Term.desktop) — /usr/share/applications/org.example.Term.desktop"
         );
+        assert_eq!(row.capacity(), row.len());
         assert!(parse_linux_desktop_app(
             "link.desktop",
             "/tmp/link.desktop",
