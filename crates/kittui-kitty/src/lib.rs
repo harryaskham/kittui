@@ -796,8 +796,17 @@ pub fn placement_command_ex(
 ) -> String {
     let mut fields = placement_command_fields(image_id, footprint, options);
     fields.push_str(options.quiet.field());
-    let payload = format!("{ESC}_G{fields}{ESC}\\");
-    wrap_transport(payload, transport)
+    wrap_transport(kitty_graphics_payload(&fields), transport)
+}
+
+fn kitty_graphics_payload(fields: &str) -> String {
+    let mut payload = String::with_capacity(ESC.len() + "_G".len() + fields.len() + ESC.len() + 1);
+    payload.push_str(ESC);
+    payload.push_str("_G");
+    payload.push_str(fields);
+    payload.push_str(ESC);
+    payload.push('\\');
+    payload
 }
 
 fn placement_command_fields(
@@ -1224,6 +1233,13 @@ mod tests {
         // Second chunk header is the bare `m=0` continuation.
         assert!(escapes.contains("\x1b\\\x1b_Gm=0;"));
         assert!(escapes.ends_with("\x1b\\"));
+    }
+
+    #[test]
+    fn kitty_graphics_payload_builds_directly() {
+        let payload = kitty_graphics_payload("a=p,i=1,c=8,r=4,q=2");
+        assert_eq!(payload, "\x1b_Ga=p,i=1,c=8,r=4,q=2\x1b\\");
+        assert!(payload.capacity() >= payload.len());
     }
 
     #[test]
