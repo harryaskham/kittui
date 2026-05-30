@@ -4362,6 +4362,13 @@ fn browser_component_from_value(value: &serde_json::Value) -> Option<ComponentNo
     Some(component)
 }
 
+fn browser_custom_role_label(role: &str) -> String {
+    let mut label = String::with_capacity("browser.".len() + role.len());
+    label.push_str("browser.");
+    label.push_str(role);
+    label
+}
+
 fn browser_component_role(role: &str, tag: Option<&str>) -> ComponentRole {
     match role {
         "button" => ComponentRole::Button,
@@ -4377,7 +4384,7 @@ fn browser_component_role(role: &str, tag: Option<&str>) -> ComponentRole {
         "link" => ComponentRole::Link,
         "pixel_region" => ComponentRole::Canvas,
         _ if matches!(tag, Some("label")) => ComponentRole::Label,
-        _ => ComponentRole::Custom(format!("browser.{role}")),
+        _ => ComponentRole::Custom(browser_custom_role_label(role)),
     }
 }
 
@@ -6751,6 +6758,13 @@ mod tests {
     }
 
     #[test]
+    fn browser_custom_role_label_builds_directly() {
+        let label = browser_custom_role_label("switch");
+        assert_eq!(label, "browser.switch");
+        assert_eq!(label.capacity(), label.len());
+    }
+
+    #[test]
     fn browser_semantic_snapshot_maps_common_dom_controls() {
         let value = json!({
             "title": "Settings",
@@ -6760,14 +6774,15 @@ mod tests {
                 {"id":"dom:subscribe","role":"checkbox","label":"Subscribe","checked":true,"focusable":true},
                 {"id":"dom:home","role":"link","label":"Home","href":"https://example.test/","focusable":true},
                 {"id":"dom:secret","role":"textbox","label":"Password","value":"hidden","sensitive":true,"focusable":true},
-                {"id":"dom:canvas:1","role":"pixel_region","label":"Chart"}
+                {"id":"dom:canvas:1","role":"pixel_region","label":"Chart"},
+                {"id":"dom:switch","role":"switch","label":"Power","focusable":true}
             ]
         });
         let snapshot =
             browser_semantic_snapshot_from_value("browser:42", "fallback", value).unwrap();
         assert_eq!(snapshot.surface, "browser:42");
         assert_eq!(snapshot.root.label.as_deref(), Some("Settings"));
-        assert_eq!(snapshot.root.children.len(), 6);
+        assert_eq!(snapshot.root.children.len(), 7);
         assert_eq!(snapshot.root.children[0].role, ComponentRole::Button);
         assert_eq!(snapshot.root.children[1].role, ComponentRole::TextInput);
         assert_eq!(
@@ -6784,6 +6799,10 @@ mod tests {
         assert!(snapshot.root.children[4].state.sensitive);
         assert!(snapshot.root.children[4].value.is_none());
         assert_eq!(snapshot.root.children[5].role, ComponentRole::Canvas);
+        assert_eq!(
+            snapshot.root.children[6].role,
+            ComponentRole::Custom("browser.switch".to_string())
+        );
     }
 
     #[test]
