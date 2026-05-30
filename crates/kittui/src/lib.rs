@@ -672,7 +672,14 @@ fn now_rfc3339() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    format!("epoch:{secs}")
+    epoch_timestamp(secs)
+}
+
+fn epoch_timestamp(secs: u64) -> String {
+    let mut timestamp = String::with_capacity("epoch:".len() + decimal_len_u128(secs as u128));
+    timestamp.push_str("epoch:");
+    write!(timestamp, "{secs}").expect("write to string");
+    timestamp
 }
 
 /// Builder for [`Runtime`].
@@ -1260,6 +1267,13 @@ mod tests {
                 placement.upload
             );
         }
+    }
+
+    #[test]
+    fn epoch_timestamp_builds_directly() {
+        let timestamp = epoch_timestamp(1234567890);
+        assert_eq!(timestamp, "epoch:1234567890");
+        assert_eq!(timestamp.capacity(), timestamp.len());
     }
 
     #[test]
