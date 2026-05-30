@@ -9077,13 +9077,15 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
             } else {
                 println!(
                     "kittwm apps: launched pid={} kind={} name={}",
-                    pid, selected.kind, selected.name
+                    pid,
+                    selected.kind,
+                    selected.display_name()
                 );
             }
         } else if cli.json {
             println!("{}", app_first_json(query, &selected));
         } else {
-            println!("{}:{}", selected.kind, selected.name);
+            println!("{}:{}", selected.kind, selected.display_name());
         }
         return Ok(());
     }
@@ -9543,7 +9545,7 @@ fn app_first_json(query: Option<&str>, candidate: &AppCandidate) -> String {
         json_option_string(query),
         candidate.kind,
         candidate.name,
-        candidate.name,
+        candidate.display_name(),
         json_option_string(candidate.desktop_file.as_deref())
     )
 }
@@ -9572,7 +9574,7 @@ fn app_launch_json(query: Option<&str>, candidate: &AppCandidate, pid: u32) -> S
         candidate.kind,
         app_launch_method(candidate),
         candidate.name,
-        candidate.name,
+        candidate.display_name(),
         json_option_string(candidate.desktop_file.as_deref()),
         pid.to_string()
     )
@@ -9664,6 +9666,7 @@ fn ascii_casefold_contains(item: &str, query: &str) -> bool {
 struct AppCandidate {
     kind: &'static str,
     name: String,
+    label: Option<String>,
     desktop_file: Option<String>,
     exec_line: Option<String>,
 }
@@ -9673,6 +9676,7 @@ impl AppCandidate {
         Self {
             kind: "path",
             name: name.into(),
+            label: None,
             desktop_file: None,
             exec_line: None,
         }
@@ -9682,6 +9686,7 @@ impl AppCandidate {
         Self {
             kind: "macos",
             name: name.into(),
+            label: None,
             desktop_file: None,
             exec_line: None,
         }
@@ -9691,6 +9696,7 @@ impl AppCandidate {
         Self {
             kind: "desktop",
             name: app.id.clone(),
+            label: Some(app.label.clone()),
             desktop_file: Some(app.file.clone()),
             exec_line: Some(app.exec.clone()),
         }
@@ -9700,9 +9706,14 @@ impl AppCandidate {
         Self {
             kind: "none",
             name: "<no matches>".to_string(),
+            label: None,
             desktop_file: None,
             exec_line: None,
         }
+    }
+
+    fn display_name(&self) -> &str {
+        self.label.as_deref().unwrap_or(&self.name)
     }
 }
 
@@ -9933,7 +9944,10 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
         let pid = launch_app_candidate(candidate)?;
         println!(
             "kittwm launcher: launched selection={} pid={} kind={} name={}",
-            selected, pid, candidate.kind, candidate.name
+            selected,
+            pid,
+            candidate.kind,
+            candidate.display_name()
         );
         return Ok(());
     }
@@ -10016,7 +10030,7 @@ fn launcher_scene(query: &str, selected_idx: usize, candidates: &[AppCandidate])
     for (idx, candidate) in candidates.iter().take(18).enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         let selected = idx == selected_idx;
-        let name_label = truncate(&candidate.name, 48);
+        let name_label = truncate(candidate.display_name(), 48);
         layers.push(Layer {
             label: Some(launcher_row_label(
                 idx + 1,
@@ -10097,7 +10111,7 @@ fn launcher_preview_row_text(index: usize, candidate: &AppCandidate, selected: b
         " 00. [] "
             .len()
             .saturating_add(candidate.kind.len().max(5))
-            .saturating_add(candidate.name.len()),
+            .saturating_add(candidate.display_name().len()),
     );
     text.push_str(if selected { "▶" } else { " " });
     text.push(' ');
@@ -10105,7 +10119,7 @@ fn launcher_preview_row_text(index: usize, candidate: &AppCandidate, selected: b
     text.push_str(". [");
     let _ = write!(text, "{:<5}", candidate.kind);
     text.push_str("] ");
-    text.push_str(&candidate.name);
+    text.push_str(candidate.display_name());
     text
 }
 
@@ -10113,7 +10127,7 @@ fn launcher_selected_label(candidate: Option<&AppCandidate>) -> String {
     let Some(candidate) = candidate else {
         return "none:<none>".to_string();
     };
-    let name = truncate(&candidate.name, 48);
+    let name = truncate(candidate.display_name(), 48);
     let mut out = String::with_capacity(
         candidate
             .kind
@@ -12342,6 +12356,7 @@ mod tests {
         let selected = first_app_candidate(&[], &[], &[linux_app]).unwrap();
         assert_eq!(selected.kind, "desktop");
         assert_eq!(selected.name, "org.example.Term.desktop");
+        assert_eq!(selected.display_name(), "Example Terminal");
         assert_eq!(
             selected.desktop_file.as_deref(),
             Some("/usr/share/applications/org.example.Term.desktop")
@@ -12352,6 +12367,11 @@ mod tests {
         );
         let json = app_launch_json(Some("term"), &selected, 99);
         assert!(json.contains("\"kind\":\"desktop\""), "{json}");
+        assert!(
+            json.contains("\"candidate\":\"org.example.Term.desktop\""),
+            "{json}"
+        );
+        assert!(json.contains("\"name\":\"Example Terminal\""), "{json}");
         assert!(json.contains("\"method\":\"desktop\""), "{json}");
         assert!(
             json.contains("\"desktop_file\":\"/usr/share/applications/org.example.Term.desktop\""),
