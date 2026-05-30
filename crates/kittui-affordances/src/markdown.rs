@@ -394,7 +394,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                         text: text.clone(),
                     });
                     let rendered = language
-                        .map(|label| format!("code:{label}\n{text}"))
+                        .map(|label| code_block_text(&label, &text))
                         .unwrap_or(text);
                     out.components
                         .push(textbox(rendered, width_cells, Tone::Tool));
@@ -813,6 +813,15 @@ fn flush_list_item(
     ));
 }
 
+fn code_block_text(label: &str, text: &str) -> String {
+    let mut block = String::with_capacity("code:\n".len() + label.len() + text.len());
+    block.push_str("code:");
+    block.push_str(label);
+    block.push('\n');
+    block.push_str(text);
+    block
+}
+
 fn footnote_definition_text(label: &str, text: &str) -> String {
     let mut definition = String::with_capacity("footnote [^]: ".len() + label.len() + text.len());
     definition.push_str("footnote [^");
@@ -967,6 +976,13 @@ mod tests {
                 MarkdownTableAlignment::Right,
             ]
         );
+    }
+
+    #[test]
+    fn code_block_text_builds_directly() {
+        let text = code_block_text("rust", "fn main() {}");
+        assert_eq!(text, "code:rust\nfn main() {}");
+        assert!(text.capacity() >= text.len());
     }
 
     #[test]
