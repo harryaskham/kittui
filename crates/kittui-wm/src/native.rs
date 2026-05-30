@@ -3682,6 +3682,14 @@ fn chrome_window_size_arg(width: u32, height: u32) -> String {
     arg
 }
 
+fn chrome_user_data_dir_arg(path: &Path) -> String {
+    let path = path.display().to_string();
+    let mut arg = String::with_capacity("--user-data-dir=".len() + path.len());
+    arg.push_str("--user-data-dir=");
+    arg.push_str(&path);
+    arg
+}
+
 fn cleanup_headless_chrome_user_data_dir(path: &Path) {
     let _ = std::fs::remove_dir_all(path);
 }
@@ -3703,7 +3711,7 @@ impl HeadlessBrowserApp {
             .arg("--disable-gpu")
             .arg("--hide-scrollbars")
             .arg("--remote-debugging-port=0")
-            .arg(format!("--user-data-dir={}", user_data_dir.display()))
+            .arg(chrome_user_data_dir_arg(&user_data_dir))
             .arg(chrome_window_size_arg(width, height))
             .arg("about:blank")
             .stdin(Stdio::null())
@@ -5831,6 +5839,14 @@ mod tests {
     fn chrome_window_size_arg_builds_directly() {
         let arg = chrome_window_size_arg(1280, 720);
         assert_eq!(arg, "--window-size=1280,720");
+        assert_eq!(arg.capacity(), arg.len());
+    }
+
+    #[test]
+    fn chrome_user_data_dir_arg_builds_directly() {
+        let path = PathBuf::from("/tmp/kittui-headless-chrome-test");
+        let arg = chrome_user_data_dir_arg(&path);
+        assert_eq!(arg, "--user-data-dir=/tmp/kittui-headless-chrome-test");
         assert_eq!(arg.capacity(), arg.len());
     }
 
