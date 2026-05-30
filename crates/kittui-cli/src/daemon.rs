@@ -3003,6 +3003,46 @@ fn semantic_focus_unsupported_reply(window: &str, component: &str) -> String {
     out
 }
 
+fn semantic_action_failed_reply(window: &str, component: &str, action: &str, err: &str) -> String {
+    let component = component.trim();
+    let action = action.trim();
+    let mut out = String::with_capacity(
+        "ERR SEMANTIC_ACTION window= component= action= \n".len()
+            + window.len()
+            + component.len()
+            + action.len()
+            + err.len(),
+    );
+    out.push_str("ERR SEMANTIC_ACTION window=");
+    out.push_str(window);
+    out.push_str(" component=");
+    out.push_str(component);
+    out.push_str(" action=");
+    out.push_str(action);
+    out.push(' ');
+    out.push_str(err);
+    out.push('\n');
+    out
+}
+
+fn semantic_focus_failed_reply(window: &str, component: &str, err: &str) -> String {
+    let component = component.trim();
+    let mut out = String::with_capacity(
+        "ERR SEMANTIC_FOCUS window= component= \n".len()
+            + window.len()
+            + component.len()
+            + err.len(),
+    );
+    out.push_str("ERR SEMANTIC_FOCUS window=");
+    out.push_str(window);
+    out.push_str(" component=");
+    out.push_str(component);
+    out.push(' ');
+    out.push_str(err);
+    out.push('\n');
+    out
+}
+
 fn semantic_component_id(window: &str, suffix: &str) -> String {
     let mut id = String::with_capacity(window.len() + 1 + suffix.len());
     id.push_str(window);
@@ -3096,13 +3136,7 @@ fn native_spawn_semantic_action_reply(
             }
             semantic_action_applied_reply(&window, component, action)
         }
-        Err(err) => format!(
-            "ERR SEMANTIC_ACTION window={} component={} action={} {}\n",
-            window,
-            component.trim(),
-            action.trim(),
-            err
-        ),
+        Err(err) => semantic_action_failed_reply(&window, component, action, err),
     }
 }
 
@@ -3136,12 +3170,7 @@ fn native_spawn_semantic_focus_reply(
             );
             semantic_focused_reply(&window, component)
         }
-        Err(err) => format!(
-            "ERR SEMANTIC_FOCUS window={} component={} {}\n",
-            window,
-            component.trim(),
-            err
-        ),
+        Err(err) => semantic_focus_failed_reply(&window, component, err),
     }
 }
 
@@ -5212,6 +5241,29 @@ mod tests {
         assert_eq!(
             focus,
             "ERR SEMANTIC_FOCUS unsupported window=native-1 component=settings.name\n"
+        );
+        assert_eq!(focus.capacity(), focus.len());
+    }
+
+    #[test]
+    fn semantic_failure_replies_build_directly() {
+        let action = semantic_action_failed_reply(
+            "native-1",
+            " settings.notify ",
+            " toggle ",
+            "component not found",
+        );
+        assert_eq!(
+            action,
+            "ERR SEMANTIC_ACTION window=native-1 component=settings.notify action=toggle component not found\n"
+        );
+        assert_eq!(action.capacity(), action.len());
+
+        let focus =
+            semantic_focus_failed_reply("native-1", " settings.name ", "component not found");
+        assert_eq!(
+            focus,
+            "ERR SEMANTIC_FOCUS window=native-1 component=settings.name component not found\n"
         );
         assert_eq!(focus.capacity(), focus.len());
     }
