@@ -1082,6 +1082,11 @@ fn native_spawn_help_entries() -> Vec<(&'static str, &'static str, &'static str)
             "replace native panes from a SESSION_JSON manifest",
         ),
         (
+            "RESERVE_CHROME_JSON <json>",
+            "control",
+            "reserve a native chrome surface from a JSON request",
+        ),
+        (
             "RENAME_PANE <window> <title>",
             "control",
             "set display title for a native pane",
@@ -5096,6 +5101,7 @@ mod tests {
         assert!(help.contains("RESIZE_PANE <window|focused>"), "{help}");
         assert!(help.contains("BALANCE_PANES"), "{help}");
         assert!(help.contains("RESTORE_SESSION_JSON <json>"), "{help}");
+        assert!(help.contains("RESERVE_CHROME_JSON <json>"), "{help}");
         assert!(help.contains("RENAME_PANE <window> <title>"), "{help}");
         assert!(help.contains("SEND_TEXT <window|focused> <text>"), "{help}");
         assert!(help.contains("SEND_LINE <window|focused> <text>"), "{help}");
