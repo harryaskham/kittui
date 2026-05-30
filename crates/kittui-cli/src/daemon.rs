@@ -1628,6 +1628,19 @@ fn queue_native_pane_action(
     }
 }
 
+fn queue_command_reply(ok_prefix: &str, count: usize, arg: &str) -> String {
+    let mut out = String::with_capacity(
+        ok_prefix.len() + " command= arg=\n".len() + usize_decimal_len(count) + arg.len(),
+    );
+    out.push_str(ok_prefix);
+    out.push_str(" command=");
+    write!(out, "{count}").expect("write to string");
+    out.push_str(" arg=");
+    out.push_str(arg);
+    out.push('\n');
+    out
+}
+
 fn queue_native_pane_command(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     arg: &str,
@@ -1644,7 +1657,7 @@ fn queue_native_pane_command(
             let old_pending = state.pending.len();
             state.pending.push(build(arg.to_string()));
             push_native_pending_status_event(&mut state, old_pending);
-            format!("{ok_prefix} command={} arg={}\n", state.pending.len(), arg)
+            queue_command_reply(ok_prefix, state.pending.len(), arg)
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
@@ -3602,6 +3615,13 @@ mod tests {
     fn queue_action_reply_builds_directly() {
         let reply = queue_action_reply("FOCUS_NEXT_QUEUED", 12);
         assert_eq!(reply, "FOCUS_NEXT_QUEUED command=12\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn queue_command_reply_builds_directly() {
+        let reply = queue_command_reply("MOVE_QUEUED", 12, "focused\tlast");
+        assert_eq!(reply, "MOVE_QUEUED command=12 arg=focused\tlast\n");
         assert_eq!(reply.capacity(), reply.len());
     }
 
