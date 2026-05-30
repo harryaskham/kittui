@@ -1086,7 +1086,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|wm|list|apps|applications|programs|software|app|application|program|select|pick|launch|open|run|start|windows|win|displays|monitors|screens|terminal|term|cmd|command|exec|shell|sh|login|ssh|console|tty]
+  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|fallback|kittwm|desktop|wm|list|apps|applications|programs|software|app|application|program|select|pick|launch|open|run|start|windows|win|displays|monitors|screens|terminal|term|cmd|command|exec|shell|sh|login|ssh|console|tty]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1506,6 +1506,12 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            structured remote app matches with counts\n\
              kittwm remote HOST apps firefox --fallback\n\
                                            skip remote kittwm and force pooled-SSH fallback discovery\n\
+             kittwm remote HOST fallback apps firefox\n\
+                                           front-door alias for forcing pooled-SSH fallback discovery\n\
+             kittwm remote HOST fallback windows firefox\n\
+                                           front-door alias for forcing platform fallback window listing\n\
+             kittwm remote HOST fallback displays retina\n\
+                                           front-door alias for forcing platform fallback display listing\n\
              kittwm remote HOST applications firefox\n\
                                            natural alias for remote HOST apps\n\
              kittwm remote HOST programs firefox\n\
@@ -1672,6 +1678,11 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST apps QUERY --json  structured remote app matches with counts\n\
              remote HOST apps QUERY --fallback\n\
                                             skip remote kittwm and force pooled-SSH fallback discovery\n\
+             remote HOST fallback apps QUERY force pooled-SSH fallback app discovery\n\
+             remote HOST fallback windows QUERY\n\
+                                            force platform fallback window listing\n\
+             remote HOST fallback displays QUERY\n\
+                                            force platform fallback display listing\n\
              remote HOST applications QUERY alias for remote HOST apps QUERY\n\
              remote HOST programs QUERY     alias for remote HOST apps QUERY\n\
              remote HOST software QUERY     alias for remote HOST apps QUERY\n\
@@ -1949,6 +1960,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             parse_remote_apps_flags(out, rest)
         }
         "list" | "ls" => parse_remote_list_alias(out, rest),
+        "fallback" => parse_remote_fallback_alias(out, rest),
         "launch" | "open" | "run" | "start" => parse_remote_launch_alias(out, rest),
         "kittwm" | "desktop" | "wm" => {
             out.remote_terminal_args = Some(remote_kittwm_alias_args(
@@ -1992,6 +2004,38 @@ fn ensure_empty_remote_help_args(rest: &[String], apply: impl FnOnce()) -> Resul
     }
     apply();
     Ok(())
+}
+
+fn parse_remote_fallback_alias(out: &mut Cli, rest: &[String]) -> Result<()> {
+    let Some((action, rest)) = rest.split_first() else {
+        return Err(anyhow!(
+            "kittwm remote HOST fallback requires apps|launch|windows|displays\ntry: kittwm remote HOST fallback apps firefox\nhelp: kittwm help ssh"
+        ));
+    };
+    out.apps_force_fallback = true;
+    out.remote_listing_force_fallback = true;
+    match action.as_str() {
+        "apps" | "applications" | "programs" | "software" => {
+            out.apps = true;
+            parse_remote_apps_flags(out, rest)
+        }
+        "app" | "application" | "program" | "select" | "pick" => {
+            out.apps = true;
+            out.apps_first = true;
+            parse_remote_apps_flags(out, rest)
+        }
+        "launch" | "open" | "run" | "start" => parse_remote_launch_alias(out, rest),
+        "list" | "ls" => parse_remote_list_alias(out, rest),
+        "windows" | "window" | "wins" | "win" => {
+            parse_remote_listing_alias(out, RemoteListingKind::Windows, rest)
+        }
+        "displays" | "display" | "monitors" | "monitor" | "screens" | "screen" => {
+            parse_remote_listing_alias(out, RemoteListingKind::Displays, rest)
+        }
+        other => Err(anyhow!(
+            "unknown remote fallback target {other:?}\ntry: kittwm remote HOST fallback apps firefox | fallback windows firefox | fallback displays retina\nhelp: kittwm help ssh"
+        )),
+    }
 }
 
 fn remote_terminal_alias_args(host: &str, rest: &[String]) -> Vec<String> {
@@ -5129,6 +5173,21 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST apps QUERY --fallback",
             category: "remote",
             description: "force pooled-SSH fallback app discovery",
+        },
+        LocalCommandEntry {
+            command: "remote HOST fallback apps QUERY",
+            category: "remote",
+            description: "front-door alias for fallback app discovery",
+        },
+        LocalCommandEntry {
+            command: "remote HOST fallback windows QUERY",
+            category: "remote",
+            description: "front-door alias for fallback window listing",
+        },
+        LocalCommandEntry {
+            command: "remote HOST fallback displays QUERY",
+            category: "remote",
+            description: "front-door alias for fallback display listing",
         },
         LocalCommandEntry {
             command: "remote HOST applications QUERY",
@@ -11824,6 +11883,17 @@ mod tests {
             entry["command"] == "remote HOST apps QUERY --fallback" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST fallback apps QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST fallback windows QUERY"
+                && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST fallback displays QUERY"
+                && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST applications QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -12873,6 +12943,34 @@ mod tests {
         assert_eq!(fallback_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(fallback_query.apps_force_fallback);
 
+        let mut fallback_wrapper_query = Cli::default();
+        fallback_wrapper_query.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut fallback_wrapper_query,
+            "fallback",
+            &args(&["apps", "fire", "fox"]),
+        )
+        .unwrap();
+        assert!(fallback_wrapper_query.apps);
+        assert_eq!(
+            fallback_wrapper_query.apps_filter.as_deref(),
+            Some("fire fox")
+        );
+        assert!(fallback_wrapper_query.apps_force_fallback);
+
+        let mut fallback_launch = Cli::default();
+        fallback_launch.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut fallback_launch,
+            "fallback",
+            &args(&["launch", "fire", "fox"]),
+        )
+        .unwrap();
+        assert!(fallback_launch.apps);
+        assert_eq!(fallback_launch.apps_filter.as_deref(), Some("fire fox"));
+        assert!(fallback_launch.apps_launch_first);
+        assert!(fallback_launch.apps_force_fallback);
+
         let mut singular_app_query = Cli::default();
         singular_app_query.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut singular_app_query, "app", &args(&["fire", "fox"])).unwrap();
@@ -13092,6 +13190,21 @@ mod tests {
         );
         assert!(list_windows_fallback.remote_listing_force_fallback);
 
+        let mut fallback_windows = Cli::default();
+        fallback_windows.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut fallback_windows,
+            "fallback",
+            &args(&["windows", "firefox"]),
+        )
+        .unwrap();
+        assert!(fallback_windows.list_windows);
+        assert_eq!(
+            fallback_windows.remote_listing_filter.as_deref(),
+            Some("firefox")
+        );
+        assert!(fallback_windows.remote_listing_force_fallback);
+
         let mut win = Cli::default();
         win.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut win, "win", &args(&["firefox"])).unwrap();
@@ -13136,6 +13249,21 @@ mod tests {
             Some("retina")
         );
         assert!(monitors_fallback.remote_listing_force_fallback);
+
+        let mut fallback_displays = Cli::default();
+        fallback_displays.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut fallback_displays,
+            "fallback",
+            &args(&["displays", "retina"]),
+        )
+        .unwrap();
+        assert!(fallback_displays.list_displays);
+        assert_eq!(
+            fallback_displays.remote_listing_filter.as_deref(),
+            Some("retina")
+        );
+        assert!(fallback_displays.remote_listing_force_fallback);
 
         let mut list_screens = Cli::default();
         list_screens.remote_host = Some("buildbox".to_string());
