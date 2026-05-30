@@ -2178,6 +2178,11 @@ impl DirtyFrameStatus {
         (self.changed_tiles, self.total_tiles)
     }
 
+    /// Changed tile count and total tile count as `<changed>/<total>`.
+    pub fn changed_tiles_label(&self) -> String {
+        format!("{}/{}", self.changed_tiles, self.total_tiles)
+    }
+
     /// Changed tile percentage in `[0, 100]`.
     pub fn changed_percent(&self) -> f32 {
         self.changed_fraction * 100.0
@@ -2503,6 +2508,13 @@ impl NativePaneDetail {
             .map(DirtyFrameStatus::changed_tiles_ratio)
     }
 
+    /// Dirty-frame changed tile count and total tile count as `<changed>/<total>`.
+    pub fn frame_changed_tiles_label(&self) -> Option<String> {
+        self.dirty_frame
+            .as_ref()
+            .map(DirtyFrameStatus::changed_tiles_label)
+    }
+
     /// Dirty-frame changed tile fraction, when reported.
     pub fn frame_changed_fraction(&self) -> Option<f32> {
         self.dirty_frame
@@ -2824,6 +2836,11 @@ impl PanesStatus {
         self.focused_pane()?.frame_changed_tiles_ratio()
     }
 
+    /// Dirty-frame changed tile count and total tile count as `<changed>/<total>`.
+    pub fn focused_frame_changed_tiles_label(&self) -> Option<String> {
+        self.focused_pane()?.frame_changed_tiles_label()
+    }
+
     /// Dirty-frame changed tile fraction for the focused pane.
     pub fn focused_frame_changed_fraction(&self) -> Option<f32> {
         self.focused_pane()?.frame_changed_fraction()
@@ -3082,6 +3099,11 @@ impl Status {
     /// Dirty-frame changed tile count and total tile count for the focused pane.
     pub fn focused_frame_changed_tiles_ratio(&self) -> Option<(u32, u32)> {
         self.focused_pane()?.frame_changed_tiles_ratio()
+    }
+
+    /// Dirty-frame changed tile count and total tile count as `<changed>/<total>`.
+    pub fn focused_frame_changed_tiles_label(&self) -> Option<String> {
+        self.focused_pane()?.frame_changed_tiles_label()
     }
 
     /// Dirty-frame changed tile fraction for the focused pane.
@@ -5312,6 +5334,10 @@ mod tests {
         assert_eq!(panes.focused_frame_is_clean(), Some(false));
         assert_eq!(panes.focused_frame_upload_skipped(), Some(false));
         assert_eq!(panes.focused_frame_changed_tiles_ratio(), Some((1, 4)));
+        assert_eq!(
+            panes.focused_frame_changed_tiles_label().as_deref(),
+            Some("1/4")
+        );
         assert_eq!(panes.focused_frame_changed_fraction(), Some(0.25));
         assert_eq!(panes.focused_frame_changed_percent(), Some(25.0));
         assert_eq!(panes.clean_frame_panes().count(), 0);
@@ -5361,6 +5387,7 @@ mod tests {
         assert!(pane.has_mouse_sgr());
         assert!(pane.has_dirty_frame());
         assert_eq!(pane.frame_changed_tiles_ratio(), Some((1, 4)));
+        assert_eq!(pane.frame_changed_tiles_label().as_deref(), Some("1/4"));
         assert_eq!(pane.frame_changed_fraction(), Some(0.25));
         assert_eq!(pane.frame_changed_percent(), Some(25.0));
         assert_eq!(pane.frame_upload_skipped(), Some(false));
@@ -5368,6 +5395,7 @@ mod tests {
         let frame = pane.dirty_frame.as_ref().unwrap();
         assert!(!frame.is_clean());
         assert_eq!(frame.changed_tiles_ratio(), (1, 4));
+        assert_eq!(frame.changed_tiles_label(), "1/4");
         assert_eq!(frame.changed_percent(), 25.0);
         assert!(pane.has_transport_diagnostics());
         assert_eq!(pane.dirty_frame.as_ref().unwrap().changed_fraction, 0.25);
@@ -5388,6 +5416,7 @@ mod tests {
         assert_eq!(pane.floating_offset(), None);
         assert!(!pane.has_floating_offset());
         assert_eq!(pane.frame_changed_tiles_ratio(), None);
+        assert_eq!(pane.frame_changed_tiles_label(), None);
         assert_eq!(pane.frame_changed_fraction(), None);
         assert_eq!(pane.frame_changed_percent(), None);
         assert_eq!(pane.frame_upload_skipped(), None);
@@ -5482,6 +5511,7 @@ mod tests {
         assert_eq!(status.focused_frame_is_clean(), None);
         assert_eq!(status.focused_frame_upload_skipped(), None);
         assert_eq!(status.focused_frame_changed_tiles_ratio(), None);
+        assert_eq!(status.focused_frame_changed_tiles_label(), None);
         assert_eq!(status.focused_frame_changed_fraction(), None);
         assert_eq!(status.focused_frame_changed_percent(), None);
         assert_eq!(status.title_draggable_panes().count(), 0);
@@ -5545,6 +5575,10 @@ mod tests {
         assert_eq!(status.focused_frame_is_clean(), Some(true));
         assert_eq!(status.focused_frame_upload_skipped(), Some(true));
         assert_eq!(status.focused_frame_changed_tiles_ratio(), Some((0, 4)));
+        assert_eq!(
+            status.focused_frame_changed_tiles_label().as_deref(),
+            Some("0/4")
+        );
         assert_eq!(status.focused_frame_changed_fraction(), Some(0.0));
         assert_eq!(status.focused_frame_changed_percent(), Some(0.0));
         assert_eq!(
