@@ -520,13 +520,20 @@ impl XWindowSurface {
             capabilities.resize = false;
         }
         SurfaceMetadata {
-            id: SurfaceId::new(format!("xwindow:{}", window.id.0)),
+            id: SurfaceId::new(xwindow_surface_id(window.id)),
             kind: self.kind,
             title: window.title.clone(),
             capabilities,
             frame_size,
         }
     }
+}
+
+fn xwindow_surface_id(id: XWindowId) -> String {
+    let mut surface_id = String::with_capacity("xwindow:".len() + 10);
+    surface_id.push_str("xwindow:");
+    let _ = write!(surface_id, "{}", id.0);
+    surface_id
 }
 
 /// Capture-only adapter that exposes a kittui scene as a native surface.
@@ -6495,6 +6502,13 @@ mod tests {
             err.to_string().contains("does not support pointer input"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn xwindow_surface_id_builds_directly() {
+        let surface_id = xwindow_surface_id(XWindowId(7));
+        assert_eq!(surface_id, "xwindow:7");
+        assert!(surface_id.capacity() >= surface_id.len());
     }
 
     #[test]
