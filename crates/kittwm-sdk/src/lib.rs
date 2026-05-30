@@ -6931,11 +6931,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn semantic_wrappers_send_expected_socket_commands() {
-        let path = PathBuf::from(format!(
-            "/tmp/kws-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kws", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
