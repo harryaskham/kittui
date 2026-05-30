@@ -1084,7 +1084,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|wm|list|apps|app|select|pick|launch|open|run|windows|win|displays|monitors|screens|terminal|term|shell|sh|login|ssh|console|tty]
+  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|wm|list|apps|app|select|pick|launch|open|run|start|windows|win|displays|monitors|screens|terminal|term|shell|sh|login|ssh|console|tty]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1516,6 +1516,10 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            natural alias for remote HOST launch\n\
              kittwm remote HOST run firefox\n\
                                            natural alias for remote HOST launch\n\
+             kittwm remote HOST start firefox
+\
+                                           natural alias for remote HOST launch
+\
              kittwm remote HOST apps firefox --launch-first\n\
                                            explicit remote app launch path\n\
              kittwm remote HOST launch firefox --json\n\
@@ -1649,6 +1653,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST launch QUERY       shortest alias for remote app launch\n\
              remote HOST open QUERY         natural alias for remote app launch\n\
              remote HOST run QUERY          natural alias for remote app launch\n\
+             remote HOST start QUERY        natural alias for remote app launch
+\
              remote HOST apps QUERY --launch-first\n\
                                             explicit first remote match launch alias\n\
              remote HOST launch QUERY --json\n\
@@ -1905,7 +1911,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
             parse_remote_apps_flags(out, rest)
         }
         "list" | "ls" => parse_remote_list_alias(out, rest),
-        "launch" | "open" | "run" => parse_remote_launch_alias(out, rest),
+        "launch" | "open" | "run" | "start" => parse_remote_launch_alias(out, rest),
         "kittwm" | "desktop" | "wm" => {
             out.remote_terminal_args = Some(remote_kittwm_alias_args(
                 out.remote_host.as_deref().unwrap_or("HOST"),
@@ -5098,6 +5104,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
         },
         LocalCommandEntry {
             command: "remote HOST run QUERY",
+            category: "remote",
+            description: "natural alias for remote app launch",
+        },
+        LocalCommandEntry {
+            command: "remote HOST start QUERY",
             category: "remote",
             description: "natural alias for remote app launch",
         },
@@ -11705,6 +11716,9 @@ mod tests {
             entry["command"] == "remote HOST run QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST start QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "apps --remote HOST" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -12953,6 +12967,14 @@ mod tests {
         assert!(run.apps);
         assert_eq!(run.apps_filter.as_deref(), Some("code"));
         assert!(run.apps_launch_first);
+
+        let mut start = Cli::default();
+        start.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut start, "start", &args(&["firefox", "--json"])).unwrap();
+        assert!(start.apps);
+        assert_eq!(start.apps_filter.as_deref(), Some("firefox"));
+        assert!(start.apps_launch_first);
+        assert!(start.json);
     }
 
     #[test]
