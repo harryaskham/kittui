@@ -6161,11 +6161,16 @@ fn completion_words() -> &'static [&'static str] {
             "app",
             "application",
             "program",
+            "select",
+            "pick",
             "launch",
             "open",
             "run",
+            "start",
+            "fallback",
             "kittwm",
             "desktop",
+            "wm",
             "windows",
             "window",
             "wins",
@@ -6181,7 +6186,11 @@ fn completion_words() -> &'static [&'static str] {
             "command",
             "exec",
             "shell",
+            "sh",
+            "login",
             "ssh",
+            "console",
+            "tty",
             "--status-json",
             "--help-json",
             "--panes",
@@ -11853,6 +11862,14 @@ mod tests {
         assert!(bash.contains("--wayland"), "{bash}");
         assert!(bash.contains("kittwm"), "{bash}");
         assert!(bash.contains("desktop"), "{bash}");
+        assert!(bash.contains("wm"), "{bash}");
+        assert!(bash.contains("fallback"), "{bash}");
+        assert!(bash.contains("select"), "{bash}");
+        assert!(bash.contains("pick"), "{bash}");
+        assert!(bash.contains("start"), "{bash}");
+        assert!(bash.contains("login"), "{bash}");
+        assert!(bash.contains("console"), "{bash}");
+        assert!(bash.contains("tty"), "{bash}");
         assert!(bash.contains("x11"), "{bash}");
         assert!(bash.contains("gui"), "{bash}");
         assert!(bash.contains("graphical"), "{bash}");
