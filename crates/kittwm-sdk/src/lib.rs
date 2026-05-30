@@ -2131,6 +2131,34 @@ impl EventEnvelope {
         self.detail_u64("upload_bytes")
     }
 
+    /// Placement command byte count reported by a `pane_frame_presented` event.
+    pub fn frame_placement_bytes(&self) -> Option<u64> {
+        self.detail_u64("placement_bytes")
+    }
+
+    /// Embedded payload byte count reported by a `pane_frame_presented` event.
+    pub fn frame_embed_bytes(&self) -> Option<u64> {
+        self.detail_u64("embed_bytes")
+    }
+
+    /// Sum of reported upload, placement, and embedded byte counts.
+    pub fn frame_total_transport_bytes(&self) -> Option<u64> {
+        let mut total = 0_u64;
+        let mut any = false;
+        for bytes in [
+            self.frame_upload_bytes(),
+            self.frame_placement_bytes(),
+            self.frame_embed_bytes(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            total = total.saturating_add(bytes);
+            any = true;
+        }
+        any.then_some(total)
+    }
+
     /// Elapsed render/upload time in microseconds reported by a `pane_frame_presented` event.
     pub fn frame_elapsed_us(&self) -> Option<u64> {
         self.detail_u64("elapsed_us")
@@ -6678,7 +6706,7 @@ mod tests {
         }
 
         let frame = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":12,"kind":"pane_frame_presented","window":"native-1","detail":{"renderer":"kitty","format":"rgba","pixel_width":640,"pixel_height":384,"app_bounds":{"x":0,"y":1,"cols":80,"rows":23},"uploaded":true,"skipped_upload":false,"changed_tiles":3,"total_tiles":12,"upload_bytes":4096,"elapsed_us":321}}"#,
+            r#"{"schema_version":1,"seq":12,"kind":"pane_frame_presented","window":"native-1","detail":{"renderer":"kitty","format":"rgba","pixel_width":640,"pixel_height":384,"app_bounds":{"x":0,"y":1,"cols":80,"rows":23},"uploaded":true,"skipped_upload":false,"changed_tiles":3,"total_tiles":12,"upload_bytes":4096,"placement_bytes":64,"embed_bytes":512,"elapsed_us":321}}"#,
         )
         .unwrap();
         assert_eq!(frame.kind(), "pane_frame_presented");
@@ -6703,6 +6731,9 @@ mod tests {
                 assert_eq!(envelope.frame_status_label().as_deref(), Some("3/12"));
                 assert_eq!(envelope.frame_chip_label().as_deref(), Some("frame:3/12"));
                 assert_eq!(envelope.frame_upload_bytes(), Some(4096));
+                assert_eq!(envelope.frame_placement_bytes(), Some(64));
+                assert_eq!(envelope.frame_embed_bytes(), Some(512));
+                assert_eq!(envelope.frame_total_transport_bytes(), Some(4672));
                 assert_eq!(envelope.frame_elapsed_us(), Some(321));
             }
             other => panic!("unexpected event: {other:?}"),
