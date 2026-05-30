@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
+use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::path::Path;
 
@@ -783,42 +784,60 @@ pub fn placement_command_ex(
     options: &PlacementOptions,
     transport: Transport,
 ) -> String {
-    let mut fields = format!(
-        "a=p,i={id},c={cols},r={rows}",
-        id = image_id,
-        cols = footprint.cols,
-        rows = footprint.rows,
-    );
+    let mut fields = placement_command_fields(image_id, footprint, options);
+    fields.push_str(options.quiet.field());
+    let payload = format!("{ESC}_G{fields}{ESC}\\");
+    wrap_transport(payload, transport)
+}
+
+fn placement_command_fields(
+    image_id: u32,
+    footprint: CellRect,
+    options: &PlacementOptions,
+) -> String {
+    let mut fields = String::with_capacity(64);
+    fields.push_str("a=p,i=");
+    let _ = write!(fields, "{image_id}");
+    fields.push_str(",c=");
+    let _ = write!(fields, "{}", footprint.cols);
+    fields.push_str(",r=");
+    let _ = write!(fields, "{}", footprint.rows);
     if options.unicode_placeholder {
         fields.push_str(",U=1");
     }
     if let Some(p) = options.placement_id {
-        fields.push_str(&format!(",p={p}"));
+        fields.push_str(",p=");
+        let _ = write!(fields, "{p}");
     }
     if options.offset.x_px != 0 {
-        fields.push_str(&format!(",X={}", options.offset.x_px));
+        fields.push_str(",X=");
+        let _ = write!(fields, "{}", options.offset.x_px);
     }
     if options.offset.y_px != 0 {
-        fields.push_str(&format!(",Y={}", options.offset.y_px));
+        fields.push_str(",Y=");
+        let _ = write!(fields, "{}", options.offset.y_px);
     }
     if options.z_index != 0 {
-        fields.push_str(&format!(",z={}", options.z_index));
+        fields.push_str(",z=");
+        let _ = write!(fields, "{}", options.z_index);
     }
     if let Some(relative) = options.relative {
-        fields.push_str(&format!(",P={}", relative.image_id));
+        fields.push_str(",P=");
+        let _ = write!(fields, "{}", relative.image_id);
         if let Some(q) = relative.placement_id {
-            fields.push_str(&format!(",Q={q}"));
+            fields.push_str(",Q=");
+            let _ = write!(fields, "{q}");
         }
         if relative.x_offset_px != 0 {
-            fields.push_str(&format!(",H={}", relative.x_offset_px));
+            fields.push_str(",H=");
+            let _ = write!(fields, "{}", relative.x_offset_px);
         }
         if relative.y_offset_px != 0 {
-            fields.push_str(&format!(",V={}", relative.y_offset_px));
+            fields.push_str(",V=");
+            let _ = write!(fields, "{}", relative.y_offset_px);
         }
     }
-    fields.push_str(options.quiet.field());
-    let payload = format!("{ESC}_G{fields}{ESC}\\");
-    wrap_transport(payload, transport)
+    fields
 }
 
 /// Back-compat: default unicode-anchored placement with `q=2`.
@@ -1195,6 +1214,21 @@ mod tests {
         // Second chunk header is the bare `m=0` continuation.
         assert!(escapes.contains("\x1b\\\x1b_Gm=0;"));
         assert!(escapes.ends_with("\x1b\\"));
+    }
+
+    #[test]
+    fn placement_command_fields_builds_directly() {
+        let opts = PlacementOptions {
+            placement_id: Some(7),
+            offset: SubcellOffset { x_px: 4, y_px: 2 },
+            quiet: Quiet::SuppressAll,
+            unicode_placeholder: false,
+            z_index: -1,
+            relative: None,
+        };
+        let fields = placement_command_fields(1, CellRect::new(0, 0, 8, 4), &opts);
+        assert_eq!(fields, "a=p,i=1,c=8,r=4,p=7,X=4,Y=2,z=-1");
+        assert!(fields.capacity() >= fields.len());
     }
 
     #[test]
