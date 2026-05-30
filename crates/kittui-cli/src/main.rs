@@ -9,7 +9,7 @@
 mod config;
 
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
 use base64::Engine;
@@ -1058,7 +1058,7 @@ fn inline_chip_scene(
     let cell = CellSize::default();
     let footprint = CellRect::new(0, 0, cols, 1);
     let rect = footprint.to_pixels(cell);
-    let radius = component.radius(rect.height as f32);
+    let radius = component.radius(rect.height);
     let highlight_rect = kittui_core::geom::PxRect::new(
         rect.origin.0,
         rect.origin.1,
@@ -2533,7 +2533,7 @@ fn run_image(
     emit_with_mode(global, runtime, &scene, None, mode)
 }
 
-fn read_image_ref(path: &PathBuf) -> Result<kittui_core::node::ImageRef> {
+fn read_image_ref(path: &Path) -> Result<kittui_core::node::ImageRef> {
     if path.as_os_str() == "-" {
         let mut bytes = Vec::new();
         std::io::stdin().read_to_end(&mut bytes)?;

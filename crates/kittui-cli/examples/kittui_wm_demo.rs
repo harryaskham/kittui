@@ -19,16 +19,14 @@
 //! keystroke actually types into it.
 
 use std::io::{self, Read, Write};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
 use kittui::{CellSize, Runtime, TerminalInfo};
-use kittui_core::geom::PxRect;
-use kittui_input::{InputEvent, Key, MouseButton, Modifiers};
+use kittui_input::{InputEvent, Key};
 use kittui_wm::compositor::{Compositor, Layout, WindowMode};
-use kittui_xvfb::{FakeServer, XServer, XWindowId};
+use kittui_xvfb::XServer;
 
 #[cfg(feature = "xvfb")]
 mod live {
@@ -134,7 +132,7 @@ fn main() -> Result<()> {
                 compositor.set_mode(w.id, WindowMode::Tiled);
             }
         }
-        return run_loop(&runtime, &compositor, &layout);
+        run_loop(&runtime, &compositor, &layout)
     }
 
     #[cfg(all(not(all(target_os = "macos", feature = "quartz")), feature = "xvfb"))]
@@ -181,6 +179,10 @@ fn main() -> Result<()> {
     }
 }
 
+// Demo render loop keeps last_error/last_window_count across loop iterations and
+// resets them on success; the reset writes are not always read before the next
+// overwrite, which is intentional for this example.
+#[allow(unused_assignments)]
 fn run_loop<S: XServer>(
     runtime: &Runtime,
     compositor: &Compositor<S>,
@@ -252,7 +254,7 @@ fn run_loop<S: XServer>(
             Ok(scenes) => {
                 last_error = None;
                 last_window_count = scenes.len();
-                if frame % 30 == 0 {
+                if frame.is_multiple_of(30) {
                     dbg.log(&format!(
                         "frame {frame}: {} scenes, first footprint {:?}",
                         scenes.len(),
@@ -474,7 +476,7 @@ fn install_signal_restore() {
     }
     unsafe {
         for sig in [SIGINT, SIGTERM, SIGHUP, SIGQUIT] {
-            signal(sig, handler as sighandler_t);
+            signal(sig, handler as *const () as sighandler_t);
         }
     }
 }

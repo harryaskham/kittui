@@ -400,7 +400,7 @@ fn kittwm_bar_overlay_palette(config: &KittwmConfig) -> KittwmBarOverlayPalette 
     let active_bg = config
         .colorscheme
         .ansi_color(4)
-        .and_then(|value| parse_bar_rgb(value))
+        .and_then(parse_bar_rgb)
         .unwrap_or(Rgba(0x88, 0xc0, 0xd0, 255));
     let clock_bg = inactive_bg;
     KittwmBarOverlayPalette {

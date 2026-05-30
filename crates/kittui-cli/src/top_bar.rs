@@ -94,7 +94,7 @@ impl BarModel {
         }
         let mut out = String::with_capacity(cols);
         out.push_str(&left);
-        out.extend(std::iter::repeat(' ').take(cols - left_width - right_width));
+        out.extend(std::iter::repeat_n(' ', cols - left_width - right_width));
         out.push_str(&right);
         out
     }

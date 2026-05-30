@@ -7,11 +7,9 @@
 # PASS/FAIL summary. Exits non-zero if any baseline crate regresses, so CI and
 # agents can keep the baseline green crate-by-crate.
 #
-# The heavier crate kittui-cli is intentionally NOT in the baseline yet: its
-# strict-clippy failures come entirely from kittui-quartz lints that only
-# compile under cli's quartz feature (see bd-c42fce); run non-strict clippy
-# there until that lands. kittwm-sdk (bd-3a7f70) and kittui-wm (bd-258008)
-# joined the baseline once their libs were made strict-clippy clean.
+# All workspace crates are now strict-clippy clean (bd-dc44f1 complete):
+# kittwm-sdk (bd-3a7f70), kittui-wm (bd-258008), and kittui-cli (bd-503950)
+# were the last to join after their owners cleared them. NOT_YET_CLEAN is empty.
 #
 # Usage:
 #   scripts/kittwm-strict-clippy.sh            # check the whole baseline
@@ -43,11 +41,11 @@ BASELINE_CRATES=(
   kittui-xvfb
   kittwm-sdk
   kittui-wm
+  kittui-cli
 )
 
 # Crates intentionally excluded from the strict baseline (peer-owned / pre-existing warnings).
 NOT_YET_CLEAN=(
-  kittui-cli
 )
 
 if [ "$#" -gt 0 ]; then

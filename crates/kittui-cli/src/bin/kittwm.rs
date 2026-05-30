@@ -2500,7 +2500,7 @@ fn pick_backend(forced: Option<Backend>) -> Backend {
     // to FakeServer everywhere.
     #[cfg(all(target_os = "macos", feature = "quartz"))]
     {
-        return Backend::Quartz;
+        Backend::Quartz
     }
     #[cfg(target_os = "linux")]
     {
@@ -5964,6 +5964,7 @@ fn architecture_scene_row_rect(width: f32, y: f32) -> KittuiPxRect {
     info_indicator_rect(width, y)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn native_surface_row_label(
     idx: usize,
     name: &str,
@@ -6324,7 +6325,7 @@ fn fish_completions_text() -> String {
     let mut out = String::with_capacity(capacity);
     for word in words {
         out.push_str(PREFIX);
-        out.push_str(&word);
+        out.push_str(word);
         out.push_str(SUFFIX);
     }
     out
@@ -7772,6 +7773,7 @@ fn chrome_scene(chrome: &serde_json::Value) -> Scene {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn chrome_backdrop_label(
     workspace_label: &str,
     owner_label: &str,
@@ -7812,6 +7814,7 @@ fn chrome_backdrop_label(
     label
 }
 
+#[allow(clippy::too_many_arguments)]
 fn chrome_scene_row_label(
     idx: usize,
     workspace: &str,
@@ -8034,6 +8037,7 @@ fn status_scene_heading_label(sock_label: &str) -> String {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn status_scene_row_label(
     idx: usize,
     pid: &str,
@@ -8185,7 +8189,7 @@ fn attach_cmd(command: Option<&str>) -> Result<()> {
             Err(e) => {
                 eprintln!("(daemon error: {e})");
                 // Daemon likely died — exit.
-                if let Err(_) = client_request_multi(&path, "PING") {
+                if client_request_multi(&path, "PING").is_err() {
                     eprintln!("daemon unreachable; detaching.");
                     break;
                 }
@@ -8313,10 +8317,10 @@ fn shortcuts_scene_entry_limit(rows: u16) -> usize {
     rows.saturating_sub(2) as usize
 }
 
-fn shortcuts_scene_visible_entries<'a>(
-    entries: &'a [kittui_cli::shortcuts::NativeShortcut],
+fn shortcuts_scene_visible_entries(
+    entries: &[kittui_cli::shortcuts::NativeShortcut],
     limit: usize,
-) -> Vec<&'a kittui_cli::shortcuts::NativeShortcut> {
+) -> Vec<&kittui_cli::shortcuts::NativeShortcut> {
     let mut visible = entries.iter().take(limit).collect::<Vec<_>>();
     if visible.len() == limit && !visible.iter().any(|entry| entry.id == "title_markers") {
         if let (Some(marker_entry), Some(last)) = (
@@ -8640,10 +8644,9 @@ fn keymap_check_cmd(km: &kittui_cli::keymap::Keymap) -> Result<()> {
                     | kittui_cli::keymap::Action::SwapUp
                     | kittui_cli::keymap::Action::SwapDown
             )
+            && matches!(binding.action, kittui_cli::keymap::Action::Custom(_))
         {
-            if matches!(binding.action, kittui_cli::keymap::Action::Custom(_)) {
-                custom.push(binding.action.to_string());
-            }
+            custom.push(binding.action.to_string());
         }
     }
     let duplicates: Vec<_> = seen
@@ -10271,7 +10274,7 @@ fn ascii_casefold_starts_with(item: &str, query: &str) -> bool {
         && item
             .iter()
             .zip(query.iter())
-            .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+            .all(|(a, b)| a.eq_ignore_ascii_case(b))
 }
 
 fn ascii_casefold_contains(item: &str, query: &str) -> bool {
@@ -10285,7 +10288,7 @@ fn ascii_casefold_contains(item: &str, query: &str) -> bool {
             window
                 .iter()
                 .zip(query.iter())
-                .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+                .all(|(a, b)| a.eq_ignore_ascii_case(b))
         })
 }
 
@@ -11054,6 +11057,7 @@ fn config_scene(summary: &ConfigSummary) -> Scene {
     config_scene_for_cols(summary, info_scene_cols())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn config_scene_row_label(
     idx: usize,
     summary: &ConfigSummary,
@@ -13211,8 +13215,10 @@ mod tests {
 
     #[test]
     fn remote_aliases_map_to_pooled_ssh_commands() {
-        let mut cli = Cli::default();
-        cli.remote_host = Some("buildbox".to_string());
+        let mut cli = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut cli,
             "apps",
@@ -13224,16 +13230,20 @@ mod tests {
         assert_eq!(cli.apps_filter.as_deref(), Some("firefox"));
         assert!(cli.apps_launch_first);
 
-        let mut app_query = Cli::default();
-        app_query.remote_host = Some("buildbox".to_string());
+        let mut app_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut app_query, "apps", &args(&["fire", "fox", "--first"]))
             .unwrap();
         assert!(app_query.apps);
         assert_eq!(app_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(app_query.apps_first);
 
-        let mut applications_query = Cli::default();
-        applications_query.remote_host = Some("buildbox".to_string());
+        let mut applications_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut applications_query,
             "applications",
@@ -13244,15 +13254,19 @@ mod tests {
         assert_eq!(applications_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(applications_query.json);
 
-        let mut programs_query = Cli::default();
-        programs_query.remote_host = Some("buildbox".to_string());
+        let mut programs_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut programs_query, "programs", &args(&["fire", "fox"]))
             .unwrap();
         assert!(programs_query.apps);
         assert_eq!(programs_query.apps_filter.as_deref(), Some("fire fox"));
 
-        let mut software_query = Cli::default();
-        software_query.remote_host = Some("buildbox".to_string());
+        let mut software_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut software_query,
             "software",
@@ -13263,8 +13277,10 @@ mod tests {
         assert_eq!(software_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(software_query.apps_first);
 
-        let mut fallback_query = Cli::default();
-        fallback_query.remote_host = Some("buildbox".to_string());
+        let mut fallback_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut fallback_query,
             "apps",
@@ -13275,8 +13291,10 @@ mod tests {
         assert_eq!(fallback_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(fallback_query.apps_force_fallback);
 
-        let mut fallback_wrapper_query = Cli::default();
-        fallback_wrapper_query.remote_host = Some("buildbox".to_string());
+        let mut fallback_wrapper_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut fallback_wrapper_query,
             "fallback",
@@ -13290,8 +13308,10 @@ mod tests {
         );
         assert!(fallback_wrapper_query.apps_force_fallback);
 
-        let mut fallback_launch = Cli::default();
-        fallback_launch.remote_host = Some("buildbox".to_string());
+        let mut fallback_launch = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut fallback_launch,
             "fallback",
@@ -13303,15 +13323,19 @@ mod tests {
         assert!(fallback_launch.apps_launch_first);
         assert!(fallback_launch.apps_force_fallback);
 
-        let mut singular_app_query = Cli::default();
-        singular_app_query.remote_host = Some("buildbox".to_string());
+        let mut singular_app_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut singular_app_query, "app", &args(&["fire", "fox"])).unwrap();
         assert!(singular_app_query.apps);
         assert_eq!(singular_app_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(singular_app_query.apps_first);
 
-        let mut singular_app_json_query = Cli::default();
-        singular_app_json_query.remote_host = Some("buildbox".to_string());
+        let mut singular_app_json_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut singular_app_json_query,
             "app",
@@ -13326,8 +13350,10 @@ mod tests {
         assert!(singular_app_json_query.apps_first);
         assert!(singular_app_json_query.json);
 
-        let mut application_json_query = Cli::default();
-        application_json_query.remote_host = Some("buildbox".to_string());
+        let mut application_json_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut application_json_query,
             "application",
@@ -13342,8 +13368,10 @@ mod tests {
         assert!(application_json_query.apps_first);
         assert!(application_json_query.json);
 
-        let mut program_json_query = Cli::default();
-        program_json_query.remote_host = Some("buildbox".to_string());
+        let mut program_json_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut program_json_query,
             "program",
@@ -13355,15 +13383,19 @@ mod tests {
         assert!(program_json_query.apps_first);
         assert!(program_json_query.json);
 
-        let mut select_query = Cli::default();
-        select_query.remote_host = Some("buildbox".to_string());
+        let mut select_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut select_query, "select", &args(&["fire", "fox"])).unwrap();
         assert!(select_query.apps);
         assert_eq!(select_query.apps_filter.as_deref(), Some("fire fox"));
         assert!(select_query.apps_first);
 
-        let mut pick_json_query = Cli::default();
-        pick_json_query.remote_host = Some("buildbox".to_string());
+        let mut pick_json_query = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut pick_json_query,
             "pick",
@@ -13375,90 +13407,120 @@ mod tests {
         assert!(pick_json_query.apps_first);
         assert!(pick_json_query.json);
 
-        let mut doctor = Cli::default();
-        doctor.remote_host = Some("buildbox".to_string());
+        let mut doctor = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut doctor, "doctor", &args(&["--json"])).unwrap();
         assert!(doctor.doctor);
         assert!(doctor.json);
 
-        let mut status = Cli::default();
-        status.remote_host = Some("buildbox".to_string());
+        let mut status = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut status, "status", &[]).unwrap();
         assert!(status.doctor);
 
-        let mut x11_status = Cli::default();
-        x11_status.remote_host = Some("buildbox".to_string());
+        let mut x11_status = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut x11_status, "status", &args(&["--x11"])).unwrap();
         assert!(x11_status.doctor);
         assert!(x11_status.remote_doctor_graphical);
 
-        let mut wayland_status = Cli::default();
-        wayland_status.remote_host = Some("buildbox".to_string());
+        let mut wayland_status = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut wayland_status, "status", &args(&["--wayland"])).unwrap();
         assert!(wayland_status.doctor);
         assert!(wayland_status.remote_doctor_graphical);
 
-        let mut x11_alias = Cli::default();
-        x11_alias.remote_host = Some("buildbox".to_string());
+        let mut x11_alias = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut x11_alias, "x11", &args(&["--json"])).unwrap();
         assert!(x11_alias.doctor);
         assert!(x11_alias.json);
         assert!(x11_alias.remote_doctor_graphical);
 
-        let mut forwarding_alias = Cli::default();
-        forwarding_alias.remote_host = Some("buildbox".to_string());
+        let mut forwarding_alias = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut forwarding_alias, "forwarding", &[]).unwrap();
         assert!(forwarding_alias.doctor);
         assert!(forwarding_alias.remote_doctor_graphical);
 
-        let mut forward_alias = Cli::default();
-        forward_alias.remote_host = Some("buildbox".to_string());
+        let mut forward_alias = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut forward_alias, "forward", &[]).unwrap();
         assert!(forward_alias.doctor);
         assert!(forward_alias.remote_doctor_graphical);
 
-        let mut forward_status = Cli::default();
-        forward_status.remote_host = Some("buildbox".to_string());
+        let mut forward_status = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut forward_status, "status", &args(&["--forward"])).unwrap();
         assert!(forward_status.doctor);
         assert!(forward_status.remote_doctor_graphical);
 
-        let mut gui_alias = Cli::default();
-        gui_alias.remote_host = Some("buildbox".to_string());
+        let mut gui_alias = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut gui_alias, "gui", &[]).unwrap();
         assert!(gui_alias.doctor);
         assert!(gui_alias.remote_doctor_graphical);
 
-        let mut wayland_alias = Cli::default();
-        wayland_alias.remote_host = Some("buildbox".to_string());
+        let mut wayland_alias = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut wayland_alias, "wayland", &[]).unwrap();
         assert!(wayland_alias.doctor);
         assert!(wayland_alias.remote_doctor_graphical);
 
-        let mut help = Cli::default();
-        help.remote_host = Some("buildbox".to_string());
+        let mut help = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut help, "help", &[]).unwrap();
         assert!(help.remote_help);
 
-        let mut windows = Cli::default();
-        windows.remote_host = Some("buildbox".to_string());
+        let mut windows = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut windows, "windows", &[]).unwrap();
         assert!(windows.list_windows);
 
-        let mut list_apps = Cli::default();
-        list_apps.remote_host = Some("buildbox".to_string());
+        let mut list_apps = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut list_apps, "list", &args(&["apps", "terminal"])).unwrap();
         assert!(list_apps.apps);
         assert_eq!(list_apps.apps_filter.as_deref(), Some("terminal"));
 
-        let mut list_app = Cli::default();
-        list_app.remote_host = Some("buildbox".to_string());
+        let mut list_app = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut list_app, "list", &args(&["app", "terminal"])).unwrap();
         assert!(list_app.apps);
         assert_eq!(list_app.apps_filter.as_deref(), Some("terminal"));
 
-        let mut list_applications = Cli::default();
-        list_applications.remote_host = Some("buildbox".to_string());
+        let mut list_applications = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut list_applications,
             "list",
@@ -13468,22 +13530,28 @@ mod tests {
         assert!(list_applications.apps);
         assert_eq!(list_applications.apps_filter.as_deref(), Some("terminal"));
 
-        let mut list_programs = Cli::default();
-        list_programs.remote_host = Some("buildbox".to_string());
+        let mut list_programs = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut list_programs, "list", &args(&["programs", "terminal"]))
             .unwrap();
         assert!(list_programs.apps);
         assert_eq!(list_programs.apps_filter.as_deref(), Some("terminal"));
 
-        let mut list_software = Cli::default();
-        list_software.remote_host = Some("buildbox".to_string());
+        let mut list_software = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut list_software, "list", &args(&["software", "terminal"]))
             .unwrap();
         assert!(list_software.apps);
         assert_eq!(list_software.apps_filter.as_deref(), Some("terminal"));
 
-        let mut list_windows = Cli::default();
-        list_windows.remote_host = Some("buildbox".to_string());
+        let mut list_windows = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut list_windows, "list", &args(&["windows", "firefox"]))
             .unwrap();
         assert!(list_windows.list_windows);
@@ -13492,8 +13560,10 @@ mod tests {
             Some("firefox")
         );
 
-        let mut list_windows_json = Cli::default();
-        list_windows_json.remote_host = Some("buildbox".to_string());
+        let mut list_windows_json = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut list_windows_json,
             "list",
@@ -13507,8 +13577,10 @@ mod tests {
         );
         assert!(list_windows_json.json);
 
-        let mut list_windows_fallback = Cli::default();
-        list_windows_fallback.remote_host = Some("buildbox".to_string());
+        let mut list_windows_fallback = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut list_windows_fallback,
             "list",
@@ -13522,8 +13594,10 @@ mod tests {
         );
         assert!(list_windows_fallback.remote_listing_force_fallback);
 
-        let mut fallback_windows = Cli::default();
-        fallback_windows.remote_host = Some("buildbox".to_string());
+        let mut fallback_windows = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut fallback_windows,
             "fallback",
@@ -13537,38 +13611,50 @@ mod tests {
         );
         assert!(fallback_windows.remote_listing_force_fallback);
 
-        let mut win = Cli::default();
-        win.remote_host = Some("buildbox".to_string());
+        let mut win = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut win, "win", &args(&["firefox"])).unwrap();
         assert!(win.list_windows);
         assert_eq!(win.remote_listing_filter.as_deref(), Some("firefox"));
 
-        let mut list_win = Cli::default();
-        list_win.remote_host = Some("buildbox".to_string());
+        let mut list_win = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut list_win, "list", &args(&["win", "firefox"])).unwrap();
         assert!(list_win.list_windows);
         assert_eq!(list_win.remote_listing_filter.as_deref(), Some("firefox"));
 
-        let mut displays = Cli::default();
-        displays.remote_host = Some("buildbox".to_string());
+        let mut displays = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut displays, "displays", &args(&["retina"])).unwrap();
         assert!(displays.list_displays);
         assert_eq!(displays.remote_listing_filter.as_deref(), Some("retina"));
 
-        let mut monitors = Cli::default();
-        monitors.remote_host = Some("buildbox".to_string());
+        let mut monitors = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut monitors, "monitors", &args(&["retina"])).unwrap();
         assert!(monitors.list_displays);
         assert_eq!(monitors.remote_listing_filter.as_deref(), Some("retina"));
 
-        let mut screens = Cli::default();
-        screens.remote_host = Some("buildbox".to_string());
+        let mut screens = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut screens, "screens", &args(&["retina"])).unwrap();
         assert!(screens.list_displays);
         assert_eq!(screens.remote_listing_filter.as_deref(), Some("retina"));
 
-        let mut monitors_fallback = Cli::default();
-        monitors_fallback.remote_host = Some("buildbox".to_string());
+        let mut monitors_fallback = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut monitors_fallback,
             "monitors",
@@ -13582,8 +13668,10 @@ mod tests {
         );
         assert!(monitors_fallback.remote_listing_force_fallback);
 
-        let mut fallback_displays = Cli::default();
-        fallback_displays.remote_host = Some("buildbox".to_string());
+        let mut fallback_displays = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut fallback_displays,
             "fallback",
@@ -13597,8 +13685,10 @@ mod tests {
         );
         assert!(fallback_displays.remote_listing_force_fallback);
 
-        let mut list_screens = Cli::default();
-        list_screens.remote_host = Some("buildbox".to_string());
+        let mut list_screens = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut list_screens, "list", &args(&["screens", "retina"]))
             .unwrap();
         assert!(list_screens.list_displays);
@@ -13607,8 +13697,10 @@ mod tests {
             Some("retina")
         );
 
-        let mut terminal = Cli::default();
-        terminal.remote_host = Some("buildbox".to_string());
+        let mut terminal = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut terminal, "terminal", &args(&["htop"])).unwrap();
         assert_eq!(
             terminal.remote_terminal_args.as_deref(),
@@ -13623,13 +13715,17 @@ mod tests {
             )
         );
 
-        let mut term = Cli::default();
-        term.remote_host = Some("buildbox".to_string());
+        let mut term = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut term, "term", &args(&["htop"])).unwrap();
         assert_eq!(term.remote_terminal_args, terminal.remote_terminal_args);
 
-        let mut terminal_after_separator = Cli::default();
-        terminal_after_separator.remote_host = Some("buildbox".to_string());
+        let mut terminal_after_separator = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut terminal_after_separator,
             "terminal",
@@ -13650,8 +13746,10 @@ mod tests {
             )
         );
 
-        let mut titled_terminal = Cli::default();
-        titled_terminal.remote_host = Some("buildbox".to_string());
+        let mut titled_terminal = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut titled_terminal,
             "terminal",
@@ -13673,43 +13771,59 @@ mod tests {
             )
         );
 
-        let mut cmd = Cli::default();
-        cmd.remote_host = Some("buildbox".to_string());
+        let mut cmd = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut cmd, "cmd", &args(&["htop"])).unwrap();
         assert_eq!(cmd.remote_terminal_args, terminal.remote_terminal_args);
 
-        let mut command = Cli::default();
-        command.remote_host = Some("buildbox".to_string());
+        let mut command = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut command, "command", &args(&["htop"])).unwrap();
         assert_eq!(command.remote_terminal_args, terminal.remote_terminal_args);
 
-        let mut exec = Cli::default();
-        exec.remote_host = Some("buildbox".to_string());
+        let mut exec = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut exec, "exec", &args(&["htop"])).unwrap();
         assert_eq!(exec.remote_terminal_args, terminal.remote_terminal_args);
 
-        let mut sh = Cli::default();
-        sh.remote_host = Some("buildbox".to_string());
+        let mut sh = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut sh, "sh", &args(&["htop"])).unwrap();
         assert_eq!(sh.remote_terminal_args, terminal.remote_terminal_args);
 
-        let mut login = Cli::default();
-        login.remote_host = Some("buildbox".to_string());
+        let mut login = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut login, "login", &args(&["htop"])).unwrap();
         assert_eq!(login.remote_terminal_args, terminal.remote_terminal_args);
 
-        let mut console = Cli::default();
-        console.remote_host = Some("buildbox".to_string());
+        let mut console = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut console, "console", &args(&["htop"])).unwrap();
         assert_eq!(console.remote_terminal_args, terminal.remote_terminal_args);
 
-        let mut tty = Cli::default();
-        tty.remote_host = Some("buildbox".to_string());
+        let mut tty = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut tty, "tty", &args(&["htop"])).unwrap();
         assert_eq!(tty.remote_terminal_args, terminal.remote_terminal_args);
 
-        let mut shell = Cli::default();
-        shell.remote_host = Some("buildbox".to_string());
+        let mut shell = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut shell, "shell", &[]).unwrap();
         assert_eq!(
             shell.remote_terminal_args.as_deref(),
@@ -13723,8 +13837,10 @@ mod tests {
             )
         );
 
-        let mut remote_kittwm = Cli::default();
-        remote_kittwm.remote_host = Some("buildbox".to_string());
+        let mut remote_kittwm = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut remote_kittwm, "kittwm", &args(&["--workspace", "ops"]))
             .unwrap();
         assert_eq!(
@@ -13743,23 +13859,29 @@ mod tests {
             )
         );
 
-        let mut remote_wm = Cli::default();
-        remote_wm.remote_host = Some("buildbox".to_string());
+        let mut remote_wm = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut remote_wm, "wm", &args(&["--workspace", "ops"])).unwrap();
         assert_eq!(
             remote_wm.remote_terminal_args,
             remote_kittwm.remote_terminal_args
         );
 
-        let mut launch = Cli::default();
-        launch.remote_host = Some("buildbox".to_string());
+        let mut launch = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut launch, "launch", &args(&["fire", "fox"])).unwrap();
         assert!(launch.apps);
         assert_eq!(launch.apps_filter.as_deref(), Some("fire fox"));
         assert!(launch.apps_launch_first);
 
-        let mut fallback_direct_launch = Cli::default();
-        fallback_direct_launch.remote_host = Some("buildbox".to_string());
+        let mut fallback_direct_launch = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(
             &mut fallback_direct_launch,
             "launch",
@@ -13774,22 +13896,28 @@ mod tests {
         assert!(fallback_direct_launch.apps_launch_first);
         assert!(fallback_direct_launch.apps_force_fallback);
 
-        let mut open = Cli::default();
-        open.remote_host = Some("buildbox".to_string());
+        let mut open = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut open, "open", &args(&["firefox"])).unwrap();
         assert!(open.apps);
         assert_eq!(open.apps_filter.as_deref(), Some("firefox"));
         assert!(open.apps_launch_first);
 
-        let mut run = Cli::default();
-        run.remote_host = Some("buildbox".to_string());
+        let mut run = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut run, "run", &args(&["code"])).unwrap();
         assert!(run.apps);
         assert_eq!(run.apps_filter.as_deref(), Some("code"));
         assert!(run.apps_launch_first);
 
-        let mut start = Cli::default();
-        start.remote_host = Some("buildbox".to_string());
+        let mut start = Cli {
+            remote_host: Some("buildbox".to_string()),
+            ..Default::default()
+        };
         parse_remote_alias_action(&mut start, "start", &args(&["firefox", "--json"])).unwrap();
         assert!(start.apps);
         assert_eq!(start.apps_filter.as_deref(), Some("firefox"));
@@ -16833,8 +16961,10 @@ END
 
     #[test]
     fn socket_target_flags_are_mutually_exclusive() {
-        let mut cli = Cli::default();
-        cli.socket = Some("/tmp/kittwm-test.sock".to_string());
+        let mut cli = Cli {
+            socket: Some("/tmp/kittwm-test.sock".to_string()),
+            ..Default::default()
+        };
         assert!(validate_socket_target_flags(&cli).is_ok());
         cli.display = Some(":7".to_string());
         let err = validate_socket_target_flags(&cli).unwrap_err();

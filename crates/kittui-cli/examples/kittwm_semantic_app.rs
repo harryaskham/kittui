@@ -9,7 +9,7 @@
 use std::env;
 
 use kittwm_sdk::{
-    ActionKind, ComponentAction, ComponentLayout, ComponentLayoutKind, ComponentNode,
+    ActionKind, ComponentAction, ComponentNode,
     ComponentRole, ComponentState, ComponentValue, Kittwm, SemanticSurfaceSnapshot,
 };
 

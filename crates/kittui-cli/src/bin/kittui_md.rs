@@ -12,6 +12,7 @@ use kittui_affordances::{
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::enum_variant_names)]
 enum Mode {
     Rich,
     Plain,
@@ -1151,7 +1152,7 @@ fn apply_pager_action(
 
 fn write_interactive_help(viewport_rows: u16, out: &mut impl Write) -> Result<()> {
     writeln!(out, "kittui-md interactive help")?;
-    writeln!(out, "")?;
+    writeln!(out)?;
     for binding in KEYBINDINGS
         .iter()
         .take(viewport_rows.saturating_sub(3) as usize)
@@ -1412,6 +1413,7 @@ fn write_interactive_html(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_interactive_footer(
     show_help: bool,
     show_outline: bool,
@@ -3753,9 +3755,10 @@ fn outline_lines(doc: &MarkdownDocument) -> Vec<String> {
         .iter()
         .map(|heading| {
             format!(
-                "{}{}",
+                "{}{} #{}",
                 "  ".repeat(heading.level.saturating_sub(1) as usize),
-                format!("{} #{}", heading.text, heading.anchor)
+                heading.text,
+                heading.anchor
             )
         })
         .collect()
@@ -3829,7 +3832,7 @@ fn visible_components<'a>(
         .iter()
         .filter(|item| {
             let bottom = item.rect.y.saturating_add(item.rect.rows);
-            bottom > offset_rows && end.map_or(true, |end| item.rect.y < end)
+            bottom > offset_rows && end.is_none_or(|end| item.rect.y < end)
         })
         .collect()
 }

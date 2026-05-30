@@ -96,10 +96,10 @@ struct NativeFrameWriteBytes {
 impl NativeFrameWriteBytes {
     fn add(&mut self, placement: &kittui::Placement, include_upload: bool) {
         if include_upload {
-            self.upload += placement.upload.as_bytes().len();
+            self.upload += placement.upload.len();
         }
-        self.placement += placement.placement.as_bytes().len();
-        self.embed += placement.embed.as_bytes().len();
+        self.placement += placement.placement.len();
+        self.embed += placement.embed.len();
     }
 }
 
@@ -816,12 +816,13 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                     }
                 }
                 crate::daemon::NativePaneCommand::RestoreSession(restore) => {
-                    let restore_result: Result<(
+                    type NativeRestoreResult = (
                         NativePaneLayoutAxis,
                         Vec<NativePane>,
                         usize,
                         HashMap<String, NativeFloatingPaneOffset>,
-                    )> = (|| {
+                    );
+                    let restore_result: Result<NativeRestoreResult> = (|| {
                         let new_axis = restore
                             .layout
                             .as_deref()
@@ -1284,7 +1285,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             frame_out.write_all(p.embed.as_bytes())?;
                             write_bytes.add(&p, true);
                         } else {
-                            write_bytes.upload += p.upload.as_bytes().len();
+                            write_bytes.upload += p.upload.len();
                         }
                     } else if placement_write.write_placement {
                         let p = runtime.place_uploaded_image_with_options(
@@ -1361,7 +1362,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                             frame_out.write_all(p.embed.as_bytes())?;
                             write_bytes.add(&p, true);
                         } else {
-                            write_bytes.upload += p.upload.as_bytes().len();
+                            write_bytes.upload += p.upload.len();
                         }
                     } else if decision.placement.write_placement {
                         let p = runtime.place_uploaded_image_with_options(
@@ -2051,6 +2052,7 @@ struct NativeFooterChrome {
     text: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn native_shell_view(
     cols: u16,
     rows: u16,
@@ -3550,6 +3552,7 @@ fn native_layouts_for_panes_display_mode(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn native_layouts_for_panes_display_mode_with_offsets(
     cols: u16,
     rows: u16,
@@ -3801,8 +3804,8 @@ fn native_weighted_spans(total: u16, weights: &[u16], min_span: u16) -> Vec<u16>
         .map(|w| u32::from((*w).max(1)))
         .sum::<u32>()
         .max(1);
-    for idx in 0..count {
-        let weight = u32::from(weights[idx].max(1));
+    for (idx, weight_value) in weights.iter().enumerate().take(count) {
+        let weight = u32::from((*weight_value).max(1));
         let span = if idx + 1 == count {
             remaining
         } else {
@@ -3837,7 +3840,7 @@ fn native_pane_layouts_weighted(
         NativePaneLayoutAxis::Columns => {
             let pane_rows = rows;
             let title_rows = NATIVE_PANE_TITLE_ROWS.min(pane_rows);
-            let spans = native_weighted_spans(cols, &weights, 1);
+            let spans = native_weighted_spans(cols, weights, 1);
             let mut x = 0u16;
             let mut layouts = Vec::with_capacity(count);
             for pane_cols in spans {
@@ -3861,7 +3864,7 @@ fn native_pane_layouts_weighted(
         }
         NativePaneLayoutAxis::Rows => {
             let min_rows = NATIVE_PANE_TITLE_ROWS + NATIVE_PANE_BOTTOM_BORDER_ROWS + 1;
-            let spans = native_weighted_spans(rows, &weights, min_rows);
+            let spans = native_weighted_spans(rows, weights, min_rows);
             let mut y = 0u16;
             let mut layouts = Vec::with_capacity(count);
             for pane_rows in spans {
@@ -4205,6 +4208,7 @@ fn native_paste_payload(bytes: &[u8], bracketed_paste: bool) -> Vec<u8> {
     wrapped
 }
 
+#[allow(clippy::too_many_arguments)]
 fn native_route_mouse_event(
     event: &InputEvent,
     panes: &mut Vec<NativePane>,
@@ -4219,7 +4223,7 @@ fn native_route_mouse_event(
     tiled_drag: &mut Option<NativeTiledDrag>,
     clear: &mut bool,
 ) -> Result<bool> {
-    let Some((event_name, col, row, should_focus)) = native_mouse_event_name_and_position(&event)
+    let Some((event_name, col, row, should_focus)) = native_mouse_event_name_and_position(event)
     else {
         return Ok(false);
     };
@@ -4923,8 +4927,6 @@ fn focus_after_remove(current: usize, removed: usize, len_before: usize) -> usiz
     }
     if removed < current {
         current.saturating_sub(1).min(len_after - 1)
-    } else if removed == current {
-        current.min(len_after - 1)
     } else {
         current.min(len_after - 1)
     }
@@ -5470,6 +5472,7 @@ fn native_title_fullscreen_affordance_enabled(layout_label: &str) -> bool {
     layout_label.trim().eq_ignore_ascii_case("fullscreen")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn native_pane_title_text(
     pane: &NativePane,
     layout: NativePaneLayout,
@@ -5560,7 +5563,7 @@ fn native_pane_title_text(
         }
     }
     if count < width {
-        out.extend(std::iter::repeat(' ').take(width - count));
+        out.extend(std::iter::repeat_n(' ', width - count));
     }
     out
 }
@@ -6028,9 +6031,7 @@ fn render_native_shell_view_affordance_scenes(
 static NATIVE_GLASS_CHROME_COLORS: OnceLock<InlineChipColors> = OnceLock::new();
 
 fn native_glass_chrome_colors() -> InlineChipColors {
-    NATIVE_GLASS_CHROME_COLORS
-        .get_or_init(resolve_native_glass_chrome_colors)
-        .clone()
+    *NATIVE_GLASS_CHROME_COLORS.get_or_init(resolve_native_glass_chrome_colors)
 }
 
 fn resolve_native_glass_chrome_colors() -> InlineChipColors {
@@ -6462,7 +6463,7 @@ fn native_empty_workspace_scene(
     let panel_cols = cols.saturating_sub(8).clamp(24, 72).min(cols.max(1));
     let y = 2.min(footer_row.saturating_sub(1));
     let available_rows = footer_row.saturating_sub(y).max(1);
-    let panel_rows = available_rows.min(10).max(1);
+    let panel_rows = available_rows.clamp(1, 10);
     let x = cols.saturating_sub(panel_cols).saturating_div(2);
     let rect = CellRect::new(0, 0, panel_cols, panel_rows).to_pixels(cell_size);
     let cell_h = cell_size.height_px.max(1) as f32;
@@ -7375,7 +7376,7 @@ fn clip_and_pad(text: &str, width: usize) -> String {
         count += 1;
     }
     if count < width {
-        clipped.extend(std::iter::repeat(' ').take(width - count));
+        clipped.extend(std::iter::repeat_n(' ', width - count));
     }
     clipped
 }
@@ -8467,8 +8468,8 @@ mod native_pane_tests {
         assert!(should_hide_raw_graphics_for_text_overlay(true, false));
         assert!(!should_hide_raw_graphics_for_text_overlay(true, true));
         assert!(!should_hide_raw_graphics_for_text_overlay(false, false));
-        assert!(!raw_compositor_should_render_app_graphics(true || false));
-        assert!(!raw_compositor_should_render_app_graphics(false || true));
+        assert!(!raw_compositor_should_render_app_graphics(true));
+        assert!(!raw_compositor_should_render_app_graphics(true));
         assert_eq!(
             raw_compositor_footer_row_for_overlays(2, true, false, 24),
             Some(18)
@@ -8720,16 +8721,16 @@ mod native_pane_tests {
         };
         let mut bytes = NativeFrameWriteBytes::default();
         bytes.add(&placement, true);
-        assert_eq!(bytes.upload, placement.upload.as_bytes().len());
-        assert_eq!(bytes.placement, placement.placement.as_bytes().len());
-        assert_eq!(bytes.embed, placement.embed.as_bytes().len());
+        assert_eq!(bytes.upload, placement.upload.len());
+        assert_eq!(bytes.placement, placement.placement.len());
+        assert_eq!(bytes.embed, placement.embed.len());
         assert!(bytes.embed > placement.embed.chars().count());
 
         let mut move_only = NativeFrameWriteBytes::default();
         move_only.add(&placement, false);
         assert_eq!(move_only.upload, 0);
-        assert_eq!(move_only.placement, placement.placement.as_bytes().len());
-        assert_eq!(move_only.embed, placement.embed.as_bytes().len());
+        assert_eq!(move_only.placement, placement.placement.len());
+        assert_eq!(move_only.embed, placement.embed.len());
     }
 
     #[test]
@@ -13153,8 +13154,10 @@ mod native_pane_tests {
         assert!(!text.contains("\x1b[7;2H"), "{text:?}");
 
         let mut out = Vec::new();
-        let mut launcher = LauncherOverlay::default();
-        launcher.active = true;
+        let launcher = LauncherOverlay {
+            active: true,
+            ..Default::default()
+        };
         launcher.render(&mut out, 8).unwrap();
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("\x1b[8;2H"), "{text:?}");
@@ -13163,9 +13166,11 @@ mod native_pane_tests {
 
     #[test]
     fn overlay_keys_change_when_visual_state_changes() {
-        let mut launcher = LauncherOverlay::default();
-        launcher.active = true;
-        launcher.query = "term".to_string();
+        let mut launcher = LauncherOverlay {
+            active: true,
+            query: "term".to_string(),
+            ..Default::default()
+        };
         let base = launcher_overlay_key(&launcher);
         launcher.selected = 1;
         assert_ne!(base, launcher_overlay_key(&launcher));
@@ -13178,9 +13183,11 @@ mod native_pane_tests {
             "{bounded_launcher}"
         );
 
-        let mut picker = PickerOverlay::default();
-        picker.active = true;
-        picker.entries = vec!["one".to_string()];
+        let mut picker = PickerOverlay {
+            active: true,
+            entries: vec!["one".to_string()],
+            ..Default::default()
+        };
         let picker_base = picker_overlay_key(&picker);
         picker.entries.push("two".to_string());
         assert_ne!(picker_base, picker_overlay_key(&picker));
@@ -14461,8 +14468,8 @@ fn clamp_native_terminal_size(
     requested_rows: u16,
     host: (u16, u16),
 ) -> (u16, u16) {
-    let host_cols = host.0.max(1).min(MAX_NATIVE_TERMINAL_COLS);
-    let host_rows = host.1.max(1).min(MAX_NATIVE_TERMINAL_ROWS);
+    let host_cols = host.0.clamp(1, MAX_NATIVE_TERMINAL_COLS);
+    let host_rows = host.1.clamp(1, MAX_NATIVE_TERMINAL_ROWS);
     (
         requested_cols.max(1).min(host_cols),
         requested_rows.max(1).min(host_rows),
@@ -15496,7 +15503,7 @@ pub fn run_loop_with<S: XServer>(
                     }
                 }
                 InputEvent::Key { key, .. } => {
-                    dbg.log(&key_event_log_line(&key));
+                    dbg.log(&key_event_log_line(key));
                     let _ = compositor.route_key(&ev);
                 }
                 _ => {}
@@ -15526,7 +15533,7 @@ pub fn run_loop_with<S: XServer>(
                     last_error_key = None;
                 }
                 let last_window_count = frames.len();
-                if frame % 30 == 0 {
+                if frame.is_multiple_of(30) {
                     dbg.log(&raw_frame_count_log_line(frame, frames.len()));
                 }
                 let stdout = io::stdout();
@@ -15760,7 +15767,7 @@ pub fn run_loop_with<S: XServer>(
                             &launch_note,
                             &keymap_note,
                             quit_hint,
-                            &dbg.path_display(),
+                            dbg.path_display(),
                             terminal_cols,
                         );
                         write!(
@@ -15797,7 +15804,7 @@ pub fn run_loop_with<S: XServer>(
             }
             Err(e) => {
                 let msg = e.to_string();
-                let error_key = raw_compositor_error_key(&msg, &dbg.path_display());
+                let error_key = raw_compositor_error_key(&msg, dbg.path_display());
                 if should_write_raw_compositor_error(last_error_key.as_deref(), &error_key) {
                     dbg.log(&compose_error_log_line(&msg));
                     let stdout = io::stdout();
@@ -15993,6 +16000,7 @@ fn raw_compositor_footer_fps_label(fps: f32) -> String {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn raw_compositor_footer_text(
     frame: u64,
     workspace: &str,
@@ -16090,7 +16098,7 @@ fn should_write_compositor_footer(
     frame: u64,
     refresh_interval: u64,
 ) -> bool {
-    last_key != next_key || (refresh_interval > 0 && frame % refresh_interval == 0)
+    last_key != next_key || (refresh_interval > 0 && frame.is_multiple_of(refresh_interval))
 }
 
 fn should_flush_compositor_frame(wrote_output: bool) -> bool {
@@ -17356,7 +17364,7 @@ mod ctrl_c_guard_tests {
         let mut g = CtrlCGuard::new();
         let now = Instant::now();
         assert_eq!(g.record_press(now), 1);
-        assert!(1 < CTRL_C_TRIGGER);
+        const { assert!(1 < CTRL_C_TRIGGER) };
     }
 
     #[test]
@@ -17902,8 +17910,10 @@ mod launcher_overlay_tests {
 
     #[test]
     fn overlay_edits_query_and_tracks_selection() {
-        let mut overlay = LauncherOverlay::default();
-        overlay.active = true;
+        let mut overlay = LauncherOverlay {
+            active: true,
+            ..Default::default()
+        };
         assert_eq!(
             overlay.handle_event(&InputEvent::Char {
                 ch: 'e',

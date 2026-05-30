@@ -86,7 +86,7 @@ fn panel(tone: Tone, cols: u16, rows: u16, animated: bool) -> Scene {
         footprint,
         cell_size: cell,
         layers,
-        animation: animated.then(|| Animation {
+        animation: animated.then_some(Animation {
             frames: STANDARD_ANIMATION_FRAMES,
             cycle_ms: STANDARD_ANIMATION_CYCLE_MS,
             curve: PhaseCurve::Pulse { harmonics: 0 },

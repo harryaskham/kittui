@@ -1051,7 +1051,7 @@ fn browser_status_for_frame<'a>(
     }
     let text = browser_status_text_for_cols_with_precomputed_url(
         url_label,
-        show_frame.then_some(frame).unwrap_or(0),
+        if show_frame { frame } else { 0 },
         show_frame,
         cols,
         metadata,

@@ -288,9 +288,9 @@ fn render_status_text(model: &TerminalStatusModel) -> String {
             + model.layout.len()
             + 20,
     );
-    let _ = write!(
+    let _ = writeln!(
         out,
-        "status panes={} focus={} layout={} details={}\n",
+        "status panes={} focus={} layout={} details={}",
         model.panes, model.focus, model.layout, model.details
     );
     out

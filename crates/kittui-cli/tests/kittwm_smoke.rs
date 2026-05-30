@@ -179,7 +179,7 @@ fn kittwm_doctor_json_emits_object() {
     assert!(s.contains("\"features\""));
 }
 
-#[cfg(all(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn kittwm_list_windows_prints_header_and_at_least_one_window() {
     let bin = kittwm_path();
@@ -210,7 +210,7 @@ fn kittwm_list_windows_prints_header_and_at_least_one_window() {
     assert!(lines > 1, "expected header + at least one window: {stdout}");
 }
 
-#[cfg(all(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn kittwm_list_displays_prints_at_least_one_display() {
     let bin = kittwm_path();
@@ -230,7 +230,7 @@ fn kittwm_list_displays_prints_at_least_one_display() {
     assert!(stdout.contains("bounds"));
 }
 
-#[cfg(all(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn kittwm_record_writes_png_files() {
     let bin = kittwm_path();
@@ -264,7 +264,7 @@ fn kittwm_record_writes_png_files() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[cfg(all(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn kittwm_record_apng_writes_single_file() {
     let bin = kittwm_path();
@@ -296,7 +296,7 @@ fn kittwm_record_apng_writes_single_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[cfg(all(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn kittwm_bench_json_emits_metrics() {
     let bin = kittwm_path();
@@ -317,7 +317,7 @@ fn kittwm_bench_json_emits_metrics() {
     }
 }
 
-#[cfg(all(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn kittwm_attach_repl_round_trip() {
     let bin = kittwm_path();
@@ -361,7 +361,7 @@ fn kittwm_attach_repl_round_trip() {
     let _ = std::fs::remove_file(&sock);
 }
 
-#[cfg(all(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn kittwm_attach_command_one_shot_round_trip() {
     let bin = kittwm_path();
@@ -484,7 +484,7 @@ fn kittwm_apps_json_lists_candidates_and_default() {
     assert!(s.contains("\"macos_apps\""), "missing macos apps: {s}");
 }
 
-#[cfg(all(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn kittwm_attach_apps_verbs_round_trip() {
     let bin = kittwm_path();
@@ -585,7 +585,7 @@ fn kittwm_apps_first_and_launch_first_select_candidate() {
     assert!(s.contains("kind=path"), "wrong candidate kind: {s}");
 }
 
-#[cfg(all(target_os = "macos"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn kittwm_attach_apps_first_verbs_round_trip() {
     let bin = kittwm_path();

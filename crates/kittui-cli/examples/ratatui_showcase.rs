@@ -765,7 +765,7 @@ fn render_widgets_tab(
     );
 
     // Bottom of right column: sparkline.
-    let spark_data: Vec<u64> = app.perf.samples.iter().copied().collect();
+    let spark_data: Vec<u64> = app.perf.samples.to_vec();
     if !spark_data.is_empty() {
         let s = Sparkline::default()
             .data(&spark_data)
@@ -933,7 +933,7 @@ fn render_canvas_tab(
 ) {
     let palette = app.tone.palette();
     let now = app.started_at.elapsed().as_millis() as f64;
-    let phase = ((now / 600.0) % std::f64::consts::TAU) as f64;
+    let phase = (now / 600.0) % std::f64::consts::TAU;
     let canvas = Canvas::default()
         .x_bounds([-1.5, 1.5])
         .y_bounds([-1.5, 1.5])

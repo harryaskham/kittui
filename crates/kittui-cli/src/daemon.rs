@@ -1550,9 +1550,7 @@ fn native_pane_status_value(pane: &NativePaneStatus) -> serde_json::Value {
     serde_json::to_value(pane).unwrap_or_else(|_| serde_json::json!({ "window": pane.window }))
 }
 
-fn native_pane_geometry(
-    pane: &NativePaneStatus,
-) -> (
+type NativePaneGeometry = (
     Option<u16>,
     Option<u16>,
     Option<u16>,
@@ -1561,7 +1559,9 @@ fn native_pane_geometry(
     Option<u16>,
     Option<u16>,
     Option<u16>,
-) {
+);
+
+fn native_pane_geometry(pane: &NativePaneStatus) -> NativePaneGeometry {
     (
         pane.x,
         pane.y,
@@ -4955,7 +4955,7 @@ mod tests {
         assert!(
             events
                 .iter()
-                .all(|event| event["detail"].to_string().contains("secret live text") == false),
+                .all(|event| !event["detail"].to_string().contains("secret live text")),
             "{stream}"
         );
     }
@@ -5672,8 +5672,10 @@ mod tests {
     fn native_chrome_json_prefers_published_workspace_label() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("KITTWM_WORKSPACE", " env ");
-        let mut state = NativeSpawnQueueState::default();
-        state.workspace = Some(" 4 ".to_string());
+        let mut state = NativeSpawnQueueState {
+            workspace: Some(" 4 ".to_string()),
+            ..Default::default()
+        };
         assert_eq!(native_workspace_id_for_state(&state), "4");
         let chrome = native_chrome_status_value(&state);
         assert_eq!(chrome["workspace"], "4");
@@ -6232,13 +6234,14 @@ pub fn client_request_multi(path: &Path, cmd: &str) -> Result<String> {
         // Single-line replies don't send END; break after one if it
         // doesn't look like a known multi-line header.
         let first = out.lines().next().unwrap_or("");
-        if !first.starts_with("WINDOWS ")
-            && !first.starts_with("DISPLAYS ")
-            && !first.starts_with("APPS ")
-            && !first.starts_with("PANES ")
-            && !(cmd.trim_start() == "EVENTS" || cmd.trim_start().starts_with("EVENTS "))
-            && !first.starts_with("TEXT ")
-            && !first.starts_with("SCROLLBACK ")
+        if !(first.starts_with("WINDOWS ")
+            || first.starts_with("DISPLAYS ")
+            || first.starts_with("APPS ")
+            || first.starts_with("PANES ")
+            || cmd.trim_start() == "EVENTS"
+            || cmd.trim_start().starts_with("EVENTS ")
+            || first.starts_with("TEXT ")
+            || first.starts_with("SCROLLBACK "))
         {
             break;
         }
