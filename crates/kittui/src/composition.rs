@@ -196,6 +196,7 @@ mod tests {
         scene::{background_solid, scene},
         CellRect, CellSize, RendererKind, Rgba, Runtime,
     };
+    use std::fmt::Write as FmtWrite;
 
     fn tempdir() -> std::path::PathBuf {
         let pid = std::process::id();
@@ -203,9 +204,27 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("kittui-composer-{pid}-{nanos}"));
+        let path = std::env::temp_dir().join(composer_test_temp_dir_name(pid, nanos));
         std::fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    fn composer_test_temp_dir_name(pid: u32, nanos: u128) -> String {
+        let mut name = String::with_capacity(
+            "kittui-composer-".len() + decimal_len(pid as u128) + 1 + decimal_len(nanos),
+        );
+        name.push_str("kittui-composer-");
+        write!(name, "{pid}-{nanos}").expect("write to string");
+        name
+    }
+
+    fn decimal_len(mut value: u128) -> usize {
+        let mut digits = 1;
+        while value >= 10 {
+            value /= 10;
+            digits += 1;
+        }
+        digits
     }
 
     fn rt() -> Runtime {
@@ -229,6 +248,16 @@ mod tests {
             footprint,
             scene: s,
         }
+    }
+
+    #[test]
+    fn composer_test_temp_dir_name_builds_directly() {
+        let name = composer_test_temp_dir_name(1234, 5678);
+        assert_eq!(name, "kittui-composer-1234-5678");
+        assert_eq!(name.capacity(), name.len());
+        assert_eq!(decimal_len(0), 1);
+        assert_eq!(decimal_len(9), 1);
+        assert_eq!(decimal_len(10), 2);
     }
 
     #[test]
