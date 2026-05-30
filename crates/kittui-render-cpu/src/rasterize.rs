@@ -500,11 +500,19 @@ fn rasterize_image(
 fn load_image_bytes(src: &ImageRef) -> Result<Vec<u8>, RenderError> {
     match src {
         ImageRef::Bytes { bytes } => Ok(bytes.clone()),
-        ImageRef::Path { path } => std::fs::read(path).map_err(|e| {
-            RenderError::UnsupportedImage(format!("failed to read {}: {e}", path))
-        }),
+        ImageRef::Path { path } => std::fs::read(path)
+            .map_err(|e| RenderError::UnsupportedImage(image_read_error(path, &e))),
         ImageRef::Cached { hash } => Err(RenderError::UnsupportedImage(cached_image_error(hash))),
     }
+}
+
+fn image_read_error(path: &str, err: &std::io::Error) -> String {
+    let mut message = String::with_capacity("failed to read : ".len() + path.len() + err.to_string().len());
+    message.push_str("failed to read ");
+    message.push_str(path);
+    message.push_str(": ");
+    write!(message, "{err}").expect("write to string");
+    message
 }
 
 fn cached_image_error(hash: &str) -> String {
@@ -536,6 +544,34 @@ fn decode_image(_bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), RenderError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_read_error_builds_directly() {
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+        let message = image_read_error("/tmp/missing.png", &err);
+        assert_eq!(message, "failed to read /tmp/missing.png: missing");
+        assert!(message.capacity() >= message.len());
+    }
+
+    #[test]
+    fn load_image_bytes_reports_path_read_errors_with_stable_message() {
+        let path = "/tmp/kittui-render-cpu-definitely-missing.png";
+        let err = load_image_bytes(&ImageRef::Path {
+            path: path.to_string(),
+        })
+        .unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.starts_with(
+                "image source failed to read /tmp/kittui-render-cpu-definitely-missing.png: "
+            ),
+            "{message}"
+        );
+        assert!(
+            message.ends_with(" is not supported by the CPU renderer in this version"),
+            "{message}"
+        );
+    }
 
     #[test]
     fn cached_image_error_builds_directly() {
