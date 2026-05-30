@@ -2649,6 +2649,25 @@ impl NativePaneDetail {
             .unwrap_or_else(|| "pid:-".to_string())
     }
 
+    /// Live footer `focus:<window>(<title>)` segment for this pane.
+    pub fn footer_focus_label(&self) -> String {
+        let title = self.title.trim();
+        let focus = if title.is_empty() || title == self.window {
+            bounded_ellipsis(&self.window, FOOTER_FOCUS_MAX_CHARS)
+        } else {
+            let mut label = String::with_capacity(self.window.len() + 2 + title.len());
+            label.push_str(&self.window);
+            label.push('(');
+            label.push_str(title);
+            label.push(')');
+            bounded_ellipsis(&label, FOOTER_FOCUS_MAX_CHARS)
+        };
+        let mut out = String::with_capacity("focus:".len() + focus.len());
+        out.push_str("focus:");
+        out.push_str(&focus);
+        out
+    }
+
     /// Full live pane status chip text: command, optional weight, pid, and frame.
     pub fn status_chip_label(&self) -> String {
         let mut label = self.command_chip_label();
@@ -3105,6 +3124,12 @@ impl PanesStatus {
     /// Live pane-chip pid label for the focused pane, matching `pid:<pid>` or `pid:-`.
     pub fn focused_pid_chip_label(&self) -> Option<String> {
         self.focused_pane().map(NativePaneDetail::pid_chip_label)
+    }
+
+    /// Live footer `focus:<window>(<title>)` segment for the focused pane.
+    pub fn focused_footer_focus_label(&self) -> Option<String> {
+        self.focused_pane()
+            .map(NativePaneDetail::footer_focus_label)
     }
 
     /// Full live pane status chip text for the focused pane.
@@ -3601,6 +3626,12 @@ impl Status {
         self.focused_pane().map(NativePaneDetail::pid_chip_label)
     }
 
+    /// Live footer `focus:<window>(<title>)` segment for the focused pane.
+    pub fn focused_footer_focus_label(&self) -> Option<String> {
+        self.focused_pane()
+            .map(NativePaneDetail::footer_focus_label)
+    }
+
     /// Full live pane status chip text for the focused pane.
     pub fn focused_status_chip_label(&self) -> Option<String> {
         self.focused_pane().map(NativePaneDetail::status_chip_label)
@@ -3896,6 +3927,7 @@ fn focused_is_topmost_from_details(
 }
 
 const PANE_STATUS_COMMAND_MAX_CHARS: usize = 64;
+const FOOTER_FOCUS_MAX_CHARS: usize = 48;
 
 fn bounded_ellipsis(text: &str, max_chars: usize) -> String {
     if max_chars == 0 {
@@ -6049,6 +6081,10 @@ mod tests {
         );
         assert_eq!(panes.focused_pid_chip_label().as_deref(), Some("pid:123"));
         assert_eq!(
+            panes.focused_footer_focus_label().as_deref(),
+            Some("focus:native-1(shell)")
+        );
+        assert_eq!(
             panes.focused_status_chip_label().as_deref(),
             Some("/bin/sh · wt:2 · pid:123 · frame:1/4")
         );
@@ -6156,6 +6192,7 @@ mod tests {
         assert_eq!(pane.weight_chip_label().as_deref(), Some("wt:2"));
         assert_eq!(pane.command_chip_label(), "/bin/sh");
         assert_eq!(pane.pid_chip_label(), "pid:123");
+        assert_eq!(pane.footer_focus_label(), "focus:native-1(shell)");
         assert_eq!(
             pane.status_chip_label(),
             "/bin/sh · wt:2 · pid:123 · frame:1/4"
@@ -6219,6 +6256,7 @@ mod tests {
         assert_eq!(pane.weight_chip_label(), None);
         assert_eq!(pane.command_chip_label(), "-");
         assert_eq!(pane.pid_chip_label(), "pid:-");
+        assert_eq!(pane.footer_focus_label(), "focus:");
         assert_eq!(pane.status_chip_label(), "- · pid:- · frame:new");
         assert_eq!(pane.bounds(), None);
         assert_eq!(pane.app_bounds(), None);
@@ -6234,6 +6272,22 @@ mod tests {
         assert_eq!(pane.is_frame_clean(), None);
         assert_eq!(pane.title_drag_cell(), None);
         assert_eq!(pane.title_marker_prefix(Some("floating")), " ");
+    }
+
+    #[test]
+    fn native_pane_footer_focus_label_is_bounded() {
+        let pane = NativePaneDetail {
+            window: "native-1".to_string(),
+            title: "editor-".repeat(20),
+            ..NativePaneDetail::default()
+        };
+        let label = pane.footer_focus_label();
+        assert!(label.starts_with("focus:native-1(editor-"), "{label}");
+        assert_eq!(
+            label["focus:".len()..].chars().count(),
+            FOOTER_FOCUS_MAX_CHARS
+        );
+        assert!(label.ends_with('…'), "{label}");
     }
 
     #[test]
@@ -6326,6 +6380,7 @@ mod tests {
         assert_eq!(status.focused_weight_chip_label(), None);
         assert_eq!(status.focused_command_chip_label(), None);
         assert_eq!(status.focused_pid_chip_label(), None);
+        assert_eq!(status.focused_footer_focus_label(), None);
         assert_eq!(status.focused_status_chip_label(), None);
         assert_eq!(status.focused_footer_state_label(), None);
         assert_eq!(status.focused_is_moved(), None);
@@ -6418,6 +6473,10 @@ mod tests {
         assert_eq!(status.focused_weight_chip_label(), None);
         assert_eq!(status.focused_command_chip_label().as_deref(), Some("-"));
         assert_eq!(status.focused_pid_chip_label().as_deref(), Some("pid:-"));
+        assert_eq!(
+            status.focused_footer_focus_label().as_deref(),
+            Some("focus:native-1(shell)")
+        );
         assert_eq!(
             status.focused_status_chip_label().as_deref(),
             Some("- · pid:- · frame:clean")
