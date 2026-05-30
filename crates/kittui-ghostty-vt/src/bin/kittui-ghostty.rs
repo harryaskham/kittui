@@ -773,10 +773,7 @@ fn write_montage(path: &Path, frames: &[FrameRecord]) -> anyhow::Result<()> {
         let frame = &frames[idx];
         let bytes = std::fs::read(&frame.path)?;
         let image = image::load_from_memory(&bytes)?.to_rgba8();
-        let label = format!(
-            "frame-{:03}.png cursor={},{} kitty_placements={}",
-            frame.index, frame.cursor_x, frame.cursor_y, frame.kitty_placements
-        );
+        let label = montage_frame_label(frame);
         entries.push((label, image));
     }
     if entries.is_empty() {
@@ -839,6 +836,15 @@ fn draw_text(img: &mut RgbaImage, x: u32, y: u32, text: &str, color: Rgba<u8>) {
         }
         cursor_x += 8;
     }
+}
+
+fn montage_frame_label(frame: &FrameRecord) -> String {
+    let mut label = frame_png_name(frame.index);
+    label.push_str(" cursor=");
+    write!(label, "{},{}", frame.cursor_x, frame.cursor_y).expect("write to string");
+    label.push_str(" kitty_placements=");
+    write!(label, "{}", frame.kitty_placements).expect("write to string");
+    label
 }
 
 fn montage_frame_indices(len: usize) -> Vec<usize> {
@@ -913,6 +919,21 @@ mod tests {
         assert_eq!(decimal_len_usize(0), 1);
         assert_eq!(decimal_len_usize(9), 1);
         assert_eq!(decimal_len_usize(10), 2);
+    }
+
+    #[test]
+    fn montage_frame_label_builds_directly() {
+        let frame = FrameRecord {
+            index: 7,
+            path: std::path::PathBuf::from("/tmp/frame-007.png"),
+            cursor_x: 2,
+            cursor_y: 3,
+            kitty_placements: 4,
+        };
+        assert_eq!(
+            montage_frame_label(&frame),
+            "frame-007.png cursor=2,3 kitty_placements=4"
+        );
     }
 
     #[test]
