@@ -255,7 +255,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                             source: source.clone(),
                         });
                         out.components.push(textbox(
-                            format!("metadata:{}\n{source}", kind.as_str()),
+                            metadata_block_text(kind.as_str(), &source),
                             width_cells,
                             Tone::Tool,
                         ));
@@ -813,6 +813,15 @@ fn flush_list_item(
     ));
 }
 
+fn metadata_block_text(kind: &str, source: &str) -> String {
+    let mut text = String::with_capacity("metadata:".len() + kind.len() + 1 + source.len());
+    text.push_str("metadata:");
+    text.push_str(kind);
+    text.push('\n');
+    text.push_str(source);
+    text
+}
+
 fn footnote_marker(label: &str) -> String {
     let mut marker = String::with_capacity("[^]".len() + label.len());
     marker.push_str("[^");
@@ -940,6 +949,13 @@ mod tests {
                 MarkdownTableAlignment::Right,
             ]
         );
+    }
+
+    #[test]
+    fn metadata_block_text_builds_directly() {
+        let text = metadata_block_text("yaml", "title: Proof");
+        assert_eq!(text, "metadata:yaml\ntitle: Proof");
+        assert!(text.capacity() >= text.len());
     }
 
     #[test]
