@@ -499,9 +499,21 @@ fn command_bytes(command: &str) -> anyhow::Result<Vec<u8>> {
         bytes.extend_from_slice(&output.stderr);
     }
     if !output.status.success() {
-        bytes.extend_from_slice(format!("\n[exit {:?}]\n", output.status.code()).as_bytes());
+        append_command_exit_line(&mut bytes, output.status.code());
     }
     Ok(bytes)
+}
+
+fn append_command_exit_line(bytes: &mut Vec<u8>, code: Option<i32>) {
+    bytes.extend_from_slice(b"\n[exit ");
+    write!(bytes, "{code:?}").expect("write to vec");
+    bytes.extend_from_slice(b"]\n");
+}
+
+fn append_pty_exit_line(bytes: &mut Vec<u8>, code: u32) {
+    bytes.extend_from_slice(b"\r\n[exit ");
+    write!(bytes, "{code}").expect("write to vec");
+    bytes.extend_from_slice(b"]\r\n");
 }
 
 fn pty_command_bytes_with_input(
@@ -610,7 +622,7 @@ fn pty_command_bytes_with_env_and_input<const N: usize>(
     bytes.extend_from_slice(b"\r\n");
     bytes.extend_from_slice(&output);
     if !status.success() {
-        bytes.extend_from_slice(format!("\r\n[exit {}]\r\n", status.exit_code()).as_bytes());
+        append_pty_exit_line(&mut bytes, status.exit_code());
     }
     Ok((bytes, Some(exit_code)))
 }
@@ -887,6 +899,16 @@ mod tests {
         assert_eq!(decimal_len_usize(0), 1);
         assert_eq!(decimal_len_usize(9), 1);
         assert_eq!(decimal_len_usize(10), 2);
+    }
+
+    #[test]
+    fn exit_status_lines_build_directly() {
+        let mut command = Vec::new();
+        append_command_exit_line(&mut command, Some(7));
+        assert_eq!(command, b"\n[exit Some(7)]\n");
+        let mut pty = Vec::new();
+        append_pty_exit_line(&mut pty, 9);
+        assert_eq!(pty, b"\r\n[exit 9]\r\n");
     }
 
     #[test]
