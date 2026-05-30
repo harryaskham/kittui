@@ -6380,12 +6380,19 @@ fn quickstart_text() -> &'static str {
    kittwm --restore-session session.json
 
 7. Work across SSH hosts
+   # remote HOST subcommand form
    kittwm remote buildbox
    kittwm remote buildbox list apps firefox
    kittwm remote buildbox launch firefox
    kittwm remote buildbox list windows firefox
    kittwm remote buildbox list displays retina
    kittwm remote buildbox terminal htop
+   # or append --remote HOST to a single command
+   kittwm doctor --remote buildbox
+   kittwm apps --remote buildbox
+   kittwm --list-displays --remote buildbox
+   kittwm --list-windows --remote buildbox
+   kittwm-terminal --remote buildbox -- htop
 
 8. Try first-party helpers when you need richer views
    kittwm-launch --browser https://example.com
@@ -6485,6 +6492,11 @@ SSH / REMOTE HOSTS
   kittwm remote buildbox list windows firefox
   kittwm remote buildbox list displays retina
   kittwm remote buildbox terminal htop
+  # per-command --remote HOST form
+  kittwm doctor --remote buildbox
+  kittwm apps --remote buildbox
+  kittwm --list-windows --remote buildbox
+  kittwm-terminal --remote buildbox -- htop
 
 HELP
   kittwm quickstart
@@ -6533,7 +6545,7 @@ HELPERS
 
 SSH
   kittwm doctor --remote HOST   kittwm apps --remote HOST
-  kittwm --list-windows --remote HOST
+  kittwm --list-windows --remote HOST   kittwm-terminal --remote HOST
   kittwm remote HOST shell       kittwm remote HOST terminal htop
 
 MORE
