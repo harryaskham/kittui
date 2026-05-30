@@ -161,6 +161,7 @@ struct Cli {
     remote_help: bool,
     remote_doctor_graphical: bool,
     remote_listing_filter: Option<String>,
+    remote_listing_force_fallback: bool,
     remote_terminal_args: Option<Vec<String>>,
     socket: Option<String>,
     display: Option<String>,
@@ -1489,10 +1490,14 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            list remote windows matching a query\n\
              kittwm remote HOST list windows firefox --json\n\
                                            structured remote window matches\n\
+             kittwm remote HOST list windows firefox --fallback\n\
+                                           skip remote kittwm and force platform fallback listing\n\
              kittwm remote HOST win firefox\n\
                                            short alias for remote window listing\n\
              kittwm remote HOST monitors retina\n\
                                            alias for remote display listing\n\
+             kittwm remote HOST monitors retina --fallback\n\
+                                           skip remote kittwm and force platform fallback listing\n\
              kittwm remote HOST screens retina\n\
                                            alias for remote display listing\n\
              kittwm remote HOST apps firefox\n\
@@ -1652,11 +1657,15 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST list windows QUERY list remote windows matching a query\n\
              remote HOST list windows QUERY --json\n\
                                             structured remote window matches\n\
+             remote HOST list windows QUERY --fallback\n\
+                                            skip remote kittwm and force platform fallback listing\n\
              remote HOST list win QUERY     short alias for remote HOST list windows\n\
              remote HOST list displays QUERY\n\
                                             list remote displays matching a query\n\
              remote HOST list monitors QUERY\n\
                                             alias for remote HOST list displays\n\
+             remote HOST list monitors QUERY --fallback\n\
+                                            skip remote kittwm and force platform fallback listing\n\
              remote HOST list screens QUERY\n\
                                             alias for remote HOST list displays\n\
              remote HOST apps QUERY         list remote app matches with a positional query\n\
@@ -2058,6 +2067,7 @@ fn remote_listing_query(args: &[String], out: &mut Cli) -> Result<Option<String>
         match arg.as_str() {
             "--filter" | "--query" => terms.push(iter.next().ok_or_else(missing_filter_error)?.clone()),
             "--json" => out.json = true,
+            "--fallback" => out.remote_listing_force_fallback = true,
             "--" => {
                 terms.extend(iter.cloned());
                 break;
@@ -2675,6 +2685,7 @@ fn real_main() -> Result<()> {
                 host,
                 cli.remote_listing_filter.as_deref(),
                 cli.json,
+                cli.remote_listing_force_fallback,
             );
         }
         return list_windows_cmd();
@@ -2686,6 +2697,7 @@ fn real_main() -> Result<()> {
                 host,
                 cli.remote_listing_filter.as_deref(),
                 cli.json,
+                cli.remote_listing_force_fallback,
             );
         }
         return list_displays_cmd();
@@ -5059,6 +5071,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "list remote windows as JSON",
         },
         LocalCommandEntry {
+            command: "remote HOST list windows --fallback",
+            category: "remote",
+            description: "force pooled-SSH fallback window listing",
+        },
+        LocalCommandEntry {
             command: "remote HOST list win",
             category: "remote",
             description: "short alias for remote window listing",
@@ -5072,6 +5089,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST list displays",
             category: "remote",
             description: "list remote displays through pooled SSH",
+        },
+        LocalCommandEntry {
+            command: "remote HOST list displays --fallback",
+            category: "remote",
+            description: "force pooled-SSH fallback display listing",
         },
         LocalCommandEntry {
             command: "remote HOST list monitors",
@@ -8561,6 +8583,7 @@ fn remote_listing_cmd(
     host: &str,
     query: Option<&str>,
     json: bool,
+    force_fallback: bool,
 ) -> Result<()> {
     run_pooled_ssh_script(
         host,
@@ -8576,6 +8599,10 @@ fn remote_listing_cmd(
             (
                 "KITTWM_REMOTE_JSON".to_string(),
                 if json { "1" } else { "0" }.to_string(),
+            ),
+            (
+                "KITTWM_REMOTE_FORCE_FALLBACK".to_string(),
+                if force_fallback { "1" } else { "0" }.to_string(),
             ),
         ],
         remote_listing_script(),
@@ -9171,7 +9198,7 @@ def walk(node):
             walk(child)
 walk(root)'
 }
-if command -v kittwm >/dev/null 2>&1; then
+if [ "${KITTWM_REMOTE_FORCE_FALLBACK:-0}" != "1" ] && command -v kittwm >/dev/null 2>&1; then
     kittwm_err=$(mktemp "${TMPDIR:-/tmp}/kittwm-remote-list.XXXXXX" 2>/dev/null || printf '')
     if [ -n "$kittwm_err" ]; then
         case "$kind" in
@@ -11762,10 +11789,18 @@ mod tests {
             entry["command"] == "remote HOST list windows --json" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST list windows --fallback"
+                && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list win" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST win QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST list displays --fallback"
+                && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list monitors" && entry["category"] == "remote"
@@ -13042,6 +13077,21 @@ mod tests {
         );
         assert!(list_windows_json.json);
 
+        let mut list_windows_fallback = Cli::default();
+        list_windows_fallback.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut list_windows_fallback,
+            "list",
+            &args(&["windows", "firefox", "--fallback"]),
+        )
+        .unwrap();
+        assert!(list_windows_fallback.list_windows);
+        assert_eq!(
+            list_windows_fallback.remote_listing_filter.as_deref(),
+            Some("firefox")
+        );
+        assert!(list_windows_fallback.remote_listing_force_fallback);
+
         let mut win = Cli::default();
         win.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut win, "win", &args(&["firefox"])).unwrap();
@@ -13071,6 +13121,21 @@ mod tests {
         parse_remote_alias_action(&mut screens, "screens", &args(&["retina"])).unwrap();
         assert!(screens.list_displays);
         assert_eq!(screens.remote_listing_filter.as_deref(), Some("retina"));
+
+        let mut monitors_fallback = Cli::default();
+        monitors_fallback.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut monitors_fallback,
+            "monitors",
+            &args(&["retina", "--fallback"]),
+        )
+        .unwrap();
+        assert!(monitors_fallback.list_displays);
+        assert_eq!(
+            monitors_fallback.remote_listing_filter.as_deref(),
+            Some("retina")
+        );
+        assert!(monitors_fallback.remote_listing_force_fallback);
 
         let mut list_screens = Cli::default();
         list_screens.remote_host = Some("buildbox".to_string());
@@ -13494,6 +13559,11 @@ mod tests {
         assert_eq!(RemoteListingKind::Displays.env_value(), "displays");
         let script = remote_listing_script();
         assert!(script.contains("KITTWM_REMOTE_JSON"), "{script}");
+        assert!(script.contains("KITTWM_REMOTE_FORCE_FALLBACK"), "{script}");
+        assert!(
+            script.contains("KITTWM_REMOTE_FORCE_FALLBACK:-0"),
+            "{script}"
+        );
         assert!(script.contains("kittwm_remote_emit_json_lines"), "{script}");
         assert!(script.contains("\"mode\":"), "{script}");
         assert!(script.contains("\"source\":"), "{script}");
