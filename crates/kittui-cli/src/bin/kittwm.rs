@@ -9245,7 +9245,7 @@ case "$mode" in
         printf 'macOS applications (first %s):\n' "$limit"
         kittwm_remote_candidates | awk -F '\t' '$1 == "macos" { print "  "$2 }' | head -n "$limit"
         printf 'Linux desktop entries (first %s):\n' "$limit"
-        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { label=($3 != "" ? $3 : $2); detail=""; if ($9 != "") detail=$9; if ($6 != "") detail=(detail != "" ? detail"; "$6 : $6); if ($8 != "") detail=(detail != "" ? detail"; "$8 : $8); print "  "label" ("$2")"(detail != "" ? " — "detail : "") }' | head -n "$limit"
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { label=($3 != "" ? $3 : $2); detail=""; if ($9 != "") detail=$9; if ($6 != "") detail=(detail != "" ? detail"; "$6 : $6); if ($8 != "") detail=(detail != "" ? detail"; "$8 : $8); print "  "label" ("$2") — "$5(detail != "" ? " — "detail : "") }' | head -n "$limit"
         ;;
 esac
 "#
@@ -14067,6 +14067,7 @@ mod tests {
         assert!(script.contains("kittwm_remote_candidate_count"), "{script}");
         assert!(script.contains("detail=\"\""), "{script}");
         assert!(script.contains("if ($9 != \"\") detail=$9"), "{script}");
+        assert!(script.contains(") — \"$5"), "{script}");
         assert!(script.contains("detail\"; \""), "{script}");
     }
 
