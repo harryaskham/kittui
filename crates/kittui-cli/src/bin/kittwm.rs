@@ -1084,7 +1084,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|wm|list|apps|app|launch|open|run|windows|win|displays|monitors|screens|terminal|term|shell|sh|ssh|console|tty]
+  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|wm|list|apps|app|launch|open|run|windows|win|displays|monitors|screens|terminal|term|shell|sh|login|ssh|console|tty]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1514,6 +1514,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            structured remote app launch result or error\n\
              kittwm remote HOST shell      open a pooled SSH login shell pane\n\
              kittwm remote HOST sh         short alias for the same pooled SSH shell pane\n\
+             kittwm remote HOST login      natural alias for the same pooled SSH shell pane\n\
              kittwm remote HOST ssh        alias for the same pooled SSH shell pane\n\
              kittwm remote HOST console    natural alias for the same pooled SSH pane\n\
              kittwm remote HOST tty        short alias for the same pooled SSH pane\n\
@@ -1643,6 +1644,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST terminal CMD       open remote command in a pooled SSH pane\n\
              remote HOST term CMD           short alias for remote HOST terminal CMD\n\
              remote HOST sh CMD             shell-style alias for remote HOST terminal CMD\n\
+             remote HOST login CMD         login-shell alias for remote HOST terminal CMD\n\
              remote HOST console CMD        alias for remote HOST terminal CMD\n\
              remote HOST tty CMD            alias for remote HOST terminal CMD\n\
              apps --remote HOST             list remote candidates via pooled SSH\n\
@@ -1905,7 +1907,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
         "displays" | "display" | "monitors" | "monitor" | "screens" | "screen" => {
             parse_remote_listing_alias(out, RemoteListingKind::Displays, rest)
         }
-        "terminal" | "term" | "shell" | "sh" | "ssh" | "console" | "tty" => {
+        "terminal" | "term" | "shell" | "sh" | "login" | "ssh" | "console" | "tty" => {
             out.remote_terminal_args = Some(remote_terminal_alias_args(
                 out.remote_host.as_deref().unwrap_or("HOST"),
                 rest,
@@ -5098,6 +5100,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "short alias for a pooled SSH login shell pane",
         },
         LocalCommandEntry {
+            command: "remote HOST login",
+            category: "remote",
+            description: "natural alias for a pooled SSH login shell pane",
+        },
+        LocalCommandEntry {
             command: "remote HOST ssh",
             category: "remote",
             description: "alias for a pooled SSH login shell pane",
@@ -5116,6 +5123,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST sh CMD",
             category: "remote",
             description: "shell-style alias for remote terminal pane",
+        },
+        LocalCommandEntry {
+            command: "remote HOST login CMD",
+            category: "remote",
+            description: "login-shell alias for remote terminal pane",
         },
         LocalCommandEntry {
             command: "remote HOST console CMD",
@@ -11680,6 +11692,9 @@ mod tests {
             entry["command"] == "remote HOST sh CMD" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST login CMD" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST console CMD" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
@@ -12811,6 +12826,11 @@ mod tests {
         sh.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut sh, "sh", &args(&["htop"])).unwrap();
         assert_eq!(sh.remote_terminal_args, terminal.remote_terminal_args);
+
+        let mut login = Cli::default();
+        login.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut login, "login", &args(&["htop"])).unwrap();
+        assert_eq!(login.remote_terminal_args, terminal.remote_terminal_args);
 
         let mut console = Cli::default();
         console.remote_host = Some("buildbox".to_string());
