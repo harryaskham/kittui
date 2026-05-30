@@ -6319,8 +6319,10 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
     let chip_h = (cell_size.height_px.max(1) as f32 - 4.0).max(6.0);
     let chip_specs = [
         ("help", 1.0, 10.0),
-        ("terminal", 12.5, 14.0),
-        ("close", 28.0, 9.0),
+        ("focus", 12.5, 9.0),
+        ("state", 23.0, 9.0),
+        ("terminal", 33.5, 14.0),
+        ("close", 49.0, 9.0),
     ];
     let status_label = bounded_ellipsis(status_text, NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS);
     let mut layers = vec![Layer::new(
@@ -12054,6 +12056,23 @@ mod native_pane_tests {
         let label = native_footer_status_chip_label("help");
         assert_eq!(label, "status-chip-help");
         assert!(label.capacity() >= label.len());
+    }
+
+    #[test]
+    fn native_footer_status_scene_labels_focus_and_state_chips() {
+        let scene = native_footer_status_scene(
+            CellSize::new(8, 16),
+            80,
+            " mode:floating · panes:1 · focus:native-1 · state:sh · pid:101 · frame:clean",
+        );
+        let labels = scene
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(labels.contains(&"status-chip-help"), "{labels:?}");
+        assert!(labels.contains(&"status-chip-focus"), "{labels:?}");
+        assert!(labels.contains(&"status-chip-state"), "{labels:?}");
     }
 
     #[test]
