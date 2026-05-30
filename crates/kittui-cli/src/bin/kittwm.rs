@@ -9851,6 +9851,61 @@ fn join_desktop_metadata(primary: Option<String>, localized: Vec<String>) -> Str
     values.join(";")
 }
 
+fn desktop_environment_matches(field_values: &str) -> bool {
+    let current = [
+        std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
+        std::env::var("DESKTOP_SESSION").unwrap_or_default(),
+    ];
+    field_values
+        .split(';')
+        .filter(|value| !value.is_empty())
+        .any(|field| {
+            current.iter().any(|value| {
+                value
+                    .split([';', ':'])
+                    .filter(|value| !value.is_empty())
+                    .any(|value| value.eq_ignore_ascii_case(field))
+            })
+        })
+}
+
+fn desktop_try_exec_token(value: &str) -> Option<String> {
+    let mut chars = value.trim_start().chars().peekable();
+    let quote = matches!(chars.peek(), Some('\'' | '"')).then(|| chars.next().unwrap());
+    let mut token = String::new();
+    while let Some(ch) = chars.next() {
+        if Some(ch) == quote || quote.is_none() && ch.is_whitespace() {
+            break;
+        }
+        if ch == '\\' {
+            if let Some(next) = chars.next() {
+                token.push(next);
+            }
+        } else {
+            token.push(ch);
+        }
+    }
+    (!token.is_empty()).then_some(token)
+}
+
+fn desktop_try_exec_available(value: &str) -> bool {
+    let Some(token) = desktop_try_exec_token(value) else {
+        return false;
+    };
+    let path = std::path::Path::new(&token);
+    if path.components().count() > 1 || path.is_absolute() {
+        return path.is_file();
+    }
+    std::env::var_os("PATH")
+        .map(|paths| {
+            std::env::split_paths(&paths).any(|dir| {
+                let candidate = dir.join(&token);
+                candidate.is_file()
+            })
+        })
+        .unwrap_or(false)
+}
+
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<LinuxDesktopApp> {
     let mut in_desktop_entry = false;
@@ -9865,6 +9920,9 @@ fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<Linux
     let mut localized_keywords = Vec::<String>::new();
     let mut categories = None::<String>;
     let mut exec = None::<String>;
+    let mut only_show_in = None::<String>;
+    let mut not_show_in = None::<String>;
+    let mut try_exec = None::<String>;
     let mut hidden = false;
     let mut no_display = false;
     for raw in contents.lines() {
@@ -9891,6 +9949,9 @@ fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<Linux
             "Comment" => comment = Some(value.to_string()),
             "Keywords" => keywords = Some(value.to_string()),
             "Categories" => categories = Some(value.to_string()),
+            "OnlyShowIn" => only_show_in = Some(value.to_string()),
+            "NotShowIn" => not_show_in = Some(value.to_string()),
+            "TryExec" => try_exec = Some(value.to_string()),
             "Hidden" => hidden = value.eq_ignore_ascii_case("true"),
             "NoDisplay" => no_display = value.eq_ignore_ascii_case("true"),
             localized if localized.starts_with("GenericName[") => {
@@ -9909,6 +9970,15 @@ fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<Linux
         || no_display
         || ty.as_deref().is_some_and(|ty| ty != "Application")
         || exec.as_deref().unwrap_or("").is_empty()
+        || only_show_in
+            .as_deref()
+            .is_some_and(|value| !desktop_environment_matches(value))
+        || not_show_in
+            .as_deref()
+            .is_some_and(desktop_environment_matches)
+        || try_exec
+            .as_deref()
+            .is_some_and(|value| !desktop_try_exec_available(value))
     {
         return None;
     }
@@ -12831,6 +12901,33 @@ mod tests {
             "[Desktop Entry]\nType=Application\nName=Hidden\nExec=hidden\nNoDisplay=true\n",
         )
         .is_none());
+        assert!(parse_linux_desktop_app(
+            "wrong-desktop.desktop",
+            "/tmp/wrong-desktop.desktop",
+            "[Desktop Entry]\nType=Application\nName=Wrong Desktop\nExec=wrong\nOnlyShowIn=DefinitelyNoSuchDesktop;\n",
+        )
+        .is_none());
+        assert!(parse_linux_desktop_app(
+            "missing-tryexec.desktop",
+            "/tmp/missing-tryexec.desktop",
+            "[Desktop Entry]\nType=Application\nName=Missing TryExec\nExec=missing\nTryExec=definitely-no-such-kittwm-binary --flag\n",
+        )
+        .is_none());
+        let current_exe = std::env::current_exe().unwrap();
+        let quoted_try_exec = format!("'{}' --ignored", current_exe.display());
+        let app_with_try_exec = parse_linux_desktop_app(
+            "tryexec.desktop",
+            "/tmp/tryexec.desktop",
+            &format!(
+                "[Desktop Entry]\nType=Application\nName=TryExec App\nExec=tryexec\nTryExec={quoted_try_exec}\n"
+            ),
+        )
+        .unwrap();
+        assert_eq!(app_with_try_exec.label, "TryExec App");
+        assert_eq!(
+            desktop_try_exec_token("'quoted command' --flag").as_deref(),
+            Some("quoted command")
+        );
         let row = linux_desktop_app_row(&app);
         assert_eq!(
             row,
