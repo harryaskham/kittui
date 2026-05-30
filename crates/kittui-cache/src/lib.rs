@@ -25,6 +25,7 @@ mod eviction;
 mod lock;
 mod probe;
 
+use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -147,7 +148,7 @@ impl Cache {
     /// Whether the cache has all animation frames for `id`.
     pub fn contains_animation(&self, id: &SceneId, frames: u32) -> bool {
         let dir = self.frames_dir(id);
-        (0..frames).all(|i| dir.join(format!("{i}.png")).exists())
+        (0..frames).all(|i| dir.join(frame_file_name(u64::from(i))).exists())
     }
 
     /// Store a still raster atomically. Takes a per-key advisory lock
@@ -189,7 +190,7 @@ impl Cache {
         let dir = self.frames_dir(id);
         fs::create_dir_all(&dir)?;
         for (i, frame) in frames.iter().enumerate() {
-            atomic_write(&dir.join(format!("{i}.png")), frame)?;
+            atomic_write(&dir.join(frame_file_name(i as u64)), frame)?;
         }
         self.put_meta_locked(id, meta)?;
         self.maybe_evict()?;
@@ -202,7 +203,7 @@ impl Cache {
         let dir = self.frames_dir(id);
         touch(&dir).ok();
         (0..frames)
-            .map(|i| fs::read(dir.join(format!("{i}.png"))).map_err(CacheError::from))
+            .map(|i| fs::read(dir.join(frame_file_name(u64::from(i)))).map_err(CacheError::from))
             .collect()
     }
 
@@ -299,6 +300,21 @@ fn scene_artifact_name(id: &SceneId, suffix: &str) -> String {
     name
 }
 
+fn frame_file_name(frame: u64) -> String {
+    let mut name = String::with_capacity(decimal_len_u64(frame) + ".png".len());
+    write!(name, "{frame}.png").expect("write to string");
+    name
+}
+
+fn decimal_len_u64(mut value: u64) -> usize {
+    let mut digits = 1;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    digits
+}
+
 /// Default cache root, honouring `KITTUI_CACHE_DIR` and XDG conventions.
 pub fn default_cache_dir() -> PathBuf {
     if let Ok(override_dir) = std::env::var("KITTUI_CACHE_DIR") {
@@ -392,6 +408,19 @@ mod tests {
             kitty_image_id: 0x1234,
             loops: 0,
         }
+    }
+
+    #[test]
+    fn frame_file_name_builds_directly() {
+        let first = frame_file_name(0);
+        assert_eq!(first, "0.png");
+        assert_eq!(first.capacity(), first.len());
+        let later = frame_file_name(12345);
+        assert_eq!(later, "12345.png");
+        assert_eq!(later.capacity(), later.len());
+        assert_eq!(decimal_len_u64(0), 1);
+        assert_eq!(decimal_len_u64(9), 1);
+        assert_eq!(decimal_len_u64(10), 2);
     }
 
     #[test]
