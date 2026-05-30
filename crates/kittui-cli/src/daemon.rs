@@ -2446,6 +2446,19 @@ fn native_spawn_wait_output_json_reply(
     native_spawn_wait_reply(pending, rest, timeout, "WAIT_OUTPUT_JSON", true, true)
 }
 
+fn wait_match_reply(match_tag: &str, window: &str, bytes: usize) -> String {
+    let mut out = String::with_capacity(
+        match_tag.len() + " window= bytes=\n".len() + window.len() + usize_decimal_len(bytes),
+    );
+    out.push_str(match_tag);
+    out.push_str(" window=");
+    out.push_str(window);
+    out.push_str(" bytes=");
+    write!(out, "{bytes}").expect("write to string");
+    out.push('\n');
+    out
+}
+
 fn native_spawn_wait_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
@@ -2494,7 +2507,7 @@ fn native_spawn_wait_reply(
                     })
                 );
             }
-            return format!("{match_tag} window={window} bytes={}\n", text.len());
+            return wait_match_reply(match_tag, &window, text.len());
         }
         if Instant::now() >= deadline {
             return format!(
@@ -3655,6 +3668,13 @@ mod tests {
         let arg = space_pair_arg("focused", "second line");
         assert_eq!(arg, "focused second line");
         assert_eq!(arg.capacity(), arg.len());
+    }
+
+    #[test]
+    fn wait_match_reply_builds_directly() {
+        let reply = wait_match_reply("MATCH_TEXT", "native-2", 17);
+        assert_eq!(reply, "MATCH_TEXT window=native-2 bytes=17\n");
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
