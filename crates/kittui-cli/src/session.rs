@@ -1132,7 +1132,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             for pane in &mut panes {
                 pane.app.refresh_text_snapshot()?;
             }
-            let active_drag_label = native_active_drag_label(&floating_drag, &tiled_drag);
+            let active_drag_label =
+                native_active_drag_label(floating_drag.as_ref(), tiled_drag.as_ref());
             let pre_capture_shell_view = native_shell_view(
                 cols,
                 rows,
@@ -1143,7 +1144,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
                 &sock,
                 dbg.path_display(),
                 layout_mode.label(layout_axis),
-                active_drag_label.as_deref(),
+                active_drag_label,
                 help_overlay,
                 true,
             );
@@ -1401,7 +1402,8 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             &mut last_published_pane_statuses,
             native_pane_statuses(&panes, focused, &layouts, &floating_offsets, layout_mode),
         );
-        let active_drag_label = native_active_drag_label(&floating_drag, &tiled_drag);
+        let active_drag_label =
+            native_active_drag_label(floating_drag.as_ref(), tiled_drag.as_ref());
         let shell_view = native_shell_view(
             cols,
             rows,
@@ -1412,7 +1414,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             &sock,
             dbg.path_display(),
             layout_mode.label(layout_axis),
-            active_drag_label.as_deref(),
+            active_drag_label,
             help_overlay,
             false,
         );
@@ -1940,6 +1942,12 @@ struct NativeTiledDrag {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct NativeActiveDragLabel<'a> {
+    kind: &'static str,
+    window: &'a str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct NativePaneLayout {
     x: u16,
     y: u16,
@@ -2031,7 +2039,7 @@ fn native_shell_view(
     sock: &str,
     log_path: &str,
     layout_label: &str,
-    active_drag_label: Option<&str>,
+    active_drag_label: Option<NativeActiveDragLabel<'_>>,
     help_overlay: bool,
     include_text_snapshots: bool,
 ) -> NativeShellView {
@@ -2196,7 +2204,7 @@ fn native_status_line_text(
     panes: usize,
     layout_label: &str,
     focused_window: Option<&str>,
-    active_drag_label: Option<&str>,
+    active_drag_label: Option<NativeActiveDragLabel<'_>>,
     log_path: &str,
 ) -> String {
     if panes == 0 {
@@ -2206,10 +2214,8 @@ fn native_status_line_text(
         let mode = native_status_layout_label(layout_label);
         let pane_count = panes.to_string();
         let focused_window = native_status_focused_window_label(focused_window);
-        let active_drag_label = active_drag_label.map(native_status_drag_label);
         let active_drag_len = active_drag_label
-            .as_ref()
-            .map(|label| NATIVE_STATUS_LINE_DRAG_PREFIX.len() + label.len())
+            .map(|label| NATIVE_STATUS_LINE_DRAG_PREFIX.len() + label.bounded_len())
             .unwrap_or(0);
         let mut out = String::with_capacity(
             NATIVE_STATUS_LINE_PREFIX.len()
@@ -2229,9 +2235,9 @@ fn native_status_line_text(
         out.push_str(&pane_count);
         out.push_str(NATIVE_STATUS_LINE_FOCUS_PREFIX);
         out.push_str(&focused_window);
-        if let Some(active_drag_label) = active_drag_label.as_deref() {
+        if let Some(active_drag_label) = active_drag_label {
             out.push_str(NATIVE_STATUS_LINE_DRAG_PREFIX);
-            out.push_str(active_drag_label);
+            active_drag_label.push_bounded(&mut out);
         }
         out.push_str(NATIVE_STATUS_LINE_HINTS);
         out.push_str(NATIVE_STATUS_LINE_LOG_PREFIX);
@@ -2258,21 +2264,49 @@ fn native_status_focused_window_label(focused_window: Option<&str>) -> String {
         .unwrap_or_else(|| "-".to_string())
 }
 
-fn native_status_drag_label(active_drag_label: &str) -> String {
-    bounded_ellipsis(active_drag_label.trim(), NATIVE_STATUS_FOCUS_MAX_CHARS)
+impl NativeActiveDragLabel<'_> {
+    fn bounded_len(self) -> usize {
+        self.kind
+            .chars()
+            .chain(":".chars())
+            .chain(self.window.chars())
+            .take(NATIVE_STATUS_FOCUS_MAX_CHARS)
+            .count()
+    }
+
+    fn push_bounded(self, out: &mut String) {
+        let mut chars = self
+            .kind
+            .chars()
+            .chain(":".chars())
+            .chain(self.window.chars());
+        for _ in 0..NATIVE_STATUS_FOCUS_MAX_CHARS {
+            let Some(ch) = chars.next() else {
+                return;
+            };
+            out.push(ch);
+        }
+        if chars.next().is_some() {
+            out.pop();
+            out.push('…');
+        }
+    }
 }
 
-fn native_active_drag_label(
-    floating_drag: &Option<NativeFloatingDrag>,
-    tiled_drag: &Option<NativeTiledDrag>,
-) -> Option<String> {
+fn native_active_drag_label<'a>(
+    floating_drag: Option<&'a NativeFloatingDrag>,
+    tiled_drag: Option<&'a NativeTiledDrag>,
+) -> Option<NativeActiveDragLabel<'a>> {
     floating_drag
-        .as_ref()
-        .map(|drag| format!("move:{}", drag.window))
+        .map(|drag| NativeActiveDragLabel {
+            kind: "move",
+            window: drag.window.as_str(),
+        })
         .or_else(|| {
-            tiled_drag
-                .as_ref()
-                .map(|drag| format!("reorder:{}", drag.window))
+            tiled_drag.map(|drag| NativeActiveDragLabel {
+                kind: "reorder",
+                window: drag.window.as_str(),
+            })
         })
 }
 
@@ -8057,7 +8091,10 @@ mod native_pane_tests {
             1,
             "floating",
             Some("native-1"),
-            Some("move:native-1"),
+            Some(NativeActiveDragLabel {
+                kind: "move",
+                window: "native-1",
+            }),
             "/tmp/kittwm.log",
         );
         assert!(
@@ -12610,7 +12647,10 @@ mod native_pane_tests {
             "/tmp/kittwm.sock",
             "/tmp/kittwm.log",
             "columns",
-            Some("reorder:native-1"),
+            Some(NativeActiveDragLabel {
+                kind: "reorder",
+                window: "native-1",
+            }),
             false,
             false,
         );
