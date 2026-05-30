@@ -3759,7 +3759,7 @@ impl HeadlessBrowserApp {
             .cloned()
             .unwrap_or_else(|| json!({}));
         browser_semantic_snapshot_from_value(
-            format!("browser:{}", self.child.id()),
+            browser_surface_id(self.child.id()),
             self.title(),
             extracted,
         )
@@ -4266,6 +4266,13 @@ fn browser_semantic_action_script(
   return {{ok:false, error:'unsupported-action'}};
 }})()"#
     ))
+}
+
+fn browser_surface_id(pid: u32) -> String {
+    let mut id = String::with_capacity("browser:".len() + decimal_len(u64::from(pid)));
+    id.push_str("browser:");
+    write!(id, "{pid}").expect("write to string");
+    id
 }
 
 fn browser_semantic_snapshot_from_value(
@@ -6720,6 +6727,13 @@ mod tests {
             err.to_string().contains("Chrome exited before printing"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn browser_surface_id_builds_directly() {
+        let id = browser_surface_id(42);
+        assert_eq!(id, "browser:42");
+        assert_eq!(id.capacity(), id.len());
     }
 
     #[test]
