@@ -1806,6 +1806,25 @@ fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, jso
     }
 }
 
+fn send_text_queued_reply(prefix: &str, count: usize, window: &str, bytes: usize) -> String {
+    let mut out = String::with_capacity(
+        prefix.len()
+            + " command= window= bytes=\n".len()
+            + usize_decimal_len(count)
+            + window.len()
+            + usize_decimal_len(bytes),
+    );
+    out.push_str(prefix);
+    out.push_str(" command=");
+    write!(out, "{count}").expect("write to string");
+    out.push_str(" window=");
+    out.push_str(window);
+    out.push_str(" bytes=");
+    write!(out, "{bytes}").expect("write to string");
+    out.push('\n');
+    out
+}
+
 fn queue_native_send_text(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
@@ -1846,11 +1865,11 @@ fn queue_native_send_text(
             } else {
                 "SEND_TEXT_QUEUED"
             };
-            format!(
-                "{prefix} command={} window={} bytes={}\n",
+            send_text_queued_reply(
+                prefix,
                 state.pending.len(),
                 window,
-                text.len() + usize::from(newline)
+                text.len() + usize::from(newline),
             )
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
@@ -4096,6 +4115,16 @@ mod tests {
                 })
             ]
         );
+    }
+
+    #[test]
+    fn send_text_queued_reply_builds_directly() {
+        let reply = send_text_queued_reply("SEND_TEXT_QUEUED", 12, "focused", 5);
+        assert_eq!(
+            reply,
+            "SEND_TEXT_QUEUED command=12 window=focused bytes=5\n"
+        );
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
