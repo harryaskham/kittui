@@ -2222,6 +2222,7 @@ fn terminal_visible_width(x: u16, desired: u16, cols: u16) -> Option<usize> {
 
 const NATIVE_STATUS_LOG_PATH_MAX_CHARS: usize = 96;
 const NATIVE_STATUS_FOCUS_MAX_CHARS: usize = 48;
+const NATIVE_STATUS_STATE_MAX_CHARS: usize = 96;
 const NATIVE_STATUS_LINE_PREFIX: &str = " mode:";
 const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
 const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
@@ -2246,7 +2247,8 @@ fn native_status_line_text(
         let mode = native_status_layout_label(layout_label);
         let pane_count = panes.to_string();
         let focused_window = native_status_focused_window_label(focused_window);
-        let focused_status = focused_status.map(|status| bounded_ellipsis(status, 96));
+        let focused_status =
+            focused_status.map(|status| bounded_ellipsis(status, NATIVE_STATUS_STATE_MAX_CHARS));
         let focused_status_len = focused_status
             .as_ref()
             .map(|status| NATIVE_STATUS_LINE_STATE_PREFIX.len() + status.len())
@@ -8189,6 +8191,28 @@ mod native_pane_tests {
         let count_visible = native_footer_visible_text(&footer, 25);
         assert!(count_visible.contains("panes:1"), "{count_visible:?}");
         assert_eq!(native_footer_visible_text("short", 8), "short   ");
+
+        let huge_state = native_status_line_text(
+            1,
+            "floating",
+            Some("native-1"),
+            Some(&"state-".repeat(10_000)),
+            None,
+            "/tmp/kittwm.log",
+        );
+        let state_segment = huge_state
+            .split(NATIVE_STATUS_LINE_STATE_PREFIX)
+            .nth(1)
+            .unwrap()
+            .split(NATIVE_STATUS_LINE_HINTS)
+            .next()
+            .unwrap();
+        assert_eq!(state_segment.chars().count(), NATIVE_STATUS_STATE_MAX_CHARS);
+        assert!(state_segment.ends_with('…'), "{state_segment}");
+        assert!(
+            !huge_state.contains(&"state-".repeat(128)),
+            "{huge_state:?}"
+        );
 
         let mut pane = dummy_native_pane("native-1", "sh", 1);
         pane.display_title = Some("editor".to_string());
