@@ -567,18 +567,9 @@ fn encode_chunked_raw(
         let end = (offset + CHUNK).min(bytes.len());
         let more = if end < bytes.len() { 1 } else { 0 };
         let header = if offset == 0 {
-            format!(
-                "a=t,f={format},s={s},v={v},i={id},m={more}{compression}{q}",
-                format = format,
-                s = width,
-                v = height,
-                id = image_id,
-                more = more,
-                compression = compression.field(),
-                q = quiet.field(),
-            )
+            chunked_raw_header(image_id, format, width, height, more, compression, quiet)
         } else {
-            format!("m={more}", more = more)
+            chunk_continuation_header(more)
         };
         let body = std::str::from_utf8(&bytes[offset..end]).unwrap_or("");
         let payload = kitty_graphics_payload_with_body(&header, body);
@@ -586,6 +577,42 @@ fn encode_chunked_raw(
         offset = end;
     }
     out
+}
+
+fn chunked_raw_header(
+    image_id: u32,
+    format: u8,
+    width: u32,
+    height: u32,
+    more: u8,
+    compression: CompressionMode,
+    quiet: Quiet,
+) -> String {
+    let compression = compression.field();
+    let quiet = quiet.field();
+    let mut header = String::with_capacity(
+        "a=t,f=,s=,v=,i=,m=".len() + 3 + 10 + 10 + 20 + 1 + compression.len() + quiet.len(),
+    );
+    header.push_str("a=t,f=");
+    let _ = write!(header, "{format}");
+    header.push_str(",s=");
+    let _ = write!(header, "{width}");
+    header.push_str(",v=");
+    let _ = write!(header, "{height}");
+    header.push_str(",i=");
+    let _ = write!(header, "{image_id}");
+    header.push_str(",m=");
+    let _ = write!(header, "{more}");
+    header.push_str(compression);
+    header.push_str(quiet);
+    header
+}
+
+fn chunk_continuation_header(more: u8) -> String {
+    let mut header = String::with_capacity("m=".len() + 1);
+    header.push_str("m=");
+    let _ = write!(header, "{more}");
+    header
 }
 
 /// Playback state for a kitty animation control command (`a=a`).
@@ -1801,6 +1828,24 @@ mod tests {
             .decode(body)
             .unwrap();
         assert_eq!(decoded, rgb);
+    }
+
+    #[test]
+    fn chunked_raw_header_builds_directly() {
+        let header = chunked_raw_header(
+            0xABCD,
+            32,
+            2,
+            2,
+            0,
+            CompressionMode::None,
+            Quiet::SuppressAll,
+        );
+        assert_eq!(header, "a=t,f=32,s=2,v=2,i=43981,m=0,q=2");
+        assert!(header.capacity() >= header.len());
+        let continuation = chunk_continuation_header(1);
+        assert_eq!(continuation, "m=1");
+        assert!(continuation.capacity() >= continuation.len());
     }
 
     #[test]
