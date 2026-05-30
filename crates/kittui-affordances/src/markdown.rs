@@ -357,7 +357,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                             text: text.clone(),
                         });
                         out.components.push(textbox(
-                            format!("footnote [^{label}]: {text}"),
+                            footnote_definition_text(&label, &text),
                             width_cells,
                             Tone::Tool,
                         ));
@@ -813,6 +813,15 @@ fn flush_list_item(
     ));
 }
 
+fn footnote_definition_text(label: &str, text: &str) -> String {
+    let mut definition = String::with_capacity("footnote [^]: ".len() + label.len() + text.len());
+    definition.push_str("footnote [^");
+    definition.push_str(label);
+    definition.push_str("]: ");
+    definition.push_str(text);
+    definition
+}
+
 fn definition_block_text(term: &str, definition: &str) -> String {
     let mut text = String::with_capacity("definition: \n: ".len() + term.len() + definition.len());
     text.push_str("definition: ");
@@ -958,6 +967,13 @@ mod tests {
                 MarkdownTableAlignment::Right,
             ]
         );
+    }
+
+    #[test]
+    fn footnote_definition_text_builds_directly() {
+        let text = footnote_definition_text("note", "details here");
+        assert_eq!(text, "footnote [^note]: details here");
+        assert!(text.capacity() >= text.len());
     }
 
     #[test]
