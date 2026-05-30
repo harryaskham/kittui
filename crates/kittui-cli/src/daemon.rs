@@ -5255,6 +5255,21 @@ mod tests {
     }
 
     #[test]
+    fn apps_first_replies_build_directly() {
+        let m = apps_first_match_reply("path", "htop");
+        assert_eq!(m, "APPS_FIRST kind=path name=htop\n");
+        assert_eq!(m.capacity(), m.len());
+
+        let l = apps_launch_first_reply(4321, "macos", "Safari");
+        assert_eq!(l, "APPS_LAUNCH_FIRST pid=4321 kind=macos name=Safari\n");
+        assert_eq!(l.capacity(), l.len());
+
+        let e = apps_launch_error_reply("path", "htop", "No such file");
+        assert_eq!(e, "ERR launch path:htop: No such file\n");
+        assert_eq!(e.capacity(), e.len());
+    }
+
+    #[test]
     fn semantic_success_replies_build_directly() {
         let action = semantic_action_applied_reply("native-1", " settings.notify ", " toggle ");
         assert_eq!(
@@ -6510,18 +6525,52 @@ fn apps_first_reply(query: &str, launch: bool) -> String {
     };
     if launch {
         match launch_app_candidate(&candidate) {
-            Ok(pid) => format!(
-                "APPS_LAUNCH_FIRST pid={} kind={} name={}\n",
-                pid, candidate.kind, candidate.name
-            ),
-            Err(e) => format!("ERR launch {}:{}: {e}\n", candidate.kind, candidate.name),
+            Ok(pid) => apps_launch_first_reply(pid, candidate.kind, &candidate.name),
+            Err(e) => apps_launch_error_reply(candidate.kind, &candidate.name, &e.to_string()),
         }
     } else {
-        format!(
-            "APPS_FIRST kind={} name={}\n",
-            candidate.kind, candidate.name
-        )
+        apps_first_match_reply(candidate.kind, &candidate.name)
     }
+}
+
+fn apps_first_match_reply(kind: &str, name: &str) -> String {
+    let mut out = String::with_capacity("APPS_FIRST kind= name=\n".len() + kind.len() + name.len());
+    out.push_str("APPS_FIRST kind=");
+    out.push_str(kind);
+    out.push_str(" name=");
+    out.push_str(name);
+    out.push('\n');
+    out
+}
+
+fn apps_launch_first_reply(pid: u32, kind: &str, name: &str) -> String {
+    let mut out = String::with_capacity(
+        "APPS_LAUNCH_FIRST pid= kind= name=\n".len()
+            + u32_decimal_len(pid)
+            + kind.len()
+            + name.len(),
+    );
+    out.push_str("APPS_LAUNCH_FIRST pid=");
+    write!(out, "{pid}").expect("write to string");
+    out.push_str(" kind=");
+    out.push_str(kind);
+    out.push_str(" name=");
+    out.push_str(name);
+    out.push('\n');
+    out
+}
+
+fn apps_launch_error_reply(kind: &str, name: &str, err: &str) -> String {
+    let mut out =
+        String::with_capacity("ERR launch :: \n".len() + kind.len() + name.len() + err.len());
+    out.push_str("ERR launch ");
+    out.push_str(kind);
+    out.push(':');
+    out.push_str(name);
+    out.push_str(": ");
+    out.push_str(err);
+    out.push('\n');
+    out
 }
 
 fn first_app_candidate(path_cmds: &[String], mac_apps: &[String]) -> Option<AppCandidate> {
