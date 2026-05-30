@@ -8069,7 +8069,7 @@ mod native_pane_tests {
 
     #[test]
     fn raw_compositor_footer_refresh_defaults_to_state_changes_only() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_FOOTER_REFRESH_FRAMES");
         assert_eq!(raw_compositor_footer_refresh_interval(), 0);
         assert!(should_write_compositor_footer("old", "new", 30, 0));
@@ -8745,7 +8745,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_renderer_defaults_to_terminal_inside_tmux_unless_overridden() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_NATIVE_RENDERER");
         std::env::remove_var("TMUX");
         assert!(!native_should_use_pure_terminal_renderer());
@@ -8761,7 +8761,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_terminal_command_honors_config_env_precedence() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_TERMINAL_CMD");
         std::env::remove_var("KITTWM_TERMINAL_BINARY");
         std::env::set_var("SHELL", "/bin/test-shell");
@@ -8784,7 +8784,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_terminal_backend_selects_libghostty_from_env() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_TERMINAL_BACKEND");
         std::env::remove_var("KITTWM_TERMINAL_APP");
         let mut config = KittwmConfig::default();
@@ -8811,7 +8811,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_startup_terminal_is_opt_in() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_STARTUP_TERMINAL");
         assert!(!native_startup_terminal_enabled());
         std::env::set_var("KITTWM_STARTUP_TERMINAL", "1");
@@ -8839,7 +8839,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_chrome_colors_follow_kittwm_config() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let root = std::env::temp_dir().join(native_theme_test_temp_dir_name(std::process::id()));
         let cfg_dir = root.join("kittwm");
         std::fs::create_dir_all(&cfg_dir).unwrap();
@@ -8849,7 +8849,11 @@ mod native_pane_tests {
         )
         .unwrap();
         std::env::set_var("XDG_CONFIG_HOME", &root);
-        let colors = native_glass_chrome_colors();
+        // Use the uncached resolver: native_glass_chrome_colors() memoizes into a
+        // process-global OnceLock, so whichever test calls it first wins the cache
+        // and this assertion would be order-dependent. The resolver performs the
+        // same config-driven resolution deterministically.
+        let colors = resolve_native_glass_chrome_colors();
         assert_eq!(colors.fill, Rgba(0x11, 0x22, 0x33, 128));
         assert_eq!(colors.border, Rgba(0xab, 0xcd, 0xef, 255));
         std::env::remove_var("XDG_CONFIG_HOME");
@@ -8858,7 +8862,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_chrome_renderer_selector_defaults_to_kittui_graphics() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
         assert!(native_should_use_affordance_scene_chrome());
         std::env::set_var("KITTWM_NATIVE_CHROME_RENDERER", "affordance-scene");
@@ -8874,7 +8878,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_dirty_frame_policy_skips_identical_frames_by_default() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_DIRTY_FRAMES");
         let rgba = vec![0u8; 4 * 4 * 4];
         let mut enabled = NativeDirtyFramePolicy::from_env();
@@ -8918,7 +8922,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_dirty_frame_policy_forget_forces_reused_id_upload() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_DIRTY_FRAMES");
         let rgba = vec![0u8; 4 * 4 * 4];
         let mut policy = NativeDirtyFramePolicy::from_env();
@@ -8930,7 +8934,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_dirty_frame_policy_can_force_every_upload() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("KITTWM_DIRTY_FRAMES", "always-upload");
         let rgba = vec![0u8; 4 * 4 * 4];
         let mut disabled = NativeDirtyFramePolicy::from_env();
@@ -8988,19 +8992,34 @@ mod native_pane_tests {
 
     #[test]
     fn fit_rgba_frame_to_cells_crops_and_pads_without_scaling() {
+        // Pin base (non-HiDPI) cell size so this crop/pad test is deterministic
+        // regardless of the ambient KITTWM_HIDPI default (2x) or host snapshot.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        std::env::set_var("KITTWM_HIDPI", "0");
+        std::env::remove_var("KITTWM_NATIVE_CELL_WIDTH_PX");
+        std::env::remove_var("KITTWM_NATIVE_CELL_HEIGHT_PX");
+
         let red = [0xff, 0x00, 0x00, 0xff];
         let green = [0x00, 0xff, 0x00, 0xff];
         let oversized = [red, green].concat();
         let (cropped, width, height) = fit_rgba_frame_to_cells(oversized, 2, 1, 1, 1);
-        assert_eq!((width, height), (8, 16));
+        assert_eq!(
+            (width, height),
+            (NATIVE_BASE_CELL_WIDTH_PX, NATIVE_BASE_CELL_HEIGHT_PX)
+        );
         assert_eq!(&cropped[..4], &red);
         assert_eq!(&cropped[4..8], &green);
 
         let (padded, width, height) =
             fit_rgba_frame_to_cells(vec![0xaa, 0xbb, 0xcc, 0xff], 1, 1, 1, 1);
-        assert_eq!((width, height), (8, 16));
+        assert_eq!(
+            (width, height),
+            (NATIVE_BASE_CELL_WIDTH_PX, NATIVE_BASE_CELL_HEIGHT_PX)
+        );
         assert_eq!(&padded[..4], &[0xaa, 0xbb, 0xcc, 0xff]);
         assert_eq!(&padded[4..8], &NATIVE_FRAME_BG_RGBA);
+
+        std::env::remove_var("KITTWM_HIDPI");
     }
 
     #[test]
@@ -11663,7 +11682,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_live_top_bar_defaults_to_kittui_bar_scene_metadata() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_NATIVE_CHROME_RENDERER");
         assert!(native_should_use_affordance_scene_chrome());
         let view = NativeShellView {
@@ -12602,6 +12621,10 @@ mod native_pane_tests {
 
     #[test]
     fn native_top_bar_scene_marks_empty_workspace() {
+        // native_top_bar_scene reads KITTWM_WORKSPACE for the active chip; pin it
+        // under ENV_LOCK so this test is not raced by sibling tests that set it.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        std::env::remove_var("KITTWM_WORKSPACE");
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
                 row: 0,
@@ -12631,11 +12654,12 @@ mod native_pane_tests {
             .as_deref()
             .unwrap_or_default()
             .contains("workspace-chip:1:active")));
+        std::env::remove_var("KITTWM_WORKSPACE");
     }
 
     #[test]
     fn native_top_bar_scene_uses_workspace_label_env_for_active_chip() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("KITTWM_WORKSPACE", "2");
         let view = NativeShellView {
             top_bar: NativeTopBarChrome {
@@ -12660,7 +12684,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_top_bar_uses_workspace_label_env() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("KITTWM_WORKSPACE", "dev");
         let text = native_top_bar_text(1, 0, "/tmp/kittwm.sock", 40);
         assert!(text.contains("|[dev]|"), "{text}");
@@ -13551,7 +13575,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_graphics_cell_size_defines_pixel_density_contract() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_HIDPI");
         std::env::remove_var("KITTWM_NATIVE_CELL_WIDTH_PX");
         std::env::remove_var("KITTWM_NATIVE_CELL_HEIGHT_PX");
@@ -13589,7 +13613,7 @@ mod native_pane_tests {
 
     #[test]
     fn native_hidpi_and_pixel_gap_env_are_configurable() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("KITTWM_HIDPI", "0");
         std::env::remove_var("KITTWM_NATIVE_CELL_WIDTH_PX");
         std::env::remove_var("KITTWM_NATIVE_CELL_HEIGHT_PX");
@@ -17451,14 +17475,14 @@ mod launcher_tests {
 
     #[test]
     fn launcher_command_defaults_to_xterm() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::remove_var("KITTWM_LAUNCH_CMD");
         assert_eq!(super::launcher_command(), "xterm");
     }
 
     #[test]
     fn launcher_command_honors_env_override() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("KITTWM_LAUNCH_CMD", "/bin/sleep 1");
         assert_eq!(super::launcher_command(), "/bin/sleep 1");
         std::env::remove_var("KITTWM_LAUNCH_CMD");
@@ -17678,7 +17702,7 @@ mod workspace_state_tests {
             "workspace.switch.7 -> 7/7"
         );
         assert_eq!(ws.active_label(), "7");
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         publish_workspace_label_for_status(&ws.active_label());
         assert_eq!(std::env::var("KITTWM_WORKSPACE").as_deref(), Ok("7"));
         std::env::remove_var("KITTWM_WORKSPACE");
@@ -17892,7 +17916,7 @@ mod launcher_query_tests {
 
     #[test]
     fn launcher_selection_uses_path_query_before_shell_fallback() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         std::env::set_var("KITTUI_WM_LAUNCH_QUERY", "echo");
         let sel = super::launcher_selection();
         std::env::remove_var("KITTUI_WM_LAUNCH_QUERY");
@@ -18087,7 +18111,7 @@ mod launcher_overlay_tests {
 
     #[test]
     fn first_launcher_candidate_matches_path_case_insensitively_without_candidate_lowercase() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = std::env::temp_dir().join(launcher_path_test_temp_dir_name(std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let cmd = dir.join("NeedleTool");
