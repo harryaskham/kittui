@@ -2046,6 +2046,7 @@ fn native_shell_view(
                 is_focused,
                 native_title_drag_affordance_enabled(layout_label),
                 native_title_reorder_affordance_enabled(layout_label),
+                native_title_fullscreen_affordance_enabled(layout_label),
                 idx + 1 == panes.len(),
                 floating_moved,
             );
@@ -5308,6 +5309,7 @@ const NATIVE_FLOATING_PANE_MOVED_MARKER: &str = "●";
 const NATIVE_FLOATING_PANE_NOT_MOVED_MARKER: &str = " ";
 const NATIVE_TILED_PANE_REORDER_MARKER: &str = "⇄";
 const NATIVE_RESIZED_TILED_PANE_MARKER: &str = "↔";
+const NATIVE_FULLSCREEN_PANE_MARKER: &str = "▣";
 
 fn native_title_drag_affordance_enabled(layout_label: &str) -> bool {
     layout_label.trim().eq_ignore_ascii_case("floating")
@@ -5321,12 +5323,17 @@ fn native_title_reorder_affordance_enabled(layout_label: &str) -> bool {
         || label.eq_ignore_ascii_case("tiled")
 }
 
+fn native_title_fullscreen_affordance_enabled(layout_label: &str) -> bool {
+    layout_label.trim().eq_ignore_ascii_case("fullscreen")
+}
+
 fn native_pane_title_text(
     pane: &NativePane,
     layout: NativePaneLayout,
     focused: bool,
     drag_affordance: bool,
     reorder_affordance: bool,
+    fullscreen_affordance: bool,
     stack_top: bool,
     floating_moved: bool,
 ) -> String {
@@ -5350,6 +5357,9 @@ fn native_pane_title_text(
             width,
             NATIVE_TILED_PANE_REORDER_MARKER,
         );
+    }
+    if fullscreen_affordance {
+        native_pane_title_push(&mut out, &mut count, width, NATIVE_FULLSCREEN_PANE_MARKER);
     }
     if !drag_affordance && pane.weight > 1 {
         native_pane_title_push(
@@ -10513,6 +10523,7 @@ mod native_pane_tests {
             true,
             false,
             false,
+            false,
             true,
             false,
         );
@@ -10536,6 +10547,7 @@ mod native_pane_tests {
             true,
             false,
             true,
+            false,
             true,
             false,
         );
@@ -10558,6 +10570,7 @@ mod native_pane_tests {
             true,
             false,
             true,
+            false,
             true,
             false,
         );
@@ -10579,6 +10592,7 @@ mod native_pane_tests {
                 true,
                 false,
                 false,
+                false,
                 true,
                 false,
             ),
@@ -10586,6 +10600,28 @@ mod native_pane_tests {
         );
 
         pane.weight = 1;
+        let fullscreen_text = native_pane_title_text(
+            &pane,
+            NativePaneLayout {
+                x: 0,
+                y: 0,
+                cols: 16,
+                rows: 4,
+                app_x: 0,
+                app_y: 1,
+                app_cols: 16,
+                app_rows: 3,
+            },
+            true,
+            false,
+            false,
+            true,
+            true,
+            false,
+        );
+        assert_eq!(fullscreen_text, "▶▣ native-1 titl");
+        assert_eq!(fullscreen_text.chars().count(), 16);
+
         let floating_text = native_pane_title_text(
             &pane,
             NativePaneLayout {
@@ -10600,6 +10636,7 @@ mod native_pane_tests {
             },
             true,
             true,
+            false,
             false,
             true,
             true,
@@ -10623,6 +10660,7 @@ mod native_pane_tests {
             false,
             false,
             false,
+            false,
         );
         assert_eq!(lower_floating_text, "▶≡   native-1 ti");
         assert!(native_title_drag_affordance_enabled("floating"));
@@ -10632,6 +10670,8 @@ mod native_pane_tests {
         assert!(native_title_reorder_affordance_enabled(" grid "));
         assert!(native_title_reorder_affordance_enabled("TILED"));
         assert!(!native_title_reorder_affordance_enabled("floating"));
+        assert!(native_title_fullscreen_affordance_enabled(" fullscreen "));
+        assert!(!native_title_fullscreen_affordance_enabled("rows"));
     }
 
     #[test]
