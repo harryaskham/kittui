@@ -1470,6 +1470,7 @@ pub mod multi {
     use kittui_xvfb::{XButton, XCapture, XError, XPointerEvent, XServer, XWindow, XWindowId};
     use parking_lot::Mutex;
     use std::collections::HashMap;
+    use std::fmt::Write as FmtWrite;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
@@ -1659,17 +1660,34 @@ pub mod multi {
                                 slot.captures.lock().insert(w.id, cap);
                             }
                             Err(e) => {
-                                *slot.last_err.lock() = Some(format!("capture {:?}: {e}", w.id));
+                                *slot.last_err.lock() = Some(pump_capture_error(w.id, &e));
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    *slot.last_err.lock() = Some(format!("windows: {e}"));
+                    *slot.last_err.lock() = Some(pump_windows_error(&e));
                 }
             }
             std::thread::sleep(tick);
         }
+    }
+
+    fn pump_capture_error(id: XWindowId, err: &XError) -> String {
+        let mut message =
+            String::with_capacity("capture XWindowId(): ".len() + 10 + err.to_string().len());
+        message.push_str("capture ");
+        let _ = write!(message, "{id:?}");
+        message.push_str(": ");
+        let _ = write!(message, "{err}");
+        message
+    }
+
+    fn pump_windows_error(err: &XError) -> String {
+        let mut message = String::with_capacity("windows: ".len() + err.to_string().len());
+        message.push_str("windows: ");
+        let _ = write!(message, "{err}");
+        message
     }
 
     /// Multi-backend compositor. Cheap to clone (interior mutability).
@@ -2016,6 +2034,16 @@ pub mod multi {
         fn multi_compositor_overlay_fill_uses_shared_inline_tokens() {
             let colors = InlineChipColors::resolve(InlineTheme::Nord, InlineStyle::Metal);
             assert_eq!(compositor_overlay_fill(), colors.fill);
+        }
+
+        #[test]
+        fn pump_error_labels_build_directly() {
+            let capture = pump_capture_error(XWindowId(7), &XError::Unavailable("lost".into()));
+            assert_eq!(capture, "capture XWindowId(7): X backend unavailable: lost");
+            assert!(capture.capacity() >= capture.len());
+            let windows = pump_windows_error(&XError::Unavailable("offline".into()));
+            assert_eq!(windows, "windows: X backend unavailable: offline");
+            assert!(windows.capacity() >= windows.len());
         }
 
         #[test]
