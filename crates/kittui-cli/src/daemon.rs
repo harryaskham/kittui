@@ -2319,19 +2319,16 @@ fn native_spawn_status_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -
         .map(|pane| pane.window.as_str())
         .unwrap_or("-");
     let focused_pane = state.panes.iter().find(|pane| pane.focused).cloned();
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "pending": state.pending.len(),
-            "panes": state.panes.len(),
-            "focus": focused,
-            "layout": state.layout.as_deref().unwrap_or("-"),
-            "workspace": native_workspace_id_for_state(&state),
-            "chrome": native_chrome_status_value(&state),
-            "focused_pane": focused_pane,
-            "panes_detail": state.panes,
-        })
-    )
+    json_value_line(&serde_json::json!({
+        "pending": state.pending.len(),
+        "panes": state.panes.len(),
+        "focus": focused,
+        "layout": state.layout.as_deref().unwrap_or("-"),
+        "workspace": native_workspace_id_for_state(&state),
+        "chrome": native_chrome_status_value(&state),
+        "focused_pane": focused_pane,
+        "panes_detail": state.panes,
+    }))
 }
 
 fn json_value_line(value: &serde_json::Value) -> String {
