@@ -1709,6 +1709,16 @@ fn restore_session_queued_reply(count: usize) -> String {
     out
 }
 
+fn restore_session_missing_command_reply(idx: usize) -> String {
+    let mut out = String::with_capacity(
+        "ERR RESTORE_SESSION_JSON pane  missing command\n".len() + usize_decimal_len(idx),
+    );
+    out.push_str("ERR RESTORE_SESSION_JSON pane ");
+    write!(out, "{idx}").expect("write to string");
+    out.push_str(" missing command\n");
+    out
+}
+
 fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, json: &str) -> String {
     let json = json.trim();
     if json.is_empty() {
@@ -1737,7 +1747,7 @@ fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, jso
             .unwrap_or("")
             .trim();
         if command.is_empty() {
-            return format!("ERR RESTORE_SESSION_JSON pane {idx} missing command\n");
+            return restore_session_missing_command_reply(idx);
         }
         let weight = item
             .get("weight")
@@ -3591,6 +3601,13 @@ mod tests {
     fn restore_session_queued_reply_builds_directly() {
         let reply = restore_session_queued_reply(12);
         assert_eq!(reply, "RESTORE_SESSION_QUEUED command=12\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn restore_session_missing_command_reply_builds_directly() {
+        let reply = restore_session_missing_command_reply(12);
+        assert_eq!(reply, "ERR RESTORE_SESSION_JSON pane 12 missing command\n");
         assert_eq!(reply.capacity(), reply.len());
     }
 
