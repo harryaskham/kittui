@@ -8585,7 +8585,40 @@ fn shell_quote(value: &str) -> String {
 }
 
 fn remote_apps_script() -> &'static str {
-    r#"if command -v kittwm >/dev/null 2>&1; then
+    r#"host=$(hostname 2>/dev/null || printf unknown)
+json_escape() {
+    awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
+}
+json_option() {
+    value=$1
+    if [ -n "$value" ]; then
+        printf '%s' "$value" | json_escape
+    else
+        printf 'null'
+    fi
+}
+kittwm_remote_json_mode() {
+    case "${KITTWM_REMOTE_MODE:-list}" in
+        json|first-json|launch-first-json) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+kittwm_remote_emit_kittwm_output() {
+    if kittwm_remote_json_mode; then
+        while IFS= read -r line; do
+            case "$line" in
+                \{*)
+                    rest=${line#\{}
+                    printf '{"host":%s,"source":"kittwm",%s\n' "$(printf '%s' "$host" | json_escape)" "$rest"
+                    ;;
+                *) printf '%s\n' "$line" ;;
+            esac
+        done
+    else
+        cat
+    fi
+}
+if command -v kittwm >/dev/null 2>&1; then
     set -- apps --limit "${KITTWM_REMOTE_LIMIT:-50}"
     if [ -n "${KITTWM_REMOTE_QUERY:-}" ]; then set -- "$@" --filter "$KITTWM_REMOTE_QUERY"; fi
     case "${KITTWM_REMOTE_MODE:-list}" in
@@ -8601,7 +8634,7 @@ fn remote_apps_script() -> &'static str {
         kittwm_status=$?
         if [ $kittwm_status -eq 0 ]; then
             rm -f "$kittwm_err"
-            printf '%s\n' "$kittwm_out"
+            printf '%s\n' "$kittwm_out" | kittwm_remote_emit_kittwm_output
             exit 0
         fi
         cat "$kittwm_err" >&2
@@ -8610,7 +8643,7 @@ fn remote_apps_script() -> &'static str {
         kittwm_out=$(kittwm "$@" 2>&1)
         kittwm_status=$?
         if [ $kittwm_status -eq 0 ]; then
-            printf '%s\n' "$kittwm_out"
+            printf '%s\n' "$kittwm_out" | kittwm_remote_emit_kittwm_output
             exit 0
         fi
         printf '%s\n' "$kittwm_out" >&2
@@ -8719,7 +8752,7 @@ kittwm_remote_launch_error() {
     message=$2
     hint=${3:-}
     if [ "$mode" = "launch-first-json" ]; then
-        printf '{"host":%s,"mode":"launch-first","filter":%s,"error":%s,"message":%s,"hint":%s}
+        printf '{"host":%s,"source":"fallback","mode":"launch-first","filter":%s,"error":%s,"message":%s,"hint":%s}
 ' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")" "$(printf '%s' "$code" | json_escape)" "$(printf '%s' "$message" | json_escape)" "$(printf '%s' "$hint" | json_escape)"
     elif [ -n "$hint" ]; then
         printf 'ERR %s; %s
@@ -8735,7 +8768,7 @@ case "$mode" in
         macos_count=$(kittwm_remote_candidate_count macos)
         linux_desktop_count=$(kittwm_remote_candidate_count desktop)
         total_count=$((path_count + macos_count + linux_desktop_count))
-        printf '{"host":%s,"mode":"shell-path-macos-linux-desktop","filter":%s,"limit":%s,"path_commands":[' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")" "$limit"
+        printf '{"host":%s,"source":"fallback","mode":"shell-path-macos-linux-desktop","filter":%s,"limit":%s,"path_commands":[' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")" "$limit"
         first=1
         kittwm_remote_candidates | awk -F '\t' '$1 == "path" { print $2 }' | head -n "$limit" | while IFS= read -r cmd; do
             [ $first -eq 1 ] || printf ','
@@ -8804,7 +8837,7 @@ case "$mode" in
         candidate=$(kittwm_remote_candidates | head -n 1)
         [ -n "$candidate" ] || {
             if [ "$mode" = "first-json" ]; then
-                printf '{"host":%s,"mode":"first","filter":%s,"error":"no_candidates","message":"no remote app candidates matched"}\n' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")"
+                printf '{"host":%s,"source":"fallback","mode":"first","filter":%s,"error":"no_candidates","message":"no remote app candidates matched"}\n' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")"
             else
                 echo "ERR no remote app candidates matched"
             fi
@@ -8815,7 +8848,7 @@ case "$mode" in
         label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
         desktop_file=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $5}')
         if [ "$mode" = "first-json" ]; then
-            printf '{"host":%s,"mode":"first","filter":%s,"kind":%s,"candidate":%s,"name":%s,"desktop_file":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$name" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(json_option "$desktop_file")"
+            printf '{"host":%s,"source":"fallback","mode":"first","filter":%s,"kind":%s,"candidate":%s,"name":%s,"desktop_file":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$name" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(json_option "$desktop_file")"
         else
             printf '%s:%s\n' "$kind" "$label"
         fi
@@ -8870,7 +8903,7 @@ case "$mode" in
             launch_method="path"
         fi
         if [ "$mode" = "launch-first-json" ]; then
-            printf '{"host":%s,"mode":"launch-first","filter":%s,"kind":%s,"method":%s,"candidate":%s,"name":%s,"desktop_file":%s,"pid":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$launch_method" | json_escape)" "$(printf '%s' "$name" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(json_option "$desktop_file")" "$(printf '%s' "$launch_pid" | json_escape)"
+            printf '{"host":%s,"source":"fallback","mode":"launch-first","filter":%s,"kind":%s,"method":%s,"candidate":%s,"name":%s,"desktop_file":%s,"pid":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$launch_method" | json_escape)" "$(printf '%s' "$name" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(json_option "$desktop_file")" "$(printf '%s' "$launch_pid" | json_escape)"
         else
             printf 'kittwm remote apps: launched pid=%s kind=%s method=%s name=%s host=%s\n' "$launch_pid" "$kind" "$launch_method" "$label" "$host"
         fi
@@ -12903,6 +12936,11 @@ mod tests {
         assert!(script.contains("command -v kittwm"), "{script}");
         assert!(script.contains("kittwm_status"), "{script}");
         assert!(
+            script.contains("kittwm_remote_emit_kittwm_output"),
+            "{script}"
+        );
+        assert!(script.contains("\"source\":\"kittwm\""), "{script}");
+        assert!(
             script.contains("WARN remote kittwm apps failed; falling back"),
             "{script}"
         );
@@ -12999,6 +13037,7 @@ mod tests {
             "{script}"
         );
         assert!(script.contains("\"filter\":"), "{script}");
+        assert!(script.contains("\"source\":\"fallback\""), "{script}");
         assert!(script.contains("\"limit\":"), "{script}");
         assert!(script.contains("\"macos_apps\":"), "{script}");
         assert!(script.contains("\"linux_desktop_ids\":"), "{script}");
