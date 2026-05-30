@@ -5856,16 +5856,13 @@ fn daemon_status_json_reply(started: Instant, path: &Path, panes: &SharedPanes) 
     let Ok(registry) = panes.lock() else {
         return "{\"error\":\"PANES registry poisoned\"}\n".to_string();
     };
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "pid": std::process::id(),
-            "uptime_s": started.elapsed().as_secs(),
-            "sock": path.display().to_string(),
-            "panes": registry.panes.len(),
-            "focus": registry.focused.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
-        })
-    )
+    json_value_line(&serde_json::json!({
+        "pid": std::process::id(),
+        "uptime_s": started.elapsed().as_secs(),
+        "sock": path.display().to_string(),
+        "panes": registry.panes.len(),
+        "focus": registry.focused.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
+    }))
 }
 
 fn panes_reply(panes: &SharedPanes) -> String {
