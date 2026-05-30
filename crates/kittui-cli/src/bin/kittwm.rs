@@ -8648,6 +8648,21 @@ kittwm_remote_candidate_count() {
 limit=${KITTWM_REMOTE_LIMIT:-50}
 mode=${KITTWM_REMOTE_MODE:-list}
 host=$(hostname 2>/dev/null || printf unknown)
+kittwm_remote_launch_error() {
+    code=$1
+    message=$2
+    hint=${3:-}
+    if [ "$mode" = "launch-first-json" ]; then
+        printf '{"host":%s,"mode":"launch-first","filter":%s,"error":%s,"message":%s,"hint":%s}
+' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)" "$(printf '%s' "$code" | json_escape)" "$(printf '%s' "$message" | json_escape)" "$(printf '%s' "$hint" | json_escape)"
+    elif [ -n "$hint" ]; then
+        printf 'ERR %s; %s
+' "$message" "$hint"
+    else
+        printf 'ERR %s
+' "$message"
+    fi
+}
 case "$mode" in
     json)
         path_count=$(kittwm_remote_candidate_count path)
@@ -8729,7 +8744,7 @@ case "$mode" in
         ;;
     launch-first|launch-first-json)
         candidate=$(kittwm_remote_candidates | head -n 1)
-        [ -n "$candidate" ] || { echo "ERR no remote app candidates matched"; exit 1; }
+        [ -n "$candidate" ] || { kittwm_remote_launch_error no_candidates "no remote app candidates matched"; exit 1; }
         kind=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $1}')
         name=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
         label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
@@ -8743,7 +8758,7 @@ case "$mode" in
             launch_method="open"
         elif [ "$kind" = "desktop" ]; then
             if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
-                echo "ERR no remote graphical display is available for Linux desktop launch; try: kittwm remote $host graphical (checks X11 forwarding and waypipe)"; exit 1
+                kittwm_remote_launch_error no_graphical_display "no remote graphical display is available for Linux desktop launch" "try: kittwm remote $host graphical (checks X11 forwarding and waypipe)"; exit 1
             fi
             if command -v gtk-launch >/dev/null 2>&1; then
                 gtk-launch "$name" >/dev/null 2>&1 &
@@ -8769,7 +8784,7 @@ case "$mode" in
                 launch_pid=$!
                 launch_method="desktop-exec"
             elif [ -z "$launch_pid" ]; then
-                echo "ERR gtk-launch/gio failed and no Linux desktop Exec fallback is available"; exit 1
+                kittwm_remote_launch_error no_desktop_exec_fallback "gtk-launch/gio failed and no Linux desktop Exec fallback is available"; exit 1
             fi
         else
             "$name" >/dev/null 2>&1 &
@@ -12279,6 +12294,12 @@ mod tests {
         assert!(script.contains("method=%s"), "{script}");
         assert!(script.contains("launch-first-json"), "{script}");
         assert!(script.contains("\"mode\":\"launch-first\""), "{script}");
+        assert!(script.contains("kittwm_remote_launch_error"), "{script}");
+        assert!(script.contains("\"error\":"), "{script}");
+        assert!(script.contains("\"message\":"), "{script}");
+        assert!(script.contains("no_candidates"), "{script}");
+        assert!(script.contains("no_graphical_display"), "{script}");
+        assert!(script.contains("no_desktop_exec_fallback"), "{script}");
         assert!(script.contains("\"method\":"), "{script}");
         assert!(script.contains("\"candidate\":"), "{script}");
         assert!(script.contains("\"desktop_file\":"), "{script}");
