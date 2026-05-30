@@ -3167,10 +3167,11 @@ else
     kittwm_startup_check="kittwm not found"
 fi
 if [ "${KITTWM_REMOTE_DOCTOR_JSON:-0}" = "1" ]; then
-    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"graphical_check":%s,"display":%s,"wayland_display":%s,"x11_forwarding_available":%s,"waypipe_available":%s,"waypipe_path":%s,"kittwm_available":%s,"kittwm_healthy":%s,"kittwm_path":%s,"startup_check":%s,"local_commands":[%s,%s,%s,%s],"fallback_commands":[%s,%s,%s,%s,%s,%s]}\n' \
+    printf '{"host":%s,"term":%s,"term_program":%s,"ssh_tty":%s,"stty_size":%s,"graphical_check":%s,"display":%s,"wayland_display":%s,"x11_forwarding_available":%s,"waypipe_available":%s,"waypipe_path":%s,"kittwm_available":%s,"kittwm_healthy":%s,"kittwm_path":%s,"startup_check":%s,"local_commands":[%s,%s,%s,%s,%s,%s,%s],"fallback_commands":[%s,%s,%s,%s,%s,%s,%s,%s],"terminal_commands":[%s,%s]}\n' \
         "$(json_string "$host")" "$(json_string "$term")" "$(json_string "$term_program")" "$(json_string "$ssh_tty")" "$(json_string "$size")" "$([ "$graphical" = "1" ] && printf true || printf false)" "$(json_string "$display")" "$(json_string "$wayland_display")" "$([ -n "$display" ] && printf true || printf false)" "$([ -n "$waypipe_path" ] && printf true || printf false)" "$(json_string "$waypipe_path")" "$([ -n "$kittwm_path" ] && printf true || printf false)" "$kittwm_healthy" "$(json_string "$kittwm_path")" "$(json_string "$kittwm_startup_check")" \
-        "$(json_string "kittwm remote $host kittwm")" "$(json_string "kittwm remote $host graphical")" "$(json_string "kittwm remote $host list")" "$(json_string "kittwm remote $host shell")" \
-        "$(json_string "kittwm remote $host fallback apps firefox")" "$(json_string "kittwm remote $host fallback launch firefox")" "$(json_string "kittwm remote $host fallback windows firefox")" "$(json_string "kittwm remote $host fallback displays retina")" "$(json_string "kittwm remote $host apps firefox --fallback")" "$(json_string "kittwm remote $host launch firefox --fallback")"
+        "$(json_string "kittwm remote $host kittwm")" "$(json_string "kittwm remote $host graphical")" "$(json_string "kittwm remote $host list")" "$(json_string "kittwm remote $host list apps firefox")" "$(json_string "kittwm remote $host launch firefox")" "$(json_string "kittwm remote $host list windows")" "$(json_string "kittwm remote $host list displays")" \
+        "$(json_string "kittwm remote $host fallback apps firefox")" "$(json_string "kittwm remote $host fallback launch firefox")" "$(json_string "kittwm remote $host fallback windows firefox")" "$(json_string "kittwm remote $host fallback displays retina")" "$(json_string "kittwm remote $host apps firefox --fallback")" "$(json_string "kittwm remote $host launch firefox --fallback")" "$(json_string "kittwm remote $host list windows --fallback")" "$(json_string "kittwm remote $host list displays --fallback")" \
+        "$(json_string "kittwm remote $host shell")" "$(json_string "kittwm remote $host terminal htop")"
     exit 0
 fi
 printf 'kittwm remote doctor\n=====================\n'
@@ -13482,12 +13483,29 @@ mod tests {
         assert!(script.contains("startup_check"), "{script}");
         assert!(script.contains("local_commands"), "{script}");
         assert!(script.contains("fallback_commands"), "{script}");
+        assert!(script.contains("terminal_commands"), "{script}");
+        assert!(
+            script.contains("kittwm remote $host list apps firefox"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm remote $host launch firefox"),
+            "{script}"
+        );
         assert!(
             script.contains("kittwm remote $host fallback apps firefox"),
             "{script}"
         );
         assert!(
             script.contains("kittwm remote $host fallback launch firefox"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm remote $host list windows --fallback"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm remote $host terminal htop"),
             "{script}"
         );
         assert!(script.contains("DISPLAY"), "{script}");
