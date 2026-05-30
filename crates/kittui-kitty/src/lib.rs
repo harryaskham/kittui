@@ -1417,7 +1417,7 @@ mod tests {
         // Single chunk: complete from `\x1b_G` to `\x1b\\`.
         assert_eq!(
             escapes,
-            format!("\x1b_Ga=t,f=100,i=43981,m=0,q=2;aGVsbG8ga2l0dHVp\x1b\\"),
+            "\x1b_Ga=t,f=100,i=43981,m=0,q=2;aGVsbG8ga2l0dHVp\x1b\\"
         );
     }
 
