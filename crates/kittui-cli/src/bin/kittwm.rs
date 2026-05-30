@@ -9028,9 +9028,13 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
         } else {
             out.push_str("null");
         }
+        let path_count = path_cmds.len();
+        let macos_count = mac_apps.len();
+        let total_count = path_count.saturating_add(macos_count);
         let _ = write!(
             out,
-            ", \"path_commands\": [{}], \"macos_apps\": [{}]}}",
+            ", \"filter\": {}, \"limit\": {limit}, \"path_commands\": [{}], \"macos_apps\": [{}], \"path_count\": {path_count}, \"macos_count\": {macos_count}, \"total_count\": {total_count}}}",
+            json_option_string(query),
             json_string_array(&path_cmds),
             json_string_array(&mac_apps),
         );
@@ -11890,6 +11894,29 @@ mod tests {
             ..Cli::default()
         };
         assert!(apps_cmd(&cli).is_ok());
+    }
+
+    #[test]
+    fn apps_json_helpers_include_filter_limit_and_counts() {
+        let query = Some("term");
+        assert_eq!(json_option_string(query), "\"term\"");
+        assert_eq!(json_option_string(None), "null");
+        let path_count = 2usize;
+        let macos_count = 1usize;
+        let total_count = path_count.saturating_add(macos_count);
+        let json = format!(
+            ", \"filter\": {}, \"limit\": {}, \"path_count\": {}, \"macos_count\": {}, \"total_count\": {}",
+            json_option_string(query),
+            10,
+            path_count,
+            macos_count,
+            total_count
+        );
+        assert!(json.contains("\"filter\": \"term\""), "{json}");
+        assert!(json.contains("\"limit\": 10"), "{json}");
+        assert!(json.contains("\"path_count\": 2"), "{json}");
+        assert!(json.contains("\"macos_count\": 1"), "{json}");
+        assert!(json.contains("\"total_count\": 3"), "{json}");
     }
 
     #[test]
