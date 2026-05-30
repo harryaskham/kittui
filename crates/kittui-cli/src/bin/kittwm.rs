@@ -3211,7 +3211,15 @@ printf '               : kittwm remote %s list apps firefox\n' "$host"
 printf '               : kittwm remote %s launch firefox\n' "$host"
 printf '               : kittwm remote %s list windows\n' "$host"
 printf '               : kittwm remote %s list displays\n' "$host"
-printf '               : kittwm remote %s shell\n' "$host"
+printf 'fallback cmds  : kittwm remote %s fallback apps firefox\n' "$host"
+printf '               : kittwm remote %s fallback launch firefox\n' "$host"
+printf '               : kittwm remote %s fallback windows firefox\n' "$host"
+printf '               : kittwm remote %s fallback displays retina\n' "$host"
+printf '               : kittwm remote %s apps firefox --fallback\n' "$host"
+printf '               : kittwm remote %s launch firefox --fallback\n' "$host"
+printf '               : kittwm remote %s list windows --fallback\n' "$host"
+printf '               : kittwm remote %s list displays --fallback\n' "$host"
+printf 'terminal cmds  : kittwm remote %s shell\n' "$host"
 printf '               : kittwm remote %s terminal htop\n' "$host"
 "#
 }
@@ -13472,6 +13480,26 @@ mod tests {
         assert!(script.contains("kittwm remote %s list"), "{script}");
         assert!(
             script.contains("kittwm remote %s launch firefox"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm remote %s fallback apps firefox"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm remote %s fallback launch firefox"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm remote %s fallback windows firefox"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm remote %s fallback displays retina"),
+            "{script}"
+        );
+        assert!(
+            script.contains("kittwm remote %s launch firefox --fallback"),
             "{script}"
         );
         assert!(script.contains("kittwm remote %s shell"), "{script}");
