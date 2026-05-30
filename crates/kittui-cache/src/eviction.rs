@@ -183,6 +183,7 @@ mod tests {
 
     use crate::{Cache, CacheEntryMeta};
     use kittui_core::geom::CellRect;
+    use std::fmt::Write as FmtWrite;
 
     fn tempdir() -> PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -193,9 +194,30 @@ mod tests {
             .unwrap()
             .as_nanos();
         let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("kittui-evict-{pid}-{nanos}-{seq}"));
+        let path = std::env::temp_dir().join(eviction_test_temp_dir_name(pid, nanos, seq));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    fn eviction_test_temp_dir_name(pid: u32, nanos: u128, seq: u64) -> String {
+        let mut name = String::with_capacity(
+            "kittui-evict---".len()
+                + decimal_len(pid as u128)
+                + decimal_len(nanos)
+                + decimal_len(seq as u128),
+        );
+        name.push_str("kittui-evict-");
+        write!(name, "{pid}-{nanos}-{seq}").expect("write to string");
+        name
+    }
+
+    fn decimal_len(mut value: u128) -> usize {
+        let mut digits = 1;
+        while value >= 10 {
+            value /= 10;
+            digits += 1;
+        }
+        digits
     }
 
     fn put(cache: &Cache, sha: &str, bytes: &[u8]) {
@@ -215,6 +237,16 @@ mod tests {
                 },
             )
             .unwrap();
+    }
+
+    #[test]
+    fn eviction_test_temp_dir_name_builds_directly() {
+        let name = eviction_test_temp_dir_name(1234, 5678, 9);
+        assert_eq!(name, "kittui-evict-1234-5678-9");
+        assert_eq!(name.capacity(), name.len());
+        assert_eq!(decimal_len(0), 1);
+        assert_eq!(decimal_len(9), 1);
+        assert_eq!(decimal_len(10), 2);
     }
 
     #[test]
