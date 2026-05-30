@@ -3673,6 +3673,15 @@ fn next_headless_chrome_user_data_dir() -> PathBuf {
     std::env::temp_dir().join(headless_chrome_profile_dir_name(std::process::id(), id))
 }
 
+fn chrome_window_size_arg(width: u32, height: u32) -> String {
+    let mut arg = String::with_capacity(
+        "--window-size=,".len() + decimal_len(u64::from(width)) + decimal_len(u64::from(height)),
+    );
+    arg.push_str("--window-size=");
+    write!(arg, "{width},{height}").expect("write to string");
+    arg
+}
+
 fn cleanup_headless_chrome_user_data_dir(path: &Path) {
     let _ = std::fs::remove_dir_all(path);
 }
@@ -3695,7 +3704,7 @@ impl HeadlessBrowserApp {
             .arg("--hide-scrollbars")
             .arg("--remote-debugging-port=0")
             .arg(format!("--user-data-dir={}", user_data_dir.display()))
-            .arg(format!("--window-size={width},{height}"))
+            .arg(chrome_window_size_arg(width, height))
             .arg("about:blank")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -5816,6 +5825,13 @@ mod tests {
             "http://127.0.0.1:9222/json/new?https%3A%2F%2Fexample.test%2Fa%20b"
         );
         assert_eq!(endpoint.capacity(), endpoint.len());
+    }
+
+    #[test]
+    fn chrome_window_size_arg_builds_directly() {
+        let arg = chrome_window_size_arg(1280, 720);
+        assert_eq!(arg, "--window-size=1280,720");
+        assert_eq!(arg.capacity(), arg.len());
     }
 
     #[test]
