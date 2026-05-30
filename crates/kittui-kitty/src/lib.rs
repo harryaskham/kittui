@@ -920,22 +920,28 @@ pub fn placeholder_text_ex(
 /// Build the escape sequence that deletes an image (and all of its
 /// placements) by id.
 pub fn delete(image_id: u32, transport: Transport) -> String {
-    wrap_transport(
-        format!("{ESC}_Ga=d,d=I,i={id},q=2{ESC}\\", id = image_id),
-        transport,
-    )
+    wrap_transport(delete_payload(image_id, None), transport)
 }
 
 /// Delete a single placement by `(image_id, placement_id)`.
 pub fn delete_placement(image_id: u32, placement_id: u32, transport: Transport) -> String {
-    wrap_transport(
-        format!(
-            "{ESC}_Ga=d,d=I,i={id},p={p},q=2{ESC}\\",
-            id = image_id,
-            p = placement_id
-        ),
-        transport,
-    )
+    wrap_transport(delete_payload(image_id, Some(placement_id)), transport)
+}
+
+fn delete_payload(image_id: u32, placement_id: Option<u32>) -> String {
+    let mut payload =
+        String::with_capacity(ESC.len() + "_Ga=d,d=I,i=,p=,q=2".len() + 20 + 20 + ESC.len() + 1);
+    payload.push_str(ESC);
+    payload.push_str("_Ga=d,d=I,i=");
+    let _ = write!(payload, "{image_id}");
+    if let Some(placement_id) = placement_id {
+        payload.push_str(",p=");
+        let _ = write!(payload, "{placement_id}");
+    }
+    payload.push_str(",q=2");
+    payload.push_str(ESC);
+    payload.push('\\');
+    payload
 }
 
 /// Emit a kitty graphics capability query (`a=q`) with a caller-supplied id.
@@ -1535,6 +1541,16 @@ mod tests {
         let s = cursor_move(1, 1, Transport::TmuxPassthrough);
         assert!(s.starts_with("\x1bPtmux;\x1b\x1b["));
         assert!(s.ends_with("\x1b\\"));
+    }
+
+    #[test]
+    fn delete_payload_builds_directly() {
+        let payload = delete_payload(0x55, None);
+        assert_eq!(payload, "\x1b_Ga=d,d=I,i=85,q=2\x1b\\");
+        assert!(payload.capacity() >= payload.len());
+        let placement = delete_payload(0x55, Some(3));
+        assert_eq!(placement, "\x1b_Ga=d,d=I,i=85,p=3,q=2\x1b\\");
+        assert!(placement.capacity() >= placement.len());
     }
 
     #[test]
