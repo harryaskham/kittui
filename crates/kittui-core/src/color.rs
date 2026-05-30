@@ -26,18 +26,35 @@ impl Rgba {
         if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err(ColorParseError::InvalidLiteral(input.to_owned()));
         }
-        let expanded = match hex.len() {
-            3 => format!(
-                "{}ff",
-                hex.chars().flat_map(|c| [c, c]).collect::<String>()
-            ),
-            4 => hex.chars().flat_map(|c| [c, c]).collect::<String>(),
-            6 => format!("{hex}ff"),
-            8 => hex.to_owned(),
+        let bytes = hex.as_bytes();
+        let rgba = match bytes.len() {
+            3 => [
+                doubled_hex_byte(bytes[0]),
+                doubled_hex_byte(bytes[1]),
+                doubled_hex_byte(bytes[2]),
+                0xff,
+            ],
+            4 => [
+                doubled_hex_byte(bytes[0]),
+                doubled_hex_byte(bytes[1]),
+                doubled_hex_byte(bytes[2]),
+                doubled_hex_byte(bytes[3]),
+            ],
+            6 => [
+                hex_byte(bytes[0], bytes[1]),
+                hex_byte(bytes[2], bytes[3]),
+                hex_byte(bytes[4], bytes[5]),
+                0xff,
+            ],
+            8 => [
+                hex_byte(bytes[0], bytes[1]),
+                hex_byte(bytes[2], bytes[3]),
+                hex_byte(bytes[4], bytes[5]),
+                hex_byte(bytes[6], bytes[7]),
+            ],
             _ => return Err(ColorParseError::InvalidLiteral(input.to_owned())),
         };
-        let nibble = |range| u8::from_str_radix(&expanded[range], 16).unwrap();
-        Ok(Self(nibble(0..2), nibble(2..4), nibble(4..6), nibble(6..8)))
+        Ok(Self(rgba[0], rgba[1], rgba[2], rgba[3]))
     }
 
     /// Linearly interpolate between `self` and `other`. `t` is clamped to
@@ -66,6 +83,24 @@ impl Rgba {
     }
 }
 
+fn hex_nibble(byte: u8) -> u8 {
+    match byte {
+        b'0'..=b'9' => byte - b'0',
+        b'a'..=b'f' => byte - b'a' + 10,
+        b'A'..=b'F' => byte - b'A' + 10,
+        _ => unreachable!("Rgba::parse validates ASCII hex digits before decoding"),
+    }
+}
+
+fn doubled_hex_byte(byte: u8) -> u8 {
+    let nibble = hex_nibble(byte);
+    (nibble << 4) | nibble
+}
+
+fn hex_byte(high: u8, low: u8) -> u8 {
+    (hex_nibble(high) << 4) | hex_nibble(low)
+}
+
 /// Error returned by [`Rgba::parse`] when the input is not a recognised hex
 /// literal.
 #[derive(Debug, thiserror::Error)]
@@ -80,13 +115,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hex_helpers_decode_without_expanded_string() {
+        assert_eq!(doubled_hex_byte(b'a'), 0xaa);
+        assert_eq!(doubled_hex_byte(b'F'), 0xff);
+        assert_eq!(hex_byte(b'0', b'D'), 0x0d);
+    }
+
+    #[test]
     fn parse_shortforms_expand_per_css() {
         assert_eq!(Rgba::parse("#abc").unwrap(), Rgba(0xaa, 0xbb, 0xcc, 0xff));
         assert_eq!(Rgba::parse("#abcd").unwrap(), Rgba(0xaa, 0xbb, 0xcc, 0xdd));
-        assert_eq!(
-            Rgba::parse("00d8ff").unwrap(),
-            Rgba(0x00, 0xd8, 0xff, 0xff)
-        );
+        assert_eq!(Rgba::parse("00d8ff").unwrap(), Rgba(0x00, 0xd8, 0xff, 0xff));
         assert_eq!(
             Rgba::parse("#00d8ff80").unwrap(),
             Rgba(0x00, 0xd8, 0xff, 0x80)
