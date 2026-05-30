@@ -26,7 +26,7 @@ pub struct KeyLockGuard {
 pub fn lock_key(root: &Path, id: &SceneId) -> Result<KeyLockGuard, CacheError> {
     let dir = root.join("locks");
     fs::create_dir_all(&dir)?;
-    let path = dir.join(format!("{}.lock", id.0));
+    let path = dir.join(lock_file_name(id));
     let file = OpenOptions::new()
         .create(true)
         .read(true)
@@ -35,6 +35,13 @@ pub fn lock_key(root: &Path, id: &SceneId) -> Result<KeyLockGuard, CacheError> {
         .open(&path)?;
     file.lock_exclusive().map_err(io::Error::from)?;
     Ok(KeyLockGuard { _file: file })
+}
+
+fn lock_file_name(id: &SceneId) -> String {
+    let mut name = String::with_capacity(id.0.len() + ".lock".len());
+    name.push_str(&id.0);
+    name.push_str(".lock");
+    name
 }
 
 impl Drop for KeyLockGuard {
@@ -64,13 +71,24 @@ mod tests {
     }
 
     #[test]
+    fn lock_file_name_builds_directly() {
+        let id = SceneId("a".repeat(64));
+        let name = lock_file_name(&id);
+        assert_eq!(
+            name,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.lock"
+        );
+        assert_eq!(name.capacity(), name.len());
+    }
+
+    #[test]
     fn lock_and_release_within_process() {
         let root = tempdir();
         let id = SceneId("a".repeat(64));
         {
             let _guard = lock_key(&root, &id).unwrap();
             // The lockfile exists and is open while the guard is alive.
-            assert!(root.join("locks").join(format!("{}.lock", id.0)).exists());
+            assert!(root.join("locks").join(lock_file_name(&id)).exists());
         }
         // After drop, the file remains on disk (we don't unlink) but is
         // re-lockable.
