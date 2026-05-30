@@ -384,7 +384,7 @@ pub mod chrome {
             };
             let mode_label = if state.tiled { "tiled" } else { "floating" };
             vec![Layer::new(
-                format!("wm-chrome:{mode_label}:{}", state.title),
+                window_chrome_layer_label(mode_label, &state.title),
                 Node::Rect {
                     rect,
                     fill: Paint::Solid {
@@ -401,9 +401,25 @@ pub mod chrome {
         }
     }
 
+    fn window_chrome_layer_label(mode_label: &str, title: &str) -> String {
+        let mut label = String::with_capacity("wm-chrome::".len() + mode_label.len() + title.len());
+        label.push_str("wm-chrome:");
+        label.push_str(mode_label);
+        label.push(':');
+        label.push_str(title);
+        label
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn window_chrome_layer_label_builds_directly() {
+            let label = window_chrome_layer_label("tiled", "term");
+            assert_eq!(label, "wm-chrome:tiled:term");
+            assert!(label.capacity() >= label.len());
+        }
 
         #[test]
         fn default_theme_distinguishes_focused_and_unfocused_chrome() {
