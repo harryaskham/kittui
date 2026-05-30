@@ -3448,6 +3448,18 @@ mod tests {
     }
 
     #[test]
+    fn spawn_error_replies_build_directly() {
+        let poisoned = spawn_registry_poisoned_reply(42);
+        assert_eq!(poisoned, "ERR SPAWN registry poisoned after pid=42\n");
+        assert_eq!(poisoned.capacity(), poisoned.len());
+
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing shell");
+        let reply = spawn_error_reply("/no/such-command", &err);
+        assert_eq!(reply, "ERR SPAWN /no/such-command: missing shell\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
     fn spawn_success_reply_builds_directly() {
         let pane = TrackedPane {
             pane_id: 7,
@@ -5516,6 +5528,25 @@ fn spawn_success_reply(pane: &TrackedPane) -> String {
     out
 }
 
+fn spawn_registry_poisoned_reply(pid: u32) -> String {
+    let mut out = String::with_capacity(
+        "ERR SPAWN registry poisoned after pid=\n".len() + u32_decimal_len(pid),
+    );
+    writeln!(out, "ERR SPAWN registry poisoned after pid={pid}").expect("write to string");
+    out
+}
+
+fn spawn_error_reply(argv: &str, error: &std::io::Error) -> String {
+    let error = error.to_string();
+    let mut out = String::with_capacity("ERR SPAWN : \n".len() + argv.len() + error.len());
+    out.push_str("ERR SPAWN ");
+    out.push_str(argv);
+    out.push_str(": ");
+    out.push_str(&error);
+    out.push('\n');
+    out
+}
+
 fn spawn_reply(argv: &str, path: &Path, panes: &SharedPanes) -> String {
     if argv.trim().is_empty() {
         return "ERR SPAWN requires argv\n".to_string();
@@ -5542,9 +5573,9 @@ fn spawn_reply(argv: &str, path: &Path, panes: &SharedPanes) -> String {
                 let pane = registry.track_spawn(child.id(), argv);
                 spawn_success_reply(&pane)
             }
-            Err(_) => format!("ERR SPAWN registry poisoned after pid={}\n", child.id()),
+            Err(_) => spawn_registry_poisoned_reply(child.id()),
         },
-        Err(e) => format!("ERR SPAWN {argv}: {e}\n"),
+        Err(e) => spawn_error_reply(argv, &e),
     }
 }
 
