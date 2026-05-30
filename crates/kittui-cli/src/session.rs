@@ -6325,6 +6325,8 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         ("terminal", 43.0, 14.0),
         ("close", 58.5, 9.0),
     ];
+    let has_focus = native_footer_status_has_focus(status_text);
+    let has_state = native_footer_status_has_state(status_text);
     let has_drag = native_footer_status_has_drag(status_text);
     let status_label = bounded_ellipsis(status_text, NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS);
     let mut layers = vec![Layer::new(
@@ -6344,7 +6346,10 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         },
     )];
     for (label, x_cells, width_cells) in chip_specs {
-        if label == "drag" && !has_drag {
+        if (label == "focus" && !has_focus)
+            || (label == "state" && !has_state)
+            || (label == "drag" && !has_drag)
+        {
             continue;
         }
         let x = x_cells * cell_w;
@@ -6378,6 +6383,14 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         layers,
         animation: None,
     }
+}
+
+fn native_footer_status_has_focus(status_text: &str) -> bool {
+    status_text.contains(NATIVE_STATUS_LINE_FOCUS_PREFIX)
+}
+
+fn native_footer_status_has_state(status_text: &str) -> bool {
+    status_text.contains(NATIVE_STATUS_LINE_STATE_PREFIX)
 }
 
 fn native_footer_status_has_drag(status_text: &str) -> bool {
@@ -12095,6 +12108,29 @@ mod native_pane_tests {
             .filter_map(|layer| layer.label.as_deref())
             .collect::<Vec<_>>();
         assert!(drag_labels.contains(&"status-chip-drag"), "{drag_labels:?}");
+
+        let generic = native_footer_status_scene(CellSize::new(8, 16), 80, "status");
+        let generic_labels = generic
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            generic_labels.contains(&"status-chip-help"),
+            "{generic_labels:?}"
+        );
+        assert!(
+            !generic_labels.contains(&"status-chip-focus"),
+            "{generic_labels:?}"
+        );
+        assert!(
+            !generic_labels.contains(&"status-chip-state"),
+            "{generic_labels:?}"
+        );
+        assert!(
+            !generic_labels.contains(&"status-chip-drag"),
+            "{generic_labels:?}"
+        );
     }
 
     #[test]
