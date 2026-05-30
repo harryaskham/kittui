@@ -2228,6 +2228,8 @@ const NATIVE_STATUS_LINE_PANES_PREFIX: &str = " · panes:";
 const NATIVE_STATUS_LINE_FOCUS_PREFIX: &str = " · focus:";
 const NATIVE_STATUS_LINE_STATE_PREFIX: &str = " · state:";
 const NATIVE_STATUS_LINE_DRAG_PREFIX: &str = " · drag:";
+const NATIVE_STATUS_LINE_DRAG_MOVE_PREFIX: &str = " · drag:move:";
+const NATIVE_STATUS_LINE_DRAG_REORDER_PREFIX: &str = " · drag:reorder:";
 const NATIVE_STATUS_LINE_HINTS: &str =
     " · C-a ? help · C-a n/p focus · C-a t float · C-a f full · C-a wasd nudge · C-a {} stack · C-a r/R reset · C-a e split · C-a x close · Ctrl-] exit";
 const NATIVE_STATUS_LINE_LOG_PREFIX: &str = " · log: ";
@@ -6432,9 +6434,9 @@ fn native_footer_status_has_state(status_text: &str) -> bool {
 }
 
 fn native_footer_status_drag_chip(status_text: &str) -> Option<&'static str> {
-    if status_text.contains(" · drag:move:") {
+    if status_text.contains(NATIVE_STATUS_LINE_DRAG_MOVE_PREFIX) {
         Some("drag-move")
-    } else if status_text.contains(" · drag:reorder:") {
+    } else if status_text.contains(NATIVE_STATUS_LINE_DRAG_REORDER_PREFIX) {
         Some("drag-reorder")
     } else if status_text.contains(NATIVE_STATUS_LINE_DRAG_PREFIX) {
         Some("drag")
@@ -12193,6 +12195,29 @@ mod native_pane_tests {
         assert!(
             !reorder_labels.contains(&"status-chip-drag-move"),
             "{reorder_labels:?}"
+        );
+
+        let unknown_drag = native_footer_status_scene(
+            CellSize::new(8, 16),
+            80,
+            " mode:floating · panes:1 · focus:native-1 · state:sh · pid:101 · frame:clean · drag:future:native-1",
+        );
+        let unknown_drag_labels = unknown_drag
+            .layers
+            .iter()
+            .filter_map(|layer| layer.label.as_deref())
+            .collect::<Vec<_>>();
+        assert!(
+            unknown_drag_labels.contains(&"status-chip-drag"),
+            "{unknown_drag_labels:?}"
+        );
+        assert!(
+            !unknown_drag_labels.contains(&"status-chip-drag-move"),
+            "{unknown_drag_labels:?}"
+        );
+        assert!(
+            !unknown_drag_labels.contains(&"status-chip-drag-reorder"),
+            "{unknown_drag_labels:?}"
         );
 
         let generic = native_footer_status_scene(CellSize::new(8, 16), 80, "status");
