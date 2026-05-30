@@ -583,7 +583,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                 let placeholder = if html.starts_with("</") {
                     html.to_string()
                 } else {
-                    format!("html:{html}")
+                    html_inline_text(html)
                 };
                 if link_target.is_some() {
                     link_label.push_str(&placeholder);
@@ -603,12 +603,12 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                     });
                 }
                 if in_table {
-                    table_cell.push_str(&format!("html:{text}"));
+                    table_cell.push_str(&html_inline_text(text));
                 } else {
                     flush_paragraph(&mut out, &mut buf, width_cells);
                     if !text.is_empty() {
                         out.components.push(textbox(
-                            format!("html:\n{text}"),
+                            html_block_text(text),
                             width_cells,
                             Tone::Tool,
                         ));
@@ -813,6 +813,14 @@ fn flush_list_item(
     ));
 }
 
+fn html_inline_text(html: &str) -> String {
+    prefixed_text("html:", html)
+}
+
+fn html_block_text(html: &str) -> String {
+    prefixed_text("html:\n", html)
+}
+
 fn prefixed_text(prefix: &str, text: &str) -> String {
     let mut out = String::with_capacity(prefix.len() + text.len());
     out.push_str(prefix);
@@ -996,6 +1004,16 @@ mod tests {
                 MarkdownTableAlignment::Right,
             ]
         );
+    }
+
+    #[test]
+    fn html_placeholder_text_builds_directly() {
+        let inline = html_inline_text("<kbd>x</kbd>");
+        assert_eq!(inline, "html:<kbd>x</kbd>");
+        assert!(inline.capacity() >= inline.len());
+        let block = html_block_text("<div>block</div>");
+        assert_eq!(block, "html:\n<div>block</div>");
+        assert!(block.capacity() >= block.len());
     }
 
     #[test]
