@@ -256,6 +256,8 @@ pub struct NativePaneStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title_drag_row: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_drag_active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
@@ -2275,7 +2277,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
     for pane in &state.panes {
         let _ = writeln!(
             out,
-            "  window={} focused={} weight={} stack={} top={} floating={},{} moved={} title_draggable={} title_drag_kind={} title_drag={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} app_cursor={} mouse={} layout={} title={:?}",
+            "  window={} focused={} weight={} stack={} top={} floating={},{} moved={} title_draggable={} title_drag_kind={} title_drag={} title_drag_active={} pid={} command={:?} cursor={} cursor_visible={} bracketed_paste={} app_cursor={} mouse={} layout={} title={:?}",
             pane.window,
             pane.focused,
             pane.weight,
@@ -2293,6 +2295,7 @@ fn native_spawn_panes_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Stri
             native_pane_bool_label(pane.title_draggable),
             pane.title_drag_kind.as_deref().unwrap_or("-"),
             native_pane_coord_label(pane.title_drag_col, pane.title_drag_row),
+            native_pane_bool_label(pane.title_drag_active),
             pane.pid
                 .map(|pid| pid.to_string())
                 .unwrap_or_else(|| "-".to_string()),
@@ -4111,6 +4114,7 @@ mod tests {
             title_drag_kind: None,
             title_drag_col: None,
             title_drag_row: None,
+            title_drag_active: None,
             pid: None,
             command: Some("/bin/sh".to_string()),
             x: None,
@@ -4465,6 +4469,7 @@ mod tests {
             title_drag_kind: None,
             title_drag_col: None,
             title_drag_row: None,
+            title_drag_active: None,
             pid: None,
             command: None,
             x: None,
@@ -4522,6 +4527,7 @@ mod tests {
             title_drag_kind: None,
             title_drag_col: None,
             title_drag_row: None,
+            title_drag_active: None,
             pid: None,
             command: None,
             x: None,
@@ -5076,6 +5082,7 @@ mod tests {
                 title_drag_kind: None,
                 title_drag_col: None,
                 title_drag_row: None,
+                title_drag_active: None,
                 pid: Some(101),
                 command: Some("/bin/sh".to_string()),
                 x: Some(0),
@@ -5113,6 +5120,7 @@ mod tests {
                 title_drag_kind: Some("reposition".to_string()),
                 title_drag_col: Some(44),
                 title_drag_row: Some(1),
+                title_drag_active: Some(true),
                 pid: Some(202),
                 command: Some("htop".to_string()),
                 x: Some(40),
@@ -5145,11 +5153,11 @@ mod tests {
         let panes = native_spawn_queue_reply("PANES", &pending);
         assert!(panes.contains("PANES 2 focus=native-2"), "{panes}");
         assert!(
-            panes.contains("window=native-1 focused=false weight=1 stack=0 top=off floating=0,0 moved=off title_draggable=off title_drag_kind=- title_drag=- pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on app_cursor=on mouse=basic,button-motion,sgr layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
+            panes.contains("window=native-1 focused=false weight=1 stack=0 top=off floating=0,0 moved=off title_draggable=off title_drag_kind=- title_drag=- title_drag_active=- pid=101 command=Some(\"/bin/sh\") cursor=4,1 cursor_visible=on bracketed_paste=on app_cursor=on mouse=basic,button-motion,sgr layout=0,0 40x24 app=0,1 40x23 title=\"shell\""),
             "{panes}"
         );
         assert!(
-            panes.contains("window=native-2 focused=true weight=3 stack=1 top=on floating=3,-2 moved=on title_draggable=on title_drag_kind=reposition title_drag=44,1 pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off app_cursor=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
+            panes.contains("window=native-2 focused=true weight=3 stack=1 top=on floating=3,-2 moved=on title_draggable=on title_drag_kind=reposition title_drag=44,1 title_drag_active=on pid=202 command=Some(\"htop\") cursor=12,2 cursor_visible=off bracketed_paste=off app_cursor=off mouse=- layout=40,0 80x24 app=40,1 80x23 title=\"htop\""),
             "{panes}"
         );
         let chrome_json: serde_json::Value =
@@ -5179,6 +5187,7 @@ mod tests {
         assert_eq!(status_json["focused_pane"]["title_drag_kind"], "reposition");
         assert_eq!(status_json["focused_pane"]["title_drag_col"], 44);
         assert_eq!(status_json["focused_pane"]["title_drag_row"], 1);
+        assert_eq!(status_json["focused_pane"]["title_drag_active"], true);
         assert_eq!(status_json["focused_pane"]["pid"], 202);
         assert_eq!(status_json["focused_pane"]["command"], "htop");
         assert_eq!(status_json["focused_pane"]["app_cols"], 80);
@@ -5212,6 +5221,7 @@ mod tests {
         );
         assert_eq!(panes_json["panes_detail"][1]["title_drag_col"], 44);
         assert_eq!(panes_json["panes_detail"][1]["title_drag_row"], 1);
+        assert_eq!(panes_json["panes_detail"][1]["title_drag_active"], true);
         assert_eq!(panes_json["panes_detail"][0]["floating_moved"], false);
         assert_eq!(panes_json["panes_detail"][0]["title_draggable"], false);
         assert!(panes_json["panes_detail"][0]

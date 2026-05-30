@@ -449,6 +449,7 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         &initial_layouts,
         &floating_offsets,
         layout_mode,
+        None,
     );
     let mut last_published_layout = layout_mode.label(layout_axis).to_string();
     queue.update_panes(last_published_pane_statuses.clone());
@@ -1055,7 +1056,14 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             publish_native_pane_statuses_if_changed(
                 &queue,
                 &mut last_published_pane_statuses,
-                native_pane_statuses(&panes, focused, &layouts, &floating_offsets, layout_mode),
+                native_pane_statuses(
+                    &panes,
+                    focused,
+                    &layouts,
+                    &floating_offsets,
+                    layout_mode,
+                    native_active_drag_label(floating_drag.as_ref(), tiled_drag.as_ref()),
+                ),
             );
             clear = true;
             dbg.log(&native_terminal_resized_log_line(
@@ -1153,7 +1161,14 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
             publish_native_pane_statuses_if_changed(
                 &queue,
                 &mut last_published_pane_statuses,
-                native_pane_statuses(&panes, focused, &layouts, &floating_offsets, layout_mode),
+                native_pane_statuses(
+                    &panes,
+                    focused,
+                    &layouts,
+                    &floating_offsets,
+                    layout_mode,
+                    native_active_drag_label(floating_drag.as_ref(), tiled_drag.as_ref()),
+                ),
             );
             if should_write_pure_terminal_frame(
                 &last_terminal_render,
@@ -1400,7 +1415,14 @@ pub fn run_native_terminal_loop(runtime: &Runtime) -> Result<()> {
         publish_native_pane_statuses_if_changed(
             &queue,
             &mut last_published_pane_statuses,
-            native_pane_statuses(&panes, focused, &layouts, &floating_offsets, layout_mode),
+            native_pane_statuses(
+                &panes,
+                focused,
+                &layouts,
+                &floating_offsets,
+                layout_mode,
+                native_active_drag_label(floating_drag.as_ref(), tiled_drag.as_ref()),
+            ),
         );
         let active_drag_label =
             native_active_drag_label(floating_drag.as_ref(), tiled_drag.as_ref());
@@ -4751,6 +4773,7 @@ fn native_pane_statuses(
     layouts: &[NativePaneLayout],
     floating_offsets: &HashMap<String, NativeFloatingPaneOffset>,
     mode: NativePaneLayoutMode,
+    active_drag_label: Option<NativeActiveDragLabel<'_>>,
 ) -> Vec<crate::daemon::NativePaneStatus> {
     panes
         .iter()
@@ -4763,6 +4786,8 @@ fn native_pane_statuses(
                 .unwrap_or_default();
             let (title_drag_col, title_drag_row) =
                 native_status_title_drag_cell(layout, mode).unwrap_or((None, None));
+            let title_drag_active =
+                active_drag_label.is_some_and(|drag| drag.window == pane.window);
             let (cursor_col, cursor_row) = pane.app.cursor_position();
             let mouse = pane.app.mouse_reporting_modes();
             let title_draggable = native_status_title_draggable(mode);
@@ -4781,6 +4806,7 @@ fn native_pane_statuses(
                 title_drag_kind,
                 title_drag_col,
                 title_drag_row,
+                title_drag_active: Some(title_drag_active),
                 pid: pane.pid,
                 command: Some(pane.command.clone()),
                 x: layout.map(|l| l.x),
@@ -7420,6 +7446,7 @@ mod native_pane_tests {
             title_drag_kind: None,
             title_drag_col: None,
             title_drag_row: None,
+            title_drag_active: None,
             pid: Some(42),
             command: Some("sh".to_string()),
             x: Some(0),
@@ -8827,6 +8854,7 @@ mod native_pane_tests {
             &layouts,
             &HashMap::new(),
             NativePaneLayoutMode::Tiled,
+            None,
         );
         let dirty = statuses[0].dirty_frame.as_ref().unwrap();
         assert_eq!(dirty.changed_tiles, 2);
@@ -14099,6 +14127,7 @@ mod native_pane_tests {
             &layouts,
             &HashMap::new(),
             NativePaneLayoutMode::Tiled,
+            None,
         );
         assert_eq!(tiled_statuses[1].title_draggable, Some(true));
         assert_eq!(
@@ -14114,6 +14143,10 @@ mod native_pane_tests {
             &layouts,
             &HashMap::new(),
             NativePaneLayoutMode::Floating,
+            Some(NativeActiveDragLabel {
+                kind: "move",
+                window: "native-2",
+            }),
         );
         assert_eq!(statuses.len(), 2);
         assert!(!statuses[0].focused);
@@ -14126,6 +14159,8 @@ mod native_pane_tests {
         assert_eq!(statuses[1].title_draggable, Some(true));
         assert_eq!(statuses[0].title_draggable, Some(true));
         assert_eq!(statuses[1].title_drag_kind.as_deref(), Some("reposition"));
+        assert_eq!(statuses[0].title_drag_active, Some(false));
+        assert_eq!(statuses[1].title_drag_active, Some(true));
         assert_eq!(statuses[1].title_drag_col, Some(layouts[1].x + 4));
         assert_eq!(statuses[1].title_drag_row, Some(layouts[1].y + 1));
         assert_eq!(statuses[1].pid, Some(202));

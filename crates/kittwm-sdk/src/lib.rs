@@ -2235,6 +2235,9 @@ pub struct NativePaneDetail {
     /// Title drag interaction kind, for example `reorder` or `reposition`.
     #[serde(default)]
     pub title_drag_kind: Option<String>,
+    /// Whether this pane is currently the active title-drag target.
+    #[serde(default)]
+    pub title_drag_active: Option<bool>,
     /// One-based host column suitable for starting a title-row drag.
     #[serde(default)]
     pub title_drag_col: Option<u16>,
@@ -2445,6 +2448,11 @@ impl NativePaneDetail {
         self.title_draggable.unwrap_or(false)
     }
 
+    /// Whether the pane is reported as the active title-drag target.
+    pub fn is_title_drag_active(&self) -> bool {
+        self.title_drag_active.unwrap_or(false)
+    }
+
     /// Reported raw title-drag interaction kind, such as `reorder` or `reposition`.
     pub fn title_drag_kind(&self) -> Option<&str> {
         self.title_drag_kind.as_deref()
@@ -2482,6 +2490,11 @@ impl NativePaneDetail {
         active_drag: bool,
     ) -> String {
         title_marker_prefix_for_pane_with_active_drag(self, layout, self.focused, active_drag)
+    }
+
+    /// Visible title-row marker prefix using reported active-drag metadata when present.
+    pub fn reported_title_marker_prefix(&self, layout: Option<&str>) -> String {
+        self.title_marker_prefix_with_active_drag(layout, self.is_title_drag_active())
     }
 
     /// Host-cell coordinate suitable for starting a title-row drag, when available.
@@ -2891,6 +2904,12 @@ impl PanesStatus {
             .map(NativePaneDetail::is_title_draggable)
     }
 
+    /// Whether the focused pane is reported as the active title-drag target.
+    pub fn focused_is_title_drag_active(&self) -> Option<bool> {
+        self.focused_pane()
+            .map(NativePaneDetail::is_title_drag_active)
+    }
+
     /// Whether dragging the focused pane title row reorders tiled panes.
     pub fn focused_title_drag_reorders_pane(&self) -> Option<bool> {
         self.focused_pane().map(|pane| {
@@ -3284,6 +3303,12 @@ impl Status {
     pub fn focused_is_title_draggable(&self) -> Option<bool> {
         self.focused_pane()
             .map(NativePaneDetail::is_title_draggable)
+    }
+
+    /// Whether the focused pane is reported as the active title-drag target.
+    pub fn focused_is_title_drag_active(&self) -> Option<bool> {
+        self.focused_pane()
+            .map(NativePaneDetail::is_title_drag_active)
     }
 
     /// Whether dragging the focused pane title row reorders tiled panes.
@@ -5563,6 +5588,7 @@ mod tests {
                 "floating_moved": true,
                 "title_draggable": true,
                 "title_drag_kind": "reorder",
+                "title_drag_active": true,
                 "title_drag_col": 6,
                 "title_drag_row": 2,
                 "pid": 123,
@@ -5622,6 +5648,7 @@ mod tests {
         );
         assert_eq!(panes.focused_is_moved(), Some(true));
         assert_eq!(panes.focused_is_title_draggable(), Some(true));
+        assert_eq!(panes.focused_is_title_drag_active(), Some(true));
         assert_eq!(panes.focused_title_drag_reorders_pane(), Some(true));
         assert_eq!(panes.focused_title_drag_repositions_pane(), Some(false));
         assert_eq!(panes.focused_title_drag_cell(), Some((6, 2)));
@@ -5635,6 +5662,13 @@ mod tests {
                 .focused_title_marker_prefix_with_active_drag(true)
                 .as_deref(),
             Some("▶◆⇄↔")
+        );
+        assert_eq!(
+            panes
+                .focused_pane()
+                .unwrap()
+                .reported_title_marker_prefix(Some("columns")),
+            "▶◆⇄↔"
         );
         assert_eq!(panes.focused_frame_is_clean(), Some(false));
         assert_eq!(panes.focused_frame_upload_skipped(), Some(false));
@@ -5686,6 +5720,7 @@ mod tests {
         assert_eq!(pane.floating_moved, Some(true));
         assert!(pane.has_floating_offset());
         assert!(pane.is_title_draggable());
+        assert!(pane.is_title_drag_active());
         assert_eq!(pane.title_drag_kind(), Some("reorder"));
         assert_eq!(pane.parsed_title_drag_kind(), Some(TitleDragKind::Reorder));
         assert!(pane.title_drag_reorders_pane());
@@ -5850,6 +5885,7 @@ mod tests {
         assert_eq!(status.focused_status_chip_label(), None);
         assert_eq!(status.focused_is_moved(), None);
         assert_eq!(status.focused_is_title_draggable(), None);
+        assert_eq!(status.focused_is_title_drag_active(), None);
         assert_eq!(status.focused_title_drag_reorders_pane(), None);
         assert_eq!(status.focused_title_drag_repositions_pane(), None);
         assert_eq!(status.focused_title_drag_cell(), None);
@@ -5933,6 +5969,7 @@ mod tests {
         );
         assert_eq!(status.focused_is_moved(), Some(false));
         assert_eq!(status.focused_is_title_draggable(), Some(true));
+        assert_eq!(status.focused_is_title_drag_active(), Some(false));
         assert_eq!(status.focused_title_drag_reorders_pane(), Some(false));
         assert_eq!(status.focused_title_drag_repositions_pane(), Some(true));
         assert_eq!(status.focused_title_drag_cell(), Some((4, 1)));
