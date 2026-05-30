@@ -1198,21 +1198,44 @@ fn single_payload(
     quiet: Quiet,
     transport: Transport,
 ) -> String {
-    let frame_field = frame_index.map(|i| format!(",r={i}")).unwrap_or_default();
-    let delay_field = frame_delay_ms
-        .map(|z| format!(",z={z}"))
-        .unwrap_or_default();
-    let header = format!(
-        "{verb},f=100,t={medium},i={id}{frame}{delay}{q}",
-        verb = verb,
-        medium = medium_field,
-        id = image_id,
-        frame = frame_field,
-        delay = delay_field,
-        q = quiet.field(),
+    let header = single_payload_header(
+        image_id,
+        verb,
+        medium_field,
+        frame_index,
+        frame_delay_ms,
+        quiet,
     );
     let payload = kitty_graphics_payload_with_body(&header, base64_body);
     wrap_transport(payload, transport)
+}
+
+fn single_payload_header(
+    image_id: u32,
+    verb: &str,
+    medium_field: &str,
+    frame_index: Option<u32>,
+    frame_delay_ms: Option<u32>,
+    quiet: Quiet,
+) -> String {
+    let mut header = String::with_capacity(
+        verb.len() + ",f=100,t=,i=,r=,z=,q=2".len() + medium_field.len() + 20 + 20 + 20,
+    );
+    header.push_str(verb);
+    header.push_str(",f=100,t=");
+    header.push_str(medium_field);
+    header.push_str(",i=");
+    let _ = write!(header, "{image_id}");
+    if let Some(frame_index) = frame_index {
+        header.push_str(",r=");
+        let _ = write!(header, "{frame_index}");
+    }
+    if let Some(frame_delay_ms) = frame_delay_ms {
+        header.push_str(",z=");
+        let _ = write!(header, "{frame_delay_ms}");
+    }
+    header.push_str(quiet.field());
+    header
 }
 
 fn single_payload_raw(
@@ -1519,6 +1542,13 @@ mod tests {
         let escapes = upload_still(1, b"hi", Transport::TmuxPassthrough);
         assert!(escapes.starts_with("\x1bPtmux;\x1b\x1b_Ga=t,f=100,i=1,m=0,q=2;"));
         assert!(escapes.ends_with("\x1b\\"));
+    }
+
+    #[test]
+    fn single_payload_header_builds_directly() {
+        let header = single_payload_header(7, "a=f", "t", Some(2), Some(44), Quiet::SuppressAll);
+        assert_eq!(header, "a=f,f=100,t=t,i=7,r=2,z=44,q=2");
+        assert!(header.capacity() >= header.len());
     }
 
     #[test]
