@@ -3075,7 +3075,7 @@ fn terminal_font() -> Option<&'static TerminalFont> {
 
 fn load_terminal_font() -> Result<TerminalFont> {
     let path = discover_terminal_font_path().context("discover terminal font")?;
-    let bytes = std::fs::read(&path).with_context(|| format!("read font {}", path.display()))?;
+    let bytes = std::fs::read(&path).with_context(|| terminal_font_read_context(&path))?;
     let settings = fontdue::FontSettings {
         collection_index: 0,
         scale: 40.0,
@@ -3084,6 +3084,14 @@ fn load_terminal_font() -> Result<TerminalFont> {
     let font = fontdue::Font::from_bytes(bytes, settings)
         .map_err(|err| anyhow!("parse font {}: {err}", path.display()))?;
     Ok(TerminalFont { font })
+}
+
+fn terminal_font_read_context(path: &Path) -> String {
+    let display = path.display().to_string();
+    let mut context = String::with_capacity("read font ".len() + display.len());
+    context.push_str("read font ");
+    context.push_str(&display);
+    context
 }
 
 fn discover_terminal_font_path() -> Option<PathBuf> {
@@ -5403,6 +5411,13 @@ mod tests {
         name.push('-');
         let _ = write!(name, "{nanos}");
         name
+    }
+
+    #[test]
+    fn terminal_font_read_context_builds_directly() {
+        let context = terminal_font_read_context(Path::new("/tmp/FiraCode-Regular.ttf"));
+        assert_eq!(context, "read font /tmp/FiraCode-Regular.ttf");
+        assert!(context.capacity() >= context.len());
     }
 
     #[test]
