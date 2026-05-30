@@ -1084,7 +1084,7 @@ INPUT AND AUTOMATION
 
 APPS AND LAUNCHING
   apps [--filter QUERY] [--limit N] [--first] [--launch-first]
-  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|list|apps|app|launch|open|run|windows|win|displays|monitors|screens|terminal|term|shell|ssh|console|tty]
+  remote HOST [help|doctor|status|check|x11|gui|graphical|wayland|forward|kittwm|desktop|wm|list|apps|app|launch|open|run|windows|win|displays|monitors|screens|terminal|term|shell|ssh|console|tty]
                             Friendly pooled-SSH aliases for remote workflows
   apps --remote HOST [--filter QUERY] [--limit N] [--first|--launch-first]
                             List/launch remote candidates via pooled SSH;
@@ -1478,6 +1478,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              kittwm remote HOST            friendly alias for remote doctor\n\
              kittwm remote HOST kittwm     open remote kittwm in a pooled SSH pane\n\
              kittwm remote HOST desktop    alias for remote HOST kittwm\n\
+             kittwm remote HOST wm         short alias for remote HOST kittwm\n\
              kittwm remote HOST list       list remote app candidates\n\
              kittwm remote HOST list apps firefox\n\
                                            list remote app matches using a natural alias\n\
@@ -1613,6 +1614,7 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST forward           short alias for remote HOST forwarding\n\
              remote HOST kittwm            open remote kittwm in a pooled SSH pane\n\
              remote HOST desktop           alias for remote HOST kittwm\n\
+             remote HOST wm                short alias for remote HOST kittwm\n\
              remote HOST list              list remote app candidates\n\
              remote HOST list apps QUERY    list remote app matches with a natural alias\n\
              remote HOST list app QUERY     singular alias for remote HOST list apps\n\
@@ -1888,7 +1890,7 @@ fn parse_remote_alias_action(out: &mut Cli, action: &str, rest: &[String]) -> Re
         }
         "list" | "ls" => parse_remote_list_alias(out, rest),
         "launch" | "open" | "run" => parse_remote_launch_alias(out, rest),
-        "kittwm" | "desktop" => {
+        "kittwm" | "desktop" | "wm" => {
             out.remote_terminal_args = Some(remote_kittwm_alias_args(
                 out.remote_host.as_deref().unwrap_or("HOST"),
                 rest,
@@ -4977,6 +4979,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST desktop",
             category: "remote",
             description: "alias for remote HOST kittwm",
+        },
+        LocalCommandEntry {
+            command: "remote HOST wm",
+            category: "remote",
+            description: "short alias for remote HOST kittwm",
         },
         LocalCommandEntry {
             command: "remote HOST list",
@@ -11324,6 +11331,7 @@ mod tests {
         assert!(text.contains("kittwm apps --remote HOST"), "{text}");
         assert!(text.contains("kittwm doctor --remote HOST"), "{text}");
         assert!(text.contains("kittwm remote HOST terminal"), "{text}");
+        assert!(text.contains("kittwm remote HOST wm"), "{text}");
         assert!(text.contains("kittwm-terminal --remote HOST"), "{text}");
         assert!(text.contains("ControlMaster=auto"), "{text}");
     }
@@ -11573,6 +11581,15 @@ mod tests {
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST forward" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST kittwm" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST desktop" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST wm" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST list" && entry["category"] == "remote"
@@ -12809,6 +12826,14 @@ mod tests {
                     "ops".to_string()
                 ][..]
             )
+        );
+
+        let mut remote_wm = Cli::default();
+        remote_wm.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(&mut remote_wm, "wm", &args(&["--workspace", "ops"])).unwrap();
+        assert_eq!(
+            remote_wm.remote_terminal_args,
+            remote_kittwm.remote_terminal_args
         );
 
         let mut launch = Cli::default();
