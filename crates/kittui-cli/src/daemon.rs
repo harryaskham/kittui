@@ -2969,6 +2969,40 @@ fn semantic_focused_reply(window: &str, component: &str) -> String {
     out
 }
 
+fn semantic_action_unsupported_reply(window: &str, component: &str, action: &str) -> String {
+    let component = component.trim();
+    let action = action.trim();
+    let mut out = String::with_capacity(
+        "ERR SEMANTIC_ACTION unsupported window= component= action=\n".len()
+            + window.len()
+            + component.len()
+            + action.len(),
+    );
+    out.push_str("ERR SEMANTIC_ACTION unsupported window=");
+    out.push_str(window);
+    out.push_str(" component=");
+    out.push_str(component);
+    out.push_str(" action=");
+    out.push_str(action);
+    out.push('\n');
+    out
+}
+
+fn semantic_focus_unsupported_reply(window: &str, component: &str) -> String {
+    let component = component.trim();
+    let mut out = String::with_capacity(
+        "ERR SEMANTIC_FOCUS unsupported window= component=\n".len()
+            + window.len()
+            + component.len(),
+    );
+    out.push_str("ERR SEMANTIC_FOCUS unsupported window=");
+    out.push_str(window);
+    out.push_str(" component=");
+    out.push_str(component);
+    out.push('\n');
+    out
+}
+
 fn semantic_component_id(window: &str, suffix: &str) -> String {
     let mut id = String::with_capacity(window.len() + 1 + suffix.len());
     id.push_str(window);
@@ -3030,12 +3064,7 @@ fn native_spawn_semantic_action_reply(
     let window = pane.window.clone();
     let action_result = {
         let Some(snapshot) = state.semantic_snapshots.get_mut(&window) else {
-            return format!(
-                "ERR SEMANTIC_ACTION unsupported window={} component={} action={}\n",
-                window,
-                component.trim(),
-                action.trim()
-            );
+            return semantic_action_unsupported_reply(&window, component, action);
         };
         apply_semantic_action(snapshot, component.trim(), action.trim(), &payload)
             .map(|detail| (snapshot.revision, detail.value))
@@ -3093,11 +3122,7 @@ fn native_spawn_semantic_focus_reply(
     let window = pane.window.clone();
     let focus_result = {
         let Some(snapshot) = state.semantic_snapshots.get_mut(&window) else {
-            return format!(
-                "ERR SEMANTIC_FOCUS unsupported window={} component={}\n",
-                window,
-                component.trim()
-            );
+            return semantic_focus_unsupported_reply(&window, component);
         };
         apply_semantic_focus(snapshot, component.trim()).map(|()| snapshot.revision)
     };
@@ -5170,6 +5195,23 @@ mod tests {
         assert_eq!(
             focus,
             "SEMANTIC_FOCUSED window=native-1 component=settings.name\n"
+        );
+        assert_eq!(focus.capacity(), focus.len());
+    }
+
+    #[test]
+    fn semantic_unsupported_replies_build_directly() {
+        let action = semantic_action_unsupported_reply("native-1", " settings.notify ", " toggle ");
+        assert_eq!(
+            action,
+            "ERR SEMANTIC_ACTION unsupported window=native-1 component=settings.notify action=toggle\n"
+        );
+        assert_eq!(action.capacity(), action.len());
+
+        let focus = semantic_focus_unsupported_reply("native-1", " settings.name ");
+        assert_eq!(
+            focus,
+            "ERR SEMANTIC_FOCUS unsupported window=native-1 component=settings.name\n"
         );
         assert_eq!(focus.capacity(), focus.len());
     }
