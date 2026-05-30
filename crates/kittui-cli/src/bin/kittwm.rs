@@ -1510,6 +1510,12 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            front-door alias for forcing pooled-SSH fallback discovery\n\
              kittwm remote HOST fallback launch firefox\n\
                                            front-door alias for forcing pooled-SSH fallback launch\n\
+             kittwm remote HOST fallback open firefox\n\
+                                           natural alias for forced fallback launch\n\
+             kittwm remote HOST fallback run firefox\n\
+                                           natural alias for forced fallback launch\n\
+             kittwm remote HOST fallback start firefox\n\
+                                           natural alias for forced fallback launch\n\
              kittwm remote HOST fallback windows firefox\n\
                                            front-door alias for forcing platform fallback window listing\n\
              kittwm remote HOST fallback displays retina\n\
@@ -1685,6 +1691,10 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST fallback apps QUERY force pooled-SSH fallback app discovery\n\
              remote HOST fallback launch QUERY\n\
                                             force pooled-SSH fallback app launch\n\
+             remote HOST fallback open QUERY alias for fallback launch\n\
+             remote HOST fallback run QUERY  alias for fallback launch\n\
+             remote HOST fallback start QUERY\n\
+                                            alias for fallback launch\n\
              remote HOST fallback windows QUERY\n\
                                             force platform fallback window listing\n\
              remote HOST fallback displays QUERY\n\
@@ -2041,7 +2051,7 @@ fn parse_remote_fallback_alias(out: &mut Cli, rest: &[String]) -> Result<()> {
             parse_remote_listing_alias(out, RemoteListingKind::Displays, rest)
         }
         other => Err(anyhow!(
-            "unknown remote fallback target {other:?}\ntry: kittwm remote HOST fallback apps firefox | fallback launch firefox | fallback windows firefox | fallback displays retina\nhelp: kittwm help ssh"
+            "unknown remote fallback target {other:?}\ntry: kittwm remote HOST fallback apps firefox | fallback launch firefox | fallback open firefox | fallback windows firefox | fallback displays retina\nhelp: kittwm help ssh"
         )),
     }
 }
@@ -5217,6 +5227,21 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST fallback launch QUERY",
             category: "remote",
             description: "front-door alias for fallback app launch",
+        },
+        LocalCommandEntry {
+            command: "remote HOST fallback open QUERY",
+            category: "remote",
+            description: "natural alias for fallback app launch",
+        },
+        LocalCommandEntry {
+            command: "remote HOST fallback run QUERY",
+            category: "remote",
+            description: "natural alias for fallback app launch",
+        },
+        LocalCommandEntry {
+            command: "remote HOST fallback start QUERY",
+            category: "remote",
+            description: "natural alias for fallback app launch",
         },
         LocalCommandEntry {
             command: "remote HOST fallback windows QUERY",
@@ -11774,6 +11799,9 @@ mod tests {
             text.contains("kittwm remote HOST fallback launch"),
             "{text}"
         );
+        assert!(text.contains("kittwm remote HOST fallback open"), "{text}");
+        assert!(text.contains("kittwm remote HOST fallback run"), "{text}");
+        assert!(text.contains("kittwm remote HOST fallback start"), "{text}");
         assert!(text.contains("kittwm remote HOST terminal"), "{text}");
         assert!(text.contains("kittwm remote HOST wm"), "{text}");
         assert!(text.contains("kittwm-terminal --remote HOST"), "{text}");
@@ -12095,6 +12123,15 @@ mod tests {
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST fallback launch QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST fallback open QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST fallback run QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST fallback start QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST fallback windows QUERY"
