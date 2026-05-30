@@ -1719,6 +1719,16 @@ fn restore_session_missing_command_reply(idx: usize) -> String {
     out
 }
 
+fn restore_session_invalid_json_reply(err: &serde_json::Error) -> String {
+    let err = err.to_string();
+    let mut out =
+        String::with_capacity("ERR RESTORE_SESSION_JSON invalid json: \n".len() + err.len());
+    out.push_str("ERR RESTORE_SESSION_JSON invalid json: ");
+    out.push_str(&err);
+    out.push('\n');
+    out
+}
+
 fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, json: &str) -> String {
     let json = json.trim();
     if json.is_empty() {
@@ -1726,7 +1736,7 @@ fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, jso
     }
     let value: serde_json::Value = match serde_json::from_str(json) {
         Ok(value) => value,
-        Err(err) => return format!("ERR RESTORE_SESSION_JSON invalid json: {err}\n"),
+        Err(err) => return restore_session_invalid_json_reply(&err),
     };
     let layout = value
         .get("layout")
@@ -3608,6 +3618,17 @@ mod tests {
     fn restore_session_missing_command_reply_builds_directly() {
         let reply = restore_session_missing_command_reply(12);
         assert_eq!(reply, "ERR RESTORE_SESSION_JSON pane 12 missing command\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn restore_session_invalid_json_reply_builds_directly() {
+        let err = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+        let reply = restore_session_invalid_json_reply(&err);
+        assert!(
+            reply.starts_with("ERR RESTORE_SESSION_JSON invalid json: EOF while parsing"),
+            "{reply}"
+        );
         assert_eq!(reply.capacity(), reply.len());
     }
 
