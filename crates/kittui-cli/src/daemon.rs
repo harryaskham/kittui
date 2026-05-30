@@ -6403,16 +6403,23 @@ fn apps_json_reply(limit: usize) -> String {
     let mac_apps = macos_apps(limit);
     #[cfg(not(target_os = "macos"))]
     let mac_apps: Vec<String> = Vec::new();
-    format!(
-        "{{\"default_command\": {:?}, \"default_resolved\": {}, \"path_commands\": [{}], \"macos_apps\": [{}]}}\n",
-        default_cmd,
-        default_path
-            .as_ref()
-            .map(|p| format!("{:?}", p.display().to_string()))
-            .unwrap_or_else(|| "null".to_string()),
-        json_string_array(&path_cmds),
-        json_string_array(&mac_apps),
-    )
+    let resolved = default_path.as_ref().map(|p| p.display().to_string());
+    let path_arr = json_string_array(&path_cmds);
+    let mac_arr = json_string_array(&mac_apps);
+    let mut out = String::new();
+    out.push_str("{\"default_command\": ");
+    write!(out, "{default_cmd:?}").expect("write to string");
+    out.push_str(", \"default_resolved\": ");
+    match &resolved {
+        Some(path) => write!(out, "{path:?}").expect("write to string"),
+        None => out.push_str("null"),
+    }
+    out.push_str(", \"path_commands\": [");
+    out.push_str(&path_arr);
+    out.push_str("], \"macos_apps\": [");
+    out.push_str(&mac_arr);
+    out.push_str("]}\n");
+    out
 }
 
 fn find_on_path(program: &str) -> Option<PathBuf> {
