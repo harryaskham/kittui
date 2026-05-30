@@ -6321,8 +6321,9 @@ fn native_footer_status_scene(cell_size: CellSize, cols: u16, status_text: &str)
         ("help", 1.0, 10.0),
         ("focus", 12.5, 9.0),
         ("state", 23.0, 9.0),
-        ("terminal", 33.5, 14.0),
-        ("close", 49.0, 9.0),
+        ("drag", 33.5, 8.0),
+        ("terminal", 43.0, 14.0),
+        ("close", 58.5, 9.0),
     ];
     let status_label = bounded_ellipsis(status_text, NATIVE_FOOTER_STATUS_LABEL_MAX_CHARS);
     let mut layers = vec![Layer::new(
@@ -12073,6 +12074,7 @@ mod native_pane_tests {
         assert!(labels.contains(&"status-chip-help"), "{labels:?}");
         assert!(labels.contains(&"status-chip-focus"), "{labels:?}");
         assert!(labels.contains(&"status-chip-state"), "{labels:?}");
+        assert!(labels.contains(&"status-chip-drag"), "{labels:?}");
     }
 
     #[test]
