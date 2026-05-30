@@ -113,6 +113,11 @@ pub const NATIVE_SHORTCUT_ENTRIES: &[NativeShortcut] = &[
         keys: "Ctrl-C×3 then y / Ctrl-]",
         description: "confirm and exit kittwm",
     },
+    NativeShortcut {
+        id: "title_markers",
+        keys: "title markers",
+        description: "▶ focus · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved",
+    },
 ];
 
 /// External daily-driver command hints appended to the shortcut overlay.
@@ -145,6 +150,7 @@ pub const NATIVE_SHORTCUTS: &[&str] = &[
     "C-a b              balance panes",
     "Ctrl-C×3 then y    confirm and exit kittwm",
     "Ctrl-]             emergency/direct exit",
+    "title markers      ▶ focus · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved",
     NATIVE_SHORTCUT_COMMAND_HINTS[0],
     NATIVE_SHORTCUT_COMMAND_HINTS[1],
 ];
@@ -192,6 +198,8 @@ mod tests {
         assert!(text.contains("C-a { / C-a }"));
         assert!(text.contains("C-a r"));
         assert!(text.contains("C-a R"));
+        assert!(text.contains("title markers"));
+        assert!(text.contains("▣ fullscreen"));
         assert!(text.ends_with('\n'));
     }
 
@@ -230,5 +238,15 @@ mod tests {
             .unwrap()
             .iter()
             .any(|entry| entry["id"] == "reset_all_floating_panes"));
+        let marker_entry = value["shortcuts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == "title_markers")
+            .expect("title marker legend entry");
+        assert!(marker_entry["description"]
+            .as_str()
+            .unwrap()
+            .contains("⇄ reorder"));
     }
 }
