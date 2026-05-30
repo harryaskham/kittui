@@ -2173,6 +2173,12 @@ impl EventEnvelope {
     pub fn frame_elapsed_us(&self) -> Option<u64> {
         self.detail_u64("elapsed_us")
     }
+
+    /// Elapsed render/upload time in milliseconds reported by a `pane_frame_presented` event.
+    pub fn frame_elapsed_ms(&self) -> Option<f32> {
+        self.frame_elapsed_us()
+            .map(|elapsed| elapsed as f32 / 1_000.0)
+    }
 }
 
 /// Owning iterator over a bounded `EVENTS [ms]` batch.
@@ -6747,6 +6753,7 @@ mod tests {
                 assert_eq!(envelope.frame_embed_bytes(), Some(512));
                 assert_eq!(envelope.frame_total_transport_bytes(), Some(4672));
                 assert_eq!(envelope.frame_elapsed_us(), Some(321));
+                assert_eq!(envelope.frame_elapsed_ms(), Some(0.321));
             }
             other => panic!("unexpected event: {other:?}"),
         }
