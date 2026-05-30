@@ -3038,6 +3038,11 @@ impl PanesStatus {
         self.active_title_drag_panes().next()
     }
 
+    /// Window id for the first reported active title-drag target.
+    pub fn active_title_drag_window(&self) -> Option<&str> {
+        Some(self.active_title_drag_pane()?.window.as_str())
+    }
+
     /// Reported raw title-drag interaction kind for the active drag target.
     pub fn active_title_drag_kind(&self) -> Option<&str> {
         self.active_title_drag_pane()?.title_drag_kind()
@@ -3506,6 +3511,11 @@ impl Status {
     /// First pane reported as the active title-drag target.
     pub fn active_title_drag_pane(&self) -> Option<&NativePaneDetail> {
         self.active_title_drag_panes().next()
+    }
+
+    /// Window id for the first reported active title-drag target.
+    pub fn active_title_drag_window(&self) -> Option<&str> {
+        Some(self.active_title_drag_pane()?.window.as_str())
     }
 
     /// Reported raw title-drag interaction kind for the active drag target.
@@ -5811,6 +5821,7 @@ mod tests {
                 .map(|pane| pane.window.as_str()),
             Some("native-1")
         );
+        assert_eq!(panes.active_title_drag_window(), Some("native-1"));
         assert_eq!(
             panes
                 .active_title_drag_panes()
@@ -6060,6 +6071,7 @@ mod tests {
         assert_eq!(status.focused_title_marker_prefix(), None);
         assert_eq!(status.focused_reported_title_marker_prefix(), None);
         assert!(status.active_title_drag_pane().is_none());
+        assert_eq!(status.active_title_drag_window(), None);
         assert_eq!(status.active_title_drag_kind(), None);
         assert_eq!(status.active_parsed_title_drag_kind(), None);
         assert_eq!(status.active_title_drag_reorders_pane(), None);
@@ -6167,6 +6179,7 @@ mod tests {
             Some("▶≡  ")
         );
         assert!(status.active_title_drag_pane().is_none());
+        assert_eq!(status.active_title_drag_window(), None);
         assert_eq!(status.active_title_drag_kind(), None);
         assert_eq!(status.active_parsed_title_drag_kind(), None);
         assert_eq!(status.active_title_drag_reorders_pane(), None);
