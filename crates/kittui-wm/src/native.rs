@@ -536,6 +536,20 @@ fn xwindow_surface_id(id: XWindowId) -> String {
     surface_id
 }
 
+fn xwindow_resize_context_label(id: XWindowId, width: u32, height: u32) -> String {
+    let mut label = String::with_capacity(
+        "resize X window XWindowId() to x".len()
+            + decimal_len(u64::from(id.0))
+            + decimal_len(u64::from(width))
+            + decimal_len(u64::from(height)),
+    );
+    label.push_str("resize X window XWindowId(");
+    write!(label, "{}", id.0).expect("write to string");
+    label.push_str(") to ");
+    write!(label, "{width}x{height}").expect("write to string");
+    label
+}
+
 /// Capture-only adapter that exposes a kittui scene as a native surface.
 ///
 /// This lets runtime/composite code treat first-party kittui render artifacts
@@ -930,7 +944,7 @@ impl NativeSurface for XWindowSurface {
         let height = (rows as u32).saturating_mul(self.cell_height).max(1);
         self.server
             .resize_window(self.window.id, width, height)
-            .with_context(|| format!("resize X window {:?} to {width}x{height}", self.window.id))?;
+            .with_context(|| xwindow_resize_context_label(self.window.id, width, height))?;
         self.window.rect.width = width as f32;
         self.window.rect.height = height as f32;
         Ok(())
@@ -6613,6 +6627,13 @@ mod tests {
         let surface_id = xwindow_surface_id(XWindowId(7));
         assert_eq!(surface_id, "xwindow:7");
         assert!(surface_id.capacity() >= surface_id.len());
+    }
+
+    #[test]
+    fn xwindow_resize_context_label_builds_directly() {
+        let label = xwindow_resize_context_label(XWindowId(7), 640, 384);
+        assert_eq!(label, "resize X window XWindowId(7) to 640x384");
+        assert_eq!(label.capacity(), label.len());
     }
 
     #[test]
