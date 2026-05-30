@@ -2895,7 +2895,7 @@ fn native_spawn_semantic_publish_reply(
         return "ERR registry poisoned\n".to_string();
     };
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
-        return format!("ERR SEMANTIC_PUBLISH no pane matching {}\n", target.trim());
+        return semantic_no_pane_reply("SEMANTIC_PUBLISH", target);
     };
     let window = pane.window.clone();
     if snapshot.surface != window {
@@ -2921,6 +2921,18 @@ fn semantic_published_reply(window: &str) -> String {
     let mut out = String::with_capacity("SEMANTIC_PUBLISHED window=\n".len() + window.len());
     out.push_str("SEMANTIC_PUBLISHED window=");
     out.push_str(window);
+    out.push('\n');
+    out
+}
+
+fn semantic_no_pane_reply(verb: &str, target: &str) -> String {
+    let target = target.trim();
+    let mut out =
+        String::with_capacity("ERR  no pane matching \n".len() + verb.len() + target.len());
+    out.push_str("ERR ");
+    out.push_str(verb);
+    out.push_str(" no pane matching ");
+    out.push_str(target);
     out.push('\n');
     out
 }
@@ -2981,7 +2993,7 @@ fn native_spawn_semantic_action_reply(
         return "ERR registry poisoned\n".to_string();
     };
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
-        return format!("ERR SEMANTIC_ACTION no pane matching {}\n", target.trim());
+        return semantic_no_pane_reply("SEMANTIC_ACTION", target);
     };
     let window = pane.window.clone();
     let action_result = {
@@ -3049,7 +3061,7 @@ fn native_spawn_semantic_focus_reply(
         return "ERR registry poisoned\n".to_string();
     };
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
-        return format!("ERR SEMANTIC_FOCUS no pane matching {}\n", target.trim());
+        return semantic_no_pane_reply("SEMANTIC_FOCUS", target);
     };
     let window = pane.window.clone();
     let focus_result = {
@@ -5112,6 +5124,13 @@ mod tests {
     fn semantic_published_reply_builds_directly() {
         let reply = semantic_published_reply("native-1");
         assert_eq!(reply, "SEMANTIC_PUBLISHED window=native-1\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn semantic_no_pane_reply_builds_directly() {
+        let reply = semantic_no_pane_reply("SEMANTIC_ACTION", " missing ");
+        assert_eq!(reply, "ERR SEMANTIC_ACTION no pane matching missing\n");
         assert_eq!(reply.capacity(), reply.len());
     }
 
