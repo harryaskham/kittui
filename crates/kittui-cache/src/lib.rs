@@ -333,6 +333,7 @@ fn touch(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as FmtWrite;
 
     fn tmp_cache() -> Cache {
         let dir = tempdir();
@@ -348,9 +349,30 @@ mod tests {
             .unwrap()
             .as_nanos();
         let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("kittui-cache-{pid}-{nanos}-{seq}"));
+        let path = std::env::temp_dir().join(cache_test_temp_dir_name(pid, nanos, seq));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    fn cache_test_temp_dir_name(pid: u32, nanos: u128, seq: u64) -> String {
+        let mut name = String::with_capacity(
+            "kittui-cache---".len()
+                + decimal_len(pid as u128)
+                + decimal_len(nanos)
+                + decimal_len(seq as u128),
+        );
+        name.push_str("kittui-cache-");
+        write!(name, "{pid}-{nanos}-{seq}").expect("write to string");
+        name
+    }
+
+    fn decimal_len(mut value: u128) -> usize {
+        let mut digits = 1;
+        while value >= 10 {
+            value /= 10;
+            digits += 1;
+        }
+        digits
     }
 
     fn meta() -> CacheEntryMeta {
@@ -363,6 +385,16 @@ mod tests {
             kitty_image_id: 0x1234,
             loops: 0,
         }
+    }
+
+    #[test]
+    fn cache_test_temp_dir_name_builds_directly() {
+        let name = cache_test_temp_dir_name(1234, 5678, 9);
+        assert_eq!(name, "kittui-cache-1234-5678-9");
+        assert_eq!(name.capacity(), name.len());
+        assert_eq!(decimal_len(0), 1);
+        assert_eq!(decimal_len(9), 1);
+        assert_eq!(decimal_len(10), 2);
     }
 
     #[test]
