@@ -2334,11 +2334,19 @@ fn native_spawn_status_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -
     )
 }
 
+fn json_value_line(value: &serde_json::Value) -> String {
+    let value = value.to_string();
+    let mut out = String::with_capacity(value.len() + 1);
+    out.push_str(&value);
+    out.push('\n');
+    out
+}
+
 fn native_chrome_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
     let Ok(state) = pending.lock() else {
         return "{\"error\":\"registry poisoned\"}\n".to_string();
     };
-    format!("{}\n", native_chrome_status_value(&state))
+    json_value_line(&native_chrome_status_value(&state))
 }
 
 fn native_shortcuts_json_reply() -> String {
@@ -5213,6 +5221,14 @@ mod tests {
         std::env::set_var("KITTWM_WORKSPACE", "   ");
         assert_eq!(native_workspace_id(), "1");
         std::env::remove_var("KITTWM_WORKSPACE");
+    }
+
+    #[test]
+    fn json_value_line_builds_directly() {
+        let value = serde_json::json!({"chrome":"ok"});
+        let line = json_value_line(&value);
+        assert_eq!(line, "{\"chrome\":\"ok\"}\n");
+        assert_eq!(line.capacity(), line.len());
     }
 
     #[test]
