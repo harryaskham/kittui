@@ -899,6 +899,7 @@ pub fn placeholder_text_ex(
     let b = (image_id & 0xff) as u8;
     let msb = ((image_id >> 24) & 0xff) as u8;
     let mut out = String::new();
+    let foreground = placeholder_foreground_color(r, g, b);
     let underline = placement_id.map(|p| {
         let pr = ((p >> 16) & 0xff) as u8;
         let pg = ((p >> 8) & 0xff) as u8;
@@ -906,7 +907,7 @@ pub fn placeholder_text_ex(
         format!("\x1b[58:2:{pr}:{pg}:{pb}m")
     });
     for row in 0..footprint.rows {
-        out.push_str(&format!("\x1b[38:2:{r}:{g}:{b}m"));
+        out.push_str(&foreground);
         if let Some(u) = &underline {
             out.push_str(u);
         }
@@ -923,6 +924,18 @@ pub fn placeholder_text_ex(
         }
         out.push_str("\x1b[39m\n");
     }
+    out
+}
+
+fn placeholder_foreground_color(r: u8, g: u8, b: u8) -> String {
+    let mut out = String::with_capacity("\x1b[38:2:;;m".len() + 3 + 3 + 3);
+    out.push_str("\x1b[38:2:");
+    let _ = write!(out, "{r}");
+    out.push(':');
+    let _ = write!(out, "{g}");
+    out.push(':');
+    let _ = write!(out, "{b}");
+    out.push('m');
     out
 }
 
@@ -1567,6 +1580,13 @@ mod tests {
         let s = cursor_move(1, 1, Transport::TmuxPassthrough);
         assert!(s.starts_with("\x1bPtmux;\x1b\x1b["));
         assert!(s.ends_with("\x1b\\"));
+    }
+
+    #[test]
+    fn placeholder_foreground_color_builds_directly() {
+        let color = placeholder_foreground_color(1, 2, 3);
+        assert_eq!(color, "\x1b[38:2:1:2:3m");
+        assert!(color.capacity() >= color.len());
     }
 
     #[test]
