@@ -321,8 +321,7 @@ fn rasterize_scanlines(rect: &PxRect, alpha: u8, period_px: u8, opacity: f32, pi
             continue;
         }
         for x in x0..x1 {
-            let mut color = Rgba::default();
-            color.3 = ((alpha as f32) * opacity).clamp(0.0, 255.0) as u8;
+            let color = Rgba::rgba(0, 0, 0, ((alpha as f32) * opacity).clamp(0.0, 255.0) as u8);
             pixmap.blend(x, y, color);
         }
     }
