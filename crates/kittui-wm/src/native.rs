@@ -550,6 +550,20 @@ fn xwindow_resize_context_label(id: XWindowId, width: u32, height: u32) -> Strin
     label
 }
 
+fn xwindow_press_keysym_context_label(id: XWindowId, sym: u32) -> String {
+    let mut label = String::with_capacity(
+        "press keysym  for X window XWindowId()".len()
+            + decimal_len(u64::from(sym))
+            + decimal_len(u64::from(id.0)),
+    );
+    label.push_str("press keysym ");
+    write!(label, "{sym}").expect("write to string");
+    label.push_str(" for X window XWindowId(");
+    write!(label, "{}", id.0).expect("write to string");
+    label.push(')');
+    label
+}
+
 /// Capture-only adapter that exposes a kittui scene as a native surface.
 ///
 /// This lets runtime/composite code treat first-party kittui render artifacts
@@ -955,7 +969,7 @@ impl NativeSurface for XWindowSurface {
             let sym = ch as u32;
             self.server
                 .inject_key(sym, true)
-                .with_context(|| format!("press keysym {sym} for X window {:?}", self.window.id))?;
+                .with_context(|| xwindow_press_keysym_context_label(self.window.id, sym))?;
             self.server.inject_key(sym, false).with_context(|| {
                 format!("release keysym {sym} for X window {:?}", self.window.id)
             })?;
@@ -6647,6 +6661,13 @@ mod tests {
     fn xwindow_resize_context_label_builds_directly() {
         let label = xwindow_resize_context_label(XWindowId(7), 640, 384);
         assert_eq!(label, "resize X window XWindowId(7) to 640x384");
+        assert_eq!(label.capacity(), label.len());
+    }
+
+    #[test]
+    fn xwindow_press_keysym_context_label_builds_directly() {
+        let label = xwindow_press_keysym_context_label(XWindowId(11), 97);
+        assert_eq!(label, "press keysym 97 for X window XWindowId(11)");
         assert_eq!(label.capacity(), label.len());
     }
 
