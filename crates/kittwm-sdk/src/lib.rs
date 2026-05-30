@@ -3143,6 +3143,18 @@ impl PanesStatus {
             .map(|status| format!("state:{status}"))
     }
 
+    /// Ordered high-priority live footer labels: mode, pane count, focus, state, and drag.
+    pub fn footer_status_labels(&self) -> Vec<String> {
+        footer_status_labels(
+            self.panes,
+            self.layout_label(),
+            Some(self.focus.as_str()),
+            self.focused_footer_focus_label(),
+            self.focused_footer_state_label(),
+            self.active_footer_drag_label(),
+        )
+    }
+
     /// Whether the focused pane has a non-zero floating offset.
     pub fn focused_is_moved(&self) -> Option<bool> {
         self.focused_pane()
@@ -3643,6 +3655,18 @@ impl Status {
             .map(|status| format!("state:{status}"))
     }
 
+    /// Ordered high-priority live footer labels: mode, pane count, focus, state, and drag.
+    pub fn footer_status_labels(&self) -> Vec<String> {
+        footer_status_labels(
+            self.panes.unwrap_or(0),
+            self.layout_label(),
+            self.focus.as_deref(),
+            self.focused_footer_focus_label(),
+            self.focused_footer_state_label(),
+            self.active_footer_drag_label(),
+        )
+    }
+
     /// Whether the focused pane has a non-zero floating offset.
     pub fn focused_is_moved(&self) -> Option<bool> {
         self.focused_pane()
@@ -3928,6 +3952,36 @@ fn focused_is_topmost_from_details(
 
 const PANE_STATUS_COMMAND_MAX_CHARS: usize = 64;
 const FOOTER_FOCUS_MAX_CHARS: usize = 48;
+
+fn footer_status_labels(
+    panes: u64,
+    layout: Option<&str>,
+    focus: Option<&str>,
+    footer_focus: Option<String>,
+    footer_state: Option<String>,
+    footer_drag: Option<String>,
+) -> Vec<String> {
+    if panes == 0 {
+        return Vec::new();
+    }
+    let mut labels = Vec::with_capacity(5);
+    labels.push(format!("mode:{}", layout.unwrap_or("-")));
+    labels.push(format!("panes:{panes}"));
+    labels.push(footer_focus.unwrap_or_else(|| {
+        let focus = focus
+            .map(str::trim)
+            .filter(|focus| !focus.is_empty())
+            .unwrap_or("-");
+        format!("focus:{}", bounded_ellipsis(focus, FOOTER_FOCUS_MAX_CHARS))
+    }));
+    if let Some(footer_state) = footer_state {
+        labels.push(footer_state);
+    }
+    if let Some(footer_drag) = footer_drag {
+        labels.push(footer_drag);
+    }
+    labels
+}
 
 fn bounded_ellipsis(text: &str, max_chars: usize) -> String {
     if max_chars == 0 {
@@ -6092,6 +6146,16 @@ mod tests {
             panes.focused_footer_state_label().as_deref(),
             Some("state:/bin/sh · wt:2 · pid:123 · frame:1/4")
         );
+        assert_eq!(
+            panes.footer_status_labels(),
+            vec![
+                "mode:columns".to_string(),
+                "panes:1".to_string(),
+                "focus:native-1(shell)".to_string(),
+                "state:/bin/sh · wt:2 · pid:123 · frame:1/4".to_string(),
+                "drag:reorder:native-1".to_string(),
+            ]
+        );
         assert_eq!(panes.focused_is_moved(), Some(true));
         assert_eq!(panes.focused_is_title_draggable(), Some(true));
         assert_eq!(panes.focused_is_title_drag_active(), Some(true));
@@ -6383,6 +6447,14 @@ mod tests {
         assert_eq!(status.focused_footer_focus_label(), None);
         assert_eq!(status.focused_status_chip_label(), None);
         assert_eq!(status.focused_footer_state_label(), None);
+        assert_eq!(
+            status.footer_status_labels(),
+            vec![
+                "mode:rows".to_string(),
+                "panes:1".to_string(),
+                "focus:native-1".to_string(),
+            ]
+        );
         assert_eq!(status.focused_is_moved(), None);
         assert_eq!(status.focused_is_title_draggable(), None);
         assert_eq!(status.focused_is_title_drag_active(), None);
@@ -6484,6 +6556,15 @@ mod tests {
         assert_eq!(
             status.focused_footer_state_label().as_deref(),
             Some("state:- · pid:- · frame:clean")
+        );
+        assert_eq!(
+            status.footer_status_labels(),
+            vec![
+                "mode:floating".to_string(),
+                "panes:2".to_string(),
+                "focus:native-1(shell)".to_string(),
+                "state:- · pid:- · frame:clean".to_string(),
+            ]
         );
         assert_eq!(status.focused_is_moved(), Some(false));
         assert_eq!(status.focused_is_title_draggable(), Some(true));
