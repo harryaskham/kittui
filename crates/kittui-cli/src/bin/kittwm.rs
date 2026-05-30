@@ -8641,11 +8641,19 @@ kittwm_remote_list_linux_desktop_apps() {
 kittwm_remote_candidates() {
     { kittwm_remote_list_path_commands; kittwm_remote_list_macos_apps; kittwm_remote_list_linux_desktop_apps; } | awk -F '\t' -v q="${KITTWM_REMOTE_QUERY:-}" 'BEGIN { q=tolower(q) } !seen[$1 FS $2]++ && (q == "" || index(tolower($0), q))'
 }
+kittwm_remote_candidate_count() {
+    wanted=$1
+    kittwm_remote_candidates | awk -F '\t' -v wanted="$wanted" '$1 == wanted { print }' | head -n "$limit" | awk 'END { print NR + 0 }'
+}
 limit=${KITTWM_REMOTE_LIMIT:-50}
 mode=${KITTWM_REMOTE_MODE:-list}
 host=$(hostname 2>/dev/null || printf unknown)
 case "$mode" in
     json)
+        path_count=$(kittwm_remote_candidate_count path)
+        macos_count=$(kittwm_remote_candidate_count macos)
+        linux_desktop_count=$(kittwm_remote_candidate_count desktop)
+        total_count=$((path_count + macos_count + linux_desktop_count))
         printf '{"host":%s,"mode":"shell-path-macos-linux-desktop","filter":%s,"limit":%s,"path_commands":[' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)" "$limit"
         first=1
         kittwm_remote_candidates | awk -F '\t' '$1 == "path" { print $2 }' | head -n "$limit" | while IFS= read -r cmd; do
@@ -8709,7 +8717,7 @@ case "$mode" in
             first=0
             printf '%s' "$comment" | json_escape
         done
-        printf ']}'
+        printf '],"path_count":%s,"macos_count":%s,"linux_desktop_count":%s,"total_count":%s}' "$path_count" "$macos_count" "$linux_desktop_count" "$total_count"
         ;;
     first)
         candidate=$(kittwm_remote_candidates | head -n 1)
@@ -12292,6 +12300,11 @@ mod tests {
         assert!(script.contains("\"linux_desktop_keywords\":"), "{script}");
         assert!(script.contains("\"linux_desktop_categories\":"), "{script}");
         assert!(script.contains("\"linux_desktop_comments\":"), "{script}");
+        assert!(script.contains("\"path_count\":"), "{script}");
+        assert!(script.contains("\"macos_count\":"), "{script}");
+        assert!(script.contains("\"linux_desktop_count\":"), "{script}");
+        assert!(script.contains("\"total_count\":"), "{script}");
+        assert!(script.contains("kittwm_remote_candidate_count"), "{script}");
         assert!(script.contains("detail=\"\""), "{script}");
         assert!(script.contains("detail\"; \""), "{script}");
     }
