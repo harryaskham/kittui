@@ -2570,6 +2570,15 @@ fn wait_ms_integer_reply(verb: &str) -> String {
     out
 }
 
+fn wait_ms_range_reply(verb: &str) -> String {
+    let mut out =
+        String::with_capacity("ERR  milliseconds must be in 1..=60000\n".len() + verb.len());
+    out.push_str("ERR ");
+    out.push_str(verb);
+    out.push_str(" milliseconds must be in 1..=60000\n");
+    out
+}
+
 fn native_spawn_wait_ms_reply(
     pending: &Arc<Mutex<NativeSpawnQueueState>>,
     rest: &str,
@@ -2587,7 +2596,7 @@ fn native_spawn_wait_ms_reply(
         return wait_ms_integer_reply(verb);
     };
     if ms == 0 || ms > 60_000 {
-        return format!("ERR {verb} milliseconds must be in 1..=60000\n");
+        return wait_ms_range_reply(verb);
     }
     native_spawn_wait_reply(
         pending,
@@ -3938,6 +3947,16 @@ mod tests {
     fn wait_ms_integer_reply_builds_directly() {
         let reply = wait_ms_integer_reply("WAIT_TEXT_MS");
         assert_eq!(reply, "ERR WAIT_TEXT_MS milliseconds must be an integer\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn wait_ms_range_reply_builds_directly() {
+        let reply = wait_ms_range_reply("WAIT_TEXT_MS");
+        assert_eq!(
+            reply,
+            "ERR WAIT_TEXT_MS milliseconds must be in 1..=60000\n"
+        );
         assert_eq!(reply.capacity(), reply.len());
     }
 
