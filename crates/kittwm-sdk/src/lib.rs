@@ -2016,6 +2016,26 @@ impl EventEnvelope {
             .and_then(bounds_tuple)
             .or_else(|| app_bounds_tuple(value))
     }
+
+    /// `(cols, rows)` delta between two outer pane bounds detail keys.
+    pub fn pane_size_delta(&self, old_key: &str, new_key: &str) -> Option<(i32, i32)> {
+        let old = self.pane_bounds(old_key)?;
+        let new = self.pane_bounds(new_key)?;
+        Some((
+            i32::from(new.2) - i32::from(old.2),
+            i32::from(new.3) - i32::from(old.3),
+        ))
+    }
+
+    /// `(cols, rows)` delta between two app/content pane bounds detail keys.
+    pub fn pane_app_size_delta(&self, old_key: &str, new_key: &str) -> Option<(i32, i32)> {
+        let old = self.pane_app_bounds(old_key)?;
+        let new = self.pane_app_bounds(new_key)?;
+        Some((
+            i32::from(new.2) - i32::from(old.2),
+            i32::from(new.3) - i32::from(old.3),
+        ))
+    }
 }
 
 /// Owning iterator over a bounded `EVENTS [ms]` batch.
@@ -6505,7 +6525,10 @@ mod tests {
                 assert_eq!(envelope.pane_app_bounds("old"), Some((0, 1, 80, 23)));
                 assert_eq!(envelope.pane_bounds("new"), Some((0, 0, 100, 30)));
                 assert_eq!(envelope.pane_app_bounds("new"), Some((0, 1, 100, 29)));
+                assert_eq!(envelope.pane_size_delta("old", "new"), Some((20, 6)));
+                assert_eq!(envelope.pane_app_size_delta("old", "new"), Some((20, 6)));
                 assert_eq!(envelope.pane_bounds("missing"), None);
+                assert_eq!(envelope.pane_size_delta("old", "missing"), None);
             }
             other => panic!("unexpected event: {other:?}"),
         }
