@@ -7,6 +7,7 @@
 //! wrap them in chrome, tiling, focus, and input policy just like X/Quartz
 //! windows.
 
+use std::fmt::Write as FmtWrite;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -3613,12 +3614,27 @@ pub struct HeadlessBrowserApp {
 
 static HEADLESS_CHROME_PROFILE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+fn decimal_len(mut value: u64) -> usize {
+    let mut len = 1;
+    while value >= 10 {
+        value /= 10;
+        len += 1;
+    }
+    len
+}
+
+fn headless_chrome_profile_dir_name(pid: u32, id: u64) -> String {
+    let mut name = String::with_capacity(
+        "kittui-headless-chrome--".len() + decimal_len(pid as u64) + decimal_len(id),
+    );
+    name.push_str("kittui-headless-chrome-");
+    write!(name, "{pid}-{id}").expect("write to string");
+    name
+}
+
 fn next_headless_chrome_user_data_dir() -> PathBuf {
     let id = HEADLESS_CHROME_PROFILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "kittui-headless-chrome-{}-{id}",
-        std::process::id()
-    ))
+    std::env::temp_dir().join(headless_chrome_profile_dir_name(std::process::id(), id))
 }
 
 fn cleanup_headless_chrome_user_data_dir(path: &Path) {
@@ -5674,6 +5690,16 @@ mod tests {
             browser_ready_state_from_cdp_result(&complete)
         ));
         assert!(!browser_ready_state_is_renderable(None));
+    }
+
+    #[test]
+    fn headless_chrome_profile_dir_name_builds_directly() {
+        assert_eq!(decimal_len(0), 1);
+        assert_eq!(decimal_len(9), 1);
+        assert_eq!(decimal_len(10), 2);
+        let name = headless_chrome_profile_dir_name(1234, 56);
+        assert_eq!(name, "kittui-headless-chrome-1234-56");
+        assert_eq!(name.capacity(), name.len());
     }
 
     #[test]
