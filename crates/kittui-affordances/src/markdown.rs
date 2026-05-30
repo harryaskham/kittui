@@ -685,8 +685,16 @@ fn unique_heading_anchor(text: &str, seen: &mut HashMap<String, usize>) -> Strin
     if *count == 1 {
         base
     } else {
-        format!("{base}-{}", *count)
+        duplicate_heading_anchor(&base, *count)
     }
+}
+
+fn duplicate_heading_anchor(base: &str, count: usize) -> String {
+    let mut anchor = String::with_capacity(base.len() + 1 + decimal_len(count as u64));
+    anchor.push_str(base);
+    anchor.push('-');
+    write!(anchor, "{count}").expect("write to string");
+    anchor
 }
 
 fn heading_anchor(text: &str) -> String {
@@ -966,6 +974,13 @@ mod tests {
         assert_eq!(doc.links[0].label, "site");
         assert_eq!(doc.links[0].url, "https://example.com");
         assert_eq!(doc.links[0].title.as_deref(), Some("Example title"));
+    }
+
+    #[test]
+    fn duplicate_heading_anchor_builds_directly() {
+        let anchor = duplicate_heading_anchor("hello-world", 12);
+        assert_eq!(anchor, "hello-world-12");
+        assert!(anchor.capacity() >= anchor.len());
     }
 
     #[test]
