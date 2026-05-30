@@ -57,6 +57,7 @@ else
 fi
 
 echo "kittwm strict-clippy baseline guard (LIBGHOSTTY_VT_NO_PKG_CONFIG=$LIBGHOSTTY_VT_NO_PKG_CONFIG)"
+echo "command: $CARGO clippy -p <crate> --all-targets -- -D warnings  (the only valid strict-clippy signal; plain/--lib runs give false-clean)"
 echo "checking ${#CRATES[@]} crate(s); not-yet-clean (excluded): ${NOT_YET_CLEAN[*]}"
 echo
 
@@ -64,7 +65,16 @@ failed=()
 for crate in "${CRATES[@]}"; do
   printf '  %-20s ' "$crate"
   if "$CARGO" clippy -p "$crate" --all-targets -- -D warnings >/tmp/kittwm-strict-clippy-"$crate".log 2>&1; then
-    echo "PASS"
+    pass=1
+    # Feature-gated code is only linted when compiled: re-check crates whose
+    # dependents enable extra features (false-clean trap, see bd-89422b/bd-c42fce).
+    if [ "$crate" = "kittui-quartz" ]; then
+      if ! "$CARGO" clippy -p "$crate" --features sck --all-targets -- -D warnings \
+          >/tmp/kittwm-strict-clippy-"$crate"-sck.log 2>&1; then
+        pass=0
+      fi
+    fi
+    if [ "$pass" = 1 ]; then echo "PASS"; else echo "FAIL (feature-gated)"; failed+=("$crate"); fi
   else
     echo "FAIL"
     failed+=("$crate")

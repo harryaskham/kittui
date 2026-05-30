@@ -5,9 +5,38 @@ This repo is moving toward a clean strict-clippy baseline so agents can run
 pre-existing warnings (the friction documented in `bd-dc44f1`). Until every
 crate is clean, strict clippy is adopted **crate-by-crate**.
 
+## Always measure with `--all-targets` (and feature-gated code under its features)
+
+Strict-clippy status is **only** meaningful when measured with:
+
+```sh
+cargo clippy -p <crate> --all-targets -- -D warnings
+```
+
+A plain `cargo clippy -p <crate>` (or `--lib`) run is **NOT** sufficient evidence
+of cleanliness and routinely gives **false-clean** signals, because it skips the
+crate's bins, tests, examples, and benches. This bit us in `bd-89422b`: a
+lib-only run reported "kittui-wm/kittui-cli have zero own lints" when
+`--all-targets` showed kittui-wm had 12 own lints in `native.rs` and kittui-cli
+had ~30 of its own — leading to a mis-scoped bead and a wrong peer claim.
+
+Feature-gated code is a second false-clean trap: clippy only lints code that is
+actually compiled. A crate can be clean under default features yet dirty under a
+feature a *dependent* enables. `kittui-quartz` is the canonical example — its
+ScreenCaptureKit path is behind `--features sck`/`quartz`, and those lints only
+appeared once `kittui-cli` (which enables `sck`) pulled them in (`bd-c42fce`).
+Check such crates under their features too, e.g.
+`cargo clippy -p kittui-quartz --features sck --all-targets -- -D warnings`.
+The guard script does this for `kittui-quartz` automatically.
+
+When reporting strict-clippy status in messages/summaries, quote the exact
+`--all-targets` command (the guard prints it per crate) so claims are
+reproducible.
+
+
 ## Clean crates (strict-clippy clean, `--all-targets`)
 
-These 13 crates pass `cargo clippy -p <crate> --all-targets -- -D warnings`:
+These 15 crates pass `cargo clippy -p <crate> --all-targets -- -D warnings`:
 
 - `kittui-core`
 - `kittui-cache`
@@ -20,8 +49,10 @@ These 13 crates pass `cargo clippy -p <crate> --all-targets -- -D warnings`:
 - `ratakittui`
 - `kittui-ghostty-vt`
 - `kittui-ffi`
-- `kittui-quartz`
+- `kittui-quartz` (also under `--features sck`/`--all-features`)
 - `kittui-xvfb`
+- `kittwm-sdk`
+- `kittui-wm`
 
 Run the guard to confirm the baseline still holds (fails non-zero on regression):
 
@@ -38,9 +69,8 @@ build) so it runs without a system libghostty.
 These heavier, actively developed crates still carry pre-existing warnings and
 are **excluded** from strict mode for now:
 
-- `kittui-cli`
-- `kittwm-sdk`
-- `kittui-wm`
+- `kittui-cli` (~30 own lints across `session.rs`, `daemon.rs`, `top_bar.rs`;
+  best split by file/owner)
 
 For these, run **non-strict** clippy as smoke (`cargo clippy -p <crate>`) and
 rely on targeted tests plus `cargo build`. Their owners can clear the warnings
