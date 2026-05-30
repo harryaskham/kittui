@@ -2966,6 +2966,18 @@ impl PanesStatus {
         })
     }
 
+    /// Visible title-row marker prefix for the focused pane using reported active-drag metadata.
+    pub fn focused_reported_title_marker_prefix(&self) -> Option<String> {
+        self.focused_pane().map(|pane| {
+            title_marker_prefix_for_pane_with_active_drag(
+                pane,
+                self.layout_label(),
+                true,
+                pane.is_title_drag_active(),
+            )
+        })
+    }
+
     /// Whether the focused pane's latest dirty-frame metrics report a clean/skipped frame.
     pub fn focused_frame_is_clean(&self) -> Option<bool> {
         self.focused_pane()?.is_frame_clean()
@@ -3012,6 +3024,18 @@ impl PanesStatus {
         self.panes_detail
             .iter()
             .filter(|pane| pane.is_title_draggable())
+    }
+
+    /// Panes reported as active title-drag targets.
+    pub fn active_title_drag_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.is_title_drag_active())
+    }
+
+    /// First pane reported as the active title-drag target.
+    pub fn active_title_drag_pane(&self) -> Option<&NativePaneDetail> {
+        self.active_title_drag_panes().next()
     }
 
     /// Panes whose title drag handle reorders the tiled pane stack.
@@ -3367,6 +3391,18 @@ impl Status {
         })
     }
 
+    /// Visible title-row marker prefix for the focused pane using reported active-drag metadata.
+    pub fn focused_reported_title_marker_prefix(&self) -> Option<String> {
+        self.focused_pane().map(|pane| {
+            title_marker_prefix_for_pane_with_active_drag(
+                pane,
+                self.layout_label(),
+                true,
+                pane.is_title_drag_active(),
+            )
+        })
+    }
+
     /// Whether the focused pane's latest dirty-frame metrics report a clean/skipped frame.
     pub fn focused_frame_is_clean(&self) -> Option<bool> {
         self.focused_pane()?.is_frame_clean()
@@ -3413,6 +3449,18 @@ impl Status {
         self.panes_detail
             .iter()
             .filter(|pane| pane.is_title_draggable())
+    }
+
+    /// Panes reported as active title-drag targets.
+    pub fn active_title_drag_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
+        self.panes_detail
+            .iter()
+            .filter(|pane| pane.is_title_drag_active())
+    }
+
+    /// First pane reported as the active title-drag target.
+    pub fn active_title_drag_pane(&self) -> Option<&NativePaneDetail> {
+        self.active_title_drag_panes().next()
     }
 
     /// Panes whose title drag handle reorders the tiled pane stack.
@@ -5664,6 +5712,23 @@ mod tests {
             Some("▶◆⇄↔")
         );
         assert_eq!(
+            panes.focused_reported_title_marker_prefix().as_deref(),
+            Some("▶◆⇄↔")
+        );
+        assert_eq!(
+            panes
+                .active_title_drag_pane()
+                .map(|pane| pane.window.as_str()),
+            Some("native-1")
+        );
+        assert_eq!(
+            panes
+                .active_title_drag_panes()
+                .map(|pane| pane.window.as_str())
+                .collect::<Vec<_>>(),
+            vec!["native-1"]
+        );
+        assert_eq!(
             panes
                 .focused_pane()
                 .unwrap()
@@ -5891,6 +5956,8 @@ mod tests {
         assert_eq!(status.focused_title_drag_cell(), None);
         assert_eq!(status.focused_title_drag_cells_by(1, 1), None);
         assert_eq!(status.focused_title_marker_prefix(), None);
+        assert_eq!(status.focused_reported_title_marker_prefix(), None);
+        assert!(status.active_title_drag_pane().is_none());
         assert_eq!(status.focused_frame_is_clean(), None);
         assert_eq!(status.focused_frame_upload_skipped(), None);
         assert_eq!(status.focused_frame_status_label(), None);
@@ -5987,6 +6054,11 @@ mod tests {
                 .as_deref(),
             Some("▶◆≡  ")
         );
+        assert_eq!(
+            status.focused_reported_title_marker_prefix().as_deref(),
+            Some("▶≡  ")
+        );
+        assert!(status.active_title_drag_pane().is_none());
         assert_eq!(status.focused_frame_is_clean(), Some(true));
         assert_eq!(status.focused_frame_upload_skipped(), Some(true));
         assert_eq!(
