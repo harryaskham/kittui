@@ -5895,14 +5895,11 @@ fn panes_json_reply(panes: &SharedPanes) -> String {
     let Ok(registry) = panes.lock() else {
         return "{\"error\":\"PANES registry poisoned\"}\n".to_string();
     };
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "panes": registry.panes.len(),
-            "focus": registry.focused.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
-            "panes_detail": registry.panes,
-        })
-    )
+    json_value_line(&serde_json::json!({
+        "panes": registry.panes.len(),
+        "focus": registry.focused.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
+        "panes_detail": registry.panes,
+    }))
 }
 
 fn bool_str(value: bool) -> &'static str {
