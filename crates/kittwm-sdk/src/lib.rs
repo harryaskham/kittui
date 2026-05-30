@@ -1449,6 +1449,37 @@ fn default_session_pane_weight() -> u16 {
     1
 }
 
+/// Title-drag interaction kind reported by kittwm status metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TitleDragKind {
+    /// Dragging the title reorders a tiled pane within the tiled stack.
+    Reorder,
+    /// Dragging the title repositions a floating pane.
+    Reposition,
+    /// Unknown future/custom title-drag interaction kind.
+    Unknown(String),
+}
+
+impl TitleDragKind {
+    /// Parse a raw title-drag kind string from status metadata.
+    pub fn parse(kind: &str) -> Self {
+        match kind {
+            "reorder" => Self::Reorder,
+            "reposition" => Self::Reposition,
+            other => Self::Unknown(other.to_string()),
+        }
+    }
+
+    /// Stable string representation for this kind.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Reorder => "reorder",
+            Self::Reposition => "reposition",
+            Self::Unknown(kind) => kind.as_str(),
+        }
+    }
+}
+
 /// Text snapshot returned by `READ_TEXT_JSON`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextSnapshot {
@@ -2357,19 +2388,24 @@ impl NativePaneDetail {
         self.title_draggable.unwrap_or(false)
     }
 
-    /// Reported title-drag interaction kind, such as `reorder` or `reposition`.
+    /// Reported raw title-drag interaction kind, such as `reorder` or `reposition`.
     pub fn title_drag_kind(&self) -> Option<&str> {
         self.title_drag_kind.as_deref()
     }
 
+    /// Parsed title-drag interaction kind, preserving unknown future strings.
+    pub fn parsed_title_drag_kind(&self) -> Option<TitleDragKind> {
+        self.title_drag_kind().map(TitleDragKind::parse)
+    }
+
     /// Whether the pane title drag handle reports a tiled reorder interaction.
     pub fn title_drag_reorders_pane(&self) -> bool {
-        self.title_drag_kind() == Some("reorder")
+        self.parsed_title_drag_kind() == Some(TitleDragKind::Reorder)
     }
 
     /// Whether the pane title drag handle reports a floating reposition interaction.
     pub fn title_drag_repositions_pane(&self) -> bool {
-        self.title_drag_kind() == Some("reposition")
+        self.parsed_title_drag_kind() == Some(TitleDragKind::Reposition)
     }
 
     /// Host-cell coordinate suitable for starting a title-row drag, when available.
@@ -5196,6 +5232,7 @@ mod tests {
         assert!(pane.has_floating_offset());
         assert!(pane.is_title_draggable());
         assert_eq!(pane.title_drag_kind(), Some("reorder"));
+        assert_eq!(pane.parsed_title_drag_kind(), Some(TitleDragKind::Reorder));
         assert!(pane.title_drag_reorders_pane());
         assert!(!pane.title_drag_repositions_pane());
         assert_eq!(pane.title_drag_cell(), Some((6, 2)));
@@ -5277,6 +5314,20 @@ mod tests {
         let mut tiny = base.clone();
         tiny.cols = Some(1);
         assert_eq!(tiny.title_drag_cell(), Some((11, 5)));
+
+        let mut unknown_kind = base.clone();
+        unknown_kind.title_drag_kind = Some("dock".to_string());
+        assert_eq!(unknown_kind.title_drag_kind(), Some("dock"));
+        assert_eq!(
+            unknown_kind.parsed_title_drag_kind(),
+            Some(TitleDragKind::Unknown("dock".to_string()))
+        );
+        assert_eq!(
+            unknown_kind.parsed_title_drag_kind().unwrap().as_str(),
+            "dock"
+        );
+        assert!(!unknown_kind.title_drag_reorders_pane());
+        assert!(!unknown_kind.title_drag_repositions_pane());
 
         let mut not_draggable = base.clone();
         not_draggable.title_draggable = Some(false);
