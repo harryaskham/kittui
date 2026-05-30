@@ -9491,6 +9491,10 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
             linux_apps.iter().map(|app| app.file.clone()).collect();
         let linux_desktop_labels: Vec<String> =
             linux_apps.iter().map(|app| app.label.clone()).collect();
+        let linux_desktop_localized_names: Vec<String> = linux_apps
+            .iter()
+            .map(|app| app.localized_names.clone())
+            .collect();
         let linux_desktop_generic_names: Vec<String> = linux_apps
             .iter()
             .map(|app| app.generic_name.clone())
@@ -9505,13 +9509,14 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
             linux_apps.iter().map(|app| app.comment.clone()).collect();
         let _ = write!(
             out,
-            ", \"filter\": {}, \"limit\": {limit}, \"path_commands\": [{}], \"macos_apps\": [{}], \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"linux_desktop_generic_names\": [{}], \"linux_desktop_keywords\": [{}], \"linux_desktop_categories\": [{}], \"linux_desktop_comments\": [{}], \"path_count\": {path_count}, \"macos_count\": {macos_count}, \"linux_desktop_count\": {linux_desktop_count}, \"total_count\": {total_count}}}",
+            ", \"filter\": {}, \"limit\": {limit}, \"path_commands\": [{}], \"macos_apps\": [{}], \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"linux_desktop_localized_names\": [{}], \"linux_desktop_generic_names\": [{}], \"linux_desktop_keywords\": [{}], \"linux_desktop_categories\": [{}], \"linux_desktop_comments\": [{}], \"path_count\": {path_count}, \"macos_count\": {macos_count}, \"linux_desktop_count\": {linux_desktop_count}, \"total_count\": {total_count}}}",
             json_option_string(query),
             json_string_array(&path_cmds),
             json_string_array(&mac_apps),
             json_string_array(&linux_desktop_ids),
             json_string_array(&linux_desktop_files),
             json_string_array(&linux_desktop_labels),
+            json_string_array(&linux_desktop_localized_names),
             json_string_array(&linux_desktop_generic_names),
             json_string_array(&linux_desktop_keywords),
             json_string_array(&linux_desktop_categories),
@@ -9793,6 +9798,7 @@ struct LinuxDesktopApp {
     label: String,
     file: String,
     exec: String,
+    localized_names: String,
     generic_name: String,
     keywords: String,
     categories: String,
@@ -9939,6 +9945,7 @@ fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<Linux
     let mut entry_seen = false;
     let mut ty = None::<String>;
     let mut name = None::<String>;
+    let mut localized_names = Vec::<String>::new();
     let mut generic_name = None::<String>;
     let mut localized_generic_names = Vec::<String>::new();
     let mut comment = None::<String>;
@@ -9981,6 +9988,7 @@ fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<Linux
             "TryExec" => try_exec = Some(value.to_string()),
             "Hidden" => hidden = value.eq_ignore_ascii_case("true"),
             "NoDisplay" => no_display = value.eq_ignore_ascii_case("true"),
+            localized if localized.starts_with("Name[") => localized_names.push(value.to_string()),
             localized if localized.starts_with("GenericName[") => {
                 localized_generic_names.push(value.to_string())
             }
@@ -10014,6 +10022,7 @@ fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<Linux
         label: name.unwrap_or_else(|| id.trim_end_matches(".desktop").to_string()),
         file: file.to_string(),
         exec: exec.unwrap_or_default(),
+        localized_names: join_desktop_metadata(None, localized_names),
         generic_name: join_desktop_metadata(generic_name, localized_generic_names),
         keywords: join_desktop_metadata(keywords, localized_keywords),
         categories: categories.unwrap_or_default(),
@@ -10030,6 +10039,7 @@ fn linux_desktop_app_matches(app: &LinuxDesktopApp, query: Option<&str>) -> bool
     app.id.to_ascii_lowercase().contains(&query)
         || app.label.to_ascii_lowercase().contains(&query)
         || app.file.to_ascii_lowercase().contains(&query)
+        || app.localized_names.to_ascii_lowercase().contains(&query)
         || app.generic_name.to_ascii_lowercase().contains(&query)
         || app.keywords.to_ascii_lowercase().contains(&query)
         || app.categories.to_ascii_lowercase().contains(&query)
@@ -12850,12 +12860,13 @@ mod tests {
             .saturating_add(macos_count)
             .saturating_add(linux_desktop_count);
         let json = format!(
-            "{{\"mode\": \"shell-path-macos-linux-desktop\", \"filter\": {}, \"limit\": {}, \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"linux_desktop_generic_names\": [{}], \"linux_desktop_keywords\": [{}], \"linux_desktop_categories\": [{}], \"linux_desktop_comments\": [{}], \"path_count\": {}, \"macos_count\": {}, \"linux_desktop_count\": {}, \"total_count\": {}}}",
+            "{{\"mode\": \"shell-path-macos-linux-desktop\", \"filter\": {}, \"limit\": {}, \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"linux_desktop_localized_names\": [{}], \"linux_desktop_generic_names\": [{}], \"linux_desktop_keywords\": [{}], \"linux_desktop_categories\": [{}], \"linux_desktop_comments\": [{}], \"path_count\": {}, \"macos_count\": {}, \"linux_desktop_count\": {}, \"total_count\": {}}}",
             json_option_string(query),
             10,
             json_string_array(&["org.example.Term.desktop".to_string()]),
             json_string_array(&["/usr/share/applications/org.example.Term.desktop".to_string()]),
             json_string_array(&["Terminal".to_string()]),
+            json_string_array(&["Terminale".to_string()]),
             json_string_array(&["Terminal emulator".to_string()]),
             json_string_array(&["shell;console;".to_string()]),
             json_string_array(&["System;TerminalEmulator;".to_string()]),
@@ -12878,6 +12889,10 @@ mod tests {
         assert!(json.contains("\"linux_desktop_files\":"), "{json}");
         assert!(
             json.contains("\"linux_desktop_apps\": [\"Terminal\"]"),
+            "{json}"
+        );
+        assert!(
+            json.contains("\"linux_desktop_localized_names\": [\"Terminale\"]"),
             "{json}"
         );
         assert!(
@@ -12907,10 +12922,11 @@ mod tests {
         let app = parse_linux_desktop_app(
             "org.example.Term.desktop",
             "/usr/share/applications/org.example.Term.desktop",
-            "[Desktop Entry]\nType=Application\nName=Example Terminal\nGenericName=Terminal emulator\nGenericName[en_GB]=Command line\nComment=Open a shell\nComment[en_GB]=Open a terminal window\nKeywords=shell;console;\nKeywords[en_GB]=cli;tty;\nCategories=System;TerminalEmulator;\nExec=example-term\n",
+            "[Desktop Entry]\nType=Application\nName=Example Terminal\nName[fr]=Terminale Exemple\nGenericName=Terminal emulator\nGenericName[en_GB]=Command line\nComment=Open a shell\nComment[en_GB]=Open a terminal window\nKeywords=shell;console;\nKeywords[en_GB]=cli;tty;\nCategories=System;TerminalEmulator;\nExec=example-term\n",
         )
         .unwrap();
         assert_eq!(app.label, "Example Terminal");
+        assert_eq!(app.localized_names, "Terminale Exemple");
         assert_eq!(app.generic_name, "Terminal emulator;Command line");
         assert_eq!(app.comment, "Open a shell;Open a terminal window");
         assert_eq!(app.keywords, "shell;console;;cli;tty;");
@@ -12919,6 +12935,7 @@ mod tests {
         assert!(linux_desktop_app_matches(&app, Some("org.example")));
         assert!(linux_desktop_app_matches(&app, Some("console")));
         assert!(linux_desktop_app_matches(&app, Some("command line")));
+        assert!(linux_desktop_app_matches(&app, Some("Terminale Exemple")));
         assert!(linux_desktop_app_matches(&app, Some("open a shell")));
         assert!(linux_desktop_app_matches(&app, Some("TerminalEmulator")));
         assert!(!linux_desktop_app_matches(&app, Some("browser")));
@@ -13013,6 +13030,7 @@ mod tests {
             label: "Example Terminal".to_string(),
             file: "/usr/share/applications/org.example.Term.desktop".to_string(),
             exec: "example-term %U".to_string(),
+            localized_names: "Terminale Exemple".to_string(),
             generic_name: "Terminal emulator".to_string(),
             keywords: "shell;console;".to_string(),
             categories: "System;TerminalEmulator;".to_string(),
