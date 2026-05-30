@@ -1222,39 +1222,30 @@ fn native_clipboard_json_reply_with_policy(
     allowed: bool,
 ) -> String {
     if !allowed {
-        return format!(
-            "{}\n",
-            serde_json::json!({
-                "allowed": false,
-                "available": false,
-                "policy": "set KITTWM_CLIPBOARD_READ=allow to read cached OSC52 clipboard writes",
-            })
-        );
+        return json_value_line(&serde_json::json!({
+            "allowed": false,
+            "available": false,
+            "policy": "set KITTWM_CLIPBOARD_READ=allow to read cached OSC52 clipboard writes",
+        }));
     }
     match pending.lock() {
         Ok(state) => match &state.clipboard {
-            Some(clipboard) => format!(
-                "{}\n",
-                serde_json::json!({
-                    "allowed": true,
-                    "available": true,
-                    "source_window": clipboard.source_window,
-                    "selection": clipboard.selection,
-                    "payload_base64": clipboard.payload_base64,
-                    "payload_bytes": clipboard.payload_bytes,
-                    "at_ms": clipboard.at_ms,
-                    "seq": clipboard.seq,
-                    "source": "osc52-cache",
-                })
-            ),
-            None => format!(
-                "{}\n",
-                serde_json::json!({
-                    "allowed": true,
-                    "available": false,
-                    "source": "osc52-cache",
-                })
-            ),
+            Some(clipboard) => json_value_line(&serde_json::json!({
+                "allowed": true,
+                "available": true,
+                "source_window": clipboard.source_window,
+                "selection": clipboard.selection,
+                "payload_base64": clipboard.payload_base64,
+                "payload_bytes": clipboard.payload_bytes,
+                "at_ms": clipboard.at_ms,
+                "seq": clipboard.seq,
+                "source": "osc52-cache",
+            })),
+            None => json_value_line(&serde_json::json!({
+                "allowed": true,
+                "available": false,
+                "source": "osc52-cache",
+            })),
         },
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
