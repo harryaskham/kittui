@@ -337,7 +337,7 @@ pub fn render_markdown(src: &str, width_cells: u16) -> MarkdownDocument {
                         definition: definition.clone(),
                     });
                     out.components.push(textbox(
-                        format!("definition: {term}\n: {definition}"),
+                        definition_block_text(&term, &definition),
                         width_cells,
                         Tone::Assistant,
                     ));
@@ -813,6 +813,15 @@ fn flush_list_item(
     ));
 }
 
+fn definition_block_text(term: &str, definition: &str) -> String {
+    let mut text = String::with_capacity("definition: \n: ".len() + term.len() + definition.len());
+    text.push_str("definition: ");
+    text.push_str(term);
+    text.push_str("\n: ");
+    text.push_str(definition);
+    text
+}
+
 fn metadata_block_text(kind: &str, source: &str) -> String {
     let mut text = String::with_capacity("metadata:".len() + kind.len() + 1 + source.len());
     text.push_str("metadata:");
@@ -949,6 +958,13 @@ mod tests {
                 MarkdownTableAlignment::Right,
             ]
         );
+    }
+
+    #[test]
+    fn definition_block_text_builds_directly() {
+        let text = definition_block_text("Term", "Definition text");
+        assert_eq!(text, "definition: Term\n: Definition text");
+        assert!(text.capacity() >= text.len());
     }
 
     #[test]
