@@ -3238,6 +3238,23 @@ pub struct ShortcutCatalog {
     pub shortcuts: Vec<ShortcutEntry>,
 }
 
+impl ShortcutCatalog {
+    /// Find a shortcut catalog entry by stable id.
+    pub fn entry(&self, id: &str) -> Option<&ShortcutEntry> {
+        self.shortcuts.iter().find(|entry| entry.id == id)
+    }
+
+    /// Title marker legend entry, when reported by the daemon.
+    pub fn title_marker_legend(&self) -> Option<&ShortcutEntry> {
+        self.entry("title_markers")
+    }
+
+    /// Whether the catalog includes the title marker legend entry.
+    pub fn has_title_marker_legend(&self) -> bool {
+        self.title_marker_legend().is_some()
+    }
+}
+
 /// One native shortcut entry in [`ShortcutCatalog`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShortcutEntry {
@@ -3247,6 +3264,13 @@ pub struct ShortcutEntry {
     pub keys: String,
     /// Human-readable description.
     pub description: String,
+}
+
+impl ShortcutEntry {
+    /// Whether this entry is the pane-title marker legend.
+    pub fn is_title_marker_legend(&self) -> bool {
+        self.id == "title_markers"
+    }
 }
 
 /// Machine-readable socket help catalog returned by `HELP_JSON`.
@@ -6073,8 +6097,9 @@ mod tests {
                 .unwrap();
             stream
                 .write_all(
-                    br#"{"schema_version":1,"kind":"kittwm-native-shortcuts","shortcuts":[{"id":"launch_terminal","keys":"C-a Enter / C-a t","description":"launch terminal"},{"id":"toggle_help","keys":"C-a ?","description":"toggle this help"},{"id":"exit_kittwm","keys":"Ctrl-]","description":"exit kittwm"}]}
-"#,
+                    r#"{"schema_version":1,"kind":"kittwm-native-shortcuts","shortcuts":[{"id":"launch_terminal","keys":"C-a Enter / C-a t","description":"launch terminal"},{"id":"toggle_help","keys":"C-a ?","description":"toggle this help"},{"id":"title_markers","keys":"title markers","description":"▶ focus · ⇄ reorder · ↔ resized · ▣ fullscreen · ≡ drag · ▲ top · ● moved"},{"id":"exit_kittwm","keys":"Ctrl-]","description":"exit kittwm"}]}
+"#
+                    .as_bytes(),
                 )
                 .unwrap();
             request.trim().to_string()
@@ -6094,6 +6119,11 @@ mod tests {
             .iter()
             .any(|entry| entry.id == "toggle_help"));
         assert!(catalog.shortcuts.iter().any(|entry| entry.keys == "Ctrl-]"));
+        assert_eq!(catalog.entry("toggle_help").unwrap().keys, "C-a ?");
+        let marker = catalog.title_marker_legend().unwrap();
+        assert!(marker.is_title_marker_legend());
+        assert!(marker.description.contains("⇄ reorder"));
+        assert!(catalog.has_title_marker_legend());
     }
 
     #[cfg(unix)]
