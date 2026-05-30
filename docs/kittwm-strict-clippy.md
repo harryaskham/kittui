@@ -36,7 +36,8 @@ reproducible.
 
 ## Clean crates (strict-clippy clean, `--all-targets`)
 
-These 15 crates pass `cargo clippy -p <crate> --all-targets -- -D warnings`:
+The full workspace is strict-clippy clean: all **16 crates** pass
+`cargo clippy -p <crate> --all-targets -- -D warnings` (`bd-dc44f1` complete):
 
 - `kittui-core`
 - `kittui-cache`
@@ -53,6 +54,7 @@ These 15 crates pass `cargo clippy -p <crate> --all-targets -- -D warnings`:
 - `kittui-xvfb`
 - `kittwm-sdk`
 - `kittui-wm`
+- `kittui-cli`
 
 Run the guard to confirm the baseline still holds (fails non-zero on regression):
 
@@ -66,15 +68,11 @@ build) so it runs without a system libghostty.
 
 ## Not-yet-clean crates (excluded from the baseline)
 
-These heavier, actively developed crates still carry pre-existing warnings and
-are **excluded** from strict mode for now:
-
-- `kittui-cli` (~30 own lints across `session.rs`, `daemon.rs`, `top_bar.rs`;
-  best split by file/owner)
-
-For these, run **non-strict** clippy as smoke (`cargo clippy -p <crate>`) and
-rely on targeted tests plus `cargo build`. Their owners can clear the warnings
-and graduate each crate into `scripts/kittwm-strict-clippy.sh` when ready.
+None — every workspace crate is in the baseline. Keep it that way: run
+`scripts/kittwm-strict-clippy.sh` (it prints the canonical `--all-targets`
+command and feature-checks `kittui-quartz` under `sck`) before landing, and fix
+or scope-allow any new lint rather than dropping a crate back out of the
+baseline.
 
 ## Policy: real fix vs scoped allow
 
