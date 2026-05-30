@@ -581,7 +581,7 @@ fn encode_chunked_raw(
             format!("m={more}", more = more)
         };
         let body = std::str::from_utf8(&bytes[offset..end]).unwrap_or("");
-        let payload = format!("{ESC}_G{header};{body}{ESC}\\");
+        let payload = kitty_graphics_payload_with_body(&header, body);
         out.push_str(&wrap_transport(payload, transport));
         offset = end;
     }
@@ -833,6 +833,20 @@ fn kitty_graphics_payload(fields: &str) -> String {
     payload.push_str(ESC);
     payload.push_str("_G");
     payload.push_str(fields);
+    payload.push_str(ESC);
+    payload.push('\\');
+    payload
+}
+
+fn kitty_graphics_payload_with_body(header: &str, body: &str) -> String {
+    let mut payload = String::with_capacity(
+        ESC.len() + "_G".len() + header.len() + 1 + body.len() + ESC.len() + 1,
+    );
+    payload.push_str(ESC);
+    payload.push_str("_G");
+    payload.push_str(header);
+    payload.push(';');
+    payload.push_str(body);
     payload.push_str(ESC);
     payload.push('\\');
     payload
@@ -1197,7 +1211,7 @@ fn single_payload(
         delay = delay_field,
         q = quiet.field(),
     );
-    let payload = format!("{ESC}_G{header};{base64_body}{ESC}\\");
+    let payload = kitty_graphics_payload_with_body(&header, base64_body);
     wrap_transport(payload, transport)
 }
 
@@ -1220,7 +1234,7 @@ fn single_payload_raw(
         id = image_id,
         q = quiet.field(),
     );
-    let payload = format!("{ESC}_G{header};{base64_body}{ESC}\\");
+    let payload = kitty_graphics_payload_with_body(&header, base64_body);
     wrap_transport(payload, transport)
 }
 
@@ -1260,7 +1274,7 @@ fn encode_chunked(
             format!("m={more}", more = more)
         };
         let body = std::str::from_utf8(&bytes[offset..end]).unwrap_or("");
-        let payload = format!("{ESC}_G{header};{body}{ESC}\\");
+        let payload = kitty_graphics_payload_with_body(&header, body);
         out.push_str(&wrap_transport(payload, transport));
         offset = end;
     }
@@ -1299,6 +1313,13 @@ mod tests {
         // Second chunk header is the bare `m=0` continuation.
         assert!(escapes.contains("\x1b\\\x1b_Gm=0;"));
         assert!(escapes.ends_with("\x1b\\"));
+    }
+
+    #[test]
+    fn kitty_graphics_payload_with_body_builds_directly() {
+        let payload = kitty_graphics_payload_with_body("a=t,f=100,i=1,m=0,q=2", "aGk=");
+        assert_eq!(payload, "\x1b_Ga=t,f=100,i=1,m=0,q=2;aGk=\x1b\\");
+        assert!(payload.capacity() >= payload.len());
     }
 
     #[test]
