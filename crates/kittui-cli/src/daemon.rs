@@ -3569,6 +3569,7 @@ fn handle_request(
             "APPS_JSON" => apps_json_reply(50),
             "APPS_FIRST" => apps_first_reply("", false),
             "APPS_LAUNCH_FIRST" => apps_first_reply("", true),
+            "SPAWN" => spawn_reply("", path, panes),
             "PANES" => panes_reply(panes),
             "PANES_JSON" => panes_json_reply(panes),
             "HELP" | "?" => daemon_help_reply(),
@@ -3868,7 +3869,7 @@ mod tests {
         let server = DaemonServer::bind(p.clone()).unwrap();
         for (command, _category, _description) in daemon_help_entries() {
             let keyword = command.split_whitespace().next().unwrap_or(command);
-            if matches!(keyword, "QUIT" | "SPAWN") {
+            if keyword == "QUIT" {
                 continue;
             }
             let reply = client_request(server.path(), keyword).unwrap();
@@ -3877,7 +3878,7 @@ mod tests {
                 "HELP catalog advertises {keyword:?} but the daemon does not handle it: {reply}"
             );
         }
-        // The bare APPS_FIRST/APPS_LAUNCH_FIRST keywords now return a helpful
+        // The bare APPS_FIRST/APPS_LAUNCH_FIRST/SPAWN keywords now return a helpful
         // recognized error instead of "ERR unknown".
         assert_eq!(
             client_request(server.path(), "APPS_FIRST").unwrap(),
@@ -3886,6 +3887,10 @@ mod tests {
         assert_eq!(
             client_request(server.path(), "APPS_LAUNCH_FIRST").unwrap(),
             "ERR APPS_FIRST requires a query\n"
+        );
+        assert_eq!(
+            client_request(server.path(), "SPAWN").unwrap(),
+            "ERR SPAWN requires argv\n"
         );
     }
 
