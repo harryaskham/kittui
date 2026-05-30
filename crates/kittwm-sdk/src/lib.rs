@@ -3038,6 +3038,26 @@ impl PanesStatus {
         self.active_title_drag_panes().next()
     }
 
+    /// Whether the active title-drag target reorders tiled panes.
+    pub fn active_title_drag_reorders_pane(&self) -> Option<bool> {
+        self.active_title_drag_pane().map(|pane| {
+            pane.title_drag_reorders_pane()
+                || (pane.title_drag_kind().is_none()
+                    && self.is_tiled_layout()
+                    && pane.is_title_draggable())
+        })
+    }
+
+    /// Whether the active title-drag target repositions a floating pane.
+    pub fn active_title_drag_repositions_pane(&self) -> Option<bool> {
+        self.active_title_drag_pane().map(|pane| {
+            pane.title_drag_repositions_pane()
+                || (pane.title_drag_kind().is_none()
+                    && self.is_floating_layout()
+                    && pane.is_title_draggable())
+        })
+    }
+
     /// Panes whose title drag handle reorders the tiled pane stack.
     pub fn title_reorder_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         let is_tiled = self.is_tiled_layout();
@@ -3461,6 +3481,26 @@ impl Status {
     /// First pane reported as the active title-drag target.
     pub fn active_title_drag_pane(&self) -> Option<&NativePaneDetail> {
         self.active_title_drag_panes().next()
+    }
+
+    /// Whether the active title-drag target reorders tiled panes.
+    pub fn active_title_drag_reorders_pane(&self) -> Option<bool> {
+        self.active_title_drag_pane().map(|pane| {
+            pane.title_drag_reorders_pane()
+                || (pane.title_drag_kind().is_none()
+                    && self.is_tiled_layout()
+                    && pane.is_title_draggable())
+        })
+    }
+
+    /// Whether the active title-drag target repositions a floating pane.
+    pub fn active_title_drag_repositions_pane(&self) -> Option<bool> {
+        self.active_title_drag_pane().map(|pane| {
+            pane.title_drag_repositions_pane()
+                || (pane.title_drag_kind().is_none()
+                    && self.is_floating_layout()
+                    && pane.is_title_draggable())
+        })
     }
 
     /// Panes whose title drag handle reorders the tiled pane stack.
@@ -5728,6 +5768,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["native-1"]
         );
+        assert_eq!(panes.active_title_drag_reorders_pane(), Some(true));
+        assert_eq!(panes.active_title_drag_repositions_pane(), Some(false));
         assert_eq!(
             panes
                 .focused_pane()
@@ -5958,6 +6000,8 @@ mod tests {
         assert_eq!(status.focused_title_marker_prefix(), None);
         assert_eq!(status.focused_reported_title_marker_prefix(), None);
         assert!(status.active_title_drag_pane().is_none());
+        assert_eq!(status.active_title_drag_reorders_pane(), None);
+        assert_eq!(status.active_title_drag_repositions_pane(), None);
         assert_eq!(status.focused_frame_is_clean(), None);
         assert_eq!(status.focused_frame_upload_skipped(), None);
         assert_eq!(status.focused_frame_status_label(), None);
@@ -6059,6 +6103,8 @@ mod tests {
             Some("▶≡  ")
         );
         assert!(status.active_title_drag_pane().is_none());
+        assert_eq!(status.active_title_drag_reorders_pane(), None);
+        assert_eq!(status.active_title_drag_repositions_pane(), None);
         assert_eq!(status.focused_frame_is_clean(), Some(true));
         assert_eq!(status.focused_frame_upload_skipped(), Some(true));
         assert_eq!(
