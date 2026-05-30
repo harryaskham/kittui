@@ -7007,11 +7007,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn semantic_convenience_helpers_send_expected_commands() {
-        let path = PathBuf::from(format!(
-            "/tmp/kwh-{}-{}.sock",
-            std::process::id(),
-            now_test_nanos() % 1_000_000
-        ));
+        let path = PathBuf::from(test_socket_path("kwh", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
