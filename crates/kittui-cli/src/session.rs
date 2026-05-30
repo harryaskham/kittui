@@ -5361,7 +5361,7 @@ fn native_pane_title_text(
     if fullscreen_affordance {
         native_pane_title_push(&mut out, &mut count, width, NATIVE_FULLSCREEN_PANE_MARKER);
     }
-    if !drag_affordance && pane.weight > 1 {
+    if reorder_affordance && pane.weight > 1 {
         native_pane_title_push(
             &mut out,
             &mut count,
@@ -10598,6 +10598,28 @@ mod native_pane_tests {
             ),
             ""
         );
+
+        let fullscreen_resized_text = native_pane_title_text(
+            &pane,
+            NativePaneLayout {
+                x: 0,
+                y: 0,
+                cols: 16,
+                rows: 4,
+                app_x: 0,
+                app_y: 1,
+                app_cols: 16,
+                app_rows: 3,
+            },
+            true,
+            false,
+            false,
+            true,
+            true,
+            false,
+        );
+        assert_eq!(fullscreen_resized_text, "▶▣ native-1 titl");
+        assert!(!fullscreen_resized_text.contains('↔'));
 
         pane.weight = 1;
         let fullscreen_text = native_pane_title_text(
