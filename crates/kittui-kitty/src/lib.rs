@@ -1319,26 +1319,21 @@ fn encode_chunked(
     let mut out = String::new();
     let bytes = base64_body.as_bytes();
     let mut offset = 0;
-    let frame_field = frame_index.map(|i| format!(",r={i}")).unwrap_or_default();
-    let delay_field = frame_delay_ms
-        .map(|z| format!(",z={z}"))
-        .unwrap_or_default();
     while offset < bytes.len() {
         let end = (offset + CHUNK).min(bytes.len());
         let more = if end < bytes.len() { 1 } else { 0 };
         let header = if offset == 0 {
-            format!(
-                "{verb},f=100,i={id},m={more}{frame_field}{delay_field}{compression}{q}",
-                verb = verb,
-                id = image_id,
-                more = more,
-                frame_field = frame_field,
-                delay_field = delay_field,
-                compression = compression.field(),
-                q = quiet.field(),
+            chunked_upload_header(
+                image_id,
+                verb,
+                more,
+                frame_index,
+                frame_delay_ms,
+                compression,
+                quiet,
             )
         } else {
-            format!("m={more}", more = more)
+            chunk_continuation_header(more)
         };
         let body = std::str::from_utf8(&bytes[offset..end]).unwrap_or("");
         let payload = kitty_graphics_payload_with_body(&header, body);
@@ -1346,6 +1341,45 @@ fn encode_chunked(
         offset = end;
     }
     out
+}
+
+fn chunked_upload_header(
+    image_id: u32,
+    verb: &str,
+    more: u8,
+    frame_index: Option<u32>,
+    frame_delay_ms: Option<u32>,
+    compression: CompressionMode,
+    quiet: Quiet,
+) -> String {
+    let compression = compression.field();
+    let quiet = quiet.field();
+    let mut header = String::with_capacity(
+        verb.len()
+            + ",f=100,i=,m=,r=,z=".len()
+            + 20
+            + 1
+            + 20
+            + 20
+            + compression.len()
+            + quiet.len(),
+    );
+    header.push_str(verb);
+    header.push_str(",f=100,i=");
+    let _ = write!(header, "{image_id}");
+    header.push_str(",m=");
+    let _ = write!(header, "{more}");
+    if let Some(frame_index) = frame_index {
+        header.push_str(",r=");
+        let _ = write!(header, "{frame_index}");
+    }
+    if let Some(frame_delay_ms) = frame_delay_ms {
+        header.push_str(",z=");
+        let _ = write!(header, "{frame_delay_ms}");
+    }
+    header.push_str(compression);
+    header.push_str(quiet);
+    header
 }
 
 /// Diacritic codepoint for a 0-indexed row/column/msb value. Saturates at the
@@ -1361,6 +1395,21 @@ mod tests {
     use super::*;
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn chunked_upload_header_builds_directly() {
+        let header = chunked_upload_header(
+            5,
+            "a=f",
+            0,
+            Some(2),
+            Some(44),
+            CompressionMode::None,
+            Quiet::SuppressAll,
+        );
+        assert_eq!(header, "a=f,f=100,i=5,m=0,r=2,z=44,q=2");
+        assert!(header.capacity() >= header.len());
+    }
 
     #[test]
     fn upload_still_emits_exact_grammar() {
