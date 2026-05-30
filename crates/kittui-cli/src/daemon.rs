@@ -2868,20 +2868,16 @@ fn native_spawn_semantic_snapshot_reply(
         return "{\"error\":\"registry poisoned\"}\n".to_string();
     };
     let Some(pane) = native_find_pane_target(&state.panes, target) else {
-        return format!(
-            "{}\n",
-            serde_json::json!({ "error": "no pane matching target", "target": target.trim() })
-        );
+        return read_json_no_pane_reply(target);
     };
     let snapshot = state
         .semantic_snapshots
         .get(&pane.window)
         .cloned()
         .unwrap_or_else(|| native_semantic_snapshot_for_pane(pane));
-    format!(
-        "{}\n",
-        serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string())
-    )
+    let mut out = serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string());
+    out.push('\n');
+    out
 }
 
 fn native_spawn_semantic_publish_reply(
@@ -2909,10 +2905,7 @@ fn native_spawn_semantic_publish_reply(
     };
     let window = pane.window.clone();
     if snapshot.surface != window {
-        return format!(
-            "ERR SEMANTIC_PUBLISH surface mismatch window={} snapshot={}\n",
-            window, snapshot.surface
-        );
+        return semantic_publish_surface_mismatch_reply(&window, &snapshot.surface);
     }
     snapshot.surface = window.clone();
     let revision = snapshot.revision;
@@ -2943,6 +2936,20 @@ fn semantic_no_pane_reply(verb: &str, target: &str) -> String {
     out.push_str(verb);
     out.push_str(" no pane matching ");
     out.push_str(target);
+    out.push('\n');
+    out
+}
+
+fn semantic_publish_surface_mismatch_reply(window: &str, snapshot_surface: &str) -> String {
+    let mut out = String::with_capacity(
+        "ERR SEMANTIC_PUBLISH surface mismatch window= snapshot=\n".len()
+            + window.len()
+            + snapshot_surface.len(),
+    );
+    out.push_str("ERR SEMANTIC_PUBLISH surface mismatch window=");
+    out.push_str(window);
+    out.push_str(" snapshot=");
+    out.push_str(snapshot_surface);
     out.push('\n');
     out
 }
@@ -5234,6 +5241,16 @@ mod tests {
     fn semantic_no_pane_reply_builds_directly() {
         let reply = semantic_no_pane_reply("SEMANTIC_ACTION", " missing ");
         assert_eq!(reply, "ERR SEMANTIC_ACTION no pane matching missing\n");
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn semantic_publish_surface_mismatch_reply_builds_directly() {
+        let reply = semantic_publish_surface_mismatch_reply("native-1", "native-2");
+        assert_eq!(
+            reply,
+            "ERR SEMANTIC_PUBLISH surface mismatch window=native-1 snapshot=native-2\n"
+        );
         assert_eq!(reply.capacity(), reply.len());
     }
 
