@@ -1994,6 +1994,11 @@ impl EventEnvelope {
         self.detail.get(key).and_then(Value::as_u64)
     }
 
+    /// Borrow a signed integer field from the event detail object.
+    pub fn detail_i64(&self, key: &str) -> Option<i64> {
+        self.detail.get(key).and_then(Value::as_i64)
+    }
+
     /// Parse a nested `pane` detail object into typed native pane metadata.
     pub fn pane_detail(&self) -> Option<NativePaneDetail> {
         serde_json::from_value(self.detail.get("pane")?.clone()).ok()
@@ -6690,7 +6695,7 @@ mod tests {
     #[test]
     fn event_envelope_accessors_expose_common_details() {
         let event = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":9,"kind":"surface_bell","window":"native-1","detail":{"visual":true,"audible":false,"bytes":12,"title":"bell"}}"#,
+            r#"{"schema_version":1,"seq":9,"kind":"surface_bell","window":"native-1","detail":{"visual":true,"audible":false,"bytes":12,"delta":-3,"title":"bell"}}"#,
         )
         .unwrap();
         let envelope = event.envelope().unwrap();
@@ -6701,6 +6706,9 @@ mod tests {
         assert_eq!(envelope.detail_bool("visual"), Some(true));
         assert_eq!(envelope.detail_bool("audible"), Some(false));
         assert_eq!(envelope.detail_u64("bytes"), Some(12));
+        assert_eq!(envelope.detail_i64("bytes"), Some(12));
+        assert_eq!(envelope.detail_i64("delta"), Some(-3));
+        assert_eq!(envelope.detail_u64("delta"), None);
         assert_eq!(envelope.detail_str("missing"), None);
     }
 
