@@ -2182,6 +2182,9 @@ pub struct NativePaneDetail {
     /// Whether the pane title row is a window-manager drag handle.
     #[serde(default)]
     pub title_draggable: Option<bool>,
+    /// Title drag interaction kind, for example `reorder` or `reposition`.
+    #[serde(default)]
+    pub title_drag_kind: Option<String>,
     /// One-based host column suitable for starting a title-row drag.
     #[serde(default)]
     pub title_drag_col: Option<u16>,
@@ -2352,6 +2355,21 @@ impl NativePaneDetail {
     /// Whether the pane title row is reported as a window-manager drag handle.
     pub fn is_title_draggable(&self) -> bool {
         self.title_draggable.unwrap_or(false)
+    }
+
+    /// Reported title-drag interaction kind, such as `reorder` or `reposition`.
+    pub fn title_drag_kind(&self) -> Option<&str> {
+        self.title_drag_kind.as_deref()
+    }
+
+    /// Whether the pane title drag handle reports a tiled reorder interaction.
+    pub fn title_drag_reorders_pane(&self) -> bool {
+        self.title_drag_kind() == Some("reorder")
+    }
+
+    /// Whether the pane title drag handle reports a floating reposition interaction.
+    pub fn title_drag_repositions_pane(&self) -> bool {
+        self.title_drag_kind() == Some("reposition")
     }
 
     /// Host-cell coordinate suitable for starting a title-row drag, when available.
@@ -2703,14 +2721,22 @@ impl PanesStatus {
 
     /// Whether dragging the focused pane title row reorders tiled panes.
     pub fn focused_title_drag_reorders_pane(&self) -> Option<bool> {
-        self.focused_pane()
-            .map(|pane| self.is_tiled_layout() && pane.is_title_draggable())
+        self.focused_pane().map(|pane| {
+            pane.title_drag_reorders_pane()
+                || (pane.title_drag_kind().is_none()
+                    && self.is_tiled_layout()
+                    && pane.is_title_draggable())
+        })
     }
 
     /// Whether dragging the focused pane title row repositions a floating pane.
     pub fn focused_title_drag_repositions_pane(&self) -> Option<bool> {
-        self.focused_pane()
-            .map(|pane| self.is_floating_layout() && pane.is_title_draggable())
+        self.focused_pane().map(|pane| {
+            pane.title_drag_repositions_pane()
+                || (pane.title_drag_kind().is_none()
+                    && self.is_floating_layout()
+                    && pane.is_title_draggable())
+        })
     }
 
     /// Host-cell coordinate suitable for dragging the focused pane title row.
@@ -2758,17 +2784,19 @@ impl PanesStatus {
     /// Panes whose title drag handle reorders the tiled pane stack.
     pub fn title_reorder_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         let is_tiled = self.is_tiled_layout();
-        self.panes_detail
-            .iter()
-            .filter(move |pane| is_tiled && pane.is_title_draggable())
+        self.panes_detail.iter().filter(move |pane| {
+            pane.title_drag_reorders_pane()
+                || (pane.title_drag_kind().is_none() && is_tiled && pane.is_title_draggable())
+        })
     }
 
     /// Panes whose title drag handle repositions a floating pane.
     pub fn title_reposition_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         let is_floating = self.is_floating_layout();
-        self.panes_detail
-            .iter()
-            .filter(move |pane| is_floating && pane.is_title_draggable())
+        self.panes_detail.iter().filter(move |pane| {
+            pane.title_drag_repositions_pane()
+                || (pane.title_drag_kind().is_none() && is_floating && pane.is_title_draggable())
+        })
     }
 
     /// Panes with non-zero floating offsets.
@@ -2936,14 +2964,22 @@ impl Status {
 
     /// Whether dragging the focused pane title row reorders tiled panes.
     pub fn focused_title_drag_reorders_pane(&self) -> Option<bool> {
-        self.focused_pane()
-            .map(|pane| self.is_tiled_layout() && pane.is_title_draggable())
+        self.focused_pane().map(|pane| {
+            pane.title_drag_reorders_pane()
+                || (pane.title_drag_kind().is_none()
+                    && self.is_tiled_layout()
+                    && pane.is_title_draggable())
+        })
     }
 
     /// Whether dragging the focused pane title row repositions a floating pane.
     pub fn focused_title_drag_repositions_pane(&self) -> Option<bool> {
-        self.focused_pane()
-            .map(|pane| self.is_floating_layout() && pane.is_title_draggable())
+        self.focused_pane().map(|pane| {
+            pane.title_drag_repositions_pane()
+                || (pane.title_drag_kind().is_none()
+                    && self.is_floating_layout()
+                    && pane.is_title_draggable())
+        })
     }
 
     /// Host-cell coordinate suitable for dragging the focused pane title row.
@@ -2991,17 +3027,19 @@ impl Status {
     /// Panes whose title drag handle reorders the tiled pane stack.
     pub fn title_reorder_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         let is_tiled = self.is_tiled_layout();
-        self.panes_detail
-            .iter()
-            .filter(move |pane| is_tiled && pane.is_title_draggable())
+        self.panes_detail.iter().filter(move |pane| {
+            pane.title_drag_reorders_pane()
+                || (pane.title_drag_kind().is_none() && is_tiled && pane.is_title_draggable())
+        })
     }
 
     /// Panes whose title drag handle repositions a floating pane.
     pub fn title_reposition_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         let is_floating = self.is_floating_layout();
-        self.panes_detail
-            .iter()
-            .filter(move |pane| is_floating && pane.is_title_draggable())
+        self.panes_detail.iter().filter(move |pane| {
+            pane.title_drag_repositions_pane()
+                || (pane.title_drag_kind().is_none() && is_floating && pane.is_title_draggable())
+        })
     }
 
     /// Panes with non-zero floating offsets.
@@ -5069,6 +5107,7 @@ mod tests {
                 "floating_dy": -2,
                 "floating_moved": true,
                 "title_draggable": true,
+                "title_drag_kind": "reorder",
                 "title_drag_col": 6,
                 "title_drag_row": 2,
                 "pid": 123,
@@ -5156,6 +5195,9 @@ mod tests {
         assert_eq!(pane.floating_moved, Some(true));
         assert!(pane.has_floating_offset());
         assert!(pane.is_title_draggable());
+        assert_eq!(pane.title_drag_kind(), Some("reorder"));
+        assert!(pane.title_drag_reorders_pane());
+        assert!(!pane.title_drag_repositions_pane());
         assert_eq!(pane.title_drag_cell(), Some((6, 2)));
         assert_eq!(pane.title_drag_cells_by(5, 2), Some(((6, 2), (11, 4))));
         assert_eq!(pane.bounds(), Some((0, 0, 80, 24)));
@@ -5309,8 +5351,8 @@ mod tests {
               "focus": "native-1",
               "layout": "floating",
               "panes_detail": [
-                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"title_drag_col":4,"title_drag_row":1,"floating_dx":0,"floating_dy":0,"floating_moved":false,"dirty_frame":{"changed_tiles":0,"total_tiles":4,"changed_fraction":0.0,"skipped_upload":true}},
-                {"window":"native-2","title":"editor","focused":false,"weight":3,"stack_index":1,"title_draggable":true,"floating_dx":0,"floating_dy":0,"floating_moved":true,"dirty_frame":{"changed_tiles":2,"total_tiles":4,"changed_fraction":0.5,"skipped_upload":false}}
+                {"window":"native-1","title":"shell","focused":false,"weight":1,"stack_index":0,"stack_top":false,"title_draggable":true,"title_drag_kind":"reposition","title_drag_col":4,"title_drag_row":1,"floating_dx":0,"floating_dy":0,"floating_moved":false,"dirty_frame":{"changed_tiles":0,"total_tiles":4,"changed_fraction":0.0,"skipped_upload":true}},
+                {"window":"native-2","title":"editor","focused":false,"weight":3,"stack_index":1,"title_draggable":true,"title_drag_kind":"reposition","floating_dx":0,"floating_dy":0,"floating_moved":true,"dirty_frame":{"changed_tiles":2,"total_tiles":4,"changed_fraction":0.5,"skipped_upload":false}}
               ]
             }"#,
         )

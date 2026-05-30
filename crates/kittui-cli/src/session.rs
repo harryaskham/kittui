@@ -4671,6 +4671,7 @@ fn native_pane_statuses(
             let (cursor_col, cursor_row) = pane.app.cursor_position();
             let mouse = pane.app.mouse_reporting_modes();
             let title_draggable = native_status_title_draggable(mode);
+            let title_drag_kind = native_status_title_drag_kind(mode).map(str::to_string);
             crate::daemon::NativePaneStatus {
                 window: pane.window.clone(),
                 title: native_pane_display_title(pane),
@@ -4682,6 +4683,7 @@ fn native_pane_statuses(
                 floating_dy: Some(offset.dy),
                 floating_moved: Some(offset != NativeFloatingPaneOffset::default()),
                 title_draggable: Some(title_draggable),
+                title_drag_kind,
                 title_drag_col,
                 title_drag_row,
                 pid: pane.pid,
@@ -4723,6 +4725,14 @@ fn native_status_title_draggable(mode: NativePaneLayoutMode) -> bool {
         mode,
         NativePaneLayoutMode::Tiled | NativePaneLayoutMode::Floating
     )
+}
+
+fn native_status_title_drag_kind(mode: NativePaneLayoutMode) -> Option<&'static str> {
+    match mode {
+        NativePaneLayoutMode::Tiled => Some("reorder"),
+        NativePaneLayoutMode::Floating => Some("reposition"),
+        NativePaneLayoutMode::Fullscreen => None,
+    }
 }
 
 fn native_status_title_drag_cell(
@@ -7292,6 +7302,7 @@ mod native_pane_tests {
             floating_dy: Some(0),
             floating_moved: None,
             title_draggable: Some(false),
+            title_drag_kind: None,
             title_drag_col: None,
             title_drag_row: None,
             pid: Some(42),
@@ -10397,6 +10408,18 @@ mod native_pane_tests {
         assert!(!native_status_title_draggable(
             NativePaneLayoutMode::Fullscreen
         ));
+        assert_eq!(
+            native_status_title_drag_kind(NativePaneLayoutMode::Tiled),
+            Some("reorder")
+        );
+        assert_eq!(
+            native_status_title_drag_kind(NativePaneLayoutMode::Floating),
+            Some("reposition")
+        );
+        assert_eq!(
+            native_status_title_drag_kind(NativePaneLayoutMode::Fullscreen),
+            None
+        );
         assert_eq!(
             native_status_title_drag_cell(Some(layout), NativePaneLayoutMode::Tiled),
             Some((Some(12), Some(5)))
@@ -13739,7 +13762,11 @@ mod native_pane_tests {
             NativePaneLayoutMode::Tiled,
         );
         assert_eq!(tiled_statuses[1].title_draggable, Some(true));
-        assert_eq!(tiled_statuses[1].title_drag_col, Some(layouts[1].x + 1));
+        assert_eq!(
+            tiled_statuses[1].title_drag_kind.as_deref(),
+            Some("reorder")
+        );
+        assert_eq!(tiled_statuses[1].title_drag_col, Some(layouts[1].x + 2));
         assert_eq!(tiled_statuses[1].title_drag_row, Some(layouts[1].y + 1));
 
         let statuses = native_pane_statuses(
@@ -13759,6 +13786,7 @@ mod native_pane_tests {
         assert_eq!(statuses[1].stack_top, Some(true));
         assert_eq!(statuses[1].title_draggable, Some(true));
         assert_eq!(statuses[0].title_draggable, Some(true));
+        assert_eq!(statuses[1].title_drag_kind.as_deref(), Some("reposition"));
         assert_eq!(statuses[1].title_drag_col, Some(layouts[1].x + 4));
         assert_eq!(statuses[1].title_drag_row, Some(layouts[1].y + 1));
         assert_eq!(statuses[1].pid, Some(202));
