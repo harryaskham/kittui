@@ -2937,6 +2937,38 @@ fn semantic_no_pane_reply(verb: &str, target: &str) -> String {
     out
 }
 
+fn semantic_action_applied_reply(window: &str, component: &str, action: &str) -> String {
+    let component = component.trim();
+    let action = action.trim();
+    let mut out = String::with_capacity(
+        "SEMANTIC_ACTION_APPLIED window= component= action=\n".len()
+            + window.len()
+            + component.len()
+            + action.len(),
+    );
+    out.push_str("SEMANTIC_ACTION_APPLIED window=");
+    out.push_str(window);
+    out.push_str(" component=");
+    out.push_str(component);
+    out.push_str(" action=");
+    out.push_str(action);
+    out.push('\n');
+    out
+}
+
+fn semantic_focused_reply(window: &str, component: &str) -> String {
+    let component = component.trim();
+    let mut out = String::with_capacity(
+        "SEMANTIC_FOCUSED window= component=\n".len() + window.len() + component.len(),
+    );
+    out.push_str("SEMANTIC_FOCUSED window=");
+    out.push_str(window);
+    out.push_str(" component=");
+    out.push_str(component);
+    out.push('\n');
+    out
+}
+
 fn semantic_component_id(window: &str, suffix: &str) -> String {
     let mut id = String::with_capacity(window.len() + 1 + suffix.len());
     id.push_str(window);
@@ -3033,12 +3065,7 @@ fn native_spawn_semantic_action_reply(
                     }),
                 );
             }
-            format!(
-                "SEMANTIC_ACTION_APPLIED window={} component={} action={}\n",
-                window,
-                component.trim(),
-                action.trim()
-            )
+            semantic_action_applied_reply(&window, component, action)
         }
         Err(err) => format!(
             "ERR SEMANTIC_ACTION window={} component={} action={} {}\n",
@@ -3082,11 +3109,7 @@ fn native_spawn_semantic_focus_reply(
                 Some(window.clone()),
                 serde_json::json!({ "component": component.trim(), "revision": revision }),
             );
-            format!(
-                "SEMANTIC_FOCUSED window={} component={}\n",
-                window,
-                component.trim()
-            )
+            semantic_focused_reply(&window, component)
         }
         Err(err) => format!(
             "ERR SEMANTIC_FOCUS window={} component={} {}\n",
@@ -5132,6 +5155,23 @@ mod tests {
         let reply = semantic_no_pane_reply("SEMANTIC_ACTION", " missing ");
         assert_eq!(reply, "ERR SEMANTIC_ACTION no pane matching missing\n");
         assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn semantic_success_replies_build_directly() {
+        let action = semantic_action_applied_reply("native-1", " settings.notify ", " toggle ");
+        assert_eq!(
+            action,
+            "SEMANTIC_ACTION_APPLIED window=native-1 component=settings.notify action=toggle\n"
+        );
+        assert_eq!(action.capacity(), action.len());
+
+        let focus = semantic_focused_reply("native-1", " settings.name ");
+        assert_eq!(
+            focus,
+            "SEMANTIC_FOCUSED window=native-1 component=settings.name\n"
+        );
+        assert_eq!(focus.capacity(), focus.len());
     }
 
     #[test]
