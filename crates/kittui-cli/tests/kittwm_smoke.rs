@@ -83,7 +83,7 @@ fn kittwm_help_prints() {
         .expect("run kittwm --help");
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("kittwm — kittui window manager"));
+    assert!(stdout.contains("kittwm — terminal-native window manager"));
     assert!(stdout.contains("--backend"));
 }
 
