@@ -8620,6 +8620,14 @@ fi
 json_escape() {
     awk '{ gsub(/\\/, "\\\\"); gsub(/\"/, "\\\""); printf "\"%s\"", $0 }'
 }
+json_option() {
+    value=$1
+    if [ -n "$value" ]; then
+        printf '%s' "$value" | json_escape
+    else
+        printf 'null'
+    fi
+}
 kittwm_remote_list_path_commands() {
     old_ifs=$IFS
     IFS=:
@@ -8807,7 +8815,7 @@ case "$mode" in
         label=$(printf '%s\n' "$candidate" | awk -F '\t' '{print ($3 != "" ? $3 : $2)}')
         desktop_file=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $5}')
         if [ "$mode" = "first-json" ]; then
-            printf '{"host":%s,"mode":"first","filter":%s,"kind":%s,"candidate":%s,"name":%s,"desktop_file":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$name" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(printf '%s' "$desktop_file" | json_escape)"
+            printf '{"host":%s,"mode":"first","filter":%s,"kind":%s,"candidate":%s,"name":%s,"desktop_file":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$name" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(json_option "$desktop_file")"
         else
             printf '%s:%s\n' "$kind" "$label"
         fi
@@ -8862,7 +8870,7 @@ case "$mode" in
             launch_method="path"
         fi
         if [ "$mode" = "launch-first-json" ]; then
-            printf '{"host":%s,"mode":"launch-first","filter":%s,"kind":%s,"method":%s,"candidate":%s,"name":%s,"desktop_file":%s,"pid":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$launch_method" | json_escape)" "$(printf '%s' "$name" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(printf '%s' "$desktop_file" | json_escape)" "$(printf '%s' "$launch_pid" | json_escape)"
+            printf '{"host":%s,"mode":"launch-first","filter":%s,"kind":%s,"method":%s,"candidate":%s,"name":%s,"desktop_file":%s,"pid":%s}\n' "$(printf '%s' "$host" | json_escape)" "$(printf '%s' "${KITTWM_REMOTE_QUERY:-}" | json_escape)" "$(printf '%s' "$kind" | json_escape)" "$(printf '%s' "$launch_method" | json_escape)" "$(printf '%s' "$name" | json_escape)" "$(printf '%s' "$label" | json_escape)" "$(json_option "$desktop_file")" "$(printf '%s' "$launch_pid" | json_escape)"
         else
             printf 'kittwm remote apps: launched pid=%s kind=%s method=%s name=%s host=%s\n' "$launch_pid" "$kind" "$launch_method" "$label" "$host"
         fi
@@ -12965,7 +12973,12 @@ mod tests {
         assert!(script.contains("no_desktop_exec_fallback"), "{script}");
         assert!(script.contains("\"method\":"), "{script}");
         assert!(script.contains("\"candidate\":"), "{script}");
+        assert!(script.contains("json_option()"), "{script}");
         assert!(script.contains("\"desktop_file\":"), "{script}");
+        assert!(
+            script.contains("$(json_option \"$desktop_file\")"),
+            "{script}"
+        );
         assert!(script.contains("\"pid\":"), "{script}");
         assert!(script.contains("gtk-launch/gio failed"), "{script}");
         assert!(script.contains("index(tolower($0), q)"), "{script}");
