@@ -3112,6 +3112,12 @@ impl PanesStatus {
         self.focused_pane().map(NativePaneDetail::status_chip_label)
     }
 
+    /// Live footer `state:<focused-status>` segment for the focused pane.
+    pub fn focused_footer_state_label(&self) -> Option<String> {
+        self.focused_status_chip_label()
+            .map(|status| format!("state:{status}"))
+    }
+
     /// Whether the focused pane has a non-zero floating offset.
     pub fn focused_is_moved(&self) -> Option<bool> {
         self.focused_pane()
@@ -3585,6 +3591,12 @@ impl Status {
     /// Full live pane status chip text for the focused pane.
     pub fn focused_status_chip_label(&self) -> Option<String> {
         self.focused_pane().map(NativePaneDetail::status_chip_label)
+    }
+
+    /// Live footer `state:<focused-status>` segment for the focused pane.
+    pub fn focused_footer_state_label(&self) -> Option<String> {
+        self.focused_status_chip_label()
+            .map(|status| format!("state:{status}"))
     }
 
     /// Whether the focused pane has a non-zero floating offset.
@@ -6014,6 +6026,10 @@ mod tests {
             panes.focused_status_chip_label().as_deref(),
             Some("/bin/sh · wt:2 · pid:123 · frame:1/4")
         );
+        assert_eq!(
+            panes.focused_footer_state_label().as_deref(),
+            Some("state:/bin/sh · wt:2 · pid:123 · frame:1/4")
+        );
         assert_eq!(panes.focused_is_moved(), Some(true));
         assert_eq!(panes.focused_is_title_draggable(), Some(true));
         assert_eq!(panes.focused_is_title_drag_active(), Some(true));
@@ -6281,6 +6297,7 @@ mod tests {
         assert_eq!(status.focused_command_chip_label(), None);
         assert_eq!(status.focused_pid_chip_label(), None);
         assert_eq!(status.focused_status_chip_label(), None);
+        assert_eq!(status.focused_footer_state_label(), None);
         assert_eq!(status.focused_is_moved(), None);
         assert_eq!(status.focused_is_title_draggable(), None);
         assert_eq!(status.focused_is_title_drag_active(), None);
@@ -6373,6 +6390,10 @@ mod tests {
         assert_eq!(
             status.focused_status_chip_label().as_deref(),
             Some("- · pid:- · frame:clean")
+        );
+        assert_eq!(
+            status.focused_footer_state_label().as_deref(),
+            Some("state:- · pid:- · frame:clean")
         );
         assert_eq!(status.focused_is_moved(), Some(false));
         assert_eq!(status.focused_is_title_draggable(), Some(true));
