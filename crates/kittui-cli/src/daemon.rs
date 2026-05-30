@@ -2078,6 +2078,26 @@ fn native_mouse_event_known(event: &str) -> bool {
 
 const NATIVE_SEND_KEY_SUPPORTED_HELP: &str = "enter|return|tab|shift-tab|backtab|escape|esc|backspace|bs|insert|ins|shift-insert|alt-insert|ctrl-insert|delete|del|shift-delete|alt-delete|ctrl-delete|left|arrow-left|right|arrow-right|up|arrow-up|down|arrow-down|shift-left|shift-right|shift-up|shift-down|shift-arrow-left|shift-arrow-right|shift-arrow-up|shift-arrow-down|alt-left|alt-right|alt-up|alt-down|alt-arrow-left|alt-arrow-right|alt-arrow-up|alt-arrow-down|ctrl-left|ctrl-right|ctrl-up|ctrl-down|shift-home|alt-home|ctrl-home|shift-end|alt-end|ctrl-end|home|end|shift-page-up|alt-page-up|ctrl-page-up|shift-page-down|alt-page-down|ctrl-page-down|pageup|page-up|pagedown|page-down|f5..f12|ctrl-a..ctrl-z";
 
+fn send_key_queued_reply(count: usize, window: &str, key: &str, bytes: usize) -> String {
+    let mut out = String::with_capacity(
+        "SEND_KEY_QUEUED command= window= key= bytes=\n".len()
+            + usize_decimal_len(count)
+            + window.len()
+            + key.len()
+            + usize_decimal_len(bytes),
+    );
+    out.push_str("SEND_KEY_QUEUED command=");
+    write!(out, "{count}").expect("write to string");
+    out.push_str(" window=");
+    out.push_str(window);
+    out.push_str(" key=");
+    out.push_str(key);
+    out.push_str(" bytes=");
+    write!(out, "{bytes}").expect("write to string");
+    out.push('\n');
+    out
+}
+
 fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str) -> String {
     let Some((window, key)) = rest.trim().split_once(' ') else {
         return "ERR SEND_KEY requires window and key\n".to_string();
@@ -2107,13 +2127,7 @@ fn queue_native_send_key(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &str
                 "key",
                 serde_json::json!({ "key": key, "bytes": bytes.len() }),
             );
-            format!(
-                "SEND_KEY_QUEUED command={} window={} key={} bytes={}\n",
-                state.pending.len(),
-                window,
-                key,
-                bytes.len()
-            )
+            send_key_queued_reply(state.pending.len(), window, key, bytes.len())
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
@@ -4168,6 +4182,16 @@ mod tests {
         assert_eq!(
             reply,
             "SEND_MOUSE_QUEUED command=12 window=focused event=press-left col=7 row=9\n"
+        );
+        assert_eq!(reply.capacity(), reply.len());
+    }
+
+    #[test]
+    fn send_key_queued_reply_builds_directly() {
+        let reply = send_key_queued_reply(12, "focused", "shift-tab", 3);
+        assert_eq!(
+            reply,
+            "SEND_KEY_QUEUED command=12 window=focused key=shift-tab bytes=3\n"
         );
         assert_eq!(reply.capacity(), reply.len());
     }
