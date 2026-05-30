@@ -8753,7 +8753,7 @@ kittwm_remote_launch_error() {
     hint=${3:-}
     if [ "$mode" = "launch-first-json" ]; then
         printf '{"host":%s,"source":"fallback","mode":"launch-first","filter":%s,"error":%s,"message":%s,"hint":%s}
-' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")" "$(printf '%s' "$code" | json_escape)" "$(printf '%s' "$message" | json_escape)" "$(printf '%s' "$hint" | json_escape)"
+' "$(printf '%s' "$host" | json_escape)" "$(json_option "${KITTWM_REMOTE_QUERY:-}")" "$(printf '%s' "$code" | json_escape)" "$(printf '%s' "$message" | json_escape)" "$(json_option "$hint")"
     elif [ -n "$hint" ]; then
         printf 'ERR %s; %s
 ' "$message" "$hint"
@@ -13028,6 +13028,7 @@ mod tests {
             script.contains("$(json_option \"${KITTWM_REMOTE_QUERY:-}\")"),
             "{script}"
         );
+        assert!(script.contains("$(json_option \"$hint\")"), "{script}");
         assert!(script.contains("\"desktop_file\":"), "{script}");
         assert!(
             script.contains("$(json_option \"$desktop_file\")"),
