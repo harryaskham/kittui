@@ -3247,17 +3247,14 @@ fn native_spawn_panes_json_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) ->
         .find(|pane| pane.focused)
         .map(|pane| pane.window.as_str())
         .unwrap_or("-");
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "panes": state.panes.len(),
-            "focus": focused,
-            "layout": state.layout.as_deref().unwrap_or("-"),
-            "workspace": native_workspace_id_for_state(&state),
-            "chrome": native_chrome_status_value(&state),
-            "panes_detail": state.panes,
-        })
-    )
+    json_value_line(&serde_json::json!({
+        "panes": state.panes.len(),
+        "focus": focused,
+        "layout": state.layout.as_deref().unwrap_or("-"),
+        "workspace": native_workspace_id_for_state(&state),
+        "chrome": native_chrome_status_value(&state),
+        "panes_detail": state.panes,
+    }))
 }
 
 /// Accept-loop daemon that answers `PING` / `STATUS` / `QUIT`.
