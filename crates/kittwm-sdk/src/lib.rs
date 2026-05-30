@@ -3035,10 +3035,11 @@ fn layout_label_matches(value: Option<&str>, expected: &str) -> bool {
 }
 
 fn layout_label_is_tiled(value: Option<&str>) -> bool {
-    matches!(
-        value.map(|label| label.to_ascii_lowercase()),
-        Some(label) if matches!(label.as_str(), "columns" | "rows" | "grid")
-    )
+    value.is_some_and(|label| {
+        label.eq_ignore_ascii_case("columns")
+            || label.eq_ignore_ascii_case("rows")
+            || label.eq_ignore_ascii_case("grid")
+    })
 }
 
 const FOCUSED_TITLE_MARKER: &str = "▶";
@@ -5803,6 +5804,14 @@ mod tests {
         assert!(floating.is_floating_layout());
         assert!(!floating.is_fullscreen_layout());
         assert!(!floating.is_tiled_layout());
+
+        for layout in ["columns", "Rows", " grid ", "COLUMNS"] {
+            let status: Status = serde_json::from_str(&format!(
+                r#"{{"pending":0,"panes":1,"focus":"native-1","layout":"{layout}"}}"#
+            ))
+            .unwrap();
+            assert!(status.is_tiled_layout(), "{layout}");
+        }
 
         let fullscreen: PanesStatus = serde_json::from_str(
             r#"{"panes":1,"focus":"native-1","layout":"fullscreen","panes_detail":[{"window":"native-1","title":"shell","focused":true,"weight":1}]}"#,
