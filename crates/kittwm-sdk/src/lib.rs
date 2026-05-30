@@ -4480,6 +4480,29 @@ mod tests {
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    fn test_yaml_path(prefix: &str, pid: u32, label: &str) -> PathBuf {
+        let mut name = String::with_capacity(
+            prefix.len() + 1 + u32_decimal_len(pid) + 1 + label.len() + ".yaml".len(),
+        );
+        name.push_str(prefix);
+        name.push('-');
+        write!(name, "{pid}").expect("write to string");
+        name.push('-');
+        name.push_str(label);
+        name.push_str(".yaml");
+        env::temp_dir().join(name)
+    }
+
+    #[test]
+    fn test_yaml_path_builds_directly() {
+        let path = test_yaml_path("kittwm-config-test", 1234, "partial");
+        let text = path.to_string_lossy();
+        assert!(
+            text.ends_with("/kittwm-config-test-1234-partial.yaml"),
+            "{text}"
+        );
+    }
+
     #[test]
     fn kittwm_config_defaults_to_nord_background_and_colorscheme() {
         let config = KittwmConfig::nord_default();
@@ -4509,11 +4532,7 @@ mod tests {
 
     #[test]
     fn kittwm_config_loads_partial_yaml_over_nord_defaults() {
-        let path = env::temp_dir().join(format!(
-            "kittwm-config-test-{}-{}.yaml",
-            std::process::id(),
-            "partial"
-        ));
+        let path = test_yaml_path("kittwm-config-test", std::process::id(), "partial");
         std::fs::write(
             &path,
             "background:\n  opacity: 0.5\ncolorscheme:\n  name: nord\n",
