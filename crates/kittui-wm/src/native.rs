@@ -574,6 +574,16 @@ fn xwindow_keysym_context_label(action: &str, id: XWindowId, sym: u32) -> String
     label
 }
 
+fn xwindow_pointer_context_label(id: XWindowId) -> String {
+    let mut label = String::with_capacity(
+        "send pointer event to X window XWindowId()".len() + decimal_len(u64::from(id.0)),
+    );
+    label.push_str("send pointer event to X window XWindowId(");
+    write!(label, "{}", id.0).expect("write to string");
+    label.push(')');
+    label
+}
+
 /// Capture-only adapter that exposes a kittui scene as a native surface.
 ///
 /// This lets runtime/composite code treat first-party kittui render artifacts
@@ -1005,7 +1015,7 @@ impl NativeSurface for XWindowSurface {
         };
         self.server
             .inject_pointer(event)
-            .with_context(|| format!("send pointer event to X window {:?}", self.window.id))
+            .with_context(|| xwindow_pointer_context_label(self.window.id))
     }
 
     fn capture_surface(&mut self) -> Result<SurfaceFrame> {
@@ -6682,6 +6692,13 @@ mod tests {
         let release = xwindow_release_keysym_context_label(XWindowId(11), 97);
         assert_eq!(release, "release keysym 97 for X window XWindowId(11)");
         assert_eq!(release.capacity(), release.len());
+    }
+
+    #[test]
+    fn xwindow_pointer_context_label_builds_directly() {
+        let label = xwindow_pointer_context_label(XWindowId(11));
+        assert_eq!(label, "send pointer event to X window XWindowId(11)");
+        assert_eq!(label.capacity(), label.len());
     }
 
     #[test]
