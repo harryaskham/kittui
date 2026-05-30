@@ -2268,6 +2268,26 @@ fn native_reserve_chrome_json_reply(
     }
 }
 
+fn native_spawn_status_line(pending: usize, panes: usize, focused: &str, layout: &str) -> String {
+    let mut out = String::with_capacity(
+        "OK pending= panes= focus= layout=\n".len()
+            + usize_decimal_len(pending)
+            + usize_decimal_len(panes)
+            + focused.len()
+            + layout.len(),
+    );
+    out.push_str("OK pending=");
+    write!(out, "{pending}").expect("write to string");
+    out.push_str(" panes=");
+    write!(out, "{panes}").expect("write to string");
+    out.push_str(" focus=");
+    out.push_str(focused);
+    out.push_str(" layout=");
+    out.push_str(layout);
+    out.push('\n');
+    out
+}
+
 fn native_spawn_status_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> String {
     pending
         .lock()
@@ -2278,12 +2298,11 @@ fn native_spawn_status_reply(pending: &Arc<Mutex<NativeSpawnQueueState>>) -> Str
                 .find(|pane| pane.focused)
                 .map(|pane| pane.window.as_str())
                 .unwrap_or("-");
-            format!(
-                "OK pending={} panes={} focus={} layout={}\n",
+            native_spawn_status_line(
                 state.pending.len(),
                 state.panes.len(),
                 focused,
-                state.layout.as_deref().unwrap_or("-")
+                state.layout.as_deref().unwrap_or("-"),
             )
         })
         .unwrap_or_else(|_| "ERR registry poisoned\n".to_string())
@@ -3553,6 +3572,13 @@ mod tests {
         let server = DaemonServer::bind(p.clone()).unwrap();
         let reply = client_request(server.path(), "PING").unwrap();
         assert_eq!(reply.trim(), "PONG");
+    }
+
+    #[test]
+    fn native_spawn_status_line_builds_directly() {
+        let line = native_spawn_status_line(12, 3, "native-2", "rows");
+        assert_eq!(line, "OK pending=12 panes=3 focus=native-2 layout=rows\n");
+        assert_eq!(line.capacity(), line.len());
     }
 
     #[test]
