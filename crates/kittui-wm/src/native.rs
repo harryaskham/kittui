@@ -1544,6 +1544,13 @@ fn cached_terminal_snapshot(
     snapshot
 }
 
+fn pty_spawn_child_context(program: &str) -> String {
+    let mut context = String::with_capacity("spawn PTY child program ".len() + program.len());
+    context.push_str("spawn PTY child program ");
+    context.push_str(program);
+    context
+}
+
 impl PtyTerminalApp {
     /// Spawn a shell command in a real PTY.
     pub fn spawn(command: &str, cols: u16, rows: u16) -> Result<Self> {
@@ -1594,7 +1601,7 @@ impl PtyTerminalApp {
         let child = pair
             .slave
             .spawn_command(builder)
-            .with_context(|| format!("spawn PTY child program {program}"))?;
+            .with_context(|| pty_spawn_child_context(program))?;
         drop(pair.slave);
         let surface = TerminalSurface::from_master(
             pair.master,
@@ -5967,6 +5974,13 @@ mod tests {
         assert_eq!(state.scrollback_snapshot(), "one\n");
         let text = state.text_snapshot();
         assert!(text.starts_with("two\nthree"), "snapshot was:\n{text}");
+    }
+
+    #[test]
+    fn pty_spawn_child_context_builds_directly() {
+        let context = pty_spawn_child_context("bash");
+        assert_eq!(context, "spawn PTY child program bash");
+        assert!(context.capacity() >= context.len());
     }
 
     #[test]
