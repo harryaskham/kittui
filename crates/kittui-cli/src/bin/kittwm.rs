@@ -7865,8 +7865,11 @@ fn shortcuts_scene() -> Scene {
     shortcuts_scene_for_cols(shortcuts_scene_cols())
 }
 
+const SHORTCUTS_SCENE_ROW_LIMIT: usize = 12;
+
 fn shortcuts_scene_for_cols(cols: u16) -> Scene {
     let entries = kittui_cli::shortcuts::NATIVE_SHORTCUT_ENTRIES;
+    let visible_entries = shortcuts_scene_visible_entries(entries, SHORTCUTS_SCENE_ROW_LIMIT);
     let rows = shortcuts_scene_rows(entries.len());
     let cell = CellSize::default();
     let width = cols as f32 * cell.width_px as f32;
@@ -7905,7 +7908,7 @@ fn shortcuts_scene_for_cols(cols: u16) -> Scene {
             },
         },
     ];
-    for (idx, entry) in entries.iter().take(12).enumerate() {
+    for (idx, entry) in visible_entries.iter().enumerate() {
         let y = (idx as f32 + 2.0) * cell.height_px as f32;
         layers.push(Layer {
             label: Some(shortcuts_scene_row_label(
@@ -7929,6 +7932,22 @@ fn shortcuts_scene_for_cols(cols: u16) -> Scene {
         layers,
         animation: None,
     }
+}
+
+fn shortcuts_scene_visible_entries<'a>(
+    entries: &'a [kittui_cli::shortcuts::NativeShortcut],
+    limit: usize,
+) -> Vec<&'a kittui_cli::shortcuts::NativeShortcut> {
+    let mut visible = entries.iter().take(limit).collect::<Vec<_>>();
+    if visible.len() == limit && !visible.iter().any(|entry| entry.id == "title_markers") {
+        if let (Some(marker_entry), Some(last)) = (
+            entries.iter().find(|entry| entry.id == "title_markers"),
+            visible.last_mut(),
+        ) {
+            *last = marker_entry;
+        }
+    }
+    visible
 }
 
 fn shortcuts_scene_row_label(id: &str, keys: &str, description: &str) -> String {
@@ -13591,6 +13610,21 @@ mod tests {
                 .any(|label| label.contains("open_launcher:C-a g")),
             "{labels:?}"
         );
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.contains("title_markers:title markers")),
+            "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn shortcuts_scene_visible_entries_keep_title_marker_legend() {
+        let entries = kittui_cli::shortcuts::NATIVE_SHORTCUT_ENTRIES;
+        let visible = shortcuts_scene_visible_entries(entries, 12);
+        assert_eq!(visible.len(), 12);
+        assert!(visible.iter().any(|entry| entry.id == "title_markers"));
+        assert_eq!(visible.last().map(|entry| entry.id), Some("title_markers"));
     }
 
     #[test]
