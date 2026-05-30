@@ -4739,7 +4739,7 @@ fn native_status_title_drag_cell(
     let local_col = if matches!(mode, NativePaneLayoutMode::Floating) {
         layout.cols.saturating_sub(1).min(3)
     } else {
-        0
+        layout.cols.saturating_sub(1).min(1)
     };
     Some((
         Some(layout.x.saturating_add(local_col).saturating_add(1)),
@@ -10399,6 +10399,11 @@ mod native_pane_tests {
         ));
         assert_eq!(
             native_status_title_drag_cell(Some(layout), NativePaneLayoutMode::Tiled),
+            Some((Some(12), Some(5)))
+        );
+        let tiny_layout = NativePaneLayout { cols: 1, ..layout };
+        assert_eq!(
+            native_status_title_drag_cell(Some(tiny_layout), NativePaneLayoutMode::Tiled),
             Some((Some(11), Some(5)))
         );
         assert_eq!(
