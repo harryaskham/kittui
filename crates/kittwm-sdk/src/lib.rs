@@ -2192,6 +2192,11 @@ impl DirtyFrameStatus {
         }
     }
 
+    /// Full live pane-chip label, including the `frame:` prefix.
+    pub fn chip_label(&self) -> String {
+        format!("frame:{}", self.status_label())
+    }
+
     /// Changed tile percentage in `[0, 100]`.
     pub fn changed_percent(&self) -> f32 {
         self.changed_fraction * 100.0
@@ -2516,6 +2521,11 @@ impl NativePaneDetail {
             .as_ref()
             .map(DirtyFrameStatus::status_label)
             .unwrap_or_else(|| "new".to_string())
+    }
+
+    /// Full live pane-chip label, including the `frame:` prefix.
+    pub fn frame_chip_label(&self) -> String {
+        format!("frame:{}", self.frame_status_label())
     }
 
     /// Dirty-frame changed tile count and total tile count, when reported.
@@ -2854,6 +2864,11 @@ impl PanesStatus {
             .map(NativePaneDetail::frame_status_label)
     }
 
+    /// Full live pane-chip label for the focused pane, including the `frame:` prefix.
+    pub fn focused_frame_chip_label(&self) -> Option<String> {
+        self.focused_pane().map(NativePaneDetail::frame_chip_label)
+    }
+
     /// Dirty-frame changed tile count and total tile count for the focused pane.
     pub fn focused_frame_changed_tiles_ratio(&self) -> Option<(u32, u32)> {
         self.focused_pane()?.frame_changed_tiles_ratio()
@@ -3123,6 +3138,11 @@ impl Status {
     pub fn focused_frame_status_label(&self) -> Option<String> {
         self.focused_pane()
             .map(NativePaneDetail::frame_status_label)
+    }
+
+    /// Full live pane-chip label for the focused pane, including the `frame:` prefix.
+    pub fn focused_frame_chip_label(&self) -> Option<String> {
+        self.focused_pane().map(NativePaneDetail::frame_chip_label)
     }
 
     /// Dirty-frame changed tile count and total tile count for the focused pane.
@@ -5363,6 +5383,10 @@ mod tests {
         assert_eq!(panes.focused_frame_is_clean(), Some(false));
         assert_eq!(panes.focused_frame_upload_skipped(), Some(false));
         assert_eq!(panes.focused_frame_status_label().as_deref(), Some("1/4"));
+        assert_eq!(
+            panes.focused_frame_chip_label().as_deref(),
+            Some("frame:1/4")
+        );
         assert_eq!(panes.focused_frame_changed_tiles_ratio(), Some((1, 4)));
         assert_eq!(
             panes.focused_frame_changed_tiles_label().as_deref(),
@@ -5417,6 +5441,7 @@ mod tests {
         assert!(pane.has_mouse_sgr());
         assert!(pane.has_dirty_frame());
         assert_eq!(pane.frame_status_label(), "1/4");
+        assert_eq!(pane.frame_chip_label(), "frame:1/4");
         assert_eq!(pane.frame_changed_tiles_ratio(), Some((1, 4)));
         assert_eq!(pane.frame_changed_tiles_label().as_deref(), Some("1/4"));
         assert_eq!(pane.frame_changed_fraction(), Some(0.25));
@@ -5428,6 +5453,7 @@ mod tests {
         assert_eq!(frame.changed_tiles_ratio(), (1, 4));
         assert_eq!(frame.changed_tiles_label(), "1/4");
         assert_eq!(frame.status_label(), "1/4");
+        assert_eq!(frame.chip_label(), "frame:1/4");
         assert_eq!(frame.changed_percent(), 25.0);
         assert!(pane.has_transport_diagnostics());
         assert_eq!(pane.dirty_frame.as_ref().unwrap().changed_fraction, 0.25);
@@ -5448,6 +5474,7 @@ mod tests {
         assert_eq!(pane.floating_offset(), None);
         assert!(!pane.has_floating_offset());
         assert_eq!(pane.frame_status_label(), "new");
+        assert_eq!(pane.frame_chip_label(), "frame:new");
         assert_eq!(pane.frame_changed_tiles_ratio(), None);
         assert_eq!(pane.frame_changed_tiles_label(), None);
         assert_eq!(pane.frame_changed_fraction(), None);
@@ -5544,6 +5571,7 @@ mod tests {
         assert_eq!(status.focused_frame_is_clean(), None);
         assert_eq!(status.focused_frame_upload_skipped(), None);
         assert_eq!(status.focused_frame_status_label(), None);
+        assert_eq!(status.focused_frame_chip_label(), None);
         assert_eq!(status.focused_frame_changed_tiles_ratio(), None);
         assert_eq!(status.focused_frame_changed_tiles_label(), None);
         assert_eq!(status.focused_frame_changed_fraction(), None);
@@ -5611,6 +5639,10 @@ mod tests {
         assert_eq!(
             status.focused_frame_status_label().as_deref(),
             Some("clean")
+        );
+        assert_eq!(
+            status.focused_frame_chip_label().as_deref(),
+            Some("frame:clean")
         );
         assert_eq!(status.focused_frame_changed_tiles_ratio(), Some((0, 4)));
         assert_eq!(
