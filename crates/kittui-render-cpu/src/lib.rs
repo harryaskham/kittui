@@ -234,6 +234,61 @@ mod tests {
         assert!(c.0 > 50);
         assert!(c.1 > 50);
     }
+
+    /// A scene that nests Clip > Mask > Composite(Add) so a single render
+    /// exercises every scratch-buffer path and forces the scratch pool to
+    /// reuse buffers across sibling and nested nodes. Rendering twice must be
+    /// byte-identical, guarding the pooled allocation path (bd-1372f2) against
+    /// stale/uncleared scratch reuse.
+    fn nested_scratch_scene() -> Scene {
+        let composite = Node::Composite {
+            mode: kittui_core::node::BlendMode::Add,
+            children: vec![
+                red_rect(PxRect::new(0.0, 0.0, 32.0, 32.0)),
+                Node::Rect {
+                    rect: PxRect::new(0.0, 0.0, 32.0, 32.0),
+                    fill: Paint::Solid {
+                        color: Rgba::rgba(0, 120, 0, 255),
+                    },
+                    stroke: None,
+                    corners: Corners::default(),
+                },
+            ],
+        };
+        let mask = Node::Rect {
+            rect: PxRect::new(0.0, 0.0, 32.0, 32.0),
+            fill: Paint::Solid {
+                color: Rgba::rgba(255, 255, 255, 128),
+            },
+            stroke: None,
+            corners: Corners::default(),
+        };
+        Scene {
+            footprint: CellRect::new(0, 0, 4, 2),
+            cell_size: CellSize::new(8, 16),
+            layers: vec![Layer::anon(Node::Clip {
+                rect: PxRect::new(0.0, 0.0, 16.0, 16.0),
+                child: Box::new(Node::Mask {
+                    mask: Box::new(mask),
+                    child: Box::new(composite),
+                }),
+            })],
+            animation: None,
+        }
+    }
+
+    #[test]
+    fn nested_scratch_paths_are_byte_stable() {
+        let a = pixmap_from(&nested_scratch_scene());
+        let b = pixmap_from(&nested_scratch_scene());
+        assert_eq!(a.data(), b.data(), "pooled scratch reuse must be deterministic");
+        // Inside the clip rect, the masked additive composite is visible.
+        let inside = a.get(4, 4);
+        assert!(inside.3 > 0, "masked composite should be visible inside clip");
+        assert!(inside.0 > 0 && inside.1 > 0, "both additive channels present");
+        // Outside the 16x16 clip rect, nothing is drawn.
+        assert_eq!(a.get(24, 24).3, 0, "clip must suppress drawing outside its rect");
+    }
 }
 
 #[cfg(test)]

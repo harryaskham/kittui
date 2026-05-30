@@ -15,18 +15,61 @@ use kittui_core::Scene;
 use crate::pixmap::Pixmap;
 use crate::RenderError;
 
+/// A small pool of full-size scratch pixmaps reused across nodes within a
+/// single `render_scene` call. Compositing (non-Normal), masking, and
+/// clipping each need transient full-resolution buffers; without pooling
+/// every such node allocates and zeroes a fresh `Pixmap` per frame. The pool
+/// hands out cleared buffers — byte-identical to `Pixmap::new`, which is also
+/// zero-initialized — and reclaims them on release, so rendered output is
+/// unchanged while per-frame allocation/zeroing churn drops to at most the
+/// maximum concurrent scratch depth of the scene.
+#[derive(Default)]
+struct ScratchPool {
+    free: Vec<Pixmap>,
+}
+
+impl ScratchPool {
+    /// Hand out a transparent scratch pixmap of the requested size, reusing a
+    /// reclaimed buffer when one is available. A reused buffer is cleared
+    /// before return, so callers always observe a fully-transparent pixmap
+    /// exactly as `Pixmap::new` would produce.
+    fn acquire(&mut self, width: u32, height: u32) -> Pixmap {
+        while let Some(mut buf) = self.free.pop() {
+            if buf.width() == width && buf.height() == height {
+                buf.clear();
+                return buf;
+            }
+            // Size mismatch cannot happen within a single scene (all scratch
+            // buffers match the root pixmap), but drop any stale-sized buffer
+            // defensively rather than hand back the wrong dimensions.
+        }
+        Pixmap::new(width, height)
+    }
+
+    /// Return a scratch pixmap to the pool for later reuse.
+    fn release(&mut self, buf: Pixmap) {
+        self.free.push(buf);
+    }
+}
+
 /// Walk all layers and rasterize their roots into `pixmap`. `phase` is in
 /// `[0,1]` and is forwarded to nodes that read animation phase (currently
 /// only the glow intensity multiplier).
 pub fn render_scene(scene: &Scene, phase: f32, pixmap: &mut Pixmap) -> Result<(), RenderError> {
+    let mut pool = ScratchPool::default();
     for layer in &scene.layers {
-        render_layer(layer, phase, pixmap)?;
+        render_layer(layer, phase, pixmap, &mut pool)?;
     }
     Ok(())
 }
 
-fn render_layer(layer: &Layer, phase: f32, pixmap: &mut Pixmap) -> Result<(), RenderError> {
-    render_node(&layer.root, 1.0, BlendMode::Normal, phase, pixmap)
+fn render_layer(
+    layer: &Layer,
+    phase: f32,
+    pixmap: &mut Pixmap,
+    pool: &mut ScratchPool,
+) -> Result<(), RenderError> {
+    render_node(&layer.root, 1.0, BlendMode::Normal, phase, pixmap, pool)
 }
 
 fn render_node(
@@ -35,6 +78,7 @@ fn render_node(
     _blend: BlendMode,
     phase: f32,
     pixmap: &mut Pixmap,
+    pool: &mut ScratchPool,
 ) -> Result<(), RenderError> {
     match node {
         Node::Rect {
@@ -94,14 +138,14 @@ fn render_node(
         Node::Group { opacity: o, children } => {
             let combined = (opacity * o.clamp(0.0, 1.0)).clamp(0.0, 1.0);
             for child in children {
-                render_node(child, combined, BlendMode::Normal, phase, pixmap)?;
+                render_node(child, combined, BlendMode::Normal, phase, pixmap, pool)?;
             }
             Ok(())
         }
         Node::Composite { mode, children } => {
             if *mode == BlendMode::Normal {
                 for child in children {
-                    render_node(child, opacity, BlendMode::Normal, phase, pixmap)?;
+                    render_node(child, opacity, BlendMode::Normal, phase, pixmap, pool)?;
                 }
                 return Ok(());
             }
@@ -109,8 +153,8 @@ fn render_node(
             // main pixmap using the requested blend mode. The first child uses
             // Normal (over transparent), subsequent children use `mode`.
             for (i, child) in children.iter().enumerate() {
-                let mut scratch = Pixmap::new(pixmap.width(), pixmap.height());
-                render_node(child, opacity, BlendMode::Normal, phase, &mut scratch)?;
+                let mut scratch = pool.acquire(pixmap.width(), pixmap.height());
+                render_node(child, opacity, BlendMode::Normal, phase, &mut scratch, pool)?;
                 let m = if i == 0 { BlendMode::Normal } else { *mode };
                 for y in 0..pixmap.height() {
                     for x in 0..pixmap.width() {
@@ -121,16 +165,17 @@ fn render_node(
                         pixmap.blend_with(x, y, src, m);
                     }
                 }
+                pool.release(scratch);
             }
             Ok(())
         }
         Node::Mask { mask, child } => {
             // Render mask + child into separate scratch pixmaps, then
             // multiply child alpha by mask alpha, blend into main.
-            let mut mask_buf = Pixmap::new(pixmap.width(), pixmap.height());
-            render_node(mask, 1.0, BlendMode::Normal, phase, &mut mask_buf)?;
-            let mut child_buf = Pixmap::new(pixmap.width(), pixmap.height());
-            render_node(child, opacity, BlendMode::Normal, phase, &mut child_buf)?;
+            let mut mask_buf = pool.acquire(pixmap.width(), pixmap.height());
+            render_node(mask, 1.0, BlendMode::Normal, phase, &mut mask_buf, pool)?;
+            let mut child_buf = pool.acquire(pixmap.width(), pixmap.height());
+            render_node(child, opacity, BlendMode::Normal, phase, &mut child_buf, pool)?;
             for y in 0..pixmap.height() {
                 for x in 0..pixmap.width() {
                     let c = child_buf.get(x, y);
@@ -145,12 +190,14 @@ fn render_node(
                     pixmap.blend(x, y, Rgba(c.0, c.1, c.2, a));
                 }
             }
+            pool.release(child_buf);
+            pool.release(mask_buf);
             Ok(())
         }
         Node::Clip { rect, child } => {
             // Render child into a scratch and copy only the clip rectangle.
-            let mut scratch = Pixmap::new(pixmap.width(), pixmap.height());
-            render_node(child, opacity, BlendMode::Normal, phase, &mut scratch)?;
+            let mut scratch = pool.acquire(pixmap.width(), pixmap.height());
+            render_node(child, opacity, BlendMode::Normal, phase, &mut scratch, pool)?;
             let (x0, y0, x1, y1) = bounds(rect, pixmap);
             for y in y0..y1 {
                 for x in x0..x1 {
@@ -161,6 +208,7 @@ fn render_node(
                     pixmap.blend(x, y, c);
                 }
             }
+            pool.release(scratch);
             Ok(())
         }
     }
