@@ -240,7 +240,6 @@ mod tests {
 #[cfg(feature = "image-decoders")]
 mod image_tests {
     use super::*;
-    use kittui_core::color::Rgba;
     use kittui_core::geom::{CellRect, CellSize, PxRect};
     use kittui_core::node::{Fit, ImageRef, Layer, Node};
 
@@ -252,9 +251,9 @@ mod image_tests {
         img.put_pixel(0, 1, image::Rgba([0, 0, 255, 255]));
         img.put_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
         let mut out = Vec::new();
-        let mut enc = image::codecs::png::PngEncoder::new(&mut out);
+        let enc = image::codecs::png::PngEncoder::new(&mut out);
         use image::ImageEncoder;
-        enc.write_image(&img.as_raw(), 2, 2, image::ExtendedColorType::Rgba8)
+        enc.write_image(img.as_raw(), 2, 2, image::ExtendedColorType::Rgba8)
             .unwrap();
         out
     }

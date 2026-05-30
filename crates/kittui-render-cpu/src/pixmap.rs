@@ -142,7 +142,7 @@ mod tests {
         // Multiply with red.
         p.blend_with(0, 0, Rgba(255, 0, 0, 255), BlendMode::Multiply);
         let c = p.get(0, 0);
-        assert!(c.0 > 100 && c.0 <= 255 && c.1 == 0 && c.2 == 0);
+        assert!(c.0 > 100 && c.1 == 0 && c.2 == 0);
     }
 
     #[test]
