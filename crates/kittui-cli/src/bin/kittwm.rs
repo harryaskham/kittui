@@ -2048,10 +2048,21 @@ fn remote_terminal_alias_args(host: &str, rest: &[String]) -> Vec<String> {
     args.push(host.to_string());
     if !remote_alias_args_include_title(rest) {
         args.push("--title".to_string());
-        args.push(host.to_string());
+        args.push(remote_terminal_alias_title(host, rest));
     }
     args.extend(rest.iter().cloned());
     args
+}
+
+fn remote_terminal_alias_title(host: &str, rest: &[String]) -> String {
+    let command = rest
+        .split(|arg| arg == "--")
+        .next_back()
+        .unwrap_or(rest)
+        .iter()
+        .find(|arg| !arg.starts_with('-'))
+        .map(String::as_str);
+    command.map_or_else(|| host.to_string(), |command| format!("{host}: {command}"))
 }
 
 fn remote_kittwm_alias_args(host: &str, rest: &[String]) -> Vec<String> {
@@ -13441,7 +13452,7 @@ mod tests {
                     "--remote".to_string(),
                     "buildbox".to_string(),
                     "--title".to_string(),
-                    "buildbox".to_string(),
+                    "buildbox: htop".to_string(),
                     "htop".to_string()
                 ][..]
             )
@@ -13451,6 +13462,51 @@ mod tests {
         term.remote_host = Some("buildbox".to_string());
         parse_remote_alias_action(&mut term, "term", &args(&["htop"])).unwrap();
         assert_eq!(term.remote_terminal_args, terminal.remote_terminal_args);
+
+        let mut terminal_after_separator = Cli::default();
+        terminal_after_separator.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut terminal_after_separator,
+            "terminal",
+            &args(&["--", "top"]),
+        )
+        .unwrap();
+        assert_eq!(
+            terminal_after_separator.remote_terminal_args.as_deref(),
+            Some(
+                &[
+                    "--remote".to_string(),
+                    "buildbox".to_string(),
+                    "--title".to_string(),
+                    "buildbox: top".to_string(),
+                    "--".to_string(),
+                    "top".to_string()
+                ][..]
+            )
+        );
+
+        let mut titled_terminal = Cli::default();
+        titled_terminal.remote_host = Some("buildbox".to_string());
+        parse_remote_alias_action(
+            &mut titled_terminal,
+            "terminal",
+            &args(&["--title", "logs", "tail", "-f", "/tmp/app.log"]),
+        )
+        .unwrap();
+        assert_eq!(
+            titled_terminal.remote_terminal_args.as_deref(),
+            Some(
+                &[
+                    "--remote".to_string(),
+                    "buildbox".to_string(),
+                    "--title".to_string(),
+                    "logs".to_string(),
+                    "tail".to_string(),
+                    "-f".to_string(),
+                    "/tmp/app.log".to_string()
+                ][..]
+            )
+        );
 
         let mut cmd = Cli::default();
         cmd.remote_host = Some("buildbox".to_string());
