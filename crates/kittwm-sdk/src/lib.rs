@@ -2046,6 +2046,16 @@ impl EventEnvelope {
         ))
     }
 
+    /// Renderer label reported by a `pane_frame_presented` event.
+    pub fn frame_renderer(&self) -> Option<&str> {
+        self.detail_str("renderer")
+    }
+
+    /// Pixel/data format reported by a `pane_frame_presented` event.
+    pub fn frame_format(&self) -> Option<&str> {
+        self.detail_str("format")
+    }
+
     /// Pixel size reported by a `pane_frame_presented` event.
     pub fn frame_pixel_size(&self) -> Option<(u32, u32)> {
         let width =
@@ -6716,6 +6726,8 @@ mod tests {
                 assert_eq!(envelope.window.as_deref(), Some("native-1"));
                 assert_eq!(envelope.detail["renderer"], "kitty");
                 assert_eq!(envelope.detail["format"], "rgba");
+                assert_eq!(envelope.frame_renderer(), Some("kitty"));
+                assert_eq!(envelope.frame_format(), Some("rgba"));
                 assert_eq!(envelope.frame_pixel_size(), Some((640, 384)));
                 assert_eq!(envelope.frame_app_bounds(), Some((0, 1, 80, 23)));
                 assert_eq!(envelope.frame_uploaded(), Some(true));
