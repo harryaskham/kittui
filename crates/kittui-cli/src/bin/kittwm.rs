@@ -1495,8 +1495,12 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            alias for remote display listing\n\
              kittwm remote HOST apps firefox\n\
                                            list remote app matches using a positional query\n\
+             kittwm remote HOST apps firefox --json\n\
+                                           structured remote app matches with counts\n\
              kittwm remote HOST app firefox\n\
                                            singular alias for remote HOST apps\n\
+             kittwm remote HOST app firefox --json\n\
+                                           structured first remote app match\n\
              kittwm remote HOST launch firefox\n\
                                            shortest alias for launching the first remote app match\n\
              kittwm remote HOST open firefox\n\
@@ -1505,6 +1509,8 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
                                            natural alias for remote HOST launch\n\
              kittwm remote HOST apps firefox --launch-first\n\
                                            explicit remote app launch path\n\
+             kittwm remote HOST launch firefox --json\n\
+                                           structured remote app launch result or error\n\
              kittwm remote HOST shell      open a pooled SSH login shell pane\n\
              kittwm remote HOST ssh        alias for the same pooled SSH shell pane\n\
              kittwm remote HOST terminal htop\n\
@@ -1619,12 +1625,16 @@ fn help_topic_text(topic: &str) -> Result<&'static str> {
              remote HOST list screens QUERY\n\
                                             alias for remote HOST list displays\n\
              remote HOST apps QUERY         list remote app matches with a positional query\n\
+             remote HOST apps QUERY --json  structured remote app matches with counts\n\
              remote HOST app QUERY          singular alias for remote HOST apps\n\
+             remote HOST app QUERY --json   structured first remote app match\n\
              remote HOST launch QUERY       shortest alias for remote app launch\n\
              remote HOST open QUERY         natural alias for remote app launch\n\
              remote HOST run QUERY          natural alias for remote app launch\n\
              remote HOST apps QUERY --launch-first\n\
                                             explicit first remote match launch alias\n\
+             remote HOST launch QUERY --json\n\
+                                            structured launch result or error\n\
              remote HOST terminal CMD       open remote command in a pooled SSH pane\n\
              remote HOST term CMD           short alias for remote HOST terminal CMD\n\
              apps --remote HOST             list remote candidates via pooled SSH\n\
@@ -5020,9 +5030,19 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             description: "list remote app matches with a positional query",
         },
         LocalCommandEntry {
+            command: "remote HOST apps QUERY --json",
+            category: "remote",
+            description: "list remote app matches as JSON",
+        },
+        LocalCommandEntry {
             command: "remote HOST app QUERY",
             category: "remote",
             description: "singular alias for remote app matches",
+        },
+        LocalCommandEntry {
+            command: "remote HOST app QUERY --json",
+            category: "remote",
+            description: "structured first remote app match",
         },
         LocalCommandEntry {
             command: "remote HOST launch QUERY",
@@ -5043,6 +5063,11 @@ fn local_command_entries() -> &'static [LocalCommandEntry] {
             command: "remote HOST apps QUERY --launch-first",
             category: "remote",
             description: "explicit alias for remote app launch",
+        },
+        LocalCommandEntry {
+            command: "remote HOST launch QUERY --json",
+            category: "remote",
+            description: "structured remote app launch result or error",
         },
         LocalCommandEntry {
             command: "remote HOST shell",
@@ -11430,10 +11455,19 @@ mod tests {
             entry["command"] == "remote HOST apps QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST apps QUERY --json" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST app QUERY" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST app QUERY --json" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST launch QUERY" && entry["category"] == "remote"
+        }));
+        assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
+            entry["command"] == "remote HOST launch QUERY --json" && entry["category"] == "remote"
         }));
         assert!(json["commands"].as_array().unwrap().iter().any(|entry| {
             entry["command"] == "remote HOST open QUERY" && entry["category"] == "remote"
