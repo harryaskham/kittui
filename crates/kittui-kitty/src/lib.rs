@@ -904,7 +904,7 @@ pub fn placeholder_text_ex(
         let pr = ((p >> 16) & 0xff) as u8;
         let pg = ((p >> 8) & 0xff) as u8;
         let pb = (p & 0xff) as u8;
-        format!("\x1b[58:2:{pr}:{pg}:{pb}m")
+        placeholder_underline_color(pr, pg, pb)
     });
     for row in 0..footprint.rows {
         out.push_str(&foreground);
@@ -928,8 +928,16 @@ pub fn placeholder_text_ex(
 }
 
 fn placeholder_foreground_color(r: u8, g: u8, b: u8) -> String {
-    let mut out = String::with_capacity("\x1b[38:2:;;m".len() + 3 + 3 + 3);
-    out.push_str("\x1b[38:2:");
+    placeholder_color("\x1b[38:2:", r, g, b)
+}
+
+fn placeholder_underline_color(r: u8, g: u8, b: u8) -> String {
+    placeholder_color("\x1b[58:2:", r, g, b)
+}
+
+fn placeholder_color(prefix: &str, r: u8, g: u8, b: u8) -> String {
+    let mut out = String::with_capacity(prefix.len() + 3 + 1 + 3 + 1 + 3 + 1);
+    out.push_str(prefix);
     let _ = write!(out, "{r}");
     out.push(':');
     let _ = write!(out, "{g}");
@@ -1583,10 +1591,13 @@ mod tests {
     }
 
     #[test]
-    fn placeholder_foreground_color_builds_directly() {
+    fn placeholder_color_helpers_build_directly() {
         let color = placeholder_foreground_color(1, 2, 3);
         assert_eq!(color, "\x1b[38:2:1:2:3m");
         assert!(color.capacity() >= color.len());
+        let underline = placeholder_underline_color(4, 5, 6);
+        assert_eq!(underline, "\x1b[58:2:4:5:6m");
+        assert!(underline.capacity() >= underline.len());
     }
 
     #[test]
