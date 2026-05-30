@@ -8969,6 +8969,7 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
     let mac_apps = filter_candidates(macos_apps(5000), query, limit);
     #[cfg(not(target_os = "macos"))]
     let mac_apps: Vec<String> = Vec::new();
+    let linux_apps = linux_desktop_apps(limit, query);
     if cli.apps_scene_json || cli.apps_kitty {
         let summary = AppsSummary {
             default_cmd: default_cmd.clone(),
@@ -9030,13 +9031,24 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
         }
         let path_count = path_cmds.len();
         let macos_count = mac_apps.len();
-        let total_count = path_count.saturating_add(macos_count);
+        let linux_desktop_count = linux_apps.len();
+        let total_count = path_count
+            .saturating_add(macos_count)
+            .saturating_add(linux_desktop_count);
+        let linux_desktop_ids: Vec<String> = linux_apps.iter().map(|app| app.id.clone()).collect();
+        let linux_desktop_files: Vec<String> =
+            linux_apps.iter().map(|app| app.file.clone()).collect();
+        let linux_desktop_labels: Vec<String> =
+            linux_apps.iter().map(|app| app.label.clone()).collect();
         let _ = write!(
             out,
-            ", \"filter\": {}, \"limit\": {limit}, \"path_commands\": [{}], \"macos_apps\": [{}], \"path_count\": {path_count}, \"macos_count\": {macos_count}, \"total_count\": {total_count}}}",
+            ", \"filter\": {}, \"limit\": {limit}, \"path_commands\": [{}], \"macos_apps\": [{}], \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"path_count\": {path_count}, \"macos_count\": {macos_count}, \"linux_desktop_count\": {linux_desktop_count}, \"total_count\": {total_count}}}",
             json_option_string(query),
             json_string_array(&path_cmds),
             json_string_array(&mac_apps),
+            json_string_array(&linux_desktop_ids),
+            json_string_array(&linux_desktop_files),
+            json_string_array(&linux_desktop_labels),
         );
         println!("{out}");
         return Ok(());
@@ -9299,6 +9311,138 @@ fn macos_apps(limit: usize) -> Vec<String> {
         }
     }
     out.into_iter().take(limit).collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LinuxDesktopApp {
+    id: String,
+    label: String,
+    file: String,
+}
+
+#[cfg(target_os = "linux")]
+fn linux_desktop_apps(limit: usize, query: Option<&str>) -> Vec<LinuxDesktopApp> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for root in linux_desktop_roots() {
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|ext| ext.to_str()) != Some("desktop") {
+                    continue;
+                }
+                let Ok(contents) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let id = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("app.desktop")
+                    .to_string();
+                let file = path.display().to_string();
+                let Some(app) = parse_linux_desktop_app(&id, &file, &contents) else {
+                    continue;
+                };
+                if !linux_desktop_app_matches(&app, query) || !seen.insert(app.id.clone()) {
+                    continue;
+                }
+                out.push(app);
+                if out.len() >= limit {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_desktop_apps(_limit: usize, _query: Option<&str>) -> Vec<LinuxDesktopApp> {
+    Vec::new()
+}
+
+#[cfg(target_os = "linux")]
+fn linux_desktop_roots() -> Vec<std::path::PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(home) = std::env::var_os("XDG_DATA_HOME") {
+        roots.push(std::path::PathBuf::from(home).join("applications"));
+    } else if let Some(home) = std::env::var_os("HOME") {
+        roots.push(std::path::PathBuf::from(home).join(".local/share/applications"));
+    }
+    let dirs = std::env::var_os("XDG_DATA_DIRS")
+        .map(|dirs| dirs.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".to_string());
+    for dir in dirs.split(':').filter(|dir| !dir.is_empty()) {
+        roots.push(std::path::PathBuf::from(dir).join("applications"));
+    }
+    roots
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn parse_linux_desktop_app(id: &str, file: &str, contents: &str) -> Option<LinuxDesktopApp> {
+    let mut in_desktop_entry = false;
+    let mut entry_seen = false;
+    let mut ty = None::<String>;
+    let mut name = None::<String>;
+    let mut exec = None::<String>;
+    let mut hidden = false;
+    let mut no_display = false;
+    for raw in contents.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            in_desktop_entry = line == "[Desktop Entry]";
+            entry_seen |= in_desktop_entry;
+            continue;
+        }
+        if entry_seen && !in_desktop_entry {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key {
+            "Type" => ty = Some(value.to_string()),
+            "Name" => name = Some(value.to_string()),
+            "Exec" => exec = Some(value.to_string()),
+            "Hidden" => hidden = value.eq_ignore_ascii_case("true"),
+            "NoDisplay" => no_display = value.eq_ignore_ascii_case("true"),
+            _ => {}
+        }
+    }
+    if hidden
+        || no_display
+        || ty.as_deref().is_some_and(|ty| ty != "Application")
+        || exec.as_deref().unwrap_or("").is_empty()
+    {
+        return None;
+    }
+    Some(LinuxDesktopApp {
+        id: id.to_string(),
+        label: name.unwrap_or_else(|| id.trim_end_matches(".desktop").to_string()),
+        file: file.to_string(),
+    })
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn linux_desktop_app_matches(app: &LinuxDesktopApp, query: Option<&str>) -> bool {
+    let Some(query) = query else {
+        return true;
+    };
+    let query = query.to_ascii_lowercase();
+    app.id.to_ascii_lowercase().contains(&query)
+        || app.label.to_ascii_lowercase().contains(&query)
+        || app.file.to_ascii_lowercase().contains(&query)
 }
 
 fn json_option_string(value: Option<&str>) -> String {
@@ -11903,20 +12047,63 @@ mod tests {
         assert_eq!(json_option_string(None), "null");
         let path_count = 2usize;
         let macos_count = 1usize;
-        let total_count = path_count.saturating_add(macos_count);
+        let linux_desktop_count = 3usize;
+        let total_count = path_count
+            .saturating_add(macos_count)
+            .saturating_add(linux_desktop_count);
         let json = format!(
-            ", \"filter\": {}, \"limit\": {}, \"path_count\": {}, \"macos_count\": {}, \"total_count\": {}",
+            ", \"filter\": {}, \"limit\": {}, \"linux_desktop_ids\": [{}], \"linux_desktop_files\": [{}], \"linux_desktop_apps\": [{}], \"path_count\": {}, \"macos_count\": {}, \"linux_desktop_count\": {}, \"total_count\": {}",
             json_option_string(query),
             10,
+            json_string_array(&["org.example.Term.desktop".to_string()]),
+            json_string_array(&["/usr/share/applications/org.example.Term.desktop".to_string()]),
+            json_string_array(&["Terminal".to_string()]),
             path_count,
             macos_count,
+            linux_desktop_count,
             total_count
         );
         assert!(json.contains("\"filter\": \"term\""), "{json}");
         assert!(json.contains("\"limit\": 10"), "{json}");
+        assert!(
+            json.contains("\"linux_desktop_ids\": [\"org.example.Term.desktop\"]"),
+            "{json}"
+        );
+        assert!(json.contains("\"linux_desktop_files\":"), "{json}");
+        assert!(
+            json.contains("\"linux_desktop_apps\": [\"Terminal\"]"),
+            "{json}"
+        );
         assert!(json.contains("\"path_count\": 2"), "{json}");
         assert!(json.contains("\"macos_count\": 1"), "{json}");
-        assert!(json.contains("\"total_count\": 3"), "{json}");
+        assert!(json.contains("\"linux_desktop_count\": 3"), "{json}");
+        assert!(json.contains("\"total_count\": 6"), "{json}");
+    }
+
+    #[test]
+    fn linux_desktop_app_parser_filters_launcher_entries() {
+        let app = parse_linux_desktop_app(
+            "org.example.Term.desktop",
+            "/usr/share/applications/org.example.Term.desktop",
+            "[Desktop Entry]\nType=Application\nName=Example Terminal\nExec=example-term\n",
+        )
+        .unwrap();
+        assert_eq!(app.label, "Example Terminal");
+        assert!(linux_desktop_app_matches(&app, Some("terminal")));
+        assert!(linux_desktop_app_matches(&app, Some("org.example")));
+        assert!(!linux_desktop_app_matches(&app, Some("browser")));
+        assert!(parse_linux_desktop_app(
+            "hidden.desktop",
+            "/tmp/hidden.desktop",
+            "[Desktop Entry]\nType=Application\nName=Hidden\nExec=hidden\nNoDisplay=true\n",
+        )
+        .is_none());
+        assert!(parse_linux_desktop_app(
+            "link.desktop",
+            "/tmp/link.desktop",
+            "[Desktop Entry]\nType=Link\nName=Link\nExec=link\n",
+        )
+        .is_none());
     }
 
     #[test]
