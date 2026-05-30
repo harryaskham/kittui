@@ -6,7 +6,6 @@
 //! and only one rasterization / encode happens per shared cache.
 
 use std::fs::{self, File, OpenOptions};
-use std::io;
 use std::path::Path;
 
 use fs2::FileExt;
@@ -33,7 +32,7 @@ pub fn lock_key(root: &Path, id: &SceneId) -> Result<KeyLockGuard, CacheError> {
         .write(true)
         .truncate(false)
         .open(&path)?;
-    file.lock_exclusive().map_err(io::Error::from)?;
+    file.lock_exclusive()?;
     Ok(KeyLockGuard { _file: file })
 }
 
