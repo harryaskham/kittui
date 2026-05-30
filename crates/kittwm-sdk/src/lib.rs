@@ -1956,6 +1956,28 @@ pub struct EventEnvelope {
     pub detail: Value,
 }
 
+fn value_u16(value: &Value, key: &str) -> Option<u16> {
+    value.get(key)?.as_u64()?.try_into().ok()
+}
+
+fn bounds_tuple(value: &Value) -> Option<(u16, u16, u16, u16)> {
+    Some((
+        value_u16(value, "x")?,
+        value_u16(value, "y")?,
+        value_u16(value, "cols")?,
+        value_u16(value, "rows")?,
+    ))
+}
+
+fn app_bounds_tuple(value: &Value) -> Option<(u16, u16, u16, u16)> {
+    Some((
+        value_u16(value, "app_x")?,
+        value_u16(value, "app_y")?,
+        value_u16(value, "app_cols")?,
+        value_u16(value, "app_rows")?,
+    ))
+}
+
 impl EventEnvelope {
     /// Borrow a string field from the event detail object.
     pub fn detail_str(&self, key: &str) -> Option<&str> {
@@ -1975,6 +1997,24 @@ impl EventEnvelope {
     /// Parse a nested `pane` detail object into typed native pane metadata.
     pub fn pane_detail(&self) -> Option<NativePaneDetail> {
         serde_json::from_value(self.detail.get("pane")?.clone()).ok()
+    }
+
+    /// Outer pane bounds from a nested resize detail such as `old` or `new`.
+    pub fn pane_bounds(&self, key: &str) -> Option<(u16, u16, u16, u16)> {
+        let value = self.detail.get(key)?;
+        value
+            .get("bounds")
+            .and_then(bounds_tuple)
+            .or_else(|| bounds_tuple(value))
+    }
+
+    /// App/content pane bounds from a nested resize detail such as `old` or `new`.
+    pub fn pane_app_bounds(&self, key: &str) -> Option<(u16, u16, u16, u16)> {
+        let value = self.detail.get(key)?;
+        value
+            .get("app_bounds")
+            .and_then(bounds_tuple)
+            .or_else(|| app_bounds_tuple(value))
     }
 }
 
@@ -6451,7 +6491,7 @@ mod tests {
         }
 
         let resized = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":8,"kind":"pane_resized","window":"native-1","detail":{"old":{"x":0,"y":0,"cols":80,"rows":24,"app_x":0,"app_y":1,"app_cols":80,"app_rows":23},"new":{"x":0,"y":0,"cols":100,"rows":30,"app_x":0,"app_y":1,"app_cols":100,"app_rows":29}}}"#,
+            r#"{"schema_version":1,"seq":8,"kind":"pane_resized","window":"native-1","detail":{"old":{"bounds":{"x":0,"y":0,"cols":80,"rows":24},"app_bounds":{"x":0,"y":1,"cols":80,"rows":23}},"new":{"bounds":{"x":0,"y":0,"cols":100,"rows":30},"app_bounds":{"x":0,"y":1,"cols":100,"rows":29}}}}"#,
         )
         .unwrap();
         assert_eq!(resized.kind(), "pane_resized");
@@ -6459,20 +6499,37 @@ mod tests {
             KittwmEvent::PaneResized(envelope) => {
                 assert_eq!(envelope.seq, Some(8));
                 assert_eq!(envelope.window.as_deref(), Some("native-1"));
-                assert_eq!(envelope.detail["old"]["cols"], 80);
-                assert_eq!(envelope.detail["new"]["app_rows"], 29);
+                assert_eq!(envelope.detail["old"]["bounds"]["cols"], 80);
+                assert_eq!(envelope.detail["new"]["app_bounds"]["rows"], 29);
+                assert_eq!(envelope.pane_bounds("old"), Some((0, 0, 80, 24)));
+                assert_eq!(envelope.pane_app_bounds("old"), Some((0, 1, 80, 23)));
+                assert_eq!(envelope.pane_bounds("new"), Some((0, 0, 100, 30)));
+                assert_eq!(envelope.pane_app_bounds("new"), Some((0, 1, 100, 29)));
+                assert_eq!(envelope.pane_bounds("missing"), None);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+
+        let resized_flat = KittwmEvent::parse_line(
+            r#"{"schema_version":1,"seq":9,"kind":"pane_resized","window":"native-1","detail":{"old":{"x":0,"y":0,"cols":80,"rows":24,"app_x":0,"app_y":1,"app_cols":80,"app_rows":23}}}"#,
+        )
+        .unwrap();
+        match resized_flat {
+            KittwmEvent::PaneResized(envelope) => {
+                assert_eq!(envelope.pane_bounds("old"), Some((0, 0, 80, 24)));
+                assert_eq!(envelope.pane_app_bounds("old"), Some((0, 1, 80, 23)));
             }
             other => panic!("unexpected event: {other:?}"),
         }
 
         let pane_changed = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":9,"kind":"pane_changed","window":"native-1","detail":{"pane":{"window":"native-1","title":"shell","focused":true,"weight":1,"title_draggable":true,"title_drag_kind":"reorder","title_drag_active":true,"title_drag_col":2,"title_drag_row":1}}}"#,
+            r#"{"schema_version":1,"seq":10,"kind":"pane_changed","window":"native-1","detail":{"pane":{"window":"native-1","title":"shell","focused":true,"weight":1,"title_draggable":true,"title_drag_kind":"reorder","title_drag_active":true,"title_drag_col":2,"title_drag_row":1}}}"#,
         )
         .unwrap();
         assert_eq!(pane_changed.kind(), "pane_changed");
         match pane_changed {
             KittwmEvent::PaneChanged(envelope) => {
-                assert_eq!(envelope.seq, Some(9));
+                assert_eq!(envelope.seq, Some(10));
                 let pane = envelope.pane_detail().unwrap();
                 assert_eq!(pane.window, "native-1");
                 assert!(pane.is_title_drag_active());
@@ -6483,13 +6540,13 @@ mod tests {
         }
 
         let input = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":10,"kind":"pane_input_sent","window":"native-1","detail":{"source":"socket","method":"send_key","key":"enter","bytes":1,"sensitive":false}}"#,
+            r#"{"schema_version":1,"seq":11,"kind":"pane_input_sent","window":"native-1","detail":{"source":"socket","method":"send_key","key":"enter","bytes":1,"sensitive":false}}"#,
         )
         .unwrap();
         assert_eq!(input.kind(), "pane_input_sent");
         match input {
             KittwmEvent::PaneInputSent(envelope) => {
-                assert_eq!(envelope.seq, Some(10));
+                assert_eq!(envelope.seq, Some(11));
                 assert_eq!(envelope.window.as_deref(), Some("native-1"));
                 assert_eq!(envelope.detail["source"], "socket");
                 assert_eq!(envelope.detail["method"], "send_key");
@@ -6499,13 +6556,13 @@ mod tests {
         }
 
         let frame = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":11,"kind":"pane_frame_presented","window":"native-1","detail":{"image_id":7,"frame":42,"width":640,"height":384,"transport":"file","skipped_upload":false}}"#,
+            r#"{"schema_version":1,"seq":12,"kind":"pane_frame_presented","window":"native-1","detail":{"image_id":7,"frame":42,"width":640,"height":384,"transport":"file","skipped_upload":false}}"#,
         )
         .unwrap();
         assert_eq!(frame.kind(), "pane_frame_presented");
         match frame {
             KittwmEvent::PaneFramePresented(envelope) => {
-                assert_eq!(envelope.seq, Some(11));
+                assert_eq!(envelope.seq, Some(12));
                 assert_eq!(envelope.window.as_deref(), Some("native-1"));
                 assert_eq!(envelope.detail["image_id"], 7);
                 assert_eq!(envelope.detail["frame"], 42);
@@ -6516,7 +6573,7 @@ mod tests {
         }
 
         let semantic = KittwmEvent::parse_line(
-            r#"{"schema_version":1,"seq":12,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
+            r#"{"schema_version":1,"seq":13,"kind":"semantic_value_changed","window":"native-1","detail":{"component":"settings.name","revision":3,"value":"Grace"}}"#,
         )
         .unwrap();
         assert_eq!(semantic.kind(), "semantic_value_changed");
