@@ -9125,6 +9125,13 @@ case "$mode" in
             first=0
             printf '%s' "$app" | json_escape
         done
+        printf '],"linux_desktop_localized_names":['
+        first=1
+        kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print $9 }' | head -n "$limit" | while IFS= read -r localized; do
+            [ $first -eq 1 ] || printf ','
+            first=0
+            printf '%s' "$localized" | json_escape
+        done
         printf '],"linux_desktop_generic_names":['
         first=1
         kittwm_remote_candidates | awk -F '\t' '$1 == "desktop" { print $6 }' | head -n "$limit" | while IFS= read -r generic; do
@@ -14010,6 +14017,11 @@ mod tests {
         assert!(script.contains("\"linux_desktop_ids\":"), "{script}");
         assert!(script.contains("\"linux_desktop_files\":"), "{script}");
         assert!(script.contains("\"linux_desktop_apps\":"), "{script}");
+        assert!(
+            script.contains("\"linux_desktop_localized_names\":"),
+            "{script}"
+        );
+        assert!(script.contains("{ print $9 }"), "{script}");
         assert!(
             script.contains("\"linux_desktop_generic_names\":"),
             "{script}"
