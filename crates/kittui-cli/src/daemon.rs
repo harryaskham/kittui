@@ -1692,6 +1692,15 @@ fn queue_native_split_pane(pending: &Arc<Mutex<NativeSpawnQueueState>>, rest: &s
     )
 }
 
+fn restore_session_queued_reply(count: usize) -> String {
+    let mut out =
+        String::with_capacity("RESTORE_SESSION_QUEUED command=\n".len() + usize_decimal_len(count));
+    out.push_str("RESTORE_SESSION_QUEUED command=");
+    write!(out, "{count}").expect("write to string");
+    out.push('\n');
+    out
+}
+
 fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, json: &str) -> String {
     let json = json.trim();
     if json.is_empty() {
@@ -1761,7 +1770,7 @@ fn queue_native_restore_session(pending: &Arc<Mutex<NativeSpawnQueueState>>, jso
                     focus_index,
                 }));
             push_native_pending_status_event(&mut state, old_pending);
-            format!("RESTORE_SESSION_QUEUED command={}\n", state.pending.len())
+            restore_session_queued_reply(state.pending.len())
         }
         Err(_) => "ERR registry poisoned\n".to_string(),
     }
@@ -3568,6 +3577,13 @@ mod tests {
         request.push_str("RESTORE_SESSION_JSON ");
         request.push_str(&manifest);
         request
+    }
+
+    #[test]
+    fn restore_session_queued_reply_builds_directly() {
+        let reply = restore_session_queued_reply(12);
+        assert_eq!(reply, "RESTORE_SESSION_QUEUED command=12\n");
+        assert_eq!(reply.capacity(), reply.len());
     }
 
     #[test]
