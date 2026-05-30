@@ -4094,13 +4094,24 @@ const BROWSER_ALT_MODIFIER: u32 = 1;
 const BROWSER_CTRL_MODIFIER: u32 = 2;
 const BROWSER_SHIFT_MODIFIER: u32 = 8;
 
+fn browser_key_code_label(upper: char) -> String {
+    let mut code = String::with_capacity("Key".len() + upper.len_utf8());
+    code.push_str("Key");
+    code.push(upper);
+    code
+}
+
 fn browser_letter_key_fields(letter: char) -> Option<(String, String, u32)> {
     let lower = letter.to_ascii_lowercase();
     if !lower.is_ascii_lowercase() {
         return None;
     }
     let upper = lower.to_ascii_uppercase();
-    Some((lower.to_string(), format!("Key{upper}"), upper as u32))
+    Some((
+        lower.to_string(),
+        browser_key_code_label(upper),
+        upper as u32,
+    ))
 }
 
 fn browser_key_event_params(key: &str, code: &str, key_code: u32) -> serde_json::Value {
@@ -6819,6 +6830,13 @@ mod tests {
         assert!(set_value.contains("\"value\":\"Ada\""));
         assert!(set_value.contains("dispatchValue"));
         assert!(browser_semantic_action_script("dom:name", "delete", json!({})).is_err());
+    }
+
+    #[test]
+    fn browser_key_code_label_builds_directly() {
+        let code = browser_key_code_label('A');
+        assert_eq!(code, "KeyA");
+        assert_eq!(code.capacity(), code.len());
     }
 
     #[test]
