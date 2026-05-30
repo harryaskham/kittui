@@ -3314,6 +3314,19 @@ impl PanesStatus {
             .title_drag_cells_by(delta_cols, delta_rows)
     }
 
+    /// Live footer `drag:<kind>:<window>` segment for the active title-drag target.
+    pub fn active_footer_drag_label(&self) -> Option<String> {
+        let window = self.active_title_drag_window()?;
+        let kind = if self.active_title_drag_repositions_pane()? {
+            "move"
+        } else if self.active_title_drag_reorders_pane()? {
+            "reorder"
+        } else {
+            self.active_title_drag_kind()?
+        };
+        Some(format!("drag:{kind}:{window}"))
+    }
+
     /// Panes whose title drag handle reorders the tiled pane stack.
     pub fn title_reorder_draggable_panes(&self) -> impl Iterator<Item = &NativePaneDetail> {
         let is_tiled = self.is_tiled_layout();
@@ -3793,6 +3806,19 @@ impl Status {
     ) -> Option<((u16, u16), (u16, u16))> {
         self.active_title_drag_pane()?
             .title_drag_cells_by(delta_cols, delta_rows)
+    }
+
+    /// Live footer `drag:<kind>:<window>` segment for the active title-drag target.
+    pub fn active_footer_drag_label(&self) -> Option<String> {
+        let window = self.active_title_drag_window()?;
+        let kind = if self.active_title_drag_repositions_pane()? {
+            "move"
+        } else if self.active_title_drag_reorders_pane()? {
+            "reorder"
+        } else {
+            self.active_title_drag_kind()?
+        };
+        Some(format!("drag:{kind}:{window}"))
     }
 
     /// Panes whose title drag handle reorders the tiled pane stack.
@@ -6072,6 +6098,10 @@ mod tests {
         );
         assert_eq!(panes.active_title_drag_reorders_pane(), Some(true));
         assert_eq!(panes.active_title_drag_repositions_pane(), Some(false));
+        assert_eq!(
+            panes.active_footer_drag_label().as_deref(),
+            Some("drag:reorder:native-1")
+        );
         assert_eq!(panes.active_title_drag_cell(), Some((6, 2)));
         assert_eq!(
             panes.active_title_drag_cells_by(5, 2),
@@ -6315,6 +6345,7 @@ mod tests {
         assert_eq!(status.active_title_drag_repositions_pane(), None);
         assert_eq!(status.active_title_drag_cell(), None);
         assert_eq!(status.active_title_drag_cells_by(1, 1), None);
+        assert_eq!(status.active_footer_drag_label(), None);
         assert_eq!(status.focused_frame_is_clean(), None);
         assert_eq!(status.focused_frame_upload_skipped(), None);
         assert_eq!(status.focused_frame_status_label(), None);
@@ -6427,6 +6458,7 @@ mod tests {
         assert_eq!(status.active_title_drag_repositions_pane(), None);
         assert_eq!(status.active_title_drag_cell(), None);
         assert_eq!(status.active_title_drag_cells_by(1, 1), None);
+        assert_eq!(status.active_footer_drag_label(), None);
         assert_eq!(status.focused_frame_is_clean(), Some(true));
         assert_eq!(status.focused_frame_upload_skipped(), Some(true));
         assert_eq!(
