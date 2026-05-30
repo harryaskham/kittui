@@ -515,6 +515,13 @@ fn image_read_error(path: &str, err: &std::io::Error) -> String {
     message
 }
 
+fn image_decode_error(err: &impl std::fmt::Display) -> String {
+    let mut message = String::with_capacity("decode failed: ".len() + 64);
+    message.push_str("decode failed: ");
+    write!(message, "{err}").expect("write to string");
+    message
+}
+
 fn cached_image_error(hash: &str) -> String {
     let mut message = String::with_capacity(
         "cached image refs not supported in CPU rasterizer: ".len() + hash.len(),
@@ -528,7 +535,7 @@ fn cached_image_error(hash: &str) -> String {
 fn decode_image(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), RenderError> {
     use image::GenericImageView;
     let img = image::load_from_memory(bytes)
-        .map_err(|e| RenderError::UnsupportedImage(format!("decode failed: {e}")))?;
+        .map_err(|e| RenderError::UnsupportedImage(image_decode_error(&e)))?;
     let (w, h) = img.dimensions();
     let rgba = img.to_rgba8().into_raw();
     Ok((w, h, rgba))
@@ -565,6 +572,28 @@ mod tests {
             message.starts_with(
                 "image source failed to read /tmp/kittui-render-cpu-definitely-missing.png: "
             ),
+            "{message}"
+        );
+        assert!(
+            message.ends_with(" is not supported by the CPU renderer in this version"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn image_decode_error_builds_directly() {
+        let err = std::io::Error::new(std::io::ErrorKind::InvalidData, "bad png");
+        let message = image_decode_error(&err);
+        assert_eq!(message, "decode failed: bad png");
+        assert!(message.capacity() >= message.len());
+    }
+
+    #[test]
+    fn decode_image_reports_stable_decode_error_message() {
+        let err = decode_image(b"not an image").unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.starts_with("image source decode failed: "),
             "{message}"
         );
         assert!(
