@@ -9134,14 +9134,15 @@ fn apps_cmd(cli: &Cli) -> Result<()> {
             return Err(anyhow!("no app candidates matched"));
         };
         if cli.apps_launch_first {
-            let pid = launch_app_candidate(&selected)?;
+            let (pid, method) = launch_app_candidate(&selected)?;
             if cli.json {
-                println!("{}", app_launch_json(query, &selected, pid));
+                println!("{}", app_launch_json(query, &selected, pid, method));
             } else {
                 println!(
-                    "kittwm apps: launched pid={} kind={} name={}",
+                    "kittwm apps: launched pid={} kind={} method={} name={}",
                     pid,
                     selected.kind,
+                    method,
                     selected.display_name()
                 );
             }
@@ -9683,7 +9684,7 @@ fn app_first_json_error(query: Option<&str>, code: &str, message: &str) -> Strin
     )
 }
 
-fn app_launch_method(candidate: &AppCandidate) -> &'static str {
+fn app_default_launch_method(candidate: &AppCandidate) -> &'static str {
     match candidate.kind {
         "macos" => "open",
         "desktop" => "desktop",
@@ -9691,12 +9692,17 @@ fn app_launch_method(candidate: &AppCandidate) -> &'static str {
     }
 }
 
-fn app_launch_json(query: Option<&str>, candidate: &AppCandidate, pid: u32) -> String {
+fn app_launch_json(
+    query: Option<&str>,
+    candidate: &AppCandidate,
+    pid: u32,
+    method: &str,
+) -> String {
     format!(
         "{{\"mode\":\"launch-first\",\"filter\":{},\"kind\":{:?},\"method\":{:?},\"candidate\":{:?},\"name\":{:?},\"desktop_file\":{},\"pid\":{:?}}}",
         json_option_string(query),
         candidate.kind,
-        app_launch_method(candidate),
+        method,
         candidate.name,
         candidate.display_name(),
         json_option_string(candidate.desktop_file.as_deref()),
@@ -9857,7 +9863,7 @@ fn first_app_candidate(
         .or_else(|| linux_apps.first().map(AppCandidate::desktop))
 }
 
-fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
+fn launch_app_candidate(candidate: &AppCandidate) -> Result<(u32, &'static str)> {
     if candidate.kind == "desktop" {
         return launch_desktop_app_candidate(candidate);
     }
@@ -9880,10 +9886,10 @@ fn launch_app_candidate(candidate: &AppCandidate) -> Result<u32> {
                 candidate.name
             )
         })?;
-    Ok(child.id())
+    Ok((child.id(), app_default_launch_method(candidate)))
 }
 
-fn launch_desktop_app_candidate(candidate: &AppCandidate) -> Result<u32> {
+fn launch_desktop_app_candidate(candidate: &AppCandidate) -> Result<(u32, &'static str)> {
     if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
         return Err(anyhow!(
             "launch candidate desktop:{}: no graphical display is available; try: kittwm remote HOST graphical",
@@ -9892,20 +9898,20 @@ fn launch_desktop_app_candidate(candidate: &AppCandidate) -> Result<u32> {
     }
     if find_on_path("gtk-launch").is_some() {
         if let Ok(pid) = spawn_detached_command("gtk-launch", &[candidate.name.as_str()]) {
-            return Ok(pid);
+            return Ok((pid, "gtk-launch"));
         }
     }
     if let Some(file) = candidate.desktop_file.as_deref() {
         if find_on_path("gio").is_some() {
             if let Ok(pid) = spawn_detached_command("gio", &["launch", file]) {
-                return Ok(pid);
+                return Ok((pid, "gio"));
             }
         }
     }
     if let Some(exec_line) = candidate.exec_line.as_deref() {
         let desktop_exec = strip_desktop_exec_field_codes(exec_line);
         if !desktop_exec.trim().is_empty() {
-            return spawn_shell_command(&desktop_exec);
+            return spawn_shell_command(&desktop_exec).map(|pid| (pid, "desktop-exec"));
         }
     }
     Err(anyhow!(
@@ -10065,12 +10071,13 @@ fn launcher_preview_cmd(cli: &Cli) -> Result<()> {
         if candidate.kind == "none" {
             return Err(anyhow!("no launcher candidate selected"));
         }
-        let pid = launch_app_candidate(candidate)?;
+        let (pid, method) = launch_app_candidate(candidate)?;
         println!(
-            "kittwm launcher: launched selection={} pid={} kind={} name={}",
+            "kittwm launcher: launched selection={} pid={} kind={} method={} name={}",
             selected,
             pid,
             candidate.kind,
+            method,
             candidate.display_name()
         );
         return Ok(());
@@ -12473,7 +12480,7 @@ mod tests {
     #[test]
     fn app_launch_first_json_reports_structured_success_and_errors() {
         let candidate = AppCandidate::path("xterm");
-        let success = app_launch_json(Some("term"), &candidate, 42);
+        let success = app_launch_json(Some("term"), &candidate, 42, "path");
         assert!(success.contains("\"mode\":\"launch-first\""), "{success}");
         assert!(success.contains("\"filter\":\"term\""), "{success}");
         assert!(success.contains("\"kind\":\"path\""), "{success}");
@@ -12531,14 +12538,14 @@ mod tests {
             strip_desktop_exec_field_codes("example-term %U --new-window %f"),
             "example-term --new-window"
         );
-        let json = app_launch_json(Some("term"), &selected, 99);
+        let json = app_launch_json(Some("term"), &selected, 99, "gtk-launch");
         assert!(json.contains("\"kind\":\"desktop\""), "{json}");
         assert!(
             json.contains("\"candidate\":\"org.example.Term.desktop\""),
             "{json}"
         );
         assert!(json.contains("\"name\":\"Example Terminal\""), "{json}");
-        assert!(json.contains("\"method\":\"desktop\""), "{json}");
+        assert!(json.contains("\"method\":\"gtk-launch\""), "{json}");
         assert!(
             json.contains("\"desktop_file\":\"/usr/share/applications/org.example.Term.desktop\""),
             "{json}"
